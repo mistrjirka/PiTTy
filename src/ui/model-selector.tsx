@@ -1,5 +1,6 @@
-import type { SelectRenderable } from "@opentui/core";
-import { createMemo } from "solid-js";
+import type { SelectRenderable, TextareaRenderable } from "@opentui/core";
+import { createMemo, createSignal } from "solid-js";
+import { useKeyboard } from "@opentui/solid";
 import { colors } from "./theme.ts";
 
 export type ModelChoice = {
@@ -27,6 +28,12 @@ export function formatContextWindow(value: number | undefined): string {
   return `${value} ctx`;
 }
 
+export function filterModelChoices(models: ModelChoice[], query: string): ModelChoice[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return models;
+  return models.filter((model) => [model.provider, model.id, model.name ?? ""].some((value) => value.toLowerCase().includes(normalized)));
+}
+
 export function normalizeModelChoices(values: unknown[]): ModelChoice[] {
   const seen = new Set<string>();
   const models: ModelChoice[] = [];
@@ -51,6 +58,8 @@ export function normalizeModelChoices(values: unknown[]): ModelChoice[] {
   return models.sort((a, b) => a.provider.localeCompare(b.provider) || a.id.localeCompare(b.id));
 }
 
+type ModelSelectorFocus = "search" | "list";
+
 export function ModelSelectorDialog(props: {
   models: ModelChoice[];
   currentProvider?: string | undefined;
@@ -59,7 +68,11 @@ export function ModelSelectorDialog(props: {
   onCancel: () => void;
 }) {
   let select: SelectRenderable | undefined;
-  const options = createMemo(() => props.models.map((model) => {
+  let search: TextareaRenderable | undefined;
+  const [query, setQuery] = createSignal("");
+  const [focusTarget, setFocusTarget] = createSignal<ModelSelectorFocus>("search");
+  const filteredModels = createMemo(() => filterModelChoices(props.models, query()));
+  const options = createMemo(() => filteredModels().map((model) => {
     const details = [
       formatContextWindow(model.contextWindow),
       model.name && model.name !== model.id ? model.name : "",
@@ -71,8 +84,19 @@ export function ModelSelectorDialog(props: {
     };
   }));
   const selectedIndex = createMemo(() => {
-    const index = props.models.findIndex((model) => model.provider === props.currentProvider && model.id === props.currentModelId);
+    const index = filteredModels().findIndex((model) => model.provider === props.currentProvider && model.id === props.currentModelId);
     return index >= 0 ? index : 0;
+  });
+
+  useKeyboard((event) => {
+    if (event.eventType === "release") return;
+    if (event.name !== "tab") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const next: ModelSelectorFocus = event.shift ? "search" : "list";
+    setFocusTarget(next);
+    if (next === "list") select?.focus();
+    else search?.focus();
   });
 
   return (
@@ -81,7 +105,7 @@ export function ModelSelectorDialog(props: {
       left="12%"
       right="12%"
       top="8%"
-      maxHeight="84%"
+      bottom={5}
       flexDirection="column"
       backgroundColor={colors.panelRaised}
       border
@@ -101,13 +125,29 @@ export function ModelSelectorDialog(props: {
           }}
         >× Close</text>
       </box>
-      <text fg={colors.subtle}>↑/↓ move · Enter select · Esc close</text>
-      <select
+      <textarea
+        ref={(value) => { search = value; }}
+        focused={focusTarget() === "search"}
+        height={1}
+        minHeight={1}
+        maxHeight={1}
+        placeholder="Search provider, model id, or name…"
+        backgroundColor={colors.panel}
+        focusedBackgroundColor={colors.panel}
+        textColor={colors.textBright}
+        placeholderColor={colors.muted}
+        onContentChange={() => {
+          setQuery(search?.plainText ?? "");
+          queueMicrotask(() => select?.setSelectedIndex(0));
+        }}
+      />
+      <text fg={colors.subtle}>Tab list · Shift+Tab search · ↑/↓ move · Enter select · Esc close · {filteredModels().length} match{filteredModels().length === 1 ? "" : "es"}</text>
+      {filteredModels().length === 0 ? <text fg={colors.yellow}>No matching models.</text> : <select
         ref={(value) => { select = value; }}
         options={options()}
         selectedIndex={selectedIndex()}
-        focused
-        height={Math.min(22, Math.max(5, options().length))}
+        focused={focusTarget() === "list"}
+        height={Math.min(22, Math.max(5, options().length * 2))}
         backgroundColor={colors.panelRaised}
         focusedBackgroundColor={colors.panelRaised}
         textColor={colors.text}
@@ -119,10 +159,10 @@ export function ModelSelectorDialog(props: {
         showScrollIndicator
         wrapSelection
         onSelect={(_index, option) => {
-          const model = option?.value as ModelChoice | undefined;
-          if (model) props.onSelect(model);
+          const model = option?.value;
+          if (model && filteredModels().some((candidate) => candidate.provider === model.provider && candidate.id === model.id)) props.onSelect(model);
         }}
-      />
+      />}
     </box>
   );
 }

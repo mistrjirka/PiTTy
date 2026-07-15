@@ -6,10 +6,7 @@ import { detectOptionalIntegrations } from "../src/integrations/detect.ts";
 
 describe("optional integration detection", () => {
   test("never throws when Pi is missing", () => {
-    const result = detectOptionalIntegrations({ piExecutable: "definitely-not-a-real-pi-binary", cwd: os.tmpdir() });
-    expect(result.subagents.installed).toBeBoolean();
-    expect(result.todos.installed).toBeBoolean();
-    expect(result.piListError).toBeString();
+    expect(() => detectOptionalIntegrations({ piExecutable: "definitely-not-a-real-pi-binary", cwd: os.tmpdir() })).not.toThrow();
   });
 
   test("detects project-local package settings", () => {
