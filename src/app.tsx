@@ -53,8 +53,26 @@ type LocalQueuedMessage = {
 const spinnerFrames = ["◐", "◓", "◑", "◒"] as const;
 const thinkingLevels = new Set(["minimal", "low", "medium", "high", "xhigh", "max"]);
 
+const LOGIN_GUIDANCE = "Sorry, login is not supported in PiTTy yet. Run `pi` and use /login there; your credentials will then be available to PiTTy.";
+
+export type DetailToggleState = {
+  toolsExpanded: boolean;
+  thinkingExpanded: boolean;
+  hasExpandedToolOverride?: boolean;
+  hasExpandedThinkingOverride?: boolean;
+};
+
+export function nextDetailToggle(state: DetailToggleState): boolean {
+  const hasVisibleDetails = state.toolsExpanded
+    || state.thinkingExpanded
+    || state.hasExpandedToolOverride === true
+    || state.hasExpandedThinkingOverride === true;
+  return !hasVisibleDetails;
+}
+
 const localCommandChoices: CommandChoice[] = [
   { name: "help", description: "Show UI commands", source: "ui" },
+  { name: "login", description: "Use /login in the Pi CLI", source: "ui" },
   { name: "settings", description: "Show current UI and Pi settings", source: "ui" },
   { name: "status", description: "Show current UI and Pi settings", source: "ui" },
   { name: "commands", description: "List Pi extension, template, and skill commands", source: "ui" },
@@ -223,7 +241,7 @@ export function App(props: AppOptions) {
   const todos = createMemo(() => deriveTodos(items()));
   const subagentsAvailable = createMemo(() => props.integrations.subagents.installed || runs().length > 0);
   const todosAvailable = createMemo(() => props.integrations.todos.installed || todos().length > 0);
-  const commandSuggestions = createMemo(() => filterCommandChoices(commandChoices(), promptText()));
+  const commandSuggestions = createMemo(() => filterCommandChoices(commandChoices(), promptText(), Math.max(1, Math.min(7, dimensions().height - 10))));
   const thinkingIsExpanded = (itemId: string): boolean => thinkingExpansionOverrides().get(itemId) ?? thinkingExpanded();
   const setAllThinkingExpanded = (expanded: boolean) => {
     setThinkingExpanded(expanded);
@@ -442,6 +460,9 @@ export function App(props: AppOptions) {
     const argument = parts.join(" ").trim();
 
     switch (name) {
+      case "login":
+        addSystem(LOGIN_GUIDANCE, "warning");
+        return true;
       case "help":
         addSystem([
           "UI commands:",
@@ -715,9 +736,16 @@ export function App(props: AppOptions) {
     return true;
   };
 
+  const focusMainPrompt = () => {
+    if (dialog() || modelSelectorOpen() || promptMapOpen() || subagentSelectorOpen() || inspectSubagent()) return;
+    queueMicrotask(() => {
+      if (!dialog() && !modelSelectorOpen() && !promptMapOpen() && !subagentSelectorOpen() && !inspectSubagent()) prompt?.focus();
+    });
+  };
+
   const closeModelSelector = () => {
     setModelSelectorOpen(false);
-    queueMicrotask(() => prompt?.focus());
+    focusMainPrompt();
   };
 
   const openModelSelector = async () => {
@@ -749,7 +777,7 @@ export function App(props: AppOptions) {
       toast(`Failed to set model: ${error instanceof Error ? error.message : String(error)}`, "error");
     } finally {
       setStatus(streaming() ? "working" : "ready");
-      queueMicrotask(() => prompt?.focus());
+      focusMainPrompt();
     }
   };
 
@@ -1107,11 +1135,15 @@ export function App(props: AppOptions) {
     }
     if (keyIs(event, "o", { ctrl: true })) {
       event.preventDefault();
-      setExpandedTools((value) => {
-        const next = !value;
-        if (!next) setExpandedToolIds(new Set<string>());
-        return next;
+      const next = nextDetailToggle({
+        toolsExpanded: expandedTools(),
+        thinkingExpanded: thinkingExpanded(),
+        hasExpandedToolOverride: expandedToolIds().size > 0,
+        hasExpandedThinkingOverride: [...thinkingExpansionOverrides().values()].some(Boolean),
       });
+      setExpandedTools(next);
+      setAllThinkingExpanded(next);
+      setExpandedToolIds(new Set<string>());
       return;
     }
     if (keyIs(event, "l", { ctrl: true, shift: true })) {
@@ -1234,6 +1266,7 @@ export function App(props: AppOptions) {
                 trackOptions: { foregroundColor: colors.borderStrong, backgroundColor: colors.background },
               }}
               onMouseScroll={() => queueMicrotask(updateScrollPosition)}
+              onMouseDown={() => focusMainPrompt()}
             >
               <Show when={hiddenMessageCount() > 0}>
                 <box
@@ -1370,7 +1403,7 @@ export function App(props: AppOptions) {
           >
             <textarea
               ref={(value) => { prompt = value; }}
-              focused={!dialog() && !modelSelectorOpen() && !promptMapOpen()}
+              focused={!dialog() && !modelSelectorOpen() && !promptMapOpen() && !subagentSelectorOpen()}
               placeholder={streaming() ? "Enter sends steering immediately · Alt+Enter queues editable follow-up" : "Ask Pi anything… (/help for commands)"}
               wrapMode="word"
               backgroundColor={colors.panel}
@@ -1423,7 +1456,7 @@ export function App(props: AppOptions) {
       <box height={1} flexDirection="row" paddingLeft={1} paddingRight={1} backgroundColor={colors.background}>
         <text fg={streaming() ? colors.green : colors.muted}>● {status()}</text>
         <box flexGrow={1} />
-        <text fg={colors.subtle}>{inspectSubagent() ? "f6 next subagent  click agent name to choose  esc main chat" : "ctrl+p models  ctrl+r requests  ctrl+t effort  ctrl+i inspect  f6 next subagent  alt+enter queue  ctrl+o tools"}</text>
+        <text fg={colors.subtle}>{inspectSubagent() ? "f6 next subagent  click agent name to choose  esc main chat" : "ctrl+p models  ctrl+r requests  ctrl+t effort  ctrl+i inspect  f6 next subagent  alt+enter queue  ctrl+o details"}</text>
       </box>
       <For each={toasts()}>
         {(entry, index) => (

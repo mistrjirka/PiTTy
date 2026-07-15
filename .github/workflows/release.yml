@@ -10,6 +10,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node node_modules/bun/install.js
+      - name: Validate core checks
+        run: |
+          npm run typecheck
+          npm run test:unit
       - name: Validate version
         shell: bash
         run: |

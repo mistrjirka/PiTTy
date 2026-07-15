@@ -163,7 +163,7 @@ export function MessageView(props: {
           id={props.item.id}
           flexDirection="column"
           marginBottom={1}
-          paddingLeft={1}
+          paddingLeft={0}
           paddingRight={1}
           border={["left"]}
           borderColor={colors.cyan}

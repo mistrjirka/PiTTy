@@ -1,0 +1,37 @@
+## 1. Direct chat, branding, and sessions
+
+- [ ] 1.1 Add the canonical PiTTy SVG repository asset and a tested terminal-cell-safe logo component with compact, wide, and constrained-terminal wordmark layouts.
+- [ ] 1.2 Render the logo only as the passive empty-transcript state while preserving direct RPC startup and an immediately focused main prompt.
+- [ ] 1.3 Add current-project session listing and a reusable selector with loading, empty, selection, cancellation, and streaming-confirmation states.
+- [ ] 1.4 Add documented `switch_session` RPC support, `/resume`, state reload, error handling, and focus restoration.
+- [ ] 1.5 Add focused render/unit coverage for direct startup, constrained-logo fallback, empty/error session discovery, selector cancellation, streaming confirmation decline/settle behavior, and successful/unsupported/failed session switch.
+
+## 2. Chat interaction controls
+
+- [ ] 2.1 Add a named main-prompt focus policy that preserves secondary editor/modal ownership and returns focus after non-input chat interactions.
+- [ ] 2.2 Add a regression harness for main-prompt draft identity/content and visible editor geometry across model-selector open, close, and model selection; resolve actual buffer loss or modal occlusion from that evidence.
+- [ ] 2.3 Bound command suggestions above the prompt so constrained terminals retain a visible writable editor and add layout coverage.
+- [ ] 2.4 Implement the global Ctrl+O details toggle, including reset of tool and thinking per-item overrides, and update control/help text.
+- [ ] 2.5 Align thinking-only panels with the assistant left border and add a visual regression test.
+- [ ] 2.6 Intercept `/login` locally, show the approved Pi CLI guidance, and add it to command suggestions without forwarding it through RPC.
+
+## 3. Searchable model selector
+
+- [ ] 3.1 Add a pure normalized-model filtering helper with provider/id/display-name matching and no-match handling.
+- [ ] 3.2 Add the selector-local search editor, matched-count/empty state, selection reset, and mouse/keyboard focus lifecycle.
+- [ ] 3.3 Add tests for filtering, stale-selection prevention, draft preservation, and focus restoration.
+
+## 4. Update and upgrade safety
+
+- [ ] 4.1 Add version comparison, cached asynchronous latest-release check, disable controls, and focused update tests.
+- [ ] 4.2 Add installed metadata and `pitty upgrade --check` using the installer release source and explicit version options.
+- [ ] 4.3 Implement POSIX staged installation, checksum/archive/directory preflight, validation, backup, rollback, and retained diagnostics.
+- [ ] 4.4 Implement equivalent PowerShell staging/rollback behavior, including temporary-directory creation and user-scoped PATH guidance.
+- [ ] 4.5 Add local-fixture installer behavior tests and CI coverage for success, failure, paths with spaces, plugins, and rollback.
+
+## 5. Documentation and release completion
+
+- [ ] 5.1 Document direct startup, `/resume`, interaction controls, model search, unsupported `/login` guidance, diagnostics, upgrade, and uninstall.
+- [ ] 5.2 Add screenshot references and real terminal captures with the canonical logo asset.
+- [ ] 5.3 Configure and visually verify the repository social-preview image after maintainer GitHub authentication; do not change the owner avatar.
+- [ ] 5.4 Run typecheck, unit/UI tests, installer behavior tests, cross-platform CI, and manual Arch/Konsole and Windows Terminal checks before version bump and release.

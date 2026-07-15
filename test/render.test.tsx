@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { TestRendererSetup } from "@opentui/core/testing";
 import { testRender } from "@opentui/solid";
 import { cleanThinkingText, MessageView, toolOutputExpandable } from "../src/ui/message.tsx";
-import { formatContextWindow, ModelSelectorDialog, normalizeModelChoices } from "../src/ui/model-selector.tsx";
+import { filterModelChoices, formatContextWindow, ModelSelectorDialog, normalizeModelChoices } from "../src/ui/model-selector.tsx";
 import { PromptMapDialog } from "../src/ui/prompt-map.tsx";
 import { Sidebar } from "../src/ui/sidebar.tsx";
 import { SubagentInspector } from "../src/ui/subagent-inspector.tsx";
@@ -12,6 +12,7 @@ import type { ConversationItem, RpcSessionState, SessionStats, SubagentRun } fro
 import { registerBundledParsers } from "../src/ui/parsers.ts";
 import { CommandSuggestions, filterCommandChoices } from "../src/ui/command-suggestions.tsx";
 import { deriveTodos } from "../src/ui/todos.tsx";
+import { nextDetailToggle } from "../src/app.tsx";
 
 registerBundledParsers();
 
@@ -228,6 +229,11 @@ describe("OpenTUI components", () => {
     expect(frame.match(/Thinking/g)?.length).toBe(1);
     expect(frame).toContain("5s / timeout 30s");
   });
+  test("global details toggle collapses mixed individual overrides", () => {
+    expect(nextDetailToggle({ toolsExpanded: false, thinkingExpanded: false, hasExpandedToolOverride: true })).toBe(false);
+    expect(nextDetailToggle({ toolsExpanded: false, thinkingExpanded: false })).toBe(true);
+  });
+
   test("normalizes and renders the Ctrl+P model list", async () => {
     const models = normalizeModelChoices([
       { provider: "openai-codex", id: "gpt-5.6-terra", name: "GPT-5.6 Terra", contextWindow: 400000 },
@@ -252,6 +258,35 @@ describe("OpenTUI components", () => {
     expect(frame).toContain("400k ctx");
     expect(frame).toContain("1M ctx");
     expect(formatContextWindow(128000)).toBe("128k ctx");
+    expect(filterModelChoices(models, "SOL").map((model) => model.id)).toEqual(["gpt-5.6-sol"]);
+    expect(filterModelChoices(models, "terra").map((model) => model.id)).toEqual(["gpt-5.6-terra"]);
+    expect(filterModelChoices(models, "missing")).toEqual([]);
+    const emptySetup = await mount(() => (
+      <ModelSelectorDialog models={[]} onSelect={() => {}} onCancel={() => {}} />
+    ), 90, 16);
+    expect(emptySetup.captureCharFrame()).toContain("Tab list");
+    expect(emptySetup.captureCharFrame()).toContain("No matching models.");
+  });
+
+  test("keeps the main draft visible beneath the selector reservation", async () => {
+    const setup = await mount(() => (
+      <box width="100%" height="100%" flexDirection="column">
+        <box flexGrow={1} />
+        <textarea
+          ref={(value) => { value.setText("unsent draft"); }}
+          height={4}
+          minHeight={4}
+        />
+        <ModelSelectorDialog
+          models={[{ provider: "local", id: "draft-model" }]}
+          onSelect={() => {}}
+          onCancel={() => {}}
+        />
+      </box>
+    ), 70, 14);
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("unsent draft");
+    expect(frame).toContain("Search provider");
   });
 
   test("subagent inspector has a working mouse close target", async () => {
