@@ -10,7 +10,7 @@ import { detectOptionalIntegrations } from "./integrations/detect.ts";
 
 registerBundledParsers();
 
-const appVersion = "0.3.0";
+const appVersion = "0.3.1";
 
 const parsed = parseArgs({
   args: process.argv.slice(2),

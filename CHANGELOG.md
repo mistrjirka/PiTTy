@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Added searchable model selection with visible draft preservation and keyboard list navigation.
+- Made Ctrl+O toggle tool and thinking detail together, fixed thinking-only alignment, and restored prompt focus after chat clicks.
+- Added local `/login` guidance for the unsupported RPC command.
+- Stabilized optional-integration tests and require release validation before publishing archives.
+
 ## 0.3.0
 
 - Renamed the project to PiTTy and added a portable `pitty` launcher.

@@ -1,6 +1,6 @@
 {
   "name": "pitty-pi-ui",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": false,
   "type": "module",
   "description": "PiTTy: a fast, extensible OpenTUI frontend for the Pi coding agent",
@@ -30,7 +30,7 @@
     "typescript": "5.8.2"
   },
   "license": "MIT",
-  "author": "Jirka Sv\u00edtil",
+  "author": "Jirka Svítil",
   "homepage": "https://github.com/mistrjirka/PiTTy#readme",
   "repository": {
     "type": "git",
