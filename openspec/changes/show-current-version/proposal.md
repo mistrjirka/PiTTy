@@ -6,7 +6,7 @@ Users cannot identify the running PiTTy release from the live TUI, making suppor
 
 - Display PiTTy’s current package version in the sidebar when it is visible.
 - Use the package metadata as the shared version source for the sidebar and CLI help.
-- Release the completed change as `v0.3.1.1`.
+- Release the completed change as `v0.3.2`.
 
 ## Capabilities
 

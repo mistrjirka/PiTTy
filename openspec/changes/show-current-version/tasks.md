@@ -6,5 +6,5 @@
 ## 2. Release verification
 
 - [x] 2.1 Add or update a render test covering the version label.
-- [x] 2.2 Bump manifest and lockfile metadata to the user-approved release version `0.3.1.1`.
-- [x] 2.3 Run focused validation, commit the scoped change to `main`, push it, and create the `v0.3.1.1` release tag.
+- [x] 2.2 Bump manifest and lockfile metadata to the user-approved release version `0.3.2`.
+- [ ] 2.3 Run focused validation, commit the scoped change to `main`, push it, and create the `v0.3.2` release tag.
