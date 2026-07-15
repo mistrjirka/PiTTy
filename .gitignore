@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.log
+*.tgz
+*.tar.gz
+*.zip
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+.pitty/

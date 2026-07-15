@@ -1,0 +1,28 @@
+name: Bug report
+description: Report a reproducible PiTTy problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes: { label: PiTTy version, placeholder: 0.3.0 }
+    validations: { required: true }
+  - type: input
+    id: platform
+    attributes: { label: OS and terminal, placeholder: Arch Linux / Konsole }
+    validations: { required: true }
+  - type: input
+    id: versions
+    attributes: { label: Pi, Bun, and Node versions }
+  - type: textarea
+    id: description
+    attributes: { label: What happened? }
+    validations: { required: true }
+  - type: textarea
+    id: reproduction
+    attributes: { label: Reproduction steps }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted diagnostics
+      description: Never upload credentials, private transcripts, or unreviewed verbose RPC logs.
