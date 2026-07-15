@@ -13,14 +13,25 @@ describe("PiRpcClient", () => {
     const client = new PiRpcClient({ cwd: process.cwd(), executable: path.resolve("scripts/mock-pi-rpc.mjs") });
     clients.push(client);
     const events: PiEvent[] = [];
-    client.onEvent((event) => events.push(event));
+    let stopListening = () => {};
+    const settled = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Timed out waiting for mock agent_settled event.")), 2_000);
+      stopListening = client.onEvent((event) => {
+        events.push(event);
+        if (event.type === "agent_settled") {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+    });
     await client.start();
     const state = await client.getState();
     expect(state.sessionName).toBe("Mock Pi Session");
     const messages = await client.getMessages();
     expect(messages).toHaveLength(2);
     await client.prompt("hello");
-    await Bun.sleep(20);
+    await settled;
+    stopListening();
     expect(events.some((event) => event.type === "agent_start")).toBe(true);
     expect(events.some((event) => event.type === "message_end")).toBe(true);
     expect(events.some((event) => event.type === "agent_settled")).toBe(true);
