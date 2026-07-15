@@ -13,6 +13,7 @@ import { registerBundledParsers } from "../src/ui/parsers.ts";
 import { CommandSuggestions, filterCommandChoices } from "../src/ui/command-suggestions.tsx";
 import { deriveTodos } from "../src/ui/todos.tsx";
 import { nextDetailToggle } from "../src/app.tsx";
+import { appVersion } from "../src/version.ts";
 
 registerBundledParsers();
 
@@ -196,6 +197,7 @@ describe("OpenTUI components", () => {
     const setup = await mount(() => <Sidebar state={state} stats={stats} runs={runs} selectedRunId="run-1" />, 42, 28);
     const frame = setup.captureCharFrame();
     expect(frame).toContain("OpenCode UI work");
+    expect(frame).toContain(`PiTTy v${appVersion}`);
     expect(frame).toContain("gpt-5.6-sol");
     expect(frame).toContain("implementer");
     expect(frame).toContain("running");

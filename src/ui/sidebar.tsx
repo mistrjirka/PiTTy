@@ -5,6 +5,7 @@ import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
 import { formatDuration } from "./duration.ts";
 import { colors } from "./theme.ts";
 import { TodoPanel, type TodoViewItem } from "./todos.tsx";
+import { appVersion } from "../version.ts";
 
 const CONTENT_WIDTH = 36;
 
@@ -113,6 +114,7 @@ export function Sidebar(props: {
       <text width="100%" height={1} fg={colors.muted} wrapMode="none">
         {clip(props.state?.sessionName ?? props.state?.sessionId ?? "starting…")}
       </text>
+      <text width="100%" height={1} fg={colors.subtle} wrapMode="none">PiTTy v{appVersion}</text>
       <box height={1} />
       <text width="100%" height={1} fg={colors.textBright} attributes={1}>Context</text>
       <text width="100%" height={1} fg={colors.muted} wrapMode="none">
