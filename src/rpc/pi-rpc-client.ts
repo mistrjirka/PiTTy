@@ -39,8 +39,11 @@ export class PiRpcClient extends EventEmitter {
 
   async start(): Promise<void> {
     if (this.child) throw new Error("Pi RPC client is already started.");
-    const executable = this.options.executable ?? process.env.PI_BIN ?? "pi";
-    const args = ["--mode", "rpc", ...(this.options.args ?? [])];
+    const configuredExecutable = this.options.executable ?? process.env.PI_BIN ?? "pi";
+    const piArgs = ["--mode", "rpc", ...(this.options.args ?? [])];
+    const isJavaScriptEntry = /\.(?:cjs|mjs|js)$/i.test(configuredExecutable);
+    const executable = isJavaScriptEntry ? process.execPath : configuredExecutable;
+    const args = isJavaScriptEntry ? [configuredExecutable, ...piArgs] : piArgs;
     this.options.logger?.info("pi.spawn", { executable, args: summarizePiArgs(args), cwd: this.options.cwd });
     const child = spawn(executable, args, {
       cwd: this.options.cwd,
