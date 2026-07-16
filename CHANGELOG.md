@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Refined the terminal-native PTY Tail mark with responsive wide, compact, and wordmark-only variants.
+- Added light/dark canonical logo assets and a documentation preview that matches the glyphs rendered by OpenTUI.
+- Reworked the README around the standard installer and added dedicated usage, branding, and documentation-index pages.
+
 ## 0.3.3
 
 - Added a non-blocking empty dashboard with terminal-safe branding and recent sessions.
