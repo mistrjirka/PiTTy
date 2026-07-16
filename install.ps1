@@ -91,6 +91,14 @@ try {
   "@echo off`r`nnode `"$InstallDir\bin\pitty.mjs`" %*`r`n" | Set-Content -Encoding ASCII (Join-Path $BinDir "pitty.cmd")
   "@echo off`r`nnode `"$InstallDir\bin\pitty-resume.mjs`" %*`r`n" | Set-Content -Encoding ASCII (Join-Path $BinDir "pitty-resume.cmd")
 
+  $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User") ?? ""
+  if ($UserPath -notlike "*$BinDir*") {
+    Write-Host "Adding $BinDir to user PATH..."
+    [Environment]::SetEnvironmentVariable("PATH", "$UserPath;$BinDir", "User")
+    $env:PATH = "$env:PATH;$BinDir"
+    Write-Host "Added to PATH. Restart your terminal for the change to take full effect."
+  }
+
   $PiList = if ($PluginMode -eq "ask" -or $PluginMode -eq "yes") { (& pi list 2>$null | Out-String) } else { "" }
   $Missing = @(); if (-not $PiList.Contains("pi-subagents")) { $Missing += "pi-subagents" }; if (-not $PiList.Contains("@juicesharp/rpiv-todo")) { $Missing += "@juicesharp/rpiv-todo" }
   if ($PluginMode -eq "ask" -and $Missing.Count -eq 0) { Write-Host "Recommended Pi packages are already installed; skipping plugin prompt."; $PluginMode = "no" }

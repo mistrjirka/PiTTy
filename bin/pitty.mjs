@@ -10,6 +10,19 @@ function findBundledBun(directory) {
   const candidates = [path.join(directory, "node_modules", ".bin", bunName), path.join(directory, "node_modules", "bun", "bin", "bun.exe")];
   return candidates.find((candidate) => fs.existsSync(candidate));
 }
+function findPiEntryPoint() {
+  // On Windows, spawning "pi" directly does not work reliably because
+  // the extension-less shell script shadows pi.cmd in PATH resolution.
+  // Resolve the underlying JS entry point so the RPC client can spawn it
+  // via `node <script>`.
+  if (process.platform !== "win32") return null;
+  const npmDir = process.env.APPDATA
+    ? path.join(process.env.APPDATA, "npm")
+    : null;
+  if (!npmDir) return null;
+  const cliPath = path.join(npmDir, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
+  return fs.existsSync(cliPath) ? cliPath : null;
+}
 function validateInstall(directory) {
   const launcher = path.join(directory, "bin", "pitty.mjs");
   const runtime = path.join(directory, "node_modules", ".bin", process.platform === "win32" ? "bun.exe" : "bun");
@@ -56,7 +69,10 @@ if (isUpgrade) {
     console.error("Re-run the installer, or run: npm ci --ignore-scripts && node node_modules/bun/install.js");
     process.exit(1);
   }
-  const child = spawn(bun, ["run", path.join(root, "src", "index.tsx"), ...process.argv.slice(2)], { cwd: process.cwd(), stdio: "inherit", env: process.env });
+  const env = { ...process.env };
+  const piEntry = findPiEntryPoint();
+  if (piEntry) env.PI_BIN = piEntry;
+  const child = spawn(bun, ["run", path.join(root, "src", "index.tsx"), ...process.argv.slice(2)], { cwd: root, stdio: "inherit", env });
   child.on("error", (error) => { console.error(`PiTTy failed to start: ${error.message}`); process.exit(1); });
   child.on("exit", (code, signal) => { if (signal) process.kill(process.pid, signal); else process.exit(code ?? 1); });
 }
