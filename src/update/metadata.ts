@@ -36,6 +36,6 @@ export async function readInstallMetadata(installDirectory: string): Promise<Ins
 export function legacyInstallMetadata(installDirectory: string, version: string, repository = "mistrjirka/PiTTy", environment: Readonly<Record<string, string | undefined>> = process.env, platform: NodeJS.Platform = process.platform): InstallMetadata {
   const binDirectory = environment.PITTY_BIN_DIR || (platform === "win32"
     ? path.win32.join(path.win32.dirname(installDirectory), "bin")
-    : path.join(environment.XDG_BIN_HOME || path.join(environment.HOME || "", ".local"), "bin"));
+    : path.posix.join(environment.XDG_BIN_HOME || path.posix.join(environment.HOME || "", ".local"), "bin"));
   return { schemaVersion: 1, repository, installedVersion: version, installDirectory, binDirectory, pluginMode: "ask" };
 }

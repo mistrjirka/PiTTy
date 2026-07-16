@@ -39,7 +39,14 @@ try {
   try { $Checksums = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/download/$Tag/SHA256SUMS" -UseBasicParsing } catch { Fail "Release checksum could not be downloaded; refusing to install without verification. $($_.Exception.Message)" }
   $ExpectedLine = ($Checksums.Content -split "`n" | Where-Object { $_ -match [regex]::Escape($Asset) } | Select-Object -First 1)
   if (-not $ExpectedLine) { Fail "SHA256SUMS did not contain $Asset" }
-  $Expected = ($ExpectedLine -split "\s+")[0].ToLowerInvariant(); $Actual = (Get-FileHash -Algorithm SHA256 -Path $Archive).Hash.ToLowerInvariant(); if ($Expected -ne $Actual) { Fail "Checksum mismatch for $Asset (expected $Expected, got $Actual)" }
+  $Expected = ($ExpectedLine -split "\s+")[0].ToLowerInvariant()
+  $Hasher = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $Stream = [IO.File]::OpenRead($Archive)
+    try { $HashBytes = $Hasher.ComputeHash($Stream) } finally { $Stream.Dispose() }
+  } finally { $Hasher.Dispose() }
+  $Actual = ([BitConverter]::ToString($HashBytes) -replace "-", "").ToLowerInvariant()
+  if ($Expected -ne $Actual) { Fail "Checksum mismatch for $Asset (expected $Expected, got $Actual)" }
 
   $Source = Join-Path $Temp "source"; Expand-Archive -Path $Archive -DestinationPath $Source -Force
   $Root = Get-ChildItem -Path $Source -Directory | Select-Object -First 1
