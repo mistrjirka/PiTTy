@@ -7,53 +7,97 @@ export type LogoProps = {
   wordmarkOnly?: boolean;
 };
 
-/**
- * Portable terminal-cell interpretation of the original PTY Tail mock.
- *
- * The double horizontal glyph represents the mock's paired strokes while
- * Braille cells approximate its dotted bends and flowing lower tail. Exact
- * vector rendering remains available to documentation; this component avoids
- * terminal-specific image protocols and keeps every character one cell wide.
- */
-export const wideLogoLines = [
-  "■ ═══════════════════⠒⠒⣄",
-  "                        ⠈⢆",
-  "                          ⢸",
-  "                        ⢀⠎",
-  "        ⡠⠔⠒══════════════",
-  "      ⢠⠋",
-  "     ⡎",
-  "     ⠱⡀",
-  "       ⠱⡀",
-  "         ⠱⡀",
-  "           ⠑⢄",
-  "■ ═════════⠒⠒⠉",
-] as const;
+export const microLogo = "[> π <]";
 
 export const compactLogoLines = [
-  "■ ═══════════⠒⣄",
-  "                ⢸",
-  "       ⡠⠒══════",
-  "     ⢠⠋",
-  "      ⠱⡀",
-  "        ⠱⡀",
-  "          ⠑⢄",
-  "■ ══════⠒⠉",
+  "██████                                                                         ██████",
+  "███                                                                               ███",
+  "███       ██▄▄                      ▄▄▄▄▄▄▄▄▄▄▄▄▄                     ▄▄▄█        ███",
+  "███       ▀▀█████▄▄▄                ▀████▀▀████▀▀                ▄▄█████▀▀        ███",
+  "███            ▀▀▀███                 ███   ███                ████▀▀             ███",
+  "███         ▄▄▄█████▀                 ███   ███                ▀▀████▄▄▄          ███",
+  "███       ████▀▀▀                     ███   ███                    ▀▀▀████        ███",
+  "███       ▀▀                          ███   ███▄▄                        ▀        ███",
+  "███                                   ▀▀▀   ▀▀▀▀▀                                 ███",
+  "██████                                                                         ██████",
 ] as const;
 
-const shortWideLogoLines = ["■────╮", "■────╯"] as const;
-const shortCompactLogoLines = ["■───╮", "■───╯"] as const;
+export const wideLogoLines = [
+  "████████                                                                                                      ████████",
+  "█████▀▀▀                                                                                                      ▀▀▀▀████",
+  "█████                                                                                                             ████",
+  "█████         ██▄▄                                ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄                                ▄▄▄█          ████",
+  "█████         ███████▄▄▄                          ██████████████████                           ▄▄▄██████          ████",
+  "█████           ▀▀▀███████▄▄▄                      ▀▀████▀▀▀▀█████▀▀                      ▄▄▄███████▀▀▀           ████",
+  "█████                 ▀▀▀█████                       ████    █████                      ██████▀▀▀                 ████",
+  "█████                 ▄▄▄█████                       ████    █████                      ██████▄▄▄                 ████",
+  "█████           ▄▄▄███████▀▀▀                        ████    █████                        ▀▀████████▄▄            ████",
+  "█████         ███████▀▀▀                             ████    █████                             ▀▀▀██████          ████",
+  "█████         ██▀▀                                   ████    █████▄▄                                ▀▀▀█          ████",
+  "█████                                                ████    ▀██████                                              ████",
+  "█████▄▄▄                                                        ▀▀▀                                           ▄▄▄▄████",
+  "████████                                                                                                      ████████",
+] as const;
 
+const emergencyWideLogoLines = ["■────╮", "■────╯"] as const;
+const emergencyCompactLogoLines = ["■───╮", "■───╯"] as const;
+
+export function logoCellWidth(lines: readonly string[]): number {
+  return Math.max(0, ...lines.map((line) => [...line].length));
+}
+
+function hasRoom(
+  lines: readonly string[],
+  dimensions: { width: number; height: number },
+): boolean {
+  return dimensions.width >= logoCellWidth(lines) + 4
+    && dimensions.height >= lines.length + 8;
+}
+
+/**
+ * Responsive terminal rendering of PiTTy's [> π <] mark.
+ *
+ * The large variants are pre-rasterized from the complete "[> π <]" string
+ * typeset in DejaVu Sans Mono Bold, then encoded with Unicode half blocks.
+ * Rasterizing the whole string preserves equal spacing around π and avoids
+ * relying on the user's terminal font for the enlarged glyph shapes.
+ */
 export function Logo(props: LogoProps) {
   const dimensions = useTerminalDimensions();
+
   if (props.wordmarkOnly) {
     return <text fg={colors.textBright} attributes={1}>PiTTy</text>;
   }
 
-  const short = dimensions().height <= 8;
-  const lines = short
-    ? props.compact ? shortCompactLogoLines : shortWideLogoLines
-    : props.compact ? compactLogoLines : wideLogoLines;
+  // Keep the historical two-row emergency mark for terminals too short to
+  // fit even the micro mark plus surrounding dashboard content.
+  if (dimensions().height <= 8) {
+    const lines = props.compact ? emergencyCompactLogoLines : emergencyWideLogoLines;
+    return (
+      <box flexDirection="column" alignItems="center">
+        <For each={lines}>
+          {(line) => <text fg={colors.accent} attributes={1} wrapMode="none">{line}</text>}
+        </For>
+        <text fg={colors.textBright} attributes={1}>PiTTy</text>
+      </box>
+    );
+  }
+
+  const preferred = props.compact ? compactLogoLines : wideLogoLines;
+  const lines = hasRoom(preferred, dimensions())
+    ? preferred
+    : hasRoom(compactLogoLines, dimensions())
+      ? compactLogoLines
+      : undefined;
+
+  if (!lines) {
+    return (
+      <box flexDirection="column" alignItems="center">
+        <text fg={colors.accent} attributes={1} wrapMode="none">{microLogo}</text>
+        <text fg={colors.textBright} attributes={1}>PiTTy</text>
+      </box>
+    );
+  }
 
   return (
     <box flexDirection="column" alignItems="center">
