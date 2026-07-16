@@ -1,3 +1,4 @@
+import { useTerminalDimensions } from "@opentui/solid";
 import type { SessionChoice, SessionDiscoveryState } from "../sessions.ts";
 import { colors } from "./theme.ts";
 import { Logo } from "./logo.tsx";
@@ -12,9 +13,11 @@ export type EmptyDashboardProps = {
 const commonCommands = ["/help", "/resume", "/new", "/model"];
 
 export function EmptyDashboard(props: EmptyDashboardProps) {
-  const constrainedHeight = props.height !== undefined && props.height <= 12;
-  const compact = (props.width !== undefined && props.width < 60)
-    || (props.height !== undefined && props.height < 20);
+  const dimensions = useTerminalDimensions();
+  const width = props.width ?? dimensions().width;
+  const height = props.height ?? dimensions().height;
+  const constrainedHeight = height <= 12;
+  const compact = width < 60 || height < 20;
   const visibleSessionCount = constrainedHeight ? 2 : compact ? 4 : 5;
 
   return (
