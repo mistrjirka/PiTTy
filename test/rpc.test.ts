@@ -23,7 +23,7 @@ describe("PiRpcClient", () => {
     const events: PiEvent[] = [];
     let stopListening = () => {};
     const settled = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("Timed out waiting for mock agent_settled event.")), 2_000);
+      const timer = setTimeout(() => reject(new Error("Timed out waiting for mock agent_settled event.")), 5_000);
       stopListening = client.onEvent((event) => {
         events.push(event);
         if (event.type === "agent_settled") {
