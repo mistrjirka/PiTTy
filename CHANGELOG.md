@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.3
+
+- Fixed startup update notifications after upgrading PiTTy by scoping successful update-check caches to the local version.
+
 ## 0.4.2
 
 - Thanks to @herm1t0 for the Windows support intent in PRs #3 and #4; added safer installation PATH management and launcher/runtime fixes.
