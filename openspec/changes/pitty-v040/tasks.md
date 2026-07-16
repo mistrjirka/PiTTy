@@ -4,7 +4,7 @@
 - [x] 1.2 Render the non-blocking empty-transcript dashboard with logo, common commands, and a stable loading/available/empty/error current-directory session region while preserving direct RPC startup and an immediately focused main prompt.
 - [x] 1.3 Add current-project session listing and one reusable searchable selector shared by `/sessions`, `/resume`, the empty dashboard, and `pitty-resume`, with loading, empty, selection, cancellation, and streaming-confirmation states.
 - [x] 1.4 Add documented `switch_session` RPC support, both command aliases, the `pitty-resume` launcher/install/uninstall path, state reload, error handling, picker autofocus, and main-prompt focus restoration.
-- [ ] 1.5 Add focused render/unit coverage for direct startup, constrained-logo fallback, dashboard session states, immediate picker keyboard input/navigation, selector cancellation, streaming confirmation decline/settle behavior, successful/unsupported/failed session switch, and launcher/install/uninstall behavior.
+- [x] 1.5 Add focused render/unit coverage for direct startup, constrained-logo fallback, dashboard session states, immediate picker keyboard input/navigation, selector cancellation, streaming confirmation decline/settle behavior, successful/unsupported/failed session switch, and launcher/install/uninstall behavior.
 
 ## 2. Chat interaction controls
 
@@ -40,4 +40,4 @@
 
 - [x] 6.1 Merge foreground tool progress with async subagent artifacts, count pending children as active/queued, deduplicate resumed children while preserving inspector transcripts, and keep foreground controls read-only.
 - [x] 6.2 Remove the redundant sidebar Selected section and preserve pending steering/follow-up text at constrained terminal heights with production-component regression coverage.
-- [ ] 6.3 Complete the approved dashboard/session/focus slice, run full validation and `impl-check`, resolve verified findings, bump to `0.3.3`, push `main`, publish tag `v0.3.3`, and verify release archives plus checksums.
+- [x] 6.3 Complete the approved dashboard/session/focus slice, run full validation and `impl-check`, resolve verified findings, bump to `0.3.3`, push `main`, publish tag `v0.3.3`, and verify release archives plus checksums.
