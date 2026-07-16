@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { resolveDefaultPiExecutable, resolvePiCommand } from "../pi-command.ts";
 
 export type OptionalIntegration = {
   packageName: string;
@@ -36,8 +37,10 @@ function hasPackage(haystack: string, packageName: string): boolean {
   return normalized.includes(packageName.toLowerCase()) || normalized.includes(unscoped);
 }
 
-export function detectOptionalIntegrations(options: { piExecutable?: string; cwd?: string } = {}): OptionalIntegrationStatus {
-  const piExecutable = options.piExecutable ?? "pi";
+type IntegrationOptions = { piExecutable?: string; cwd?: string };
+
+export function detectOptionalIntegrations(options: IntegrationOptions = {}): OptionalIntegrationStatus {
+  const piExecutable = options.piExecutable ?? resolveDefaultPiExecutable();
   const cwd = options.cwd ?? process.cwd();
   const sources: Array<{ name: string; text: string }> = [];
   let piListError: string | undefined;
@@ -78,7 +81,8 @@ export function detectOptionalIntegrations(options: { piExecutable?: string; cwd
   // timeout short so optional package detection cannot make startup feel hung.
   if (!subagents.installed || !todos.installed) {
     try {
-      const result = spawnSync(piExecutable, ["list"], {
+      const command = resolvePiCommand(piExecutable, ["list"]);
+      const result = spawnSync(command.executable, command.args, {
         cwd,
         encoding: "utf8",
         timeout: 2_500,

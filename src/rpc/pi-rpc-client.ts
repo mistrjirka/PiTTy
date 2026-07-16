@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { summarizePiArgs, type DiagnosticLogger } from "../diagnostics/logger.ts";
+import { resolveDefaultPiExecutable, resolvePiCommand } from "../pi-command.ts";
 import type {
   PiEvent,
   RpcCommand,
@@ -39,11 +40,11 @@ export class PiRpcClient extends EventEmitter {
 
   async start(): Promise<void> {
     if (this.child) throw new Error("Pi RPC client is already started.");
-    const configuredExecutable = this.options.executable ?? process.env.PI_BIN ?? "pi";
+    const configuredExecutable = this.options.executable ?? resolveDefaultPiExecutable();
     const piArgs = ["--mode", "rpc", ...(this.options.args ?? [])];
-    const isJavaScriptEntry = /\.(?:cjs|mjs|js)$/i.test(configuredExecutable);
-    const executable = isJavaScriptEntry ? process.execPath : configuredExecutable;
-    const args = isJavaScriptEntry ? [configuredExecutable, ...piArgs] : piArgs;
+    const command = resolvePiCommand(configuredExecutable, piArgs);
+    const executable = command.executable;
+    const args = command.args;
     this.options.logger?.info("pi.spawn", { executable, args: summarizePiArgs(args), cwd: this.options.cwd });
     const child = spawn(executable, args, {
       cwd: this.options.cwd,

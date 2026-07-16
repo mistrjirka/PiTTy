@@ -17,6 +17,29 @@ if (-not $BinDir) { $BinDir = Join-Path $env:LOCALAPPDATA "PiTTy\bin" }
 
 function Fail([string]$Message) { throw $Message }
 function Need([string]$Command) { if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) { Fail "Required command '$Command' was not found. Install it, open a new terminal, and re-run this installer." } }
+# Keep this normalization identical to uninstall.ps1.
+function Normalize-PathEntry([string]$Entry) {
+  if (-not $Entry) { return "" }
+  $trimmed = $Entry.Trim().Trim('"').Trim("'")
+  $expanded = [Environment]::ExpandEnvironmentVariables($trimmed)
+  try { return [IO.Path]::GetFullPath($expanded).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) } catch { return $expanded.Trim() }
+}
+function Add-UserPathEntry([string]$Entry) {
+  $normalized = Normalize-PathEntry $Entry
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  $entries = @(); $found = $false; $changed = $false
+  foreach ($candidate in @($userPath -split ";")) {
+    if (-not $candidate) { continue }
+    if ((Normalize-PathEntry $candidate) -ieq $normalized) { if ($found) { $changed = $true; continue }; $found = $true }
+    $entries += $candidate
+  }
+  if (-not $found) { $entries += $Entry; $changed = $true }
+  if ($changed) { [Environment]::SetEnvironmentVariable("Path", ($entries -join ";"), "User") }
+  $processEntries = @($env:Path -split ";" | Where-Object { $_ })
+  if (-not ($processEntries | Where-Object { (Normalize-PathEntry $_) -ieq $normalized })) { $env:Path = (($processEntries + $Entry) -join ";") }
+  return $changed
+}
+
 Need node; Need npm; Need pi
 $NodeVersion = [version]((& node -p "process.versions.node").Trim())
 if ($NodeVersion -lt [version]"22.19.0") { Fail "Node.js 22.19.0 or newer is required; found $NodeVersion." }
@@ -37,7 +60,8 @@ try {
   Write-Host "Downloading PiTTy $Ver..."
   try { Invoke-WebRequest -Uri $Url -OutFile $Archive -UseBasicParsing } catch { Fail "Download failed: $Url`n$($_.Exception.Message)" }
   try { $Checksums = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/download/$Tag/SHA256SUMS" -UseBasicParsing } catch { Fail "Release checksum could not be downloaded; refusing to install without verification. $($_.Exception.Message)" }
-  $ExpectedLine = ($Checksums.Content -split "`n" | Where-Object { $_ -match [regex]::Escape($Asset) } | Select-Object -First 1)
+  $ChecksumContent = if ($Checksums.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($Checksums.Content) } else { [string]$Checksums.Content }
+  $ExpectedLine = ($ChecksumContent -split "`n" | Where-Object { $_ -match "^\s*[0-9a-fA-F]{64}\s+\*?" + [regex]::Escape($Asset) + "\s*$" } | Select-Object -First 1)
   if (-not $ExpectedLine) { Fail "SHA256SUMS did not contain $Asset" }
   $Expected = ($ExpectedLine -split "\s+")[0].ToLowerInvariant()
   $Hasher = [System.Security.Cryptography.SHA256]::Create()
@@ -90,6 +114,7 @@ try {
   New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
   "@echo off`r`nnode `"$InstallDir\bin\pitty.mjs`" %*`r`n" | Set-Content -Encoding ASCII (Join-Path $BinDir "pitty.cmd")
   "@echo off`r`nnode `"$InstallDir\bin\pitty-resume.mjs`" %*`r`n" | Set-Content -Encoding ASCII (Join-Path $BinDir "pitty-resume.cmd")
+  if (Add-UserPathEntry $BinDir) { Write-Host "PiTTy added $BinDir to your user PATH. Restart open terminals to use the commands." }
 
   $PiList = if ($PluginMode -eq "ask" -or $PluginMode -eq "yes") { (& pi list 2>$null | Out-String) } else { "" }
   $Missing = @(); if (-not $PiList.Contains("pi-subagents")) { $Missing += "pi-subagents" }; if (-not $PiList.Contains("@juicesharp/rpiv-todo")) { $Missing += "@juicesharp/rpiv-todo" }

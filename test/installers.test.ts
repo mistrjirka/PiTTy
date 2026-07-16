@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { execFileSync } from "node:child_process";
 
 const root = path.resolve(import.meta.dir, "..");
@@ -31,6 +32,16 @@ describe("public installers", () => {
     expect(script).toContain("pitty-resume");
     const uninstall = fs.readFileSync(path.join(root, "uninstall.ps1"), "utf8");
     expect(uninstall).toContain("pitty-resume.cmd");
+  });
+
+  test("pitty launcher resolves preload from an external cwd", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-launcher-"));
+    try {
+      const output = execFileSync("node", [path.join(root, "bin/pitty.mjs"), "--help"], { cwd, encoding: "utf8", timeout: 10_000 });
+      expect(output).toContain("PiTTy v");
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   test("pitty-resume exposes executable help", () => {

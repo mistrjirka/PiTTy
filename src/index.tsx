@@ -8,6 +8,7 @@ import { colors } from "./ui/theme.ts";
 import { registerBundledParsers } from "./ui/parsers.ts";
 import { detectOptionalIntegrations } from "./integrations/detect.ts";
 import { appVersion } from "./version.ts";
+import { resolveDefaultPiExecutable } from "./pi-command.ts";
 
 registerBundledParsers();
 
@@ -59,8 +60,9 @@ const removeProcessDiagnostics = installProcessDiagnostics(logger, (error, origi
   if (logger.enabled) process.stderr.write(`Run log: ${logger.logPath}\n`);
 });
 
+const effectivePiExecutable = typeof parsed.values.pi === "string" ? parsed.values.pi : resolveDefaultPiExecutable();
 const integrationStatus = detectOptionalIntegrations({
-  piExecutable: typeof parsed.values.pi === "string" ? parsed.values.pi : "pi",
+  piExecutable: effectivePiExecutable,
   cwd: typeof parsed.values.cwd === "string" ? parsed.values.cwd : process.cwd(),
 });
 
@@ -98,7 +100,7 @@ try {
     () => (
       <App
         cwd={typeof parsed.values.cwd === "string" ? parsed.values.cwd : process.cwd()}
-        {...(typeof parsed.values.pi === "string" ? { piExecutable: parsed.values.pi } : {})}
+        piExecutable={effectivePiExecutable}
         piArgs={piArgs}
         sidebar={!parsed.values["no-sidebar"]}
         logger={logger}
