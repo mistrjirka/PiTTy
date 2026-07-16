@@ -1,3 +1,4 @@
+import { useTerminalDimensions } from "@opentui/solid";
 import { For } from "solid-js";
 import { colors } from "./theme.ts";
 
@@ -40,12 +41,20 @@ export const compactLogoLines = [
   "■ ══════⠒⠉",
 ] as const;
 
+const shortWideLogoLines = ["■────╮", "■────╯"] as const;
+const shortCompactLogoLines = ["■───╮", "■───╯"] as const;
+
 export function Logo(props: LogoProps) {
+  const dimensions = useTerminalDimensions();
   if (props.wordmarkOnly) {
     return <text fg={colors.textBright} attributes={1}>PiTTy</text>;
   }
 
-  const lines = props.compact ? compactLogoLines : wideLogoLines;
+  const short = dimensions().height <= 8;
+  const lines = short
+    ? props.compact ? shortCompactLogoLines : shortWideLogoLines
+    : props.compact ? compactLogoLines : wideLogoLines;
+
   return (
     <box flexDirection="column" alignItems="center">
       <box flexDirection="column">
