@@ -30,6 +30,8 @@ import { colors } from "./ui/theme.ts";
 import { CommandSuggestions, filterCommandChoices, type CommandChoice } from "./ui/command-suggestions.tsx";
 import { deriveTodos } from "./ui/todos.tsx";
 import type { OptionalIntegrationStatus } from "./integrations/detect.ts";
+import { appVersion } from "./version.ts";
+import { defaultUpdateCheckConfig, isUpdateCheckDisabled, checkForUpdates } from "./update/check.ts";
 import {
   INITIAL_MESSAGE_WINDOW,
   MAX_LIVE_MESSAGE_WINDOW,
@@ -892,6 +894,11 @@ export function App(props: AppOptions) {
 
   onMount(() => {
     props.logger.info("ui.mount", { cwd: props.cwd, sidebar: props.sidebar });
+    if (!isUpdateCheckDisabled(process.env)) {
+      void checkForUpdates(defaultUpdateCheckConfig(appVersion, process.env, props.logger, (version) => {
+        toast(`A newer PiTTy release is available (${version}). Run \`pitty upgrade\`.`, "info", 7000);
+      }));
+    }
     const missingIntegrations = [
       !props.integrations.subagents.installed ? "pi-subagents (live subagent inspection and steering)" : undefined,
       !props.integrations.todos.installed ? "@juicesharp/rpiv-todo (Todo panel)" : undefined,

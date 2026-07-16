@@ -11,7 +11,7 @@
     "test": "bun test --conditions=browser",
     "test:ui": "bun test --conditions=browser test/render.test.tsx",
     "diagnostics": "bun run src/diagnostics/collect.ts",
-    "test:unit": "bun test --conditions=browser test/conversation.test.ts test/diagnostics.test.ts test/message-window.test.ts test/rpc.test.ts test/subagents.test.ts test/integrations.test.ts test/installers.test.ts test/sessions.test.ts",
+    "test:unit": "bun test --conditions=browser test/conversation.test.ts test/diagnostics.test.ts test/message-window.test.ts test/rpc.test.ts test/subagents.test.ts test/integrations.test.ts test/installers.test.ts test/sessions.test.ts test/update.test.ts",
     "check": "npm run typecheck && npm run test:unit"
   },
   "dependencies": {

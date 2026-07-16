@@ -23,7 +23,7 @@
 
 ## 4. Update and upgrade safety
 
-- [ ] 4.1 Add version comparison, cached asynchronous latest-release check, disable controls, and focused update tests.
+- [x] 4.1 Add version comparison, cached asynchronous latest-release check, disable controls, and focused update tests.
 - [ ] 4.2 Add installed metadata and `pitty upgrade --check` using the installer release source and explicit version options.
 - [ ] 4.3 Implement POSIX staged installation, checksum/archive/directory preflight, validation, backup, rollback, and retained diagnostics.
 - [ ] 4.4 Implement equivalent PowerShell staging/rollback behavior, including temporary-directory creation and user-scoped PATH guidance.
