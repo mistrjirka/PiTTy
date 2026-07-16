@@ -7,29 +7,37 @@ export type LogoProps = {
 };
 
 /**
- * Terminal-cell-safe interpretation of the canonical PTY Tail artwork.
+ * Portable terminal-cell interpretation of the original PTY Tail mock.
  *
- * Rounded box-drawing glyphs preserve the open loop and flowing lower tail
- * without relying on image protocols or wide block runs. The two square
- * endpoints remain visually distinct and every glyph occupies one cell.
+ * The double horizontal glyph represents the mock's paired strokes while
+ * Braille cells approximate its dotted bends and flowing lower tail. Exact
+ * vector rendering remains available to documentation; this component avoids
+ * terminal-specific image protocols and keeps every character one cell wide.
  */
 export const wideLogoLines = [
-  "■────╮",
-  "     ╰────────╮",
-  "              │",
-  "       ╭──────╯",
-  "      ╭╯",
-  "      ╰──╮",
-  "■────────╯",
+  "■ ═══════════════════⠒⠒⣄",
+  "                        ⠈⢆",
+  "                          ⢸",
+  "                        ⢀⠎",
+  "        ⡠⠔⠒══════════════",
+  "      ⢠⠋",
+  "     ⡎",
+  "     ⠱⡀",
+  "       ⠱⡀",
+  "         ⠱⡀",
+  "           ⠑⢄",
+  "■ ═════════⠒⠒⠉",
 ] as const;
 
 export const compactLogoLines = [
-  "■───╮",
-  "    ╰────╮",
-  "         │",
-  "    ╭────╯",
-  "    ╰─╮",
-  "■─────╯",
+  "■ ═══════════⠒⣄",
+  "                ⢸",
+  "       ⡠⠒══════",
+  "     ⢠⠋",
+  "      ⠱⡀",
+  "        ⠱⡀",
+  "          ⠑⢄",
+  "■ ══════⠒⠉",
 ] as const;
 
 export function Logo(props: LogoProps) {
