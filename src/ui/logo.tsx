@@ -49,9 +49,10 @@ export function logoCellWidth(lines: readonly string[]): number {
 function hasRoom(
   lines: readonly string[],
   dimensions: { width: number; height: number },
+  reservedRows: number,
 ): boolean {
   return dimensions.width >= logoCellWidth(lines) + 4
-    && dimensions.height >= lines.length + 8;
+    && dimensions.height >= lines.length + reservedRows;
 }
 
 /**
@@ -83,10 +84,11 @@ export function Logo(props: LogoProps) {
     );
   }
 
-  const preferred = props.compact ? compactLogoLines : wideLogoLines;
-  const lines = hasRoom(preferred, dimensions())
-    ? preferred
-    : hasRoom(compactLogoLines, dimensions())
+  const wideFits = !props.compact && hasRoom(wideLogoLines, dimensions(), 12);
+  const compactFits = hasRoom(compactLogoLines, dimensions(), 8);
+  const lines = wideFits
+    ? wideLogoLines
+    : compactFits
       ? compactLogoLines
       : undefined;
 
