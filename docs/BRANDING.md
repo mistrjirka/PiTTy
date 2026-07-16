@@ -2,75 +2,81 @@
 
 [← Back to README](../README.md) · [Documentation index](README.md)
 
-PiTTy's mark is the **PTY Tail**: one continuous path joining two square endpoints. It references a pseudoterminal pair while the lower curve subtly suggests a tail and the overall silhouette hints at a `P`.
+PiTTy's mark is the **PTY Tail**: two square pseudoterminal endpoints connected by a path that forms a loose `P` and subtly resembles a tail.
 
-## Canonical assets
+## Assets
 
 | Asset | Purpose |
 |---|---|
-| [`pitty-tail-icon.svg`](images/pitty-tail-icon.svg) | Canonical monochrome vector mark for light backgrounds |
-| [`pitty-tail-icon-dark.svg`](images/pitty-tail-icon-dark.svg) | Light rendering for dark backgrounds |
-| [`pitty-terminal-preview.svg`](images/pitty-terminal-preview.svg) | Documentation preview of the terminal-cell adaptation |
-| [`src/ui/logo.tsx`](../src/ui/logo.tsx) | OpenTUI component used inside PiTTy |
+| [`pitty-tail-icon.svg`](images/pitty-tail-icon.svg) | Smooth canonical icon for light backgrounds |
+| [`pitty-tail-icon-dark.svg`](images/pitty-tail-icon-dark.svg) | Smooth icon for dark backgrounds |
+| [`pitty-terminal-mark.svg`](images/pitty-terminal-mark.svg) | Original double-line and dotted-curve mark for light documentation |
+| [`pitty-terminal-mark-dark.svg`](images/pitty-terminal-mark-dark.svg) | Original mark for dark documentation |
+| [`pitty-terminal-preview.svg`](images/pitty-terminal-preview.svg) | README/terminal-window composition using vector artwork, not terminal text |
+| [`src/ui/logo.tsx`](../src/ui/logo.tsx) | Portable OpenTUI character-cell approximation |
 
-The canonical artwork is the light-background SVG. The dark asset and terminal mark are derived renderings, not separate logo concepts.
+## Original terminal-mark design
 
-## Vector mark
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="images/pitty-terminal-mark-dark.svg">
+    <img src="images/pitty-terminal-mark.svg" width="300" alt="Original PiTTy double-line and dotted-curve PTY Tail mark">
+  </picture>
+</p>
+
+This is the design used in the README artwork. Its parallel lines and dotted curves are true SVG geometry, so documentation and raster exports can reproduce it exactly.
+
+## Smooth icon
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="images/pitty-tail-icon-dark.svg">
-    <img src="images/pitty-tail-icon.svg" width="220" alt="PiTTy PTY Tail vector mark">
+    <img src="images/pitty-tail-icon.svg" width="220" alt="Smooth PiTTy PTY Tail vector icon">
   </picture>
 </p>
 
-The SVG uses a transparent background, one rounded path, and two rounded-square endpoints. It contains no embedded raster image, external font, or JavaScript.
+The smooth icon is useful at small application-icon sizes. It uses one rounded path and two rounded-square endpoints with a transparent background.
 
-## Terminal mark
+## Terminal UI approximation
 
-OpenTUI renders terminal cells rather than SVG paths. PiTTy therefore uses a cell-safe interpretation built from Unicode box-drawing characters and two solid endpoint squares:
+OpenTUI renders fixed character cells rather than arbitrary SVG paths. The exact design therefore cannot be guaranteed pixel-for-pixel in every terminal and font without relying on terminal-specific image protocols such as Kitty graphics or Sixel.
 
-```text
-■────╮
-     ╰────────╮
-              │
-       ╭──────╯
-      ╭╯
-      ╰──╮
-■────────╯
-     PiTTy
-```
-
-A compact variant is used when the dashboard has less room:
+PiTTy instead combines the double-line box-drawing glyph `═` with Braille cells for the dotted bends. This is much closer to the original mock while remaining ordinary Unicode text:
 
 ```text
-■───╮
-    ╰────╮
-         │
-    ╭────╯
-    ╰─╮
-■─────╯
-  PiTTy
+■ ═══════════════════⠒⠒⣄
+                        ⠈⢆
+                          ⢸
+                        ⢀⠎
+        ⡠⠔⠒══════════════
+      ⢠⠋
+     ⡎
+     ⠱⡀
+       ⠱⡀
+         ⠱⡀
+           ⠑⢄
+■ ═════════⠒⠒⠉
+            PiTTy
 ```
 
-Very constrained terminals show only the `PiTTy` wordmark. This is preferable to clipping or changing terminal cell alignment.
+A shorter variant is used when dashboard space is limited. Very constrained terminals display only `PiTTy`, avoiding clipping and broken cell alignment.
 
 <p align="center">
-  <img src="images/pitty-terminal-preview.svg" width="760" alt="PiTTy terminal logo preview">
+  <img src="images/pitty-terminal-preview.svg" width="760" alt="PiTTy vector terminal preview">
 </p>
 
 ## Usage guidance
 
-- Preserve the aspect ratio and transparent background of the canonical SVG.
-- Use the dark asset on dark surfaces and the canonical asset on light surfaces.
-- Leave clear space around the mark of at least one endpoint width.
-- Do not place the mark inside a generic terminal-window icon; the PTY Tail should remain the identifying shape.
-- Do not replace the endpoint squares with circles or add a literal cat face.
 - Keep the wordmark capitalization exactly `PiTTy`.
-- In terminal UI, use the shared `Logo` component rather than copying glyph strings into other components.
+- Use the light or dark asset appropriate for the background.
+- Preserve the transparent background and original aspect ratio.
+- Leave clear space around the mark of at least one endpoint width.
+- Do not replace the square endpoints with circles or add a literal cat face.
+- Do not place the mark inside a generic terminal-window icon; the tail itself should remain the identifier.
+- In OpenTUI, import the shared `Logo` component rather than copying the glyph strings.
 
-## Exporting raster artwork
+## Raster and social-preview exports
 
-For release pages, package registries, or social previews, export a PNG from the canonical SVG rather than tracing a screenshot. Use a larger canvas with deliberate surrounding space for social-preview cards; do not stretch the square icon to a wide aspect ratio.
+Export PNG files directly from the SVG sources. For a wide social preview, place the mark on a deliberate 1280×640 composition with adequate clear space; do not stretch the square artwork.
 
-The GitHub repository avatar is inherited from the owning account and is not a PiTTy branding surface. A repository social preview can be configured separately from GitHub repository settings.
+GitHub repositories inherit the owner account avatar. PiTTy's repository branding should use README artwork and the separately configurable repository social preview, not a change to the owner's avatar.
