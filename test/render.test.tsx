@@ -74,6 +74,13 @@ describe("OpenTUI components", () => {
     for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(24);
   });
 
+  test("renders the wordmark-only logo variant", async () => {
+    const setup = await mount(() => <Logo wordmarkOnly />, 80, 8);
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("PiTTy");
+    expect(frame).not.toContain("■");
+  });
+
   test("renders the empty dashboard states and keeps constrained content inside the viewport", async () => {
     const choice: SessionChoice = { path: "/tmp/dashboard", id: "dashboard", name: "Dashboard work", modified: new Date(), messageCount: 2, firstMessage: "Dashboard work" };
     const states: SessionDiscoveryState[] = [

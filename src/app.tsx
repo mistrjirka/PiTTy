@@ -1033,7 +1033,6 @@ export function App(props: AppOptions) {
         else prompt?.focus();
         if (!props.openSessionSelector) void discoverCurrentSessions();
         await refreshState();
-        setStatus(state.isStreaming ? "working" : "ready");
       } catch (error) {
         props.logger.error("ui.start_failed", error);
         conversation.system(error instanceof Error ? error.message : String(error), "error");

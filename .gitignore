@@ -11,3 +11,4 @@ Thumbs.db
 .env.*
 !.env.example
 .pitty/
+.pi-subagents/
