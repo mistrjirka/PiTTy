@@ -35,6 +35,9 @@ export const wideLogoLines = [
   "  ▀▀▀▀▀▀                         ▀▀▀▀▀▀",
 ] as const;
 
+const emergencyWideLogoLines = ["■────╮", "■────╯"] as const;
+const emergencyCompactLogoLines = ["■───╮", "■───╯"] as const;
+
 export function logoCellWidth(lines: readonly string[]): number {
   return Math.max(0, ...lines.map((line) => [...line].length));
 }
@@ -60,6 +63,20 @@ export function Logo(props: LogoProps) {
 
   if (props.wordmarkOnly || dimensions().width < microLogo.length + 4) {
     return <text fg={colors.textBright} attributes={1}>PiTTy</text>;
+  }
+
+  // Preserve a two-row emergency mark at eight terminal rows or fewer. It is
+  // only used where neither the dashboard raster nor the micro lockup fits.
+  if (dimensions().height <= 8) {
+    const lines = props.compact ? emergencyCompactLogoLines : emergencyWideLogoLines;
+    return (
+      <box flexDirection="column" alignItems="center">
+        <For each={lines}>
+          {(line) => <text fg={colors.accent} attributes={1} wrapMode="none">{line}</text>}
+        </For>
+        <text fg={colors.textBright} attributes={1}>PiTTy</text>
+      </box>
+    );
   }
 
   const wideFits = !props.compact && hasRoom(wideLogoLines, dimensions(), 12);
