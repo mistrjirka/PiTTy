@@ -12,7 +12,7 @@ function shell(command: string, args: string[], env: NodeJS.ProcessEnv): Promise
 afterEach(async () => { await Promise.all(fixtures.splice(0).map((item) => rm(item, { recursive: true, force: true }))); });
 
 describe("POSIX installer executable fixture", () => {
-  test("stages into a spaced path, writes exact metadata, and skips installed plugin prompt", async () => {
+  test.skipIf(process.platform === "win32")("stages into a spaced path, writes exact metadata, and skips installed plugin prompt", async () => {
     const base = await mkdtemp(path.join(os.tmpdir(), "pitty-install-fixture-")); fixtures.push(base);
     const archiveRoot = path.join(base, "payload");
     await mkdir(path.join(archiveRoot, "bin", "node_modules"), { recursive: true });

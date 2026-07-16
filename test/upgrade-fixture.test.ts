@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, cp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -16,9 +16,11 @@ async function installRoot(base: string, name: string, marker: string, valid: bo
   await cp(launcher, path.join(root, "bin", "pitty.mjs"));
   await writeFile(path.join(root, "marker"), marker);
   if (valid) {
-    const bun = path.join(root, "node_modules", ".bin", "bun");
-    await writeFile(bun, `#!/bin/sh\nprintf '%s' new > "$PITTY_FIXTURE_MARKER"\n`);
-    await chmod(bun, 0o755);
+    const bun = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "bun.exe" : "bun");
+    await cp(process.execPath, bun);
+    if (process.platform !== "win32") await chmod(bun, 0o755);
+    await mkdir(path.join(root, "src"), { recursive: true });
+    await writeFile(path.join(root, "src", "index.tsx"), "import { writeFileSync } from 'node:fs';\nwriteFileSync(process.env.PITTY_FIXTURE_MARKER!, 'new');\n");
   }
   return root;
 }
@@ -26,7 +28,7 @@ afterEach(async () => { await Promise.all(temporary.splice(0).map((directory) =>
 
 describe("launcher pending activation fixture", () => {
   test("promotes pending and runs Bun from the new root", async () => {
-    const base = await (async () => { const value = await import("node:fs/promises").then(({ mkdtemp }) => mkdtemp(path.join(os.tmpdir(), "pitty-launcher-"))); temporary.push(value); return value; })();
+    const base = await mkdtemp(path.join(os.tmpdir(), "pitty-launcher-")); temporary.push(base);
     const root = await installRoot(base, "app", "old", true);
     const pending = await installRoot(base, "pending", "new", true);
     await cp(pending, `${root}.pending`, { recursive: true });
@@ -39,7 +41,7 @@ describe("launcher pending activation fixture", () => {
   });
 
   test("rejects invalid pending and preserves the old root", async () => {
-    const base = await (async () => { const value = await import("node:fs/promises").then(({ mkdtemp }) => mkdtemp(path.join(os.tmpdir(), "pitty-launcher-"))); temporary.push(value); return value; })();
+    const base = await mkdtemp(path.join(os.tmpdir(), "pitty-launcher-")); temporary.push(base);
     const root = await installRoot(base, "app", "old", true);
     const pending = await installRoot(base, "pending", "new", false);
     await rm(`${root}.pending`, { recursive: true, force: true }).catch(() => undefined);

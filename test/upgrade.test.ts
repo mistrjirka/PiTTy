@@ -25,8 +25,9 @@ describe("upgrade contracts", () => {
     const metadata = legacyInstallMetadata("/tmp/pitty", "0.3.3");
     expect(metadata.pluginMode).toBe("ask");
     expect(metadataForUpgrade(undefined, "/tmp/pitty").installDirectory).toBe("/tmp/pitty");
-    expect(legacyInstallMetadata("/tmp/pitty", "0.3.3", "repo", { HOME: "/home/test" }).binDirectory).toBe("/home/test/.local/bin");
-    expect(legacyInstallMetadata("/tmp/pitty", "0.3.3", "repo", { PITTY_BIN_DIR: "/custom/bin", HOME: "/home/test" }).binDirectory).toBe("/custom/bin");
+    expect(legacyInstallMetadata("/tmp/pitty", "0.3.3", "repo", { HOME: "/home/test" }, "linux").binDirectory).toBe("/home/test/.local/bin");
+    expect(legacyInstallMetadata("C:\\Program Files\\PiTTy\\app", "0.3.3", "repo", {}, "win32").binDirectory).toBe("C:\\Program Files\\PiTTy\\bin");
+    expect(legacyInstallMetadata("/tmp/pitty", "0.3.3", "repo", { PITTY_BIN_DIR: "/custom/bin", HOME: "/home/test" }, "linux").binDirectory).toBe("/custom/bin");
     expect(isInstallMetadata(metadata)).toBe(true);
     expect(isInstallMetadata({ ...metadata, schemaVersion: 2 })).toBe(false);
   });
