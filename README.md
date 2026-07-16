@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/pitty-terminal-mark-dark.svg">
-    <img src="docs/images/pitty-terminal-mark.svg" width="250" alt="PiTTy terminal PTY Tail logo">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/pitty-logo-dark.svg">
+    <img src="docs/images/pitty-logo.svg" width="320" alt="PiTTy bracket-pi logo: [> π <]">
   </picture>
 </p>
 
@@ -74,13 +74,13 @@ node bin/pitty.mjs
 
 PiTTy is an independent frontend for the [Pi coding agent](https://github.com/earendil-works/pi). It keeps Pi's authentication, providers, models, sessions, tools, skills, prompt templates, and extensions while replacing Pi's built-in interactive terminal interface with a scrollable and inspectable OpenTUI application.
 
-It starts directly in the normal chat. An empty conversation shows a passive dashboard with the PTY Tail mark, common commands, and recent sessions while the prompt remains focused and writable.
+It starts directly in the normal chat. An empty conversation shows a passive dashboard with the scalable **`[> π <]`** mark, common commands, and recent sessions while the prompt remains focused and writable.
 
 <p align="center">
-  <img src="docs/images/pitty-terminal-preview.svg" width="760" alt="PiTTy terminal-native PTY Tail logo preview">
+  <img src="docs/images/pitty-terminal-preview.svg" width="760" alt="PiTTy half-block terminal rendering of the [> π <] logo">
 </p>
 
-The README artwork is a real SVG image matching the original double-line and dotted-curve design. The terminal UI uses the closest portable Unicode approximation because OpenTUI renders character cells rather than arbitrary vector paths. Details and source assets are in [Branding](docs/BRANDING.md).
+The README uses exact SVG artwork. Inside OpenTUI, PiTTy displays a pre-rasterized monospaced rendering encoded with Unicode half blocks, with the compact `[> π <]` mark used when space is limited. Details and source assets are in [Branding](docs/BRANDING.md).
 
 ## Highlights
 
