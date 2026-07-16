@@ -1,7 +1,8 @@
 import type { KeyEvent, SelectRenderable, TextareaRenderable } from "@opentui/core";
-import { createMemo, createSignal, onMount } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import { colors } from "./theme.ts";
+import { createSearchableDialogFocus, handleSearchableDialogCancel } from "./searchable-dialog-focus.ts";
 
 export type ModelChoice = {
   provider: string;
@@ -58,8 +59,6 @@ export function normalizeModelChoices(values: unknown[]): ModelChoice[] {
   return models.sort((a, b) => a.provider.localeCompare(b.provider) || a.id.localeCompare(b.id));
 }
 
-type ModelSelectorFocus = "search" | "list";
-
 export function ModelSelectorDialog(props: {
   models: ModelChoice[];
   currentProvider?: string | undefined;
@@ -70,12 +69,6 @@ export function ModelSelectorDialog(props: {
   let select: SelectRenderable | undefined;
   let search: TextareaRenderable | undefined;
   const [query, setQuery] = createSignal("");
-  const [focusTarget, setFocusTarget] = createSignal<ModelSelectorFocus>("search");
-  let activeFocus: ModelSelectorFocus = "search";
-  const setActiveFocus = (next: ModelSelectorFocus) => {
-    activeFocus = next;
-    setFocusTarget(next);
-  };
   const filteredModels = createMemo(() => filterModelChoices(props.models, query()));
   const options = createMemo(() => filteredModels().map((model) => {
     const details = [
@@ -88,13 +81,8 @@ export function ModelSelectorDialog(props: {
       value: model,
     };
   }));
-  onMount(() => queueMicrotask(() => search?.focus()));
-  const cancelOnEscape = (event: KeyEvent) => {
-    if (event.name !== "escape") return;
-    event.preventDefault();
-    event.stopPropagation();
-    props.onCancel();
-  };
+  const focus = createSearchableDialogFocus({ getSearch: () => search, getList: () => select, getListLength: () => filteredModels().length });
+  const cancelOnEscape = (event: KeyEvent) => { handleSearchableDialogCancel(event, props.onCancel); };
 
   const selectedIndex = createMemo(() => {
     const index = filteredModels().findIndex((model) => model.provider === props.currentProvider && model.id === props.currentModelId);
@@ -103,18 +91,10 @@ export function ModelSelectorDialog(props: {
 
   useKeyboard((event) => {
     if (event.eventType === "release") return;
-    if (event.name === "escape") { event.preventDefault(); event.stopPropagation(); props.onCancel(); return; }
-    if ((event.name === "down" || event.name === "up") && activeFocus === "search" && filteredModels().length) {
-      event.preventDefault();
-      event.stopPropagation();
-      setActiveFocus("list");
-      queueMicrotask(() => { if (activeFocus === "list") select?.focus(); });
-      if (event.name === "up") select?.setSelectedIndex(Math.max(0, filteredModels().length - 1));
-      return;
-    }
+    if (handleSearchableDialogCancel(event, props.onCancel) || focus.onKeyDown(event)) return;
     if (event.name === "enter" || event.name === "return") {
       const models = filteredModels();
-      const model = models[activeFocus === "list" ? (select?.getSelectedIndex() ?? 0) : 0];
+      const model = models[focus.activeFocus() === "list" ? (select?.getSelectedIndex() ?? 0) : 0];
       if (model) {
         event.preventDefault();
         event.stopPropagation();
@@ -122,13 +102,6 @@ export function ModelSelectorDialog(props: {
       }
       return;
     }
-    if (event.name !== "tab") return;
-    event.preventDefault();
-    event.stopPropagation();
-    const next: ModelSelectorFocus = event.shift ? "search" : "list";
-    setActiveFocus(next);
-    if (next === "list") select?.focus();
-    else search?.focus();
   });
 
   return (
@@ -159,7 +132,7 @@ export function ModelSelectorDialog(props: {
       </box>
       <textarea
         ref={(value) => { search = value; }}
-        focused={focusTarget() === "search"}
+        focused={focus.focusTarget() === "search"}
         height={1}
         minHeight={1}
         maxHeight={1}
@@ -179,7 +152,7 @@ export function ModelSelectorDialog(props: {
         ref={(value) => { select = value; }}
         options={options()}
         selectedIndex={selectedIndex()}
-        focused={focusTarget() === "list"}
+        focused={focus.focusTarget() === "list"}
         height={Math.min(22, Math.max(5, options().length * 2))}
         backgroundColor={colors.panelRaised}
         focusedBackgroundColor={colors.panelRaised}

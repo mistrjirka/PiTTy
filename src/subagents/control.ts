@@ -11,7 +11,8 @@ function atomicJson(target: string, value: unknown): void {
 }
 
 function requireFileControl(run: SubagentRun): string {
-  if (run.control === "foreground" || !run.asyncDir) throw new Error("Foreground subagents do not support file control.");
+  if (run.control === "foreground") throw new Error("Foreground subagents are read-only; file control is unsupported.");
+  if (!run.asyncDir) throw new Error("File-control directory is missing.");
   return run.asyncDir;
 }
 

@@ -16,6 +16,7 @@ import { readSubagentConversation } from "./subagents/transcript.ts";
 import { pauseSubagent, steerSubagent, stopSubagent } from "./subagents/control.ts";
 import { ExtensionDialog } from "./ui/dialog.tsx";
 import { MessageView } from "./ui/message.tsx";
+import { PendingInputPanel, type LocalQueuedMessage } from "./ui/pending-input-panel.tsx";
 import { ModelSelectorDialog, normalizeModelChoices, type ModelChoice } from "./ui/model-selector.tsx";
 import { SessionSelector } from "./ui/session-selector.tsx";
 import { EmptyDashboard } from "./ui/empty-dashboard.tsx";
@@ -49,68 +50,10 @@ export type AppOptions = {
   openSessionSelector?: boolean;
 };
 
-type LocalQueuedMessage = {
-  id: string;
-  text: string;
-};
-
 const spinnerFrames = ["◐", "◓", "◑", "◒"] as const;
 const thinkingLevels = new Set(["minimal", "low", "medium", "high", "xhigh", "max"]);
 
 const LOGIN_GUIDANCE = "Sorry, login is not supported in PiTTy yet. Run `pi` and use /login there; your credentials will then be available to PiTTy.";
-
-export type PendingInputPanelProps = {
-  queuedFollowUps: readonly LocalQueuedMessage[];
-  steering: readonly string[];
-  followUps: readonly string[];
-  onEditQueuedFollowUp: (messageId: string) => void;
-};
-
-export function PendingInputPanel(props: PendingInputPanelProps) {
-  return (
-    <box
-      flexDirection="column"
-      paddingLeft={2}
-      paddingRight={2}
-      paddingTop={1}
-      paddingBottom={1}
-      flexShrink={0}
-      backgroundColor={colors.panelSoft}
-      border={["top"]}
-      borderColor={colors.borderStrong}
-    >
-      <text fg={colors.yellow} attributes={1}>Pending input</text>
-      <For each={props.queuedFollowUps}>
-        {(item, index) => (
-          <box
-            flexDirection="row"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              props.onEditQueuedFollowUp(item.id);
-            }}
-          >
-            <text fg={colors.text} selectable wrapMode="word">  {index() + 1}. editable later: {item.text}</text>
-            <box flexGrow={1} />
-            <text fg={colors.cyan}>click to edit</text>
-          </box>
-        )}
-      </For>
-      <Show when={props.steering.length || props.followUps.length}>
-        <text fg={colors.subtle}>Already sent to Pi — RPC cannot edit these:</text>
-      </Show>
-      <For each={props.steering}>
-        {(text) => <text fg={colors.muted} selectable wrapMode="word">  steering: {text}</text>}
-      </For>
-      <For each={props.followUps}>
-        {(text) => <text fg={colors.muted} selectable wrapMode="word">  follow-up: {text}</text>}
-      </For>
-      <Show when={props.queuedFollowUps.length}>
-        <text fg={colors.subtle}>Alt+Up edits the last editable local follow-up.</text>
-      </Show>
-    </box>
-  );
-}
 
 export type DetailToggleState = {
   toolsExpanded: boolean;
@@ -281,6 +224,7 @@ export function App(props: AppOptions) {
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let spinnerTimer: ReturnType<typeof setInterval> | undefined;
   let lastRunsDigest = "";
+  let sessionDiscoveryGeneration = 0;
   let lastCtrlC = 0;
   let flushingQueuedFollowUp = false;
 
@@ -816,11 +760,16 @@ export function App(props: AppOptions) {
   };
 
   const discoverCurrentSessions = async () => {
+    const generation = ++sessionDiscoveryGeneration;
     setSessionDiscovery({ kind: "loading" });
     try {
-      const choices = await discoverSessions(props.cwd, sessionState()?.sessionFile, (loaded, total) => setSessionDiscovery({ kind: "loading", progress: { loaded, total } }));
+      const choices = await discoverSessions(props.cwd, sessionState()?.sessionFile, (loaded, total) => {
+        if (generation === sessionDiscoveryGeneration) setSessionDiscovery({ kind: "loading", progress: { loaded, total } });
+      });
+      if (generation !== sessionDiscoveryGeneration) return;
       setSessionDiscovery(choices.length ? { kind: "success", choices } : { kind: "empty", choices: [] });
     } catch (error) {
+      if (generation !== sessionDiscoveryGeneration) return;
       setSessionDiscovery({ kind: "error", error: error instanceof Error ? error.message : String(error) });
     }
   };
@@ -1129,34 +1078,7 @@ export function App(props: AppOptions) {
       }
       return;
     }
-    if (sessionSelectorOpen()) {
-      if (pendingSession()) {
-        if (event.name === "escape" || event.name === "n") {
-          event.preventDefault();
-          setPendingSession(undefined);
-          return;
-        }
-        if (event.name === "enter" || event.name === "y") {
-          event.preventDefault();
-          void switchToSession(pendingSession()!);
-        }
-        return;
-      }
-      if (event.name === "escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        closeSessionSelector();
-      }
-      return;
-    }
-    if (modelSelectorOpen()) {
-      if (event.name === "escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        closeModelSelector();
-      }
-      return;
-    }
+    if (sessionSelectorOpen() || modelSelectorOpen()) return;
     if (promptMapOpen()) {
       if (event.name === "escape") {
         event.preventDefault();
@@ -1320,7 +1242,7 @@ export function App(props: AppOptions) {
       event.preventDefault();
       if (!subagentsAvailable()) return toast("Install pi-subagents to control child agents", "info", 5000);
       const run = selectedSubagent();
-      if (!run || run.state !== "running") return toast("No running subagent selected", "warning");
+      if (!run || run.control === "foreground" || run.state !== "running") return toast("No running file-controlled subagent selected", "warning");
       try {
         pauseSubagent(run);
         props.logger.info("subagent.pause_requested", { runId: run.runId, agent: run.agent, pid: run.pid });
@@ -1335,7 +1257,7 @@ export function App(props: AppOptions) {
       event.preventDefault();
       if (!subagentsAvailable()) return toast("Install pi-subagents to control child agents", "info", 5000);
       const run = selectedSubagent();
-      if (!run || (run.state !== "running" && run.state !== "queued")) return toast("No active subagent selected", "warning");
+      if (!run || run.control === "foreground" || (run.state !== "running" && run.state !== "queued")) return toast("No active file-controlled subagent selected", "warning");
       try {
         stopSubagent(run);
         props.logger.info("subagent.stop_requested", { runId: run.runId, agent: run.agent, pid: run.pid });

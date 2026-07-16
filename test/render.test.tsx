@@ -19,7 +19,8 @@ import { Logo } from "../src/ui/logo.tsx";
 import { shouldShowEmptyDashboard } from "../src/app.tsx";
 import type { SessionChoice, SessionDiscoveryState } from "../src/sessions.ts";
 import { deriveTodos } from "../src/ui/todos.tsx";
-import { nextDetailToggle, PendingInputPanel } from "../src/app.tsx";
+import { nextDetailToggle } from "../src/app.tsx";
+import { PendingInputPanel } from "../src/ui/pending-input-panel.tsx";
 import { appVersion } from "../src/version.ts";
 
 registerBundledParsers();
