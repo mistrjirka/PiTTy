@@ -1,23 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
-  <title id="title">PiTTy terminal logo preview</title>
-  <desc id="desc">A terminal-window preview using the same Unicode glyph composition as PiTTy's OpenTUI logo component.</desc>
+  <title id="title">PiTTy terminal PTY Tail preview</title>
+  <desc id="desc">A terminal-window composition using the original double-line and dotted-curve PTY Tail design.</desc>
   <rect width="960" height="520" rx="28" fill="#09090B"/>
   <rect x="1" y="1" width="958" height="518" rx="27" fill="none" stroke="#27272A" stroke-width="2"/>
   <circle cx="42" cy="38" r="8" fill="#F87171"/>
   <circle cx="68" cy="38" r="8" fill="#FACC15"/>
   <circle cx="94" cy="38" r="8" fill="#4ADE80"/>
-  <text x="130" y="47" fill="#71717A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="20">pitty — empty chat</text>
+  <text x="130" y="47" fill="#71717A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20">pitty — empty chat</text>
 
-  <g xml:space="preserve" fill="#60A5FA" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="31" font-weight="600">
-    <text x="300" y="115">■────╮</text>
-    <text x="300" y="151">     ╰────────╮</text>
-    <text x="300" y="187">              │</text>
-    <text x="300" y="223">       ╭──────╯</text>
-    <text x="300" y="259">      ╭╯</text>
-    <text x="300" y="295">      ╰──╮</text>
-    <text x="300" y="331">■────────╯</text>
+  <g transform="translate(260 65) scale(1.25)" stroke="#60A5FA" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M66 46H214"/>
+    <path d="M66 54H210"/>
+    <path d="M214 46C245 46 256 65 256 91C256 118 246 136 214 136" stroke-dasharray="0.1 10"/>
+    <path d="M210 54C234 54 246 69 246 91C246 113 236 128 210 128" stroke-dasharray="0.1 10"/>
+    <path d="M214 136H122"/>
+    <path d="M210 128H122"/>
+    <path d="M122 128C92 128 84 143 88 157C93 174 119 176 127 191C135 207 127 224 105 230" stroke-dasharray="0.1 10"/>
+    <path d="M122 136C101 136 96 146 99 155C103 165 124 170 134 186C145 203 139 225 112 238" stroke-dasharray="0.1 10"/>
+    <path d="M112 238H66"/>
+    <path d="M105 230H66"/>
+    <rect x="34" y="31" width="32" height="32" rx="2" fill="#60A5FA" stroke="none"/>
+    <rect x="34" y="218" width="32" height="32" rx="2" fill="#60A5FA" stroke="none"/>
   </g>
 
-  <text x="480" y="401" text-anchor="middle" fill="#FAFAFA" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="46" font-weight="700">PiTTy</text>
-  <text x="480" y="443" text-anchor="middle" fill="#71717A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace" font-size="20">terminal-native frontend for Pi</text>
+  <text x="480" y="430" text-anchor="middle" fill="#FAFAFA" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="46" font-weight="700">PiTTy</text>
+  <text x="480" y="470" text-anchor="middle" fill="#71717A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20">terminal-native frontend for Pi</text>
 </svg>
