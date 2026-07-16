@@ -70,6 +70,58 @@ node bin/pitty.mjs
 
 </details>
 
+## FAQ
+
+<details>
+<summary><strong>Is PiTTy a regular Pi extension or an alias for <code>pi -e pitty</code>?</strong></summary>
+
+No. `pitty` starts a separate OpenTUI frontend and launches the installed Pi CLI using `--mode rpc`. Pi owns the agent runtime; PiTTy owns the terminal interface.
+
+</details>
+
+<details>
+<summary><strong>How was PiTTy built, and is its UI declarative/reactive?</strong></summary>
+
+PiTTy is written in TypeScript using OpenTUI's SolidJS binding and runs with a local Bun runtime. The UI is composed in JSX and updates through Solid signals, so it uses a declarative, fine-grained reactive model rather than manually redrawing component trees.
+
+</details>
+
+<details>
+<summary><strong>Why was this not built as a regular Pi extension?</strong></summary>
+
+Pi extensions can replace headers, footers, widgets and editors, add overlays, and render extension-owned tools and messages. They do not currently expose a supported hook to replace Pi's whole root layout or every built-in transcript row.
+
+PiTTy needs control of the full screen for its fixed editor, independently scrollable and windowed transcript, persistent side panels, separate subagent conversations, and global focus and mouse behavior. Fixed-editor and scrolling extensions improve Pi's existing TUI; PiTTy replaces the frontend.
+
+</details>
+
+<details>
+<summary><strong>Does PiTTy interfere with the normal Pi installation?</strong></summary>
+
+No. PiTTy installs separately and does not replace the `pi` executable. It intentionally shares Pi's configuration, credentials, models, extensions and sessions, so `pi` and `pitty` can be used alongside each other.
+
+The installer can optionally install `pi-subagents` and `@juicesharp/rpiv-todo` through `pi install`; this can be skipped with `--without-plugins`. Uninstalling PiTTy does not uninstall Pi or those packages.
+
+</details>
+
+<details>
+<summary><strong>Does PiTTy support existing Pi extensions, and what is currently unsupported?</strong></summary>
+
+The goal is to support Pi's existing extension ecosystem rather than create an incompatible replacement. PiTTy currently supports commands, tools, prompt templates, skills, notifications, status updates, textual widgets, editor prefilling, and standard select, confirm, input and editor dialogs exposed through RPC.
+
+Arbitrary `pi-tui` component trees are not serialized through RPC, so extension-owned custom renderers, headers, footers, editors, overlays and autocomplete UIs cannot yet appear exactly as they do in Pi. Their commands and tools generally still work through PiTTy's generic rendering. Native interactive `/login` must also currently be completed in regular Pi.
+
+</details>
+
+<details>
+<summary><strong>Does PiTTy have its own UI plugin API?</strong></summary>
+
+Not yet. PiTTy has internal adapters for `pi-subagents` and `rpiv-todo`, but it does not expose a stable third-party UI API for adding panels or renderers.
+
+Creating a second incompatible plugin ecosystem is not the goal. The initial priority was stabilizing the frontend and supporting the Pi extensions used during development. Future work should prefer compatibility with original Pi extensions and add adapters only where RPC does not carry enough UI structure.
+
+</details>
+
 ## What PiTTy is
 
 PiTTy is an independent frontend for the [Pi coding agent](https://github.com/earendil-works/pi). It keeps Pi's authentication, providers, models, sessions, tools, skills, prompt templates, and extensions while replacing Pi's built-in interactive terminal interface with a scrollable and inspectable OpenTUI application.
