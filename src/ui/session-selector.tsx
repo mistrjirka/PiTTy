@@ -1,5 +1,5 @@
 import type { KeyEvent, SelectRenderable, TextareaRenderable } from "@opentui/core";
-import { createMemo, createSignal, onMount } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import { filterSessionChoices, type SessionChoice, type SessionDiscoveryState } from "../sessions.ts";
 import { colors } from "./theme.ts";

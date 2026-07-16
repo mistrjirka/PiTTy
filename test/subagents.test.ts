@@ -75,6 +75,18 @@ describe("subagent controls", () => {
     expect(JSON.parse(fs.readFileSync(path.join(target.asyncDir!, "control", "timeout.json"), "utf8")).type).toBe("timeout");
   });
 
+  test("rejects all file controls for foreground runs without writing", () => {
+    const target: SubagentRun = { runId: "foreground", control: "foreground", mode: "single", state: "running", steps: [] };
+    expect(() => pauseSubagent(target)).toThrow("read-only; file control is unsupported");
+    expect(() => stopSubagent(target)).toThrow("read-only; file control is unsupported");
+    expect(() => steerSubagent(target, "focus on tests")).toThrow("read-only; file control is unsupported");
+  });
+
+  test("reports a missing file-control directory separately", () => {
+    const target: SubagentRun = { runId: "missing-dir", mode: "single", state: "running", steps: [] };
+    expect(() => pauseSubagent(target)).toThrow("File-control directory is missing");
+  });
+
   test("writes a steer request", () => {
     const target = run();
     steerSubagent(target, "focus on tests", 0);
