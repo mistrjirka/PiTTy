@@ -2,7 +2,7 @@
 
 [← Back to README](../README.md) · [Documentation index](README.md)
 
-PiTTy's mark is **`[> π <]`**: two terminal brackets contain inward prompt chevrons and a centered pi symbol. The tiny mark reads naturally in a command line, while the same geometry scales into a full repository logo.
+PiTTy's mark is **`[> π <]`**: two terminal brackets contain inward prompt chevrons and a centered asymmetric pi symbol. The left `π` leg is straight, the right leg curls outward, and equal clear space separates the chevrons from the center mark. The tiny form reads naturally in a command line while the same geometry scales into a full repository logo.
 
 ## Canonical assets
 
@@ -16,7 +16,7 @@ PiTTy's mark is **`[> π <]`**: two terminal brackets contain inward prompt chev
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="images/pitty-logo-dark.svg">
-    <img src="images/pitty-logo.svg" width="420" alt="PiTTy bracket-pi logo: [> π <]">
+    <img src="images/pitty-logo.svg" width="420" alt="PiTTy asymmetric bracket-pi logo: [> π <]">
   </picture>
 </p>
 
@@ -30,18 +30,18 @@ The micro mark is plain Unicode:
 [> π <]
 ```
 
-For the empty dashboard, PiTTy uses larger pre-rasterized versions. The complete string `[> π <]` was typeset as one unit in DejaVu Sans Mono Bold so both spaces around `π` remain equal. Its bitmap is stored directly in the source using the standard block elements:
+For the empty dashboard, PiTTy rasterizes the canonical vector geometry into a binary pixel grid and packs two vertical pixels into each terminal cell using the standard block elements:
 
 - `▀` — upper half
 - `▄` — lower half
 - `█` — both halves
 
-This avoids dependence on Braille shapes, combining characters, or a bundled font. PiTTy currently ships:
+The vector-derived raster preserves the wider chevron spacing and the asymmetric `π`: a straight left leg and curled right leg. It avoids dependence on Braille shapes, combining characters, or a bundled font. PiTTy currently ships:
 
 | Variant | Cell size | Intended use |
 |---|---:|---|
-| Compact raster | 85 × 10 | Normal empty dashboard |
-| Wide raster | 118 × 14 | Large terminal |
+| Compact raster | 32 × 8 | Normal empty dashboard |
+| Wide raster | 41 × 12 | Large terminal |
 | Micro mark | 7 × 1 | Narrow or short terminal |
 | Wordmark | 5 × 1 | Extremely constrained dashboard |
 
@@ -49,11 +49,10 @@ This avoids dependence on Braille shapes, combining characters, or a bundled fon
   <img src="images/pitty-terminal-preview.svg" width="760" alt="PiTTy compact half-block terminal logo preview">
 </p>
 
-An emergency two-row geometric mark remains available only for terminals eight rows tall or shorter, where the normal dashboard cannot fit.
-
 ## Usage guidance
 
 - Keep the exact ordering and spacing of `[> π <]`.
+- Preserve the asymmetric `π`: straight left leg, curled right leg.
 - Keep the capitalization exactly `PiTTy`.
 - Use the canonical dark asset on light surfaces and the blue dark-mode asset on dark surfaces.
 - Preserve clear space around the icon of at least the width of one chevron.
