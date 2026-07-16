@@ -4,6 +4,14 @@ import { PiRpcClient } from "../src/rpc/pi-rpc-client.ts";
 import type { PiEvent } from "../src/types.ts";
 
 const clients: PiRpcClient[] = [];
+async function rejectionMessage(promise: Promise<unknown>): Promise<string> {
+  try {
+    await promise;
+    return "";
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
 afterEach(async () => {
   for (const client of clients.splice(0)) await client.stop();
 });
@@ -43,7 +51,7 @@ describe("PiRpcClient", () => {
     await client.start();
     expect(await client.switchSession("/tmp/next-session.jsonl")).toEqual({ cancelled: false });
     expect(await client.switchSession("cancel")).toEqual({ cancelled: true });
-    await expect(client.switchSession("unsupported")).rejects.toThrow("Unknown command: switch_session");
-    await expect(client.switchSession("failed")).rejects.toThrow("Session file not found");
+    expect(await rejectionMessage(client.switchSession("unsupported"))).toContain("Unknown command: switch_session");
+    expect(await rejectionMessage(client.switchSession("failed"))).toContain("Session file not found");
   });
 });
