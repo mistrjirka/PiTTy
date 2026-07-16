@@ -37,7 +37,8 @@ try {
   Write-Host "Downloading PiTTy $Ver..."
   try { Invoke-WebRequest -Uri $Url -OutFile $Archive -UseBasicParsing } catch { Fail "Download failed: $Url`n$($_.Exception.Message)" }
   try { $Checksums = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/download/$Tag/SHA256SUMS" -UseBasicParsing } catch { Fail "Release checksum could not be downloaded; refusing to install without verification. $($_.Exception.Message)" }
-  $ExpectedLine = ($Checksums.Content -split "`n" | Where-Object { $_ -match [regex]::Escape($Asset) } | Select-Object -First 1)
+  $ChecksumContent = if ($Checksums.Content -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($Checksums.Content) } else { $Checksums.Content }
+  $ExpectedLine = ($ChecksumContent -split "`n" | Where-Object { $_ -match [regex]::Escape($Asset) } | Select-Object -First 1)
   if (-not $ExpectedLine) { Fail "SHA256SUMS did not contain $Asset" }
   $Expected = ($ExpectedLine -split "\s+")[0].ToLowerInvariant()
   $Hasher = [System.Security.Cryptography.SHA256]::Create()
