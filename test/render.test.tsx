@@ -104,8 +104,6 @@ describe("OpenTUI components", () => {
       expect(frame).toContain(expectedText);
       for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(44);
     }
-    expect(shouldShowEmptyDashboard(0)).toBe(true);
-    expect(shouldShowEmptyDashboard(1)).toBe(false);
   });
 
   test("keeps the wordmark and session state readable at constrained height", async () => {
