@@ -12,13 +12,31 @@ export type EmptyDashboardProps = {
 const commonCommands = ["/help", "/sessions", "/new", "/model"];
 
 export function EmptyDashboard(props: EmptyDashboardProps) {
-  const compact = props.width !== undefined && props.width < 60;
   const constrainedHeight = props.height !== undefined && props.height <= 12;
+  const compact = (props.width !== undefined && props.width < 60)
+    || (props.height !== undefined && props.height < 20);
+  const visibleSessionCount = constrainedHeight ? 2 : compact ? 4 : 5;
+
   return (
-    <box width="100%" flexDirection="column" alignItems="center" paddingTop={constrainedHeight ? 0 : 1} paddingBottom={1}>
+    <box
+      width="100%"
+      flexDirection="column"
+      alignItems="center"
+      paddingTop={constrainedHeight || compact ? 0 : 1}
+      paddingBottom={1}
+    >
       <Logo compact={compact} wordmarkOnly={constrainedHeight} />
       <text fg={colors.muted} wrapMode="none">{commonCommands.join("  ·  ")}</text>
-      <box width="100%" maxWidth={72} minHeight={constrainedHeight ? 3 : 7} marginTop={constrainedHeight ? 0 : 1} paddingLeft={1} paddingRight={1} border borderColor={colors.border}>
+      <box
+        width="100%"
+        maxWidth={72}
+        minHeight={constrainedHeight ? 3 : compact ? 5 : 7}
+        marginTop={constrainedHeight || compact ? 0 : 1}
+        paddingLeft={1}
+        paddingRight={1}
+        border
+        borderColor={colors.border}
+      >
         {(() => {
           const state = props.sessionState;
           if (state.kind === "loading") {
@@ -36,7 +54,7 @@ export function EmptyDashboard(props: EmptyDashboardProps) {
           return (
             <box flexDirection="column" width="100%">
               <text fg={colors.subtle}>Recent sessions</text>
-              {state.choices.slice(0, constrainedHeight ? 2 : 5).map((choice) => (
+              {state.choices.slice(0, visibleSessionCount).map((choice) => (
                 <box
                   id={`dashboard-session-${choice.id}`}
                   width="100%"
