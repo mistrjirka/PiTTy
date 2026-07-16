@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Refined the terminal-native PTY Tail mark with responsive wide, compact, and wordmark-only variants.
-- Added light/dark canonical logo assets and a documentation preview that matches the glyphs rendered by OpenTUI.
+- Added exact light/dark SVGs of the original double-line and dotted-curve design plus a closer Unicode/Braille terminal approximation.
 - Reworked the README around the standard installer and added dedicated usage, branding, and documentation-index pages.
 
 ## 0.3.3
