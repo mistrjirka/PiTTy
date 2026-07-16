@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Replaced the provisional PTY Tail artwork with the scalable `[> π <]` bracket-pi mark.
-- Added exact light/dark SVG assets plus responsive half-block terminal rasters with equal spacing around the enlarged `π`.
+- Added exact light/dark SVG assets and responsive vector-derived half-block rasters with wider chevron spacing, a straight left `π` leg, and a curled right leg.
 - Reworked the README around the standard installer and added dedicated usage, branding, and documentation-index pages.
 
 ## 0.3.3
