@@ -4,7 +4,7 @@
 
 - Continue the planned 0.4.0 release, but remove its blocking welcome screen.
 - Plain PiTTy startup must open the normal, immediately writable chat. A refined PiTTy logo replaces the welcome screen only as a passive empty-transcript state.
-- The supplied `pitty_tail_icon.svg` is the canonical visual source. Its terminal rendering must be a refined glyph logo rather than direct SVG rendering or the current Minecraft-like proof-of-concept.
+- Replace the provisional tail artwork with PR #2's asymmetric `[> π <]` bracket-pi identity. Use exact light/dark SVG assets in repository documentation and responsive half-block, micro-mark, or wordmark variants in the terminal.
 - Keep `/resume` as the in-application route to browse and switch sessions.
 
 ## Approved chat interaction requirements
@@ -24,7 +24,7 @@
 
 ## Repository branding
 
-- Commit the supplied SVG as a repository asset.
+- Commit the bracket-pi light/dark SVGs and terminal preview as repository assets; remove the superseded tail icon.
 - Configure a GitHub social preview before public announcement; do not change the `mistrjirka` account avatar without separate approval.
 - The current environment is not authenticated with `gh`; repository settings cannot be changed until the owner authenticates or supplies an appropriate token.
 
@@ -42,7 +42,7 @@
 ## Approved completion scope
 
 - Implement the full remaining update and upgrade path: cached startup notification, `pitty upgrade --check`, explicit-version upgrade, POSIX and PowerShell staged replacement with rollback, and local-fixture installer coverage.
-- Parallel subagents must retain stable launch/index order in both sidebar and tool-call displays; changing activity timestamps must not reorder them.
+- Subagent lists group active agents above inactive agents. A row may move when its active state changes, but launch/index order remains stable within each group and changing activity timestamps never reorders peers.
 - Each subagent display must show compact last-activity information without clipping the existing state or agent label.
 - When slash-command suggestions are visible, unmodified Enter accepts the highlighted suggestion; a subsequent Enter executes the completed command.
 - Ctrl+C clears a nonempty prompt draft and retains it in session-local input history; when the draft is empty, existing stream-abort and exit behavior remains unchanged.

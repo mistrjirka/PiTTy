@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.1
+
+- Added the asymmetric bracket-Pi logo and refreshed logo assets with rebuilt documentation.
+- Authoritative deleted todo snapshots no longer leave tombstones in the todo view.
+- Bounded slash-command suggestions stay above the prompt and keep the keyboard-selected row visible.
+- Short queued/sent input states retain enough height to avoid unnecessary scrolling and highlighted-text overlap.
+- Grouped active subagents first, preserving stable launch/index order within groups; activity timestamps are display-only.
+
+## 0.4.0
+
+- Added update checks and staged, rollback-safe upgrades, plus safer cross-platform installers and CI coverage.
+- Added prompt controls and history, stable streaming/renderables, searchable session browsing and switching, and subagent metadata, activity, and ordering improvements.
+
 ## 0.3.3
 
 - Added a non-blocking empty dashboard with terminal-safe branding and recent sessions.

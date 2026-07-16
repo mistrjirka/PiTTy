@@ -18,6 +18,7 @@ export function PendingInputPanel(props: PendingInputPanelProps) {
     <box
       flexDirection="column"
       maxHeight={9}
+      minHeight={5}
       flexShrink={1}
       paddingLeft={2}
       paddingRight={2}
@@ -30,6 +31,7 @@ export function PendingInputPanel(props: PendingInputPanelProps) {
       <text fg={colors.yellow} attributes={1}>Pending input</text>
       <scrollbox
         flexGrow={1}
+        height={4}
         minHeight={1}
         maxHeight={4}
         focusable={false}

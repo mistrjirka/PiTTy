@@ -120,10 +120,10 @@ describe("subagent controls", () => {
       { index: 1, agent: "implementer", status: "running", sessionFile: "/tmp/implementer-session.jsonl", transcriptPath: "/tmp/implementer.jsonl" },
     ];
     const targets = subagentTargets([target]);
-    expect(targets.map((item) => item.key)).toEqual(["run-1:0", "run-1:1"]);
-    expect(targets[1]?.label).toBe("implementer #2");
-    expect(targets[1]?.canSteer).toBe(true);
-    expect(targets[0]?.canSteer).toBe(false);
+    expect(targets.map((item) => item.key)).toEqual(["run-1:1", "run-1:0"]);
+    expect(targets[0]?.label).toBe("implementer #2");
+    expect(targets[0]?.canSteer).toBe(true);
+    expect(targets[1]?.canSteer).toBe(false);
   });
 
   test("keeps same-start parallel runs grouped and index ordered", () => {
@@ -135,6 +135,37 @@ describe("subagent controls", () => {
       { index: 0, agent: "b0", status: "running", lastActivityAt: 8_000 },
       { index: 1, agent: "b1", status: "completed", lastActivityAt: 2_000 },
     ];
+    expect(subagentTargets([first, second]).map((target) => target.key)).toEqual(["run-a:1", "run-b:0", "run-a:0", "run-b:1"]);
+  });
+
+  test("groups active targets first and keeps stable launch order despite activity updates", () => {
+    const first = run(); first.runId = "run-a"; first.startedAt = 1_000; first.steps = [
+      { index: 0, agent: "a0", status: "running", lastActivityAt: 9_000 },
+      { index: 1, agent: "a1", status: "running", lastActivityAt: 1_000 },
+    ];
+    const second = run(); second.runId = "run-b"; second.startedAt = 2_000; second.steps = [
+      { index: 0, agent: "b0", status: "completed", lastActivityAt: 8_000 },
+      { index: 1, agent: "b1", status: "completed", lastActivityAt: 2_000 },
+    ];
+    const before = subagentTargets([first, second]).map((target) => target.key);
+    first.steps[0]!.lastActivityAt = 100;
+    first.steps[1]!.lastActivityAt = 100_000;
+    second.steps[0]!.lastActivityAt = 100;
+    second.steps[1]!.lastActivityAt = 100_000;
+    expect(subagentTargets([first, second]).map((target) => target.key)).toEqual(before);
+  });
+
+  test("moves a target between groups when its active state changes", () => {
+    const first = run(); first.runId = "run-a"; first.startedAt = 1_000; first.steps = [
+      { index: 0, agent: "a0", status: "running" },
+      { index: 1, agent: "a1", status: "completed" },
+    ];
+    const second = run(); second.runId = "run-b"; second.startedAt = 2_000; second.steps = [
+      { index: 0, agent: "b0", status: "running" },
+      { index: 1, agent: "b1", status: "completed" },
+    ];
+    expect(subagentTargets([first, second]).map((target) => target.key)).toEqual(["run-a:0", "run-b:0", "run-a:1", "run-b:1"]);
+    first.steps[1]!.status = "running";
     expect(subagentTargets([first, second]).map((target) => target.key)).toEqual(["run-a:0", "run-a:1", "run-b:0", "run-b:1"]);
   });
 

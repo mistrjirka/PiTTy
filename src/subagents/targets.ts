@@ -201,6 +201,7 @@ export function subagentTargets(runs: readonly SubagentRun[], tools: readonly To
     }
   }
   return [...deduped.values()].sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
     const runStart = (a.run.startedAt ?? Number.MAX_SAFE_INTEGER) - (b.run.startedAt ?? Number.MAX_SAFE_INTEGER);
     if (runStart) return runStart;
     const runIdentity = a.run.runId.localeCompare(b.run.runId);

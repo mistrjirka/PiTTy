@@ -1,3 +1,5 @@
+import { useTerminalDimensions } from "@opentui/solid";
+import { For } from "solid-js";
 import { colors } from "./theme.ts";
 
 export type LogoProps = {
@@ -5,15 +7,79 @@ export type LogoProps = {
   wordmarkOnly?: boolean;
 };
 
-/** A terminal-safe PiTTy mark; the square endpoints remain distinct at small widths. */
+export const microLogo = "[> π <]";
+
+export const compactLogoLines = [
+  "▄███████                ███████▄",
+  "███           ▄▄▄▄           ███",
+  "███     ██▄  ▀████▀  ▄██     ███",
+  "███      ▀██▄ ████ ▄██▀      ███",
+  "███      ▄██▀ ████ ▀██▄      ███",
+  "███     ██▀   ████▄  ▀██     ███",
+  "███           ▀▀ ▀▀          ███",
+  "▀███████                ███████▀",
+] as const;
+
+export const wideLogoLines = [
+  "  ▄▄▄▄▄▄                         ▄▄▄▄▄▄",
+  "█████████▀                     ▀█████████",
+  "███                                   ███",
+  "███       ▄▄▄    ███████    ▄▄▄       ███",
+  "███       ▀███▄   ██▀██   ▄███▀       ███",
+  "███         ▀███▄ ██ ██ ▄███▀         ███",
+  "███         ▄███▀ ██ ██ ▀███▄         ███",
+  "███       ▄███▀   ██ ██   ▀███▄       ███",
+  "███       ▀▀▀     ██ ▀███   ▀▀▀       ███",
+  "███                                   ███",
+  "█████████▄                     ▄█████████",
+  "  ▀▀▀▀▀▀                         ▀▀▀▀▀▀",
+] as const;
+
+export function logoCellWidth(lines: readonly string[]): number {
+  return Math.max(0, ...lines.map((line) => [...line].length));
+}
+
+function hasRoom(
+  lines: readonly string[],
+  dimensions: { width: number; height: number },
+  reservedRows: number,
+): boolean {
+  return dimensions.width >= logoCellWidth(lines) + 4
+    && dimensions.height >= lines.length + reservedRows;
+}
+
+/** Responsive terminal rendering of PiTTy's asymmetric [> π <] mark. */
 export function Logo(props: LogoProps) {
-  if (props.wordmarkOnly) {
+  const dimensions = useTerminalDimensions();
+
+  if (props.wordmarkOnly || dimensions().width < microLogo.length + 4) {
     return <text fg={colors.textBright} attributes={1}>PiTTy</text>;
   }
+
+  const wideFits = !props.compact && hasRoom(wideLogoLines, dimensions(), 12);
+  const compactFits = hasRoom(compactLogoLines, dimensions(), 8);
+  const lines = wideFits
+    ? wideLogoLines
+    : compactFits
+      ? compactLogoLines
+      : undefined;
+
+  if (!lines) {
+    return (
+      <box flexDirection="column" alignItems="center">
+        <text fg={colors.accent} attributes={1} wrapMode="none">{microLogo}</text>
+        <text fg={colors.textBright} attributes={1}>PiTTy</text>
+      </box>
+    );
+  }
+
   return (
-    <box flexDirection="column" alignItems="center" paddingTop={props.compact ? 0 : 1} paddingBottom={props.compact ? 0 : 1}>
-      <text fg={colors.accent} attributes={1}>{props.compact ? "■───╮" : "■────╮"}</text>
-      <text fg={colors.accent} attributes={1}>{props.compact ? "■───╯" : "■────╯"}</text>
+    <box flexDirection="column" alignItems="center">
+      <box flexDirection="column">
+        <For each={lines}>
+          {(line) => <text fg={colors.accent} wrapMode="none">{line}</text>}
+        </For>
+      </box>
       <text fg={colors.textBright} attributes={1}>PiTTy</text>
     </box>
   );

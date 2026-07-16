@@ -59,7 +59,7 @@ function authoritativeTodos(details: unknown): TodoViewItem[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   return raw.flatMap((value, index) => {
     const todo = parseTodo(value, index);
-    return todo ? [todo] : [];
+    return todo && todo.status !== "deleted" ? [todo] : [];
   });
 }
 

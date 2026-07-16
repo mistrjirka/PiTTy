@@ -33,7 +33,7 @@
 ## 5. Documentation and release completion
 
 - [x] 5.1 Document direct startup, `/resume`, interaction controls, model search, unsupported `/login` guidance, diagnostics, upgrade, and uninstall.
-- [ ] 5.2 Add screenshot references and real terminal captures with the canonical logo asset.
+- [x] 5.2 Add screenshot references and real terminal captures with the canonical logo asset.
 - [ ] 5.3 Configure and visually verify the repository social-preview image after maintainer GitHub authentication; do not change the owner avatar.
 - [ ] 5.4 Run typecheck, unit/UI tests, installer behavior tests, cross-platform CI, and manual Arch/Konsole and Windows Terminal checks before version bump and release.
 
@@ -42,7 +42,7 @@
 - [x] 6.1 Merge foreground tool progress with async subagent artifacts, count pending children as active/queued, deduplicate resumed children while preserving inspector transcripts, and keep foreground controls read-only.
 - [x] 6.2 Remove the redundant sidebar Selected section and preserve pending steering/follow-up text at constrained terminal heights with production-component regression coverage.
 - [x] 6.3 Complete the approved dashboard/session/focus slice, run full validation and `impl-check`, resolve verified findings, bump to `0.3.3`, push `main`, publish tag `v0.3.3`, and verify release archives plus checksums.
-- [x] 6.4 Keep parallel subagent order stable while showing last activity in sidebar and tool-call displays, and accept the highlighted slash-command suggestion with Enter.
+- [x] 6.4 Group active subagents first while preserving launch/index order within each active-state group and showing display-only last activity; accept the highlighted slash-command suggestion with Enter.
 - [x] 6.5 Add recoverable session-local prompt history, including Ctrl+C draft clearing and empty-editor Up/Down navigation that preserves multiline and streaming controls.
 - [x] 6.6 Detect optional packages before installer prompts, skip prompts when all are installed, and offer only missing packages.
 - [x] 6.7 Display child-reported model, context, and thinking configuration without parent-session fallback.

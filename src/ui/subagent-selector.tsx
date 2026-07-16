@@ -56,7 +56,7 @@ export function SubagentSelectorDialog(props: {
           }}
         >× Close</text>
       </box>
-      <text fg={colors.subtle}>Launch order · ↑/↓ move · Enter select · Esc close</text>
+      <text fg={colors.subtle}>Active first · stable within group · ↑/↓ move · Enter select · Esc close</text>
       <select
         ref={(value) => { select = value; }}
         options={options()}

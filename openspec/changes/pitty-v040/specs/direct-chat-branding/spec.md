@@ -30,16 +30,16 @@ PiTTy SHALL show a non-blocking empty-transcript dashboard only while the normal
 - **WHEN** a conversation item is rendered
 - **THEN** PiTTy removes the empty-transcript dashboard without changing prompt focus or transcript behavior
 
-### Requirement: Canonical logo source
-PiTTy SHALL commit the supplied PiTTy tail SVG as its canonical repository artwork. Terminal rendering SHALL use a terminal-cell-safe glyph component derived from that artwork rather than attempt direct SVG rendering.
+### Requirement: Canonical bracket-pi logo
+PiTTy SHALL use the asymmetric `[> π <]` bracket-pi mark as its canonical repository artwork, with exact light- and dark-background SVG assets. Terminal rendering SHALL use cell-safe half-block rasters derived from the same geometry rather than attempt direct SVG rendering.
 
 #### Scenario: Repository documentation
 - **WHEN** a maintainer or contributor needs the canonical logo
-- **THEN** the SVG is available from repository content and terminal UI uses a separate glyph rendering
+- **THEN** the light/dark SVG assets and branding guidance are available from repository content and the terminal UI uses the shared responsive Logo component
 
-### Requirement: Constrained-terminal logo fallback
-PiTTy SHALL use a plain PiTTy wordmark instead of a clipped glyph logo when terminal dimensions cannot accommodate the compact glyph layout.
+### Requirement: Responsive terminal logo
+PiTTy SHALL select a wide raster, compact raster, micro `[> π <]` mark, or plain `PiTTy` wordmark according to available terminal dimensions without clipping dashboard content.
 
-#### Scenario: Terminal is too small for the compact glyph
-- **WHEN** the transcript empty state is rendered below the compact logo's supported dimensions
-- **THEN** PiTTy shows the plain wordmark without horizontal overflow or clipping
+#### Scenario: Terminal is too small for a raster logo
+- **WHEN** the transcript empty state cannot accommodate the wide or compact half-block raster
+- **THEN** PiTTy shows the micro mark or plain wordmark without horizontal overflow or clipping

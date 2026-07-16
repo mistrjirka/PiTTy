@@ -70,17 +70,23 @@ describe("OpenTUI components", () => {
     expect(selected).toEqual(choice);
   });
 
-  test("renders wide and compact logo variants without clipping", async () => {
-    const wide = await mount(() => <Logo />, 80, 8);
-    expect(wide.captureCharFrame()).toContain("■────╮");
-    const compact = await mount(() => <Logo compact />, 24, 8);
-    const frame = compact.captureCharFrame();
-    expect(frame).toContain("■───╮");
-    for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(24);
+  test("renders responsive logo variants without clipping", async () => {
+    const wide = await mount(() => <Logo />, 100, 24);
+    expect(wide.captureCharFrame()).toContain("█████████▀");
+    const compact = await mount(() => <Logo compact />, 40, 20);
+    expect(compact.captureCharFrame()).toContain("▄███████");
+    const micro = await mount(() => <Logo />, 20, 20);
+    expect(micro.captureCharFrame()).toContain("[> π <]");
+    const short = await mount(() => <Logo />, 20, 8);
+    expect(short.captureCharFrame()).toContain("[> π <]");
+    expect(short.captureCharFrame()).not.toContain("■");
+    for (const [frame, width] of [[wide.captureCharFrame(), 100], [compact.captureCharFrame(), 40], [micro.captureCharFrame(), 20]] as const) {
+      for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(width);
+    }
   });
 
   test("renders the wordmark-only logo variant", async () => {
-    const setup = await mount(() => <Logo wordmarkOnly />, 80, 8);
+    const setup = await mount(() => <Logo wordmarkOnly />, 20, 8);
     const frame = setup.captureCharFrame();
     expect(frame).toContain("PiTTy");
     expect(frame).not.toContain("■");
@@ -106,6 +112,30 @@ describe("OpenTUI components", () => {
         : "Unable to load recent sessions:";
       expect(frame).toContain(expectedText);
       for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(44);
+    }
+  });
+
+  test("shows the production session row limits at each dashboard tier", async () => {
+    const choices: SessionChoice[] = Array.from({ length: 6 }, (_, index) => ({
+      path: `/tmp/dashboard-${index}`,
+      id: `dashboard-${index}`,
+      name: `Unique session ${index}`,
+      modified: new Date(),
+      messageCount: index + 1,
+      firstMessage: `Unique session ${index}`,
+    }));
+    const cases = [
+      { width: 100, height: 30, visible: 5 },
+      { width: 44, height: 16, visible: 4 },
+      { width: 44, height: 10, visible: 2 },
+    ];
+    for (const { width, height, visible } of cases) {
+      const setup = await mount(() => (
+        <EmptyDashboard sessionState={{ kind: "success", choices }} onSelectSession={() => {}} />
+      ), width, height);
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain(`Unique session ${visible - 1}`);
+      expect(frame).not.toContain(`Unique session ${visible}`);
     }
   });
 
@@ -528,6 +558,35 @@ describe("OpenTUI components", () => {
   });
 
 
+  test("keeps one queued row and hint visible in an 80x14 layout", async () => {
+    const setup = await mount(() => (
+      <box width="100%" height="100%" flexDirection="column">
+        <box flexGrow={1} minHeight={1}><text>conversation output</text></box>
+        <box flexGrow={0}><PendingInputPanel queuedFollowUps={[{ id: "queued", text: "short queued" }]} steering={[]} followUps={[]} onEditQueuedFollowUp={() => {}} /></box>
+        <textarea height={4} minHeight={4} />
+        <text>status</text>
+      </box>
+    ), 80, 14);
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Pending input");
+    expect(frame).toContain("Alt+Up edits the last editable local follow-up.");
+    expect(frame).toContain("1. editable later: short queued");
+  });
+
+  test("keeps sent header and steering row separate when space is available", async () => {
+    const setup = await mount(() => (
+      <box width="100%" height="100%" flexDirection="column">
+        <box flexGrow={1} minHeight={1}><text>conversation output</text></box>
+        <box flexGrow={0}><PendingInputPanel queuedFollowUps={[{ id: "queued", text: "short queued" }]} steering={["short steering"]} followUps={[]} onEditQueuedFollowUp={() => {}} /></box>
+        <textarea height={4} minHeight={4} />
+        <text>status</text>
+      </box>
+    ), 80, 14);
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Already sent to Pi — RPC cannot edit these:");
+    expect(frame).toContain("steering: short steering");
+  });
+
   test("keeps pending steering text intact in an 80x10 layout", async () => {
     const setup = await mount(() => (
       <box width="100%" height="100%" flexDirection="column">
@@ -661,12 +720,74 @@ describe("OpenTUI components", () => {
     expect(filterCommandChoices(commands, "/th").map((item) => item.name)).toEqual(["thinking", "thoughts"]);
     expect(filterCommandChoices(commands, "/thinking high")).toEqual([]);
     const setup = await mount(() => (
-      <CommandSuggestions commands={filterCommandChoices(commands, "/th")} selectedIndex={0} onSelect={() => {}} />
+      <CommandSuggestions commands={() => filterCommandChoices(commands, "/th")} selectedIndex={() => 0} onSelect={() => {}} />
     ), 90, 12);
     const frame = setup.captureCharFrame();
     expect(frame).toContain("/thinking");
     expect(frame).toContain("/thoughts");
     expect(frame).toContain("Tab/Enter insert");
+  });
+
+  test("keeps production-sized suggestions above a writable prompt with pending input", async () => {
+    let editor: TextareaRenderable | undefined;
+    const [selectedIndex, setSelectedIndex] = createSignal(0);
+    const commands = Array.from({ length: 7 }, (_, index) => ({
+      name: `overflow-command-${index}`,
+      description: `Description ${index}`,
+    }));
+    const queuedFollowUps = Array.from({ length: 8 }, (_, index) => ({
+      id: `queued-${index}`,
+      text: `queued ${index}`,
+    }));
+    const setup = await mount(() => (
+      <box width="100%" height="100%" flexDirection="column">
+        <PendingInputPanel
+          queuedFollowUps={queuedFollowUps}
+          steering={["sent steering"]}
+          followUps={["sent follow-up"]}
+          onEditQueuedFollowUp={() => {}}
+        />
+        <CommandSuggestions commands={() => commands} selectedIndex={selectedIndex} onSelect={() => {}} />
+        <textarea
+          ref={(value) => { editor = value; }}
+          focused
+          flexShrink={0}
+          minHeight={2}
+          height={2}
+          placeholder="PROMPT_ANCHOR"
+        />
+      </box>
+    ), 80, 14);
+
+    await setup.mockInput.typeText("PROMPT_ANCHOR");
+    setSelectedIndex(6);
+    await setup.flush();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
+    const downFrame = setup.captureCharFrame();
+    const downLines = downFrame.split("\n");
+    const downPromptLine = downLines.findIndex((line) => line.includes("PROMPT_ANCHOR"));
+    const downSuggestionLines = downLines.flatMap((line, index) => line.includes("/overflow-command-") ? [index] : []);
+    expect(editor?.plainText).toBe("PROMPT_ANCHOR");
+    expect(downPromptLine).toBeGreaterThan(0);
+    expect(downSuggestionLines.length).toBeGreaterThan(0);
+    expect(Math.max(...downSuggestionLines)).toBeLessThan(downPromptLine);
+    expect(downFrame).toContain("/overflow-command-6");
+    expect(downFrame).toContain("Description 6");
+
+    setSelectedIndex(0);
+    await setup.flush();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
+    const upFrame = setup.captureCharFrame();
+    const upLines = upFrame.split("\n");
+    const upPromptLine = upLines.findIndex((line) => line.includes("PROMPT_ANCHOR"));
+    const upSuggestionLines = upLines.flatMap((line, index) => line.includes("/overflow-command-") ? [index] : []);
+    expect(editor?.plainText).toBe("PROMPT_ANCHOR");
+    expect(upPromptLine).toBeGreaterThan(0);
+    expect(upSuggestionLines.length).toBeGreaterThan(0);
+    expect(Math.max(...upSuggestionLines)).toBeLessThan(upPromptLine);
+    expect(upFrame).toContain("/overflow-command-0");
   });
 
   test("clamps highlighted command selection and accepts only unmodified Enter", () => {
@@ -736,6 +857,31 @@ describe("OpenTUI components", () => {
     expect(todos.map((todo) => todo.id)).toEqual(["2", "1"]);
     expect(todos[0]?.done).toBe(false);
     expect(todos[1]?.done).toBe(true);
+  });
+
+  test("omits deleted todos from authoritative task snapshots", () => {
+    const items: ConversationItem[] = [
+      {
+        kind: "tool",
+        id: "todo-delete-result",
+        toolCallId: "todo-delete-result",
+        name: "todo",
+        args: { action: "delete", id: 7 },
+        output: "Deleted todo #7",
+        details: {
+          tasks: [
+            { id: 7, subject: "Remove me", status: "deleted" },
+            { id: 8, subject: "Keep me", status: "pending" },
+          ],
+        },
+        timestamp: 1,
+        status: "done",
+        isError: false,
+      },
+    ];
+    expect(deriveTodos(items)).toEqual([
+      { id: "8", text: "Keep me", status: "pending", done: false },
+    ]);
   });
 
   test("removes deleted todos and preserves unchanged panel inputs", () => {

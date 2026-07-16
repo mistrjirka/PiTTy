@@ -1493,8 +1493,8 @@ export function App(props: AppOptions) {
           </Show>
           <Show when={commandSuggestions().length && !inspectSubagent()}>
             <CommandSuggestions
-              commands={commandSuggestions()}
-              selectedIndex={Math.min(commandSuggestionIndex(), Math.max(0, commandSuggestions().length - 1))}
+              commands={commandSuggestions}
+              selectedIndex={() => Math.min(commandSuggestionIndex(), Math.max(0, commandSuggestions().length - 1))}
               onSelect={insertSuggestedCommand}
             />
           </Show>

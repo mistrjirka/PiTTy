@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="440" viewBox="0 0 960 440" role="img" aria-labelledby="title desc">
+  <title id="title">PiTTy terminal logo preview</title>
+  <desc id="desc">A terminal window showing the compact half-block rendering of the asymmetric bracket-pi logo.</desc>
+  <rect width="960" height="440" rx="28" fill="#09090B"/>
+  <rect x="1" y="1" width="958" height="438" rx="27" fill="none" stroke="#27272A" stroke-width="2"/>
+  <circle cx="42" cy="38" r="8" fill="#F87171"/>
+  <circle cx="68" cy="38" r="8" fill="#FACC15"/>
+  <circle cx="94" cy="38" r="8" fill="#4ADE80"/>
+  <text x="130" y="47" fill="#71717A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20">pitty — empty chat</text>
+  <g fill="#60A5FA">
+    <rect x="360" y="94" width="56" height="8" rx="1"/>
+    <rect x="544" y="94" width="56" height="8" rx="1"/>
+    <rect x="352" y="102" width="64" height="8" rx="1"/>
+    <rect x="544" y="102" width="64" height="8" rx="1"/>
+    <rect x="352" y="110" width="24" height="8" rx="1"/>
+    <rect x="584" y="110" width="24" height="8" rx="1"/>
+    <rect x="352" y="118" width="24" height="8" rx="1"/>
+    <rect x="464" y="118" width="32" height="8" rx="1"/>
+    <rect x="584" y="118" width="24" height="8" rx="1"/>
+    <rect x="352" y="126" width="24" height="8" rx="1"/>
+    <rect x="416" y="126" width="16" height="8" rx="1"/>
+    <rect x="456" y="126" width="48" height="8" rx="1"/>
+    <rect x="528" y="126" width="16" height="8" rx="1"/>
+    <rect x="584" y="126" width="24" height="8" rx="1"/>
+    <rect x="352" y="134" width="24" height="8" rx="1"/>
+    <rect x="416" y="134" width="24" height="8" rx="1"/>
+    <rect x="464" y="134" width="32" height="8" rx="1"/>
+    <rect x="520" y="134" width="24" height="8" rx="1"/>
+    <rect x="584" y="134" width="24" height="8" rx="1"/>
+    <rect x="352" y="142" width="24" height="8" rx="1"/>
+    <rect x="424" y="142" width="24" height="8" rx="1"/>
+    <rect x="464" y="142" width="32" height="8" rx="1"/>
+    <rect x="512" y="142" width="24" height="8" rx="1"/>
+    <rect x="584" y="142" width="24" height="8" rx="1"/>
+    <rect x="352" y="150" width="24" height="8" rx="1"/>
+    <rect x="432" y="150" width="24" height="8" rx="1"/>
+    <rect x="464" y="150" width="32" height="8" rx="1"/>
+    <rect x="504" y="150" width="24" height="8" rx="1"/>
+    <rect x="584" y="150" width="24" height="8" rx="1"/>
+    <rect x="352" y="158" width="24" height="8" rx="1"/>
+    <rect x="432" y="158" width="24" height="8" rx="1"/>
+    <rect x="464" y="158" width="32" height="8" rx="1"/>
+    <rect x="504" y="158" width="24" height="8" rx="1"/>
+    <rect x="584" y="158" width="24" height="8" rx="1"/>
+    <rect x="352" y="166" width="24" height="8" rx="1"/>
+    <rect x="424" y="166" width="24" height="8" rx="1"/>
+    <rect x="464" y="166" width="32" height="8" rx="1"/>
+    <rect x="512" y="166" width="24" height="8" rx="1"/>
+    <rect x="584" y="166" width="24" height="8" rx="1"/>
+    <rect x="352" y="174" width="24" height="8" rx="1"/>
+    <rect x="416" y="174" width="24" height="8" rx="1"/>
+    <rect x="464" y="174" width="32" height="8" rx="1"/>
+    <rect x="520" y="174" width="24" height="8" rx="1"/>
+    <rect x="584" y="174" width="24" height="8" rx="1"/>
+    <rect x="352" y="182" width="24" height="8" rx="1"/>
+    <rect x="416" y="182" width="16" height="8" rx="1"/>
+    <rect x="464" y="182" width="40" height="8" rx="1"/>
+    <rect x="528" y="182" width="16" height="8" rx="1"/>
+    <rect x="584" y="182" width="24" height="8" rx="1"/>
+    <rect x="352" y="190" width="24" height="8" rx="1"/>
+    <rect x="464" y="190" width="16" height="8" rx="1"/>
+    <rect x="488" y="190" width="16" height="8" rx="1"/>
+    <rect x="584" y="190" width="24" height="8" rx="1"/>
+    <rect x="352" y="198" width="24" height="8" rx="1"/>
+    <rect x="584" y="198" width="24" height="8" rx="1"/>
+    <rect x="352" y="206" width="64" height="8" rx="1"/>
+    <rect x="544" y="206" width="64" height="8" rx="1"/>
+    <rect x="360" y="214" width="56" height="8" rx="1"/>
+    <rect x="544" y="214" width="56" height="8" rx="1"/>
+  </g>
+  <text x="480" y="292" text-anchor="middle" fill="#FAFAFA" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="46" font-weight="700">PiTTy</text>
+  <text x="480" y="337" text-anchor="middle" fill="#60A5FA" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="700">[&gt; π &lt;]</text>
+  <text x="480" y="382" text-anchor="middle" fill="#71717A" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20">terminal-native frontend for Pi</text>
+</svg>

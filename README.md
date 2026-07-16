@@ -1,56 +1,41 @@
-# PiTTy
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/pitty-logo-dark.svg">
+    <img src="docs/images/pitty-logo.svg" width="320" alt="PiTTy bracket-pi logo: [> π <]">
+  </picture>
+</p>
 
-PiTTy is a fast, independent OpenTUI frontend for the [Pi coding agent](https://github.com/earendil-works/pi). It keeps Pi's authentication, models, sessions, tools, skills, prompt templates, and extensions while replacing the built-in interactive terminal interface with a scrollable, inspectable UI.
+<h1 align="center">PiTTy</h1>
 
-PiTTy is not affiliated with the Pi or OpenCode maintainers.
+<p align="center">
+  <strong>A fast, terminal-native OpenTUI frontend for the Pi coding agent.</strong>
+</p>
 
-## Highlights
+<p align="center">
+  Scrollable conversations · searchable sessions and models · rich tool output · optional subagent and Todo views
+</p>
 
-- Fixed prompt with independently scrollable transcript and optional sidebar.
-- Windowed long-session rendering with on-demand older history.
-- Markdown assistant output and collapsible Markdown thinking.
-- Distinct expandable tool cards with timings, errors, and edit/write diffs.
-- Searchable model and current-project session selectors with immediate keyboard focus.
-- Non-blocking empty-chat dashboard with common commands and recent sessions.
-- Request map, command autocomplete, recoverable session-local prompt history, editable follow-up queue, and diagnostics.
-- Stable parallel-subagent ordering with last-activity and child model/thinking details.
-- Generic fallback rendering for arbitrary Pi tools and extension commands.
+<p align="center">
+  <a href="https://github.com/mistrjirka/PiTTy/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/mistrjirka/PiTTy/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/mistrjirka/PiTTy/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/mistrjirka/PiTTy?display_name=tag"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+</p>
 
-## Optional integrations
-
-PiTTy works without additional Pi packages. Two integrations add richer views:
-
-| Package | Adds |
-|---|---|
-| `npm:pi-subagents` | Parallel child-agent list, live transcript inspection, pause/stop, and steering |
-| `npm:@juicesharp/rpiv-todo` | Scrollable active/completed Todo panel |
-
-At startup PiTTy detects them through `pi list`, Pi settings, and known package locations. Missing packages produce one informational notification; their panels are hidden and the main UI continues normally.
-
-Install them manually at any time:
-
-```bash
-pi install npm:pi-subagents
-pi install npm:@juicesharp/rpiv-todo
-```
-
-## Installation
+## Install
 
 ### Linux, macOS, and WSL
-
-After the first GitHub release is published:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mistrjirka/PiTTy/main/install.sh | sh
 ```
 
-The installer offers the optional integrations interactively. Noninteractive examples:
+Then start PiTTy in the current project:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mistrjirka/PiTTy/main/install.sh -o /tmp/pitty-install.sh
-sh /tmp/pitty-install.sh --yes --with-plugins
-sh /tmp/pitty-install.sh --without-plugins
+pitty
 ```
+
+Requirements: Node.js 22.19 or newer, npm, and the Pi CLI. The installer validates them, downloads a versioned release, requires and verifies the selected archive's SHA-256 entry in the release `SHA256SUMS` file, installs PiTTy's local Bun runtime, and creates the `pitty` and `pitty-resume` launchers.
 
 ### Windows PowerShell
 
@@ -59,19 +44,20 @@ irm https://raw.githubusercontent.com/mistrjirka/PiTTy/main/install.ps1 -OutFile
 & $env:TEMP\pitty-install.ps1 -WithPlugins
 ```
 
-The installers:
+<details>
+<summary><strong>Installer options and manual source installation</strong></summary>
 
-- validate `node`, `npm`, and `pi`
-- download a versioned release archive
-- require the selected archive's SHA-256 entry from the release `SHA256SUMS` file and reject missing or mismatched checksums
-- install the local Bun runtime
-- create `pitty` and `pitty-resume` launchers
-- optionally install supported Pi packages
-- print the failed command, exit code, log path, and recent output when something fails
+The POSIX installer can include or skip the optional integrations without prompting:
 
-Custom paths are supported through command-line flags or `PITTY_INSTALL_DIR`, `PITTY_BIN_DIR`, `PITTY_VERSION`, and `PITTY_REPO`.
+```bash
+curl -fsSL https://raw.githubusercontent.com/mistrjirka/PiTTy/main/install.sh -o /tmp/pitty-install.sh
+sh /tmp/pitty-install.sh --yes --with-plugins
+sh /tmp/pitty-install.sh --without-plugins
+```
 
-### Manual source installation
+Custom paths and versions are supported through installer flags or `PITTY_INSTALL_DIR`, `PITTY_BIN_DIR`, `PITTY_VERSION`, and `PITTY_REPO`.
+
+To run directly from source:
 
 ```bash
 git clone https://github.com/mistrjirka/PiTTy.git
@@ -79,89 +65,125 @@ cd PiTTy
 npm ci --ignore-scripts --no-audit --no-fund
 node node_modules/bun/install.js
 npm run typecheck
-node bin/pitty.mjs -C /path/to/project --continue
+node bin/pitty.mjs
 ```
 
-## Usage
+</details>
+
+## What PiTTy is
+
+PiTTy is an independent frontend for the [Pi coding agent](https://github.com/earendil-works/pi). It keeps Pi's authentication, providers, models, sessions, tools, skills, prompt templates, and extensions while replacing Pi's built-in interactive terminal interface with a scrollable and inspectable OpenTUI application.
+
+It starts directly in the normal chat. An empty conversation shows a passive dashboard with common commands and recent sessions while the prompt remains focused and writable.
+
+<p align="center">
+  <img src="docs/images/pitty-dashboard.png" width="1000" alt="PiTTy empty-chat dashboard with the bracket-pi logo and writable prompt">
+</p>
+
+## Why use PiTTy instead of Pi's built-in TUI?
+
+- **Inspect subagent chats separately.** Open each child agent's live transcript without losing the main conversation, with active agents grouped first and stable ordering within each group.
+- **Control work while it runs.** Send steering, queue editable follow-ups, and pause or stop supported file-backed subagents from the same interface.
+- **Keep the workspace calmer.** The prompt stays fixed while the transcript scrolls independently; thinking, tool output, pending input, suggestions, Todos, and the sidebar stay bounded or collapsible instead of taking over the terminal.
+- **Read code changes more clearly.** Edit/write tools get dedicated diff views, arbitrary tools retain structured cards, and long streaming conversations use stable windowed rendering.
+- **Navigate faster.** Search models and sessions, resume work in place, jump through earlier requests, and recover submitted or cleared prompts from session-local history.
+- **Keep Pi's ecosystem.** PiTTy still uses Pi's authentication, providers, models, sessions, tools, skills, prompt templates, and extensions through RPC.
+
+## Highlights
+
+| Area | What PiTTy adds |
+|---|---|
+| Conversation | Fixed prompt, independently scrollable transcript, Markdown output, collapsible thinking, and long-session windowing |
+| Tools | Expandable tool cards, timings, readable errors, edit/write diffs, and a generic fallback for arbitrary Pi tools |
+| Navigation | Searchable model selector, `/sessions` and `/resume`, request map, command autocomplete, and on-demand older history |
+| Workflow | Immediate steering while Pi runs, editable local follow-ups, prompt-focus recovery, and diagnostics bundles |
+| Optional views | Parallel subagent inspection and control plus active/completed Todo panels when their Pi packages are installed |
+
+## Interface preview
+
+<p align="center">
+  <img src="docs/images/pitty-conversation.png" width="1000" alt="PiTTy showing a code conversation, tool activity, active-first subagents, and the Todo sidebar">
+</p>
+
+## Quick usage
 
 ```bash
-pitty -C /path/to/project --continue
-pitty --session /path/to/session.jsonl
-pitty-resume -C /path/to/project
+pitty                              # start in the current directory
+pitty -C /path/to/project          # choose a project directory
+pitty -c                           # continue the newest Pi session
+pitty --session /path/to/file.jsonl
+pitty-resume -C /path/to/project   # open the session picker immediately
 pitty --help
 ```
 
-Useful options:
+Inside PiTTy:
 
 ```text
--C, --cwd <dir>       working directory
--c, --continue        continue the newest Pi session
---session <path>      open a specific Pi session
--m, --model <id>      choose a model
---provider <id>       choose a provider
---thinking <level>    set Pi thinking level
---pi <path>           use a non-default Pi executable
---no-sidebar          start without the sidebar
---session-picker      open the searchable session picker on startup
---log-dir <dir>       override diagnostic log directory
---no-logs             disable diagnostics
---verbose-rpc-logs    include RPC content; may contain prompts/source
+/resume      browse and switch current-project sessions
+/model       show or change the current model
+/thinking    show or change reasoning effort
+/commands    list Pi extensions, templates, and skills
+/help        show PiTTy commands and controls
 ```
 
-Inside PiTTy, use `/sessions` or `/resume` to search and switch current-project sessions. PiTTy starts directly in the writable chat; the logo dashboard is shown only while the transcript is empty.
-
-## Updates and upgrades
-
-PiTTy checks GitHub Releases asynchronously at startup and shows a non-blocking notice when a newer stable version exists. Set `PITTY_NO_UPDATE_CHECK=1` to disable this check.
-
-```bash
-pitty upgrade --check
-pitty upgrade
-pitty upgrade --version 0.4.0
-```
-
-The `--version` option refuses targets older than the installed version. An upgrade downloads and checksum-validates the selected release into a sibling `.pending` directory without replacing the running installation. The launcher activates that staged installation on the next normal `pitty` start and restores the previous installation if activation validation fails. Install metadata preserves the repository, install/bin directories, and optional-plugin mode; legacy installs fall back to their current paths and environment settings.
+See the complete [usage and controls guide](docs/USAGE.md).
 
 ## Controls
 
 | Key | Action |
 |---|---|
-| Enter | Accept a highlighted slash suggestion; otherwise submit or buffer steering while Pi runs |
-| Shift+Enter | Insert newline |
-| Alt+Enter | Queue local follow-up |
-| Alt+Up | Restore latest local follow-up to editor |
-| Up / Down on empty single-line prompt | Browse submitted and Ctrl+C-cleared prompt history |
-| Ctrl+C with nonempty focused draft | Clear and save the draft to prompt history |
-| Mouse wheel / PgUp / PgDn | Scroll active transcript |
-| Ctrl+Home / Ctrl+End | Jump to start/end |
-| Ctrl+P | Open model selector |
-| Ctrl+T / Shift+Tab | Cycle thinking effort |
-| Click Thinking | Collapse/expand one thinking block |
-| Ctrl+R | Open request map |
-| Ctrl+S | Toggle sidebar |
-| Ctrl+O | Expand/collapse tool output and thinking globally |
-| F6 / Shift+F6 | Select next/previous subagent |
-| Ctrl+I / click subagent | Open/close subagent inspector |
-| Ctrl+A | Pause selected running subagent |
-| Ctrl+Shift+A | Stop selected active subagent |
-| Ctrl+Shift+L | Create diagnostic bundle |
-| Esc | Close dialog/inspector or abort current Pi turn |
+| `Enter` | Accept the highlighted slash suggestion first; otherwise submit or steer immediately |
+| `Shift+Enter` | Insert a newline |
+| `Alt+Enter` | Queue an editable local follow-up |
+| `Alt+Up` | Restore the latest local follow-up to the editor |
+| `Up` / `Down` on an empty single-line prompt | Browse session-local prompt history |
+| `Ctrl+C` with a nonempty draft | Clear the draft and save it to prompt history |
+| Mouse wheel / `PgUp` / `PgDn` | Scroll the active transcript |
+| `Ctrl+Home` / `Ctrl+End` | Jump to the beginning or latest message |
+| `Ctrl+P` | Open the searchable model selector |
+| `Ctrl+T` / `Shift+Tab` | Cycle thinking effort |
+| `Ctrl+R` | Open the request map |
+| `Ctrl+S` | Toggle the sidebar |
+| `Ctrl+O` | Expand or collapse tool and thinking details |
+| `Ctrl+I` | Open or close the selected subagent inspector |
+| `F6` / `Shift+F6` | Select the next or previous subagent (active grouped first, stable within groups) |
+| `Esc` | Close the active dialog/inspector or abort the current Pi turn |
 
-## Plugin compatibility
+## Optional integrations
 
-The generic RPC layer supports:
+PiTTy works without extra Pi packages. These integrations add specialized panels when installed:
 
-- standard Pi user, assistant, thinking, and tool-result messages
-- arbitrary tools through a generic card
-- extension commands, prompt templates, and skills returned by Pi
-- `select`, `confirm`, `input`, and `editor` extension dialogs
-- notifications, status text, terminal title changes, and editor prefilling
+| Package | Adds |
+|---|---|
+| `npm:pi-subagents` | Parallel child-agent list, live transcript inspection, pause/stop, and steering |
+| `npm:@juicesharp/rpiv-todo` | Bounded active and completed Todo panels |
 
-Pi extensions that rely on direct custom TUI components cannot be reproduced exactly because those components are not serialized through RPC. Specialized plugin panels and controls belong behind optional PiTTy adapters; the generic transcript remains the fallback.
+```bash
+pi install npm:pi-subagents
+pi install npm:@juicesharp/rpiv-todo
+```
 
-`/login` is intentionally not handled through RPC. PiTTy displays local guidance instead: run `pi`, complete `/login` in the Pi CLI, then restart or return to PiTTy. PiTTy does not request or store credentials.
+Missing integrations produce one informational notification; their panels remain hidden and the generic chat continues normally.
 
-See [docs/OPEN_SOURCE_READINESS.md](docs/OPEN_SOURCE_READINESS.md) and [openspec/project.md](openspec/project.md).
+## Compatibility
+
+PiTTy's RPC layer handles standard user, assistant, thinking, tool-call, and tool-result events; arbitrary tools; Pi extension commands; prompt templates and skills; extension dialogs; notifications; status updates; terminal-title changes; and editor prefilling.
+
+Pi extensions that render arbitrary direct TUI components cannot be reproduced exactly because those component trees are not serialized through RPC. Their commands and tool events can still work through PiTTy's generic fallback, while richer behavior requires an optional adapter.
+
+See [Open-source readiness and architecture](docs/OPEN_SOURCE_READINESS.md).
+
+## Updates and upgrades
+
+PiTTy checks GitHub Releases asynchronously at startup; set `PITTY_NO_UPDATE_CHECK=1` to disable it.
+
+```bash
+pitty upgrade --check          # inspect availability
+pitty upgrade                  # stage the newest stable release
+pitty upgrade --version 0.4.1  # choose an explicit version
+```
+
+Upgrades require the selected archive's SHA-256 entry in `SHA256SUMS`, stage replacement in a sibling `.pending` directory, activate on the next normal start, and roll back if activation validation fails.
 
 ## Uninstall
 
@@ -179,21 +201,21 @@ Optional Pi packages are left installed.
 
 Custom installations can set `PITTY_INSTALL_DIR` and `PITTY_BIN_DIR`, or pass `-InstallDir` and `-BinDir` to `uninstall.ps1`.
 
-## Diagnostics
+## Diagnostics and privacy
 
-Logs are stored by default under:
+Diagnostics are stored under:
 
 ```text
 ~/.local/state/pitty/
 ```
 
-Normal RPC logs omit prompt text, tool output, and source contents; they retain event metadata, lengths, and short hashes. Absolute paths and error snippets can still appear, so review bundles before sharing.
+Normal RPC logs omit prompt text, tool output, and source contents; they retain metadata, lengths, and short hashes. Absolute paths and error snippets can still appear, so inspect bundles before sharing them.
 
 ```bash
 npm run diagnostics
 ```
 
-Do not share Pi credentials, session transcripts, or unreviewed `--verbose-rpc-logs` output publicly.
+Do not publish Pi credentials, session transcripts, private source code, or unreviewed `--verbose-rpc-logs` output. Security reporting guidance is in [SECURITY.md](SECURITY.md).
 
 ## Development
 
@@ -204,19 +226,28 @@ npm run typecheck
 npm run test:unit
 ```
 
-OpenSpec is included under `openspec/`. Add larger changes under `openspec/changes/<name>/` before implementation.
+Larger public behavior changes should include an OpenSpec change under `openspec/changes/`. Contributor guidance is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-The OpenTUI render test can trigger a native TreeSitter/Bun cleanup crash on some systems; unit tests and TypeScript checking are separated so CI and contributors can still validate the non-native core reliably.
+## Documentation
 
-## Release and platform status
+- [Usage and controls](docs/USAGE.md)
+- [Architecture and compatibility](docs/OPEN_SOURCE_READINESS.md)
+- [Documentation index](docs/README.md)
+- [Changelog](CHANGELOG.md)
 
-- Linux: primary development platform.
-- macOS: included in CI and supported by the POSIX installer.
-- Windows: included in CI and supported by `install.ps1`; terminal-specific behavior still needs broader real-world testing.
-- WSL: uses the POSIX installer and Linux runtime.
+## Platform status
+
+| Platform | Status |
+|---|---|
+| Linux | Primary development platform |
+| macOS | Included in CI and supported by the POSIX installer |
+| Windows | Included in CI and supported by `install.ps1`; terminal behavior still benefits from wider real-world testing |
+| WSL | Supported through the POSIX installer and Linux runtime |
 
 Tagged releases are packaged by GitHub Actions as `pitty-<version>.tar.gz`, `pitty-<version>.zip`, and `SHA256SUMS`.
 
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+PiTTy is not affiliated with the Pi or OpenCode maintainers.
