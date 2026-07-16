@@ -80,7 +80,7 @@ It starts directly in the normal chat. An empty conversation shows a passive das
   <img src="docs/images/pitty-terminal-preview.svg" width="760" alt="PiTTy half-block terminal rendering of the [> π <] logo">
 </p>
 
-The README uses exact SVG artwork. Inside OpenTUI, PiTTy displays a pre-rasterized monospaced rendering encoded with Unicode half blocks, with the compact `[> π <]` mark used when space is limited. Details and source assets are in [Branding](docs/BRANDING.md).
+The README uses exact SVG artwork. Inside OpenTUI, PiTTy displays responsive half-block rasters derived from the same asymmetric vector geometry: wider chevron spacing, a straight left `π` leg, and a curled right leg. The compact `[> π <]` mark is used when space is limited. Details and source assets are in [Branding](docs/BRANDING.md).
 
 ## Highlights
 
