@@ -12,8 +12,9 @@
 - [x] 2.2 Add a regression harness for main-prompt draft identity/content and visible editor geometry across model-selector open, close, and model selection; resolve actual buffer loss or modal occlusion from that evidence.
 - [x] 2.3 Bound command suggestions above the prompt so constrained terminals retain a visible writable editor and add layout coverage.
 - [x] 2.4 Implement the global Ctrl+O details toggle, including reset of tool and thinking per-item overrides, and update control/help text.
-- [ ] 2.5 Align thinking-only panels with the assistant left border and add a visual regression test.
+- [x] 2.5 Align thinking-only panels with the assistant left border and add a visual regression test.
 - [x] 2.6 Intercept `/login` locally, show the approved Pi CLI guidance, and add it to command suggestions without forwarding it through RPC.
+- [x] 2.7 Bound pending input with vertical overflow scrolling, preserve the prompt editor, and keep deleted todos out of the todo panel.
 
 ## 3. Searchable model selector
 
@@ -24,14 +25,14 @@
 ## 4. Update and upgrade safety
 
 - [x] 4.1 Add version comparison, cached asynchronous latest-release check, disable controls, and focused update tests.
-- [ ] 4.2 Add installed metadata and `pitty upgrade --check` using the installer release source and explicit version options.
+- [x] 4.2 Add installed metadata and `pitty upgrade --check` using the installer release source and explicit version options.
 - [x] 4.3 Implement POSIX staged installation, checksum/archive/directory preflight, validation, backup, rollback, and retained diagnostics.
-- [ ] 4.4 Implement equivalent PowerShell staging/rollback behavior, including temporary-directory creation and user-scoped PATH guidance.
-- [ ] 4.5 Add local-fixture installer behavior tests and CI coverage for success, failure, paths with spaces, plugins, and rollback.
+- [x] 4.4 Implement equivalent PowerShell staging/rollback behavior, including temporary-directory creation and user-scoped PATH guidance.
+- [x] 4.5 Add local-fixture installer behavior tests and CI coverage for success, failure, paths with spaces, plugins, and rollback.
 
 ## 5. Documentation and release completion
 
-- [ ] 5.1 Document direct startup, `/resume`, interaction controls, model search, unsupported `/login` guidance, diagnostics, upgrade, and uninstall.
+- [x] 5.1 Document direct startup, `/resume`, interaction controls, model search, unsupported `/login` guidance, diagnostics, upgrade, and uninstall.
 - [ ] 5.2 Add screenshot references and real terminal captures with the canonical logo asset.
 - [ ] 5.3 Configure and visually verify the repository social-preview image after maintainer GitHub authentication; do not change the owner avatar.
 - [ ] 5.4 Run typecheck, unit/UI tests, installer behavior tests, cross-platform CI, and manual Arch/Konsole and Windows Terminal checks before version bump and release.
@@ -41,7 +42,7 @@
 - [x] 6.1 Merge foreground tool progress with async subagent artifacts, count pending children as active/queued, deduplicate resumed children while preserving inspector transcripts, and keep foreground controls read-only.
 - [x] 6.2 Remove the redundant sidebar Selected section and preserve pending steering/follow-up text at constrained terminal heights with production-component regression coverage.
 - [x] 6.3 Complete the approved dashboard/session/focus slice, run full validation and `impl-check`, resolve verified findings, bump to `0.3.3`, push `main`, publish tag `v0.3.3`, and verify release archives plus checksums.
-- [ ] 6.4 Keep parallel subagent order stable while showing last activity in sidebar and tool-call displays, and accept the highlighted slash-command suggestion with Enter.
-- [ ] 6.5 Add recoverable session-local prompt history, including Ctrl+C draft clearing and empty-editor Up/Down navigation that preserves multiline and streaming controls.
-- [ ] 6.6 Detect optional packages before installer prompts, skip prompts when all are installed, and offer only missing packages.
-- [ ] 6.7 Display child-reported model, context, and thinking configuration without parent-session fallback.
+- [x] 6.4 Keep parallel subagent order stable while showing last activity in sidebar and tool-call displays, and accept the highlighted slash-command suggestion with Enter.
+- [x] 6.5 Add recoverable session-local prompt history, including Ctrl+C draft clearing and empty-editor Up/Down navigation that preserves multiline and streaming controls.
+- [x] 6.6 Detect optional packages before installer prompts, skip prompts when all are installed, and offer only missing packages.
+- [x] 6.7 Display child-reported model, context, and thinking configuration without parent-session fallback.

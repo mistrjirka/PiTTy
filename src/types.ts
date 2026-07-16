@@ -67,6 +67,7 @@ export type SubagentStep = {
   label?: string | undefined;
   model?: string | undefined;
   thinking?: string | undefined;
+  contextWindow?: number | undefined;
   activityState?: string | undefined;
   lastActivityAt?: number | undefined;
   currentTool?: string | undefined;
@@ -104,6 +105,9 @@ export type SubagentRun = {
   cwd?: string | undefined;
   agent?: string | undefined;
   agents?: string[] | undefined;
+  model?: string | undefined;
+  thinking?: string | undefined;
+  contextWindow?: number | undefined;
   activityState?: string | undefined;
   lastActivityAt?: number | undefined;
   currentTool?: string | undefined;

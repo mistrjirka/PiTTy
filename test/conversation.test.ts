@@ -90,7 +90,7 @@ describe("ConversationModel regressions", () => {
 });
 
 describe("ConversationModel live repaint identity", () => {
-  test("replaces assistant objects when deltas arrive so Solid can repaint", () => {
+  test("replaces assistant values while retaining a stable row identity", () => {
     const model = new ConversationModel();
     model.apply(event({
       type: "message_update",
@@ -104,6 +104,7 @@ describe("ConversationModel live repaint identity", () => {
       assistantMessageEvent: { type: "text_delta", delta: "answer" },
     }));
     expect(model.items[0]).not.toBe(first);
+    expect(model.items[0]?.id).toBe(first?.id);
     expect(model.items[0]?.kind === "assistant" && model.items[0].thinking).toBe("first");
     expect(model.items[0]?.kind === "assistant" && model.items[0].text).toBe("answer");
   });

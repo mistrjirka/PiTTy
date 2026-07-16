@@ -12,7 +12,8 @@ PiTTy is not affiliated with the Pi or OpenCode maintainers.
 - Distinct expandable tool cards with timings, errors, and edit/write diffs.
 - Searchable model and current-project session selectors with immediate keyboard focus.
 - Non-blocking empty-chat dashboard with common commands and recent sessions.
-- Request map, command autocomplete, extension dialogs, editable local follow-up queue, and diagnostics.
+- Request map, command autocomplete, recoverable session-local prompt history, editable follow-up queue, and diagnostics.
+- Stable parallel-subagent ordering with last-activity and child model/thinking details.
 - Generic fallback rendering for arbitrary Pi tools and extension commands.
 
 ## Optional integrations
@@ -62,7 +63,7 @@ The installers:
 
 - validate `node`, `npm`, and `pi`
 - download a versioned release archive
-- verify SHA-256 when release checksums are available
+- require the selected archive's SHA-256 entry from the release `SHA256SUMS` file and reject missing or mismatched checksums
 - install the local Bun runtime
 - create `pitty` and `pitty-resume` launchers
 - optionally install supported Pi packages
@@ -107,16 +108,30 @@ Useful options:
 --verbose-rpc-logs    include RPC content; may contain prompts/source
 ```
 
-Inside PiTTy, use `/sessions` or `/resume` to search and switch current-project sessions.
+Inside PiTTy, use `/sessions` or `/resume` to search and switch current-project sessions. PiTTy starts directly in the writable chat; the logo dashboard is shown only while the transcript is empty.
+
+## Updates and upgrades
+
+PiTTy checks GitHub Releases asynchronously at startup and shows a non-blocking notice when a newer stable version exists. Set `PITTY_NO_UPDATE_CHECK=1` to disable this check.
+
+```bash
+pitty upgrade --check
+pitty upgrade
+pitty upgrade --version 0.4.0
+```
+
+The `--version` option refuses targets older than the installed version. An upgrade downloads and checksum-validates the selected release into a sibling `.pending` directory without replacing the running installation. The launcher activates that staged installation on the next normal `pitty` start and restores the previous installation if activation validation fails. Install metadata preserves the repository, install/bin directories, and optional-plugin mode; legacy installs fall back to their current paths and environment settings.
 
 ## Controls
 
 | Key | Action |
 |---|---|
-| Enter | Submit; while Pi runs, steer immediately |
+| Enter | Accept a highlighted slash suggestion; otherwise submit or buffer steering while Pi runs |
 | Shift+Enter | Insert newline |
 | Alt+Enter | Queue local follow-up |
 | Alt+Up | Restore latest local follow-up to editor |
+| Up / Down on empty single-line prompt | Browse submitted and Ctrl+C-cleared prompt history |
+| Ctrl+C with nonempty focused draft | Clear and save the draft to prompt history |
 | Mouse wheel / PgUp / PgDn | Scroll active transcript |
 | Ctrl+Home / Ctrl+End | Jump to start/end |
 | Ctrl+P | Open model selector |
@@ -124,7 +139,7 @@ Inside PiTTy, use `/sessions` or `/resume` to search and switch current-project 
 | Click Thinking | Collapse/expand one thinking block |
 | Ctrl+R | Open request map |
 | Ctrl+S | Toggle sidebar |
-| Ctrl+O | Expand/collapse tool output globally |
+| Ctrl+O | Expand/collapse tool output and thinking globally |
 | F6 / Shift+F6 | Select next/previous subagent |
 | Ctrl+I / click subagent | Open/close subagent inspector |
 | Ctrl+A | Pause selected running subagent |
@@ -144,7 +159,25 @@ The generic RPC layer supports:
 
 Pi extensions that rely on direct custom TUI components cannot be reproduced exactly because those components are not serialized through RPC. Specialized plugin panels and controls belong behind optional PiTTy adapters; the generic transcript remains the fallback.
 
+`/login` is intentionally not handled through RPC. PiTTy displays local guidance instead: run `pi`, complete `/login` in the Pi CLI, then restart or return to PiTTy. PiTTy does not request or store credentials.
+
 See [docs/OPEN_SOURCE_READINESS.md](docs/OPEN_SOURCE_READINESS.md) and [openspec/project.md](openspec/project.md).
+
+## Uninstall
+
+Optional Pi packages are left installed.
+
+```bash
+# Linux, macOS, WSL
+~/.local/share/pitty/uninstall.sh
+```
+
+```powershell
+# Windows PowerShell
+& "$env:LOCALAPPDATA\PiTTy\app\uninstall.ps1"
+```
+
+Custom installations can set `PITTY_INSTALL_DIR` and `PITTY_BIN_DIR`, or pass `-InstallDir` and `-BinDir` to `uninstall.ps1`.
 
 ## Diagnostics
 

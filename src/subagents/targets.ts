@@ -13,6 +13,9 @@ export type SubagentTarget = {
   sessionFile?: string | undefined;
   startedAt?: number | undefined;
   lastUpdate?: number | undefined;
+  model?: string | undefined;
+  thinking?: string | undefined;
+  contextWindow?: number | undefined;
   toolCallId?: string | undefined;
 };
 
@@ -93,7 +96,8 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
       agent: label,
       steps: [],
       startedAt: item.startedAt ?? item.timestamp,
-      lastUpdate: item.endedAt ?? item.timestamp,
+      lastUpdate: typeof progress.lastActivityAt === "number" ? progress.lastActivityAt : item.endedAt ?? item.timestamp,
+      lastActivityAt: typeof progress.lastActivityAt === "number" ? progress.lastActivityAt : undefined,
       currentTool: typeof progress.currentTool === "string" ? progress.currentTool : undefined,
       activityState: typeof progress.activityState === "string" ? progress.activityState : state,
       currentPath: typeof progress.currentPath === "string" ? progress.currentPath : undefined,
@@ -102,6 +106,9 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
       turnCount: typeof progress.turnCount === "number" ? progress.turnCount : undefined,
       toolCount: typeof progress.toolCount === "number" ? progress.toolCount : undefined,
       totalTokens: typeof progress.totalTokens === "number" ? progress.totalTokens : typeof tokens?.total === "number" ? tokens.total : undefined,
+      ...(typeof result?.model === "string" ? { model: result.model } : typeof progress.model === "string" ? { model: progress.model } : {}),
+      ...(typeof result?.thinking === "string" ? { thinking: result.thinking } : typeof progress.thinking === "string" ? { thinking: progress.thinking } : {}),
+      ...(typeof result?.contextWindow === "number" ? { contextWindow: result.contextWindow } : typeof progress.contextWindow === "number" ? { contextWindow: progress.contextWindow } : {}),
     };
     return {
       key: runId,
@@ -116,6 +123,9 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
       lastUpdate: run.lastUpdate,
       stepIndex: index,
       toolCallId: item.toolCallId,
+      model: run.model,
+      thinking: run.thinking,
+      contextWindow: run.contextWindow,
     };
   });
 }
@@ -149,7 +159,10 @@ export function subagentTargets(runs: readonly SubagentRun[], tools: readonly To
           transcriptPath: step.transcriptPath ?? run.transcriptPath,
           sessionFile,
           startedAt: step.startedAt ?? run.startedAt,
-          lastUpdate: step.lastActivityAt ?? run.lastUpdate ?? step.endedAt ?? run.endedAt,
+          lastUpdate: step.lastActivityAt ?? run.lastActivityAt ?? run.lastUpdate ?? step.endedAt ?? run.endedAt,
+          model: step.model ?? run.model,
+          thinking: step.thinking ?? run.thinking,
+          contextWindow: step.contextWindow ?? run.contextWindow,
         });
       }
       continue;
@@ -166,7 +179,10 @@ export function subagentTargets(runs: readonly SubagentRun[], tools: readonly To
       transcriptPath: run.transcriptPath,
       sessionFile: run.sessionFile,
       startedAt: run.startedAt,
-      lastUpdate: run.lastUpdate ?? run.endedAt,
+      lastUpdate: run.lastActivityAt ?? run.lastUpdate ?? run.endedAt,
+      model: run.model,
+      thinking: run.thinking,
+      contextWindow: run.contextWindow,
     });
   }
 
@@ -185,8 +201,12 @@ export function subagentTargets(runs: readonly SubagentRun[], tools: readonly To
     }
   }
   return [...deduped.values()].sort((a, b) => {
-    if (a.active !== b.active) return a.active ? -1 : 1;
-    return (b.lastUpdate ?? b.startedAt ?? 0) - (a.lastUpdate ?? a.startedAt ?? 0);
+    const runStart = (a.run.startedAt ?? Number.MAX_SAFE_INTEGER) - (b.run.startedAt ?? Number.MAX_SAFE_INTEGER);
+    if (runStart) return runStart;
+    const runIdentity = a.run.runId.localeCompare(b.run.runId);
+    if (runIdentity) return runIdentity;
+    const stepIndex = (a.stepIndex ?? -1) - (b.stepIndex ?? -1);
+    return stepIndex || a.key.localeCompare(b.key);
   });
 }
 
@@ -204,6 +224,22 @@ export function subagentRunIdFromTool(item: ToolItem): string | undefined {
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return undefined;
+}
+
+export function reconcileSubagentSelection(
+  previousKey: string | undefined,
+  previousTargets: readonly SubagentTarget[],
+  nextTargets: readonly SubagentTarget[],
+): string | undefined {
+  if (previousKey && nextTargets.some((target) => target.key === previousKey)) return previousKey;
+  const previous = previousTargets.find((target) => target.key === previousKey);
+  if (previous?.run.control === "foreground" && previous.sessionFile && previous.stepIndex !== undefined) {
+    const matches = nextTargets.filter((target) =>
+      target.active && target.canSteer && target.sessionFile === previous.sessionFile && target.stepIndex === previous.stepIndex,
+    );
+    if (matches.length === 1) return matches[0]?.key;
+  }
+  return nextTargets[0]?.key;
 }
 
 export function targetsForTool(item: ToolItem, targets: readonly SubagentTarget[]): SubagentTarget[] {

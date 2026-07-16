@@ -73,6 +73,7 @@ export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
       ...(string(step.label) ? { label: string(step.label) } : {}),
       ...(string(step.model) ? { model: string(step.model) } : {}),
       ...(string(step.thinking) ? { thinking: string(step.thinking) } : {}),
+      ...(number(step.contextWindow) !== undefined ? { contextWindow: number(step.contextWindow) } : {}),
       ...(string(step.activityState) ? { activityState: string(step.activityState) } : {}),
       ...(number(step.lastActivityAt) !== undefined ? { lastActivityAt: number(step.lastActivityAt) } : {}),
       ...(string(step.currentTool) ? { currentTool: string(step.currentTool) } : {}),
@@ -116,6 +117,9 @@ export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
     ...(number(record.pid) !== undefined ? { pid: number(record.pid) } : {}),
     ...(string(record.cwd) ? { cwd: string(record.cwd) } : {}),
     ...(string(record.agent) ? { agent: string(record.agent) } : {}),
+    ...(string(record.model) ? { model: string(record.model) } : {}),
+    ...(string(record.thinking) ? { thinking: string(record.thinking) } : {}),
+    ...(number(record.contextWindow) !== undefined ? { contextWindow: number(record.contextWindow) } : {}),
     ...(Array.isArray(record.agents) ? { agents: record.agents.filter((value): value is string => typeof value === "string") } : {}),
     ...(string(record.activityState) ? { activityState: string(record.activityState) } : {}),
     ...(number(record.lastActivityAt) !== undefined ? { lastActivityAt: number(record.lastActivityAt) } : {}),
@@ -190,9 +194,7 @@ export function listSubagentRuns(identity?: string | SubagentSessionIdentity, ro
     .filter((run): run is SubagentRun => Boolean(run))
     .filter((run) => matchesSubagentSession(run, identity))
     .sort((a, b) => {
-      const active = (run: SubagentRun) => run.state === "running" || run.state === "queued" || run.activityState === "running" ? 1 : 0;
-      const activeDifference = active(b) - active(a);
-      if (activeDifference) return activeDifference;
-      return (b.lastUpdate ?? b.startedAt ?? 0) - (a.lastUpdate ?? a.startedAt ?? 0);
+      const startedDifference = (a.startedAt ?? Number.MAX_SAFE_INTEGER) - (b.startedAt ?? Number.MAX_SAFE_INTEGER);
+      return startedDifference || a.runId.localeCompare(b.runId);
     });
 }

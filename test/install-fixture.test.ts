@@ -25,7 +25,8 @@ describe("POSIX installer executable fixture", () => {
     const tar = await shell("tar", ["-czf", archive, "-C", base, "payload"], process.env);
     expect(tar.code).toBe(0);
     const fake = path.join(base, "fake"); await mkdir(fake);
-    await writeFile(path.join(fake, "curl"), `#!/bin/sh\nwhile [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; out="$1"; fi; shift; done\ncase "$out" in *release.json) printf '{"tag_name":"v1.2.3"}' > "$out" ;; *) cp "$PITTY_FIXTURE_ARCHIVE" "$out" ;; esac\n`);
+    await writeFile(path.join(fake, "curl"), `#!/bin/sh\nwhile [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; out="$1"; fi; shift; done\nif [ "\${PITTY_FAIL_CHECKSUM:-}" = 1 ] && printf '%s' "$out" | grep SHA256SUMS >/dev/null; then exit 1; fi
+if [ "\${PITTY_MISSING_CHECKSUM:-}" = 1 ] && printf '%s' "$out" | grep SHA256SUMS >/dev/null; then printf 'deadbeef  other.tar.gz\\n' > "$out"; exit 0; fi\ncase "$out" in *release.json) printf '{"tag_name":"v1.2.3"}' > "$out" ;; *SHA256SUMS) sha256sum "$PITTY_FIXTURE_ARCHIVE" | sed 's#  .*#  pitty-1.2.3.tar.gz#' > "$out" ;; *) cp "$PITTY_FIXTURE_ARCHIVE" "$out" ;; esac\n`);
     await writeFile(path.join(fake, "npm"), "#!/bin/sh\nmkdir -p node_modules/.bin; printf '#!/bin/sh\n' > node_modules/.bin/bun; chmod +x node_modules/.bin/bun\n");
     await writeFile(path.join(fake, "pi"), "#!/bin/sh\nif [ \"$1\" = list ]; then printf 'pi-subagents\\n@juicesharp/rpiv-todo\\n'; fi\n");
     for (const command of ["curl", "npm", "pi"]) await chmod(path.join(fake, command), 0o755);
@@ -54,5 +55,11 @@ describe("POSIX installer executable fixture", () => {
     expect(await readFile(path.join(install, "old-marker"), "utf8")).toBe("old");
     expect(await readFile(`${install}.backup`, "utf8").catch(() => "")).toBe("");
     expect(failed.output).toContain("previous installation was restored");
+    const checksumFailure = await shell("sh", [path.join(root, "install.sh"), "--defer-apply", "--version", "1.2.3", "--install-dir", install, "--bin-dir", bin, "--repo", "example/repo"], { ...process.env, PATH: `${fake}:${process.env.PATH}`, PITTY_FIXTURE_ARCHIVE: archive, PITTY_FAIL_CHECKSUM: "1" });
+    expect(checksumFailure.code).not.toBe(0);
+    expect(checksumFailure.output).toContain("checksums were unavailable");
+    const missingEntry = await shell("sh", [path.join(root, "install.sh"), "--defer-apply", "--version", "1.2.3", "--install-dir", install, "--bin-dir", bin, "--repo", "example/repo"], { ...process.env, PATH: `${fake}:${process.env.PATH}`, PITTY_FIXTURE_ARCHIVE: archive, PITTY_MISSING_CHECKSUM: "1" });
+    expect(missingEntry.code).not.toBe(0);
+    expect(missingEntry.output).toContain("did not contain");
   });
 });

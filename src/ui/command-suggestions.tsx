@@ -12,6 +12,12 @@ function clip(value: string, width = 86): string {
   return clean.length <= width ? clean : `${clean.slice(0, width - 1)}…`;
 }
 
+export function selectCommandChoice(commands: CommandChoice[], index: number): CommandChoice | undefined {
+  if (commands.length === 0) return undefined;
+  const clampedIndex = Math.max(0, Math.min(index, commands.length - 1));
+  return commands[clampedIndex];
+}
+
 export function filterCommandChoices(commands: CommandChoice[], input: string, limit = 7): CommandChoice[] {
   const match = input.match(/^\/([^\s]*)$/);
   if (!match) return [];
@@ -43,7 +49,7 @@ export function CommandSuggestions(props: {
       <box height={1} minHeight={1} flexDirection="row">
         <text fg={colors.textBright} attributes={1}>Commands</text>
         <box flexGrow={1} />
-        <text fg={colors.subtle}>↑/↓ choose · Tab insert</text>
+        <text fg={colors.subtle}>↑/↓ choose · Tab/Enter insert</text>
       </box>
       <For each={props.commands}>
         {(command, index) => {

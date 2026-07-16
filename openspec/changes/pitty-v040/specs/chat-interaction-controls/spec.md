@@ -37,6 +37,17 @@ Command suggestions SHALL remain in normal layout flow above the main prompt and
 - **WHEN** a slash-command prefix has visible suggestions and the user presses unmodified Enter
 - **THEN** PiTTy replaces the prefix with the highlighted command and keeps the prompt editable; a subsequent Enter executes that command
 
+### Requirement: Bounded pending input
+Pending steering, follow-up, and editable queued-input rows SHALL remain in normal layout flow above the main prompt, occupy a bounded visible region, and scroll vertically when they overflow. The pending region SHALL preserve the main prompt's minimum visible editor height.
+
+#### Scenario: Overflowing pending input
+- **WHEN** pending steering, follow-up, or editable queued-input rows exceed the panel's visible capacity
+- **THEN** PiTTy caps the panel height, enables vertical scrolling, and leaves the main prompt visible and writable
+
+#### Scenario: Deleted todo
+- **WHEN** a todo delete or remove action identifies an existing todo
+- **THEN** PiTTy removes that todo from the derived todo panel state
+
 ### Requirement: Recoverable prompt history
 PiTTy SHALL retain session-local prompt-history entries for submitted messages and drafts cleared with Ctrl+C. Ctrl+C with a nonempty draft SHALL clear and save the draft without aborting Pi; with an empty draft it SHALL retain existing abort and exit behavior. Up/Down SHALL navigate prompt history only from an empty single-line editor state so normal multiline cursor navigation remains available.
 

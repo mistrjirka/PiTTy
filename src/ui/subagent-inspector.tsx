@@ -4,6 +4,7 @@ import type { ConversationItem, SubagentRun } from "../types.ts";
 import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
 import { colors } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
+import { formatContextWindow } from "./model-selector.tsx";
 import { MessageView } from "./message.tsx";
 
 export function SubagentInspector(props: {
@@ -98,14 +99,17 @@ export function SubagentInspector(props: {
             {currentPath() ? ` · ${currentPath()}` : ""}
           </text>
         </Show>
-        <Show when={step()}>
-          {(selected) => (
+        {(() => {
+          const currentStep = step();
+          return (
             <text fg={colors.muted} wrapMode="word">
-              child {selected().index + 1} · {selected().agent} · {selected().status}
-              {selected().model ? ` · ${selected().model}` : ""}
+              {currentStep ? `child ${currentStep.index + 1} · ${currentStep.agent} · ${currentStep.status}` : `${target().label} · ${target().state}`}
+              {` · model ${target().model ?? "unknown"}`}
+              {` · ${formatContextWindow(target().contextWindow) || "context unknown"}`}
+              {` · thinking ${target().thinking ?? "unknown"}`}
             </text>
-          )}
-        </Show>
+          );
+        })()}
       </box>
       <scrollbox
         ref={(value) => props.scrollRef?.(value)}

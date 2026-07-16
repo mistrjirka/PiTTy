@@ -99,14 +99,14 @@ if curl -fsSL "https://github.com/$REPO/releases/download/$TAG/SHA256SUMS" -o "$
   if [ -n "$EXPECTED" ]; then
     if command -v sha256sum >/dev/null 2>&1; then ACTUAL="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
     elif command -v shasum >/dev/null 2>&1; then ACTUAL="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
-    else ACTUAL=""; warn "no sha256sum or shasum command; checksum was not verified"
+    else die "no sha256sum or shasum command; checksum could not be verified"
     fi
-    [ -z "$ACTUAL" ] || [ "$ACTUAL" = "$EXPECTED" ] || die "checksum mismatch for $ASSET (expected $EXPECTED, got $ACTUAL)"
+    [ "$ACTUAL" = "$EXPECTED" ] || die "checksum mismatch for $ASSET (expected $EXPECTED, got $ACTUAL)"
   else
-    warn "SHA256SUMS did not contain $ASSET"
+    die "SHA256SUMS did not contain $ASSET"
   fi
 else
-  warn "release checksums were unavailable; continuing without checksum verification"
+  die "release checksums were unavailable; refusing to install without checksum verification"
 fi
 
 SRC="$TMP/source"

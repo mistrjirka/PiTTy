@@ -45,7 +45,10 @@ function targetActivity(target: SubagentTarget, now: number): string {
   const startedAt = target.step?.currentToolStartedAt ?? target.run.currentToolStartedAt;
   const elapsed = startedAt ? ` ${formatDuration(now - startedAt)}` : "";
   const path = target.step?.currentPath ?? target.run.currentPath;
-  return tool || path ? `${tool ?? "working"}${elapsed}${path ? ` · ${path}` : ""}` : "click to inspect";
+  const activity = tool || path ? `${tool ?? "working"}${elapsed}${path ? ` · ${path}` : ""}` : "click to inspect";
+  const lastUpdate = target.lastUpdate;
+  const freshness = lastUpdate === undefined ? "last activity unknown" : `last activity ${formatDuration(Math.max(0, now - lastUpdate))} ago`;
+  return `${activity} · ${freshness}`;
 }
 
 export function Sidebar(props: {
@@ -68,7 +71,6 @@ export function Sidebar(props: {
   const now = () => props.now ?? Date.now();
   const targets = () => subagentTargets(props.runs, props.tools ?? []);
   const active = () => targets().filter((target) => target.active);
-  const finished = () => targets().filter((target) => !target.active);
   const selectedKey = () => props.selectedTargetKey ?? targets().find((target) => target.run.runId === props.selectedRunId)?.key;
   const sidebarHeight = () => Math.max(24, props.height ?? 40);
   const hasSubagents = () => props.subagentsAvailable !== false;
@@ -150,14 +152,7 @@ export function Sidebar(props: {
         }}
       >
         <Show when={targets().length > 0} fallback={<text width="100%" height={1} fg={colors.muted}>No async subagents for this session</text>}>
-          <Show when={active().length}>
-            <text width="100%" height={1} fg={colors.green} attributes={1}>Active</text>
-            <For each={active()}>{renderTarget}</For>
-          </Show>
-          <Show when={finished().length}>
-            <box height={1} minHeight={1} marginTop={1}><text fg={colors.subtle} attributes={1}>Finished</text></box>
-            <For each={finished()}>{renderTarget}</For>
-          </Show>
+          <For each={targets()}>{renderTarget}</For>
         </Show>
         </scrollbox>
         <text width="100%" height={1} fg={colors.subtle} wrapMode="none">Ctrl+I inspect · Ctrl+A pause · Ctrl+Shift+A stop</text>

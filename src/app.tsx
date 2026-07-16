@@ -11,6 +11,7 @@ import type { DiagnosticLogger } from "./diagnostics/logger.ts";
 import { createDiagnosticBundle } from "./diagnostics/bundle.ts";
 import { PiRpcClient } from "./rpc/pi-rpc-client.ts";
 import { ConversationModel, initialItems } from "./state/conversation.ts";
+import { PromptHistory, shouldRecoverPromptDraft } from "./state/prompt-history.ts";
 import { listSubagentRuns } from "./subagents/artifacts.ts";
 import { readSubagentConversation } from "./subagents/transcript.ts";
 import { pauseSubagent, steerSubagent, stopSubagent } from "./subagents/control.ts";
@@ -25,10 +26,11 @@ import { PromptMapDialog, type PromptMapEntry } from "./ui/prompt-map.tsx";
 import { Sidebar } from "./ui/sidebar.tsx";
 import { SubagentInspector } from "./ui/subagent-inspector.tsx";
 import { SubagentSelectorDialog } from "./ui/subagent-selector.tsx";
-import { subagentTargets, targetsForTool, type SubagentTarget } from "./subagents/targets.ts";
+import { reconcileSubagentSelection, subagentTargets, targetsForTool, type SubagentTarget } from "./subagents/targets.ts";
 import { colors } from "./ui/theme.ts";
-import { CommandSuggestions, filterCommandChoices, type CommandChoice } from "./ui/command-suggestions.tsx";
-import { deriveTodos } from "./ui/todos.tsx";
+import { CommandSuggestions, filterCommandChoices, selectCommandChoice, type CommandChoice } from "./ui/command-suggestions.tsx";
+import { deriveTodos, type TodoViewItem } from "./ui/todos.tsx";
+import { preserveEquivalentTodos, preserveReferencedList } from "./ui/list-stability.ts";
 import type { OptionalIntegrationStatus } from "./integrations/detect.ts";
 import { appVersion } from "./version.ts";
 import { defaultUpdateCheckConfig, isUpdateCheckDisabled, checkForUpdates } from "./update/check.ts";
@@ -116,6 +118,16 @@ function isEnterKey(event: KeyEvent): boolean {
   return event.name === "enter" || event.name === "return" || event.name === "kpenter" || event.name === "linefeed";
 }
 
+export function isUnmodifiedEnterKey(event: KeyEvent): boolean {
+  return isEnterKey(event)
+    && !event.ctrl
+    && !event.meta
+    && !event.shift
+    && !event.option
+    && !event.super
+    && !hasAlt(event);
+}
+
 function parseOnOff(value: string | undefined): boolean | undefined {
   if (value === "on" || value === "true" || value === "enable" || value === "enabled") return true;
   if (value === "off" || value === "false" || value === "disable" || value === "disabled") return false;
@@ -148,6 +160,10 @@ function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
     mode: run.mode,
     state: run.state,
     activityState: run.activityState,
+    lastActivityAt: run.lastActivityAt,
+    model: run.model,
+    thinking: run.thinking,
+    contextWindow: run.contextWindow,
     currentTool: run.currentTool,
     currentPath: run.currentPath,
     currentStep: run.currentStep,
@@ -161,6 +177,10 @@ function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
       agent: step.agent,
       status: step.status,
       activityState: step.activityState,
+      lastActivityAt: step.lastActivityAt,
+      model: step.model,
+      thinking: step.thinking,
+      contextWindow: step.contextWindow,
       currentTool: step.currentTool,
       currentPath: step.currentPath,
       turnCount: step.turnCount,
@@ -185,6 +205,7 @@ export function App(props: AppOptions) {
     logger: props.logger,
   });
   const conversation = new ConversationModel([], props.cwd);
+  const promptHistory = new PromptHistory();
   const [revision, setRevision] = createSignal(0);
   const [messageWindowStart, setMessageWindowStart] = createSignal(0);
   const [sessionState, setSessionState] = createSignal<RpcSessionState>();
@@ -246,12 +267,13 @@ export function App(props: AppOptions) {
   const hiddenMessageCount = createMemo(() =>
     clampMessageWindowStart(items().length, messageWindowStart()),
   );
+  const visibleMessageIds = createMemo(() => visibleItems().map((item) => item.id));
   const promptMapEntries = createMemo<PromptMapEntry[]>(() =>
     items().flatMap((item) => item.kind === "user"
       ? [{ id: item.id, text: item.text, timestamp: item.timestamp }]
       : []),
   );
-  const todos = createMemo(() => deriveTodos(items()));
+  const todos = createMemo<TodoViewItem[]>((previous) => preserveEquivalentTodos(previous, deriveTodos(items())));
   const subagentsAvailable = createMemo(() => props.integrations.subagents.installed || runs().length > 0);
   const todosAvailable = createMemo(() => props.integrations.todos.installed || todos().length > 0);
   const commandSuggestions = createMemo(() => filterCommandChoices(commandChoices(), promptText(), Math.max(1, Math.min(7, dimensions().height - 10))));
@@ -279,7 +301,9 @@ export function App(props: AppOptions) {
     if (last?.kind === "tool" && (last.status === "streaming" || last.status === "pending")) return false;
     return true;
   });
-  const subagentTools = createMemo(() => items().filter((item): item is ToolItem => item.kind === "tool"));
+  const subagentTools = createMemo<ToolItem[]>((previous) =>
+    preserveReferencedList(previous, items().filter((item): item is ToolItem => item.kind === "tool")),
+  );
   const availableSubagentTargets = createMemo(() => subagentTargets(runs(), subagentTools()));
   const selectedSubagentTarget = createMemo(() =>
     availableSubagentTargets().find((target) => target.key === selectedTargetKey()) ?? availableSubagentTargets()[0],
@@ -323,15 +347,13 @@ export function App(props: AppOptions) {
       const nextRuns = props.integrations.subagents.installed
         ? listSubagentRuns({ sessionId: state.sessionId, sessionFile: state.sessionFile })
         : [];
-      setRuns(nextRuns);
-      const nextTargets = subagentTargets(nextRuns, subagentTools());
-      if (!nextTargets.some((target) => target.key === selectedTargetKey())) {
-        setSelectedTargetKey(nextTargets[0]?.key);
-      }
       const summaries = nextRuns.map(subagentLogSummary);
       const digest = JSON.stringify(summaries);
       if (digest !== lastRunsDigest) {
         lastRunsDigest = digest;
+        setRuns(nextRuns);
+        const nextTargets = subagentTargets(nextRuns, subagentTools());
+        setSelectedTargetKey(reconcileSubagentSelection(selectedTargetKey(), availableSubagentTargets(), nextTargets));
         props.logger.info("subagents.changed", { runs: summaries });
       }
     } catch (error) {
@@ -663,8 +685,8 @@ export function App(props: AppOptions) {
       return;
     }
     // Match Pi's native Enter behavior while a turn is running. prompt(...,
-    // {streamingBehavior:"steer"}) handles queueing, extension commands and
-    // prompt templates. Do not add an optimistic transcript item: Pi exposes
+    // {streamingBehavior:"steer"}) buffers or defers delivery, including
+    // extension commands and prompt templates. Do not add an optimistic transcript item: Pi exposes
     // the pending text through queue_update and emits the user message once it
     // is actually consumed.
     await client.prompt(text, "steer");
@@ -674,6 +696,7 @@ export function App(props: AppOptions) {
     if (dialog()) return;
     const text = prompt?.plainText.trim() ?? "";
     if (!text) return;
+    promptHistory.recordSubmitted(text);
     prompt?.clear();
     setPromptText("");
     try {
@@ -1008,9 +1031,7 @@ export function App(props: AppOptions) {
         setRuns(next);
         props.logger.info("subagents.changed", { runs: summaries });
         const nextTargets = subagentTargets(next, subagentTools());
-        if (!nextTargets.some((target) => target.key === selectedTargetKey())) {
-          setSelectedTargetKey(nextTargets[0]?.key);
-        }
+        setSelectedTargetKey(reconcileSubagentSelection(selectedTargetKey(), availableSubagentTargets(), nextTargets));
       }
     }, 750);
     spinnerTimer = setInterval(() => {
@@ -1120,7 +1141,14 @@ export function App(props: AppOptions) {
       if (event.name === "tab" && !event.shift) {
         event.preventDefault();
         event.stopPropagation();
-        const command = suggestions[Math.min(commandSuggestionIndex(), suggestions.length - 1)];
+        const command = selectCommandChoice(suggestions, commandSuggestionIndex());
+        if (command) insertSuggestedCommand(command);
+        return;
+      }
+      if (isUnmodifiedEnterKey(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        const command = selectCommandChoice(suggestions, commandSuggestionIndex());
         if (command) insertSuggestedCommand(command);
         return;
       }
@@ -1141,6 +1169,15 @@ export function App(props: AppOptions) {
       event.preventDefault();
       event.stopPropagation();
       if (copySelection()) return;
+      const draft = prompt?.plainText ?? "";
+      if (prompt?.focused && shouldRecoverPromptDraft({ draft, hasCopyableSelection: false })) {
+        promptHistory.recordDraft(draft);
+        prompt?.clear();
+        setPromptText("");
+        focusMainPrompt();
+        toast("Draft saved. Press Up to recover it.", "info");
+        return;
+      }
       if (streaming()) {
         void client.abort().then(() => toast("Aborting current Pi turn", "warning")).catch((error) => toast(String(error), "error"));
         return;
@@ -1152,6 +1189,17 @@ export function App(props: AppOptions) {
         toast("Press Ctrl+C again to exit", "info", 1000);
       }
       return;
+    }
+    if (!inspectSubagent() && (event.name === "up" || event.name === "down") && (prompt?.lineCount ?? 1) === 1) {
+      const result = promptHistory.browse(prompt?.plainText ?? "", event.name === "up" ? "older" : "newer");
+      if (result.handled) {
+        event.preventDefault();
+        event.stopPropagation();
+        prompt?.setText(result.text ?? "");
+        setPromptText(result.text ?? "");
+        prompt?.focus();
+        return;
+      }
     }
     if (event.name === "pageup" || event.name === "pagedown") {
       event.preventDefault();
@@ -1374,30 +1422,42 @@ export function App(props: AppOptions) {
                   </text>
                 </box>
               </Show>
-              <For each={visibleItems()}>
-                {(item) => (
-                  <MessageView
-                    item={item}
-                    showThinking
-                    thinkingExpanded={thinkingIsExpanded(item.id)}
-                    onToggleThinking={() => toggleThinkingItem(item.id)}
-                    toolExpanded={item.kind === "tool" ? toolExpanded(item.id) : false}
-                    onToggleTool={toggleTool}
-                    diffExpanded={item.kind === "tool" ? diffExpanded(item.id) : false}
-                    onToggleDiff={toggleDiff}
-                    subagentTargets={item.kind === "tool" ? targetsForTool(item, availableSubagentTargets()) : []}
-                    onInspectSubagentTarget={(targetKey) => {
-                      setSelectedTargetKey(targetKey);
-                      setInspectSubagent(true);
-                      queueMicrotask(() => subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER));
-                    }}
-                    now={item.kind === "tool" && (item.status === "streaming" || item.status === "pending")
-                      ? clockNow()
-                      : item.kind === "tool"
-                        ? item.endedAt ?? item.startedAt ?? item.timestamp
-                        : 0}
-                  />
-                )}
+              <For each={visibleMessageIds()}>
+                {(itemId) => {
+                  const item = createMemo(() => visibleItems().find((candidate) => candidate.id === itemId));
+                  const tool = createMemo(() => {
+                    const candidate = item();
+                    return candidate?.kind === "tool" ? candidate : undefined;
+                  });
+                  const subagentTargetsForItem = createMemo(() => {
+                    const candidate = item();
+                    return candidate?.kind === "tool" ? targetsForTool(candidate, availableSubagentTargets()) : [];
+                  });
+                  const initialItem = item();
+                  if (!initialItem) return null;
+                  const itemSource = () => item() ?? initialItem;
+                  return (
+                    <MessageView
+                            item={() => itemSource()}
+                            showThinking
+                            thinkingExpanded={thinkingIsExpanded(itemId)}
+                            onToggleThinking={() => toggleThinkingItem(itemId)}
+                            toolExpanded={tool() !== undefined && toolExpanded(itemId)}
+                            onToggleTool={toggleTool}
+                            diffExpanded={tool() !== undefined && diffExpanded(itemId)}
+                            onToggleDiff={toggleDiff}
+                            subagentTargets={subagentTargetsForItem()}
+                            onInspectSubagentTarget={(targetKey) => {
+                              setSelectedTargetKey(targetKey);
+                              setInspectSubagent(true);
+                              queueMicrotask(() => subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER));
+                            }}
+                            now={tool()?.status === "streaming" || tool()?.status === "pending" || subagentTargetsForItem().some((target) => target.active)
+                              ? clockNow()
+                              : tool()?.endedAt ?? tool()?.startedAt ?? tool()?.timestamp ?? 0}
+                          />
+                  );
+                }}
               </For>
               <Show when={showWorkingIndicator()}>
                 <box paddingLeft={1} paddingTop={1} paddingBottom={1} marginBottom={1} border={["left"]} borderColor={colors.green}>
@@ -1474,7 +1534,9 @@ export function App(props: AppOptions) {
               minHeight={2}
               maxHeight={10}
               onContentChange={() => {
-                setPromptText(prompt?.plainText ?? "");
+                const text = prompt?.plainText ?? "";
+                promptHistory.noteEditorChange(text);
+                setPromptText(text);
                 setCommandSuggestionIndex(0);
               }}
               onSubmit={() => void submit()}

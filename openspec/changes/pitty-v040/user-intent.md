@@ -36,7 +36,8 @@
 - Add a `pitty-resume` executable that starts the normal PiTTy application with that same picker open; do not implement a second picker.
 - Search fields in the model and session pickers take focus immediately. Typing filters without a click, Up/Down navigates results, and selection or cancellation returns focus to the unchanged main chat draft.
 - The subagent sidebar shows foreground and async agents, treats pending agents as active/queued, deduplicates resumed children, keeps inspector history stable, and removes the redundant Selected section.
-- Pending steering/follow-up text must remain readable at constrained terminal heights.
+- Pending steering/follow-up text must remain readable at constrained terminal heights. Its panel must have a bounded height and scroll when it overflows, preserving a visible main prompt.
+- Deleted todos must no longer appear in the todo panel.
 
 ## Approved completion scope
 

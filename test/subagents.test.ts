@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { pauseSubagent, steerSubagent, stopSubagent } from "../src/subagents/control.ts";
 import { listSubagentRuns, matchesSubagentSession, readSubagentRun, subagentTempRoot } from "../src/subagents/artifacts.ts";
 import { readSubagentConversation, readSubagentTranscript } from "../src/subagents/transcript.ts";
-import { subagentTargets, targetsForTool } from "../src/subagents/targets.ts";
+import { reconcileSubagentSelection, subagentTargets, targetsForTool } from "../src/subagents/targets.ts";
 import type { SubagentRun } from "../src/types.ts";
 
 const roots: string[] = [];
@@ -42,12 +42,15 @@ describe("subagent controls", () => {
       toolCount: 7,
       totalTokens: { input: 100, output: 50, total: 150 },
       totalCost: { inputTokens: 100, outputTokens: 50, costUsd: 0.0123 },
-      steps: [{ agent: "worker", status: "running", currentTool: "edit", turnCount: 2, toolCount: 3, tokens: { input: 40, output: 20, total: 60 } }],
+      steps: [{ agent: "worker", status: "running", model: "provider/child", thinking: "high", contextWindow: 8192, currentTool: "edit", turnCount: 2, toolCount: 3, tokens: { input: 40, output: 20, total: 60 } }],
     }));
     const parsed = readSubagentRun(target.asyncDir!);
     expect(parsed?.totalTokens).toBe(150);
     expect(parsed?.totalCost).toBe(0.0123);
     expect(parsed?.steps[0]?.currentTool).toBe("edit");
+    expect(parsed?.steps[0]?.model).toBe("provider/child");
+    expect(parsed?.steps[0]?.thinking).toBe("high");
+    expect(parsed?.steps[0]?.contextWindow).toBe(8192);
     expect(parsed?.steps[0]?.tokens?.total).toBe(60);
   });
 
@@ -96,20 +99,20 @@ describe("subagent controls", () => {
     expect(JSON.parse(fs.readFileSync(path.join(dir, files[0]!), "utf8")).message).toBe("focus on tests");
   });
 
-  test("sorts active restored runs before newer completed runs", () => {
+  test("sorts restored runs by launch order, not activity", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-oc-runs-"));
     roots.push(root);
     const completed = path.join(root, "completed");
     const running = path.join(root, "running");
     fs.mkdirSync(completed);
     fs.mkdirSync(running);
-    fs.writeFileSync(path.join(completed, "status.json"), JSON.stringify({ runId: "completed", mode: "single", state: "complete", lastUpdate: 2_000, steps: [] }));
-    fs.writeFileSync(path.join(running, "status.json"), JSON.stringify({ runId: "running", mode: "single", state: "running", lastUpdate: 1_000, steps: [] }));
-    expect(listSubagentRuns(undefined, root).map((item) => item.runId)).toEqual(["running", "completed"]);
+    fs.writeFileSync(path.join(completed, "status.json"), JSON.stringify({ runId: "completed", mode: "single", state: "complete", startedAt: 1_000, lastUpdate: 9_000, steps: [] }));
+    fs.writeFileSync(path.join(running, "status.json"), JSON.stringify({ runId: "running", mode: "single", state: "running", startedAt: 2_000, lastUpdate: 1_000, steps: [] }));
+    expect(listSubagentRuns(undefined, root).map((item) => item.runId)).toEqual(["completed", "running"]);
   });
 
 
-  test("splits parallel runs into stable per-child targets with active children first", () => {
+  test("splits parallel runs into declared child index order", () => {
     const target = run();
     target.mode = "parallel";
     target.steps = [
@@ -117,10 +120,49 @@ describe("subagent controls", () => {
       { index: 1, agent: "implementer", status: "running", sessionFile: "/tmp/implementer-session.jsonl", transcriptPath: "/tmp/implementer.jsonl" },
     ];
     const targets = subagentTargets([target]);
-    expect(targets.map((item) => item.key)).toEqual(["run-1:1", "run-1:0"]);
-    expect(targets[0]?.label).toBe("implementer #2");
-    expect(targets[0]?.canSteer).toBe(true);
-    expect(targets[1]?.canSteer).toBe(false);
+    expect(targets.map((item) => item.key)).toEqual(["run-1:0", "run-1:1"]);
+    expect(targets[1]?.label).toBe("implementer #2");
+    expect(targets[1]?.canSteer).toBe(true);
+    expect(targets[0]?.canSteer).toBe(false);
+  });
+
+  test("keeps same-start parallel runs grouped and index ordered", () => {
+    const first = run(); first.runId = "run-a"; first.startedAt = 1_000; first.steps = [
+      { index: 0, agent: "a0", status: "completed", lastActivityAt: 9_000 },
+      { index: 1, agent: "a1", status: "running", lastActivityAt: 1_000 },
+    ];
+    const second = run(); second.runId = "run-b"; second.startedAt = 1_000; second.steps = [
+      { index: 0, agent: "b0", status: "running", lastActivityAt: 8_000 },
+      { index: 1, agent: "b1", status: "completed", lastActivityAt: 2_000 },
+    ];
+    expect(subagentTargets([first, second]).map((target) => target.key)).toEqual(["run-a:0", "run-a:1", "run-b:0", "run-b:1"]);
+  });
+
+  test("reconciles a stale foreground selection to its unique active child", () => {
+    const previous = subagentTargets([], [{
+      kind: "tool", id: "fg", toolCallId: "fg-call", name: "subagent", args: {}, output: "", timestamp: 1,
+      status: "done", isError: false, details: { progress: [{ sessionFile: "/tmp/child", status: "done" }] },
+    }]);
+    const activeRun = run();
+    activeRun.runId = "async";
+    activeRun.steps = [{ index: 0, agent: "child", status: "running", sessionFile: "/tmp/child" }];
+    const next = subagentTargets([activeRun]);
+    expect(reconcileSubagentSelection(previous[0]?.key, previous, next)).toBe("async:0");
+    expect(previous[0]?.canSteer).toBe(false);
+  });
+
+  test("does not reconcile unrelated or ambiguous child identities", () => {
+    const previousTarget = subagentTargets([], [{
+      kind: "tool", id: "fg", toolCallId: "fg-call", name: "subagent", args: {}, output: "", timestamp: 1,
+      status: "done", isError: false, details: { progress: [{ sessionFile: "/tmp/child", status: "done" }] },
+    }])[0];
+    const first = run(); first.runId = "async-a"; first.steps = [{ index: 0, agent: "a", status: "running", sessionFile: "/tmp/other" }];
+    const second = run(); second.runId = "async-b"; second.steps = [{ index: 0, agent: "b", status: "running", sessionFile: "/tmp/child" }];
+    const third = run(); third.runId = "async-c"; third.steps = [{ index: 0, agent: "c", status: "running", sessionFile: "/tmp/child" }];
+    const next = subagentTargets([first, second, third]);
+    const ambiguous = next[1] ? [{ ...next[1], key: "ambiguous-a" }, { ...next[1], key: "ambiguous-b" }] : [];
+    expect(reconcileSubagentSelection(previousTarget?.key, previousTarget ? [previousTarget] : [], ambiguous)).toBe("ambiguous-a");
+    expect(previousTarget?.canSteer).toBe(false);
   });
 
   test("dedupes resumed children by session file and keeps the active transcript", () => {

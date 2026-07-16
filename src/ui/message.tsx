@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, type Accessor } from "solid-js";
 import stripAnsi from "strip-ansi";
 import type { ConversationItem, ToolItem } from "../types.ts";
 import type { SubagentTarget } from "../subagents/targets.ts";
@@ -123,8 +123,14 @@ function toolTiming(item: ToolItem, now: number): string {
   return duration ? `took ${duration}${timeout ? ` · timeout ${timeout}` : ""}` : timeout ? `timeout ${timeout}` : "";
 }
 
+type MessageItemSource = ConversationItem | Accessor<ConversationItem>;
+
+function currentMessageItem(source: MessageItemSource): ConversationItem {
+  return typeof source === "function" ? source() : source;
+}
+
 export function MessageView(props: {
-  item: ConversationItem;
+  item: MessageItemSource;
   showThinking: boolean;
   thinkingExpanded?: boolean;
   onToggleThinking?: () => void;
@@ -136,13 +142,22 @@ export function MessageView(props: {
   onInspectSubagentTarget?: ((targetKey: string) => void) | undefined;
   now?: number;
 }) {
-  const thinking = () => props.item.kind === "assistant" ? cleanThinkingText(props.item.thinking) : "";
-  const answer = () => props.item.kind === "assistant" ? cleanAnswerText(props.item.text) : "";
+  const source = props.item;
+  const initialItem = currentMessageItem(source);
+  const item = typeof source === "function"
+    ? new Proxy(initialItem, {
+      get(_target, property, receiver) {
+        return Reflect.get(currentMessageItem(source), property, receiver);
+      },
+    })
+    : initialItem;
+  const thinking = () => item.kind === "assistant" ? cleanThinkingText(item.thinking) : "";
+  const answer = () => item.kind === "assistant" ? cleanAnswerText(item.text) : "";
   return (
     <>
-      <Show when={props.item.kind === "user"}>
+      <Show when={item.kind === "user"}>
         <box
-          id={props.item.id}
+          id={item.id}
           backgroundColor={colors.panelRaised}
           paddingLeft={2}
           paddingRight={2}
@@ -153,14 +168,14 @@ export function MessageView(props: {
           borderColor={colors.accent}
         >
           <text fg={colors.textBright} selectable wrapMode="word">
-            {(props.item.kind === "user" ? props.item.text : "") + (props.item.kind === "user" && props.item.optimistic ? "  …" : "")}
+            {(item.kind === "user" ? item.text : "") + (item.kind === "user" && item.optimistic ? "  …" : "")}
           </text>
         </box>
       </Show>
 
-      <Show when={props.item.kind === "assistant"}>
+      <Show when={item.kind === "assistant"}>
         <box
-          id={props.item.id}
+          id={item.id}
           flexDirection="column"
           marginBottom={1}
           paddingLeft={0}
@@ -169,7 +184,7 @@ export function MessageView(props: {
           borderColor={colors.cyan}
         >
           <Show when={props.showThinking && thinking().trim()}>
-            <box flexDirection="column" marginBottom={answer().trim() ? 1 : 0} paddingLeft={1} backgroundColor={colors.thinkingBg}>
+            <box flexDirection="column" marginBottom={answer().trim() ? 1 : 0} paddingLeft={answer().trim() ? 1 : 0} backgroundColor={colors.thinkingBg}>
               <box
                 flexDirection="row"
                 onMouseDown={(event) => {
@@ -197,9 +212,9 @@ export function MessageView(props: {
               </Show>
             </box>
           </Show>
-          <Show when={props.item.kind === "assistant" && (answer().trim() || (props.item.status === "streaming" && !thinking().trim()))}>
+          <Show when={item.kind === "assistant" && (answer().trim() || (item.status === "streaming" && !thinking().trim()))}>
             <Show
-              when={props.item.kind === "assistant" && props.item.status !== "streaming"}
+              when={item.kind === "assistant" && item.status !== "streaming"}
               fallback={
                 // Streaming Markdown frequently contains incomplete fences and
                 // emphasis markers. Plain text prevents the grey truncation and
@@ -220,17 +235,17 @@ export function MessageView(props: {
         </box>
       </Show>
 
-      <Show when={props.item.kind === "tool"}>
+      <Show when={item.kind === "tool"}>
         {(() => {
-          const output = () => props.item.kind === "tool" ? props.item.output : "";
-          const diff = () => props.item.kind === "tool" ? props.item.diff ?? "" : "";
+          const output = () => item.kind === "tool" ? item.output : "";
+          const diff = () => item.kind === "tool" ? item.diff ?? "" : "";
           const expandable = () => Boolean(output() && toolOutputExpandable(output()));
           const expanded = () => expandable() && props.toolExpanded;
-          const visual = () => props.item.kind === "tool" ? toolVisual(props.item.name, props.item.isError) : toolVisual("tool", false);
+          const visual = () => item.kind === "tool" ? toolVisual(item.name, item.isError) : toolVisual("tool", false);
           const stats = () => diffStats(diff());
           return (
             <box
-              id={props.item.id}
+              id={item.id}
               flexDirection="column"
               backgroundColor={expanded() ? colors.panelRaised : visual().background}
               border={["left"]}
@@ -245,22 +260,22 @@ export function MessageView(props: {
                   if (!expandable()) return;
                   event.preventDefault();
                   event.stopPropagation();
-                  if (props.item.kind === "tool") props.onToggleTool?.(props.item.id);
+                  if (item.kind === "tool") props.onToggleTool?.(item.id);
                 }}
               >
                 <text fg={visual().accent} attributes={1}>
-                  {props.item.kind === "tool"
-                    ? `${expandable() ? (expanded() ? "▼ " : "▶ ") : ""}${props.item.status === "streaming" ? "◉" : visual().icon} TOOL · ${props.item.name}`
+                  {item.kind === "tool"
+                    ? `${expandable() ? (expanded() ? "▼ " : "▶ ") : ""}${item.status === "streaming" ? "◉" : visual().icon} TOOL · ${item.name}`
                     : ""}
                 </text>
-                <Show when={props.item.kind === "tool" && props.item.args !== undefined}>
+                <Show when={item.kind === "tool" && item.args !== undefined}>
                   <text fg={colors.muted} selectable wrapMode="word">
-                    {props.item.kind === "tool" ? `  ${prettyArgs(props.item.args).replace(/\s+/g, " ").slice(0, 150)}` : ""}
+                    {item.kind === "tool" ? `  ${prettyArgs(item.args).replace(/\s+/g, " ").slice(0, 150)}` : ""}
                   </text>
                 </Show>
                 <box flexGrow={1} />
-                <Show when={props.item.kind === "tool" && toolTiming(props.item, props.now ?? Date.now())}>
-                  <text fg={colors.subtle}>{props.item.kind === "tool" ? toolTiming(props.item, props.now ?? Date.now()) : ""}</text>
+                <Show when={item.kind === "tool" && toolTiming(item, props.now ?? Date.now())}>
+                  <text fg={colors.subtle}>{item.kind === "tool" ? toolTiming(item, props.now ?? Date.now()) : ""}</text>
                 </Show>
               </box>
               <Show when={(props.subagentTargets?.length ?? 0) > 0}>
@@ -269,8 +284,8 @@ export function MessageView(props: {
                   <For each={props.subagentTargets ?? []}>
                     {(target) => (
                       <box
-                        height={2}
-                        minHeight={2}
+                        height={3}
+                        minHeight={3}
                         flexShrink={0}
                         flexDirection="column"
                         paddingLeft={1}
@@ -289,7 +304,8 @@ export function MessageView(props: {
                           <box flexGrow={1} />
                           <text fg={colors.cyan}>inspect</text>
                         </box>
-                        <text height={1} fg={colors.muted} wrapMode="none">{target.state} · {target.run.mode}</text>
+                        <text height={1} fg={colors.muted} wrapMode="none">{target.state} · {target.run.mode} · last activity {target.lastUpdate === undefined ? "unknown" : `${formatDuration(Math.max(0, (props.now ?? Date.now()) - target.lastUpdate))} ago`}</text>
+                        <text height={1} fg={colors.subtle} wrapMode="none">{target.step?.currentTool ?? target.run.currentTool ?? target.step?.currentPath ?? target.run.currentPath ?? "click to inspect"}</text>
                       </box>
                     )}
                   </For>
@@ -342,14 +358,14 @@ export function MessageView(props: {
                     onMouseUp={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      if (props.item.kind === "tool") props.onToggleDiff?.(props.item.id);
+                      if (item.kind === "tool") props.onToggleDiff?.(item.id);
                     }}
                   >
                     <text fg={colors.green} attributes={1}>{props.diffExpanded ? "▼" : "▶"} Changes</text>
                     <text fg={colors.green}>  +{stats().additions}</text>
                     <text fg={colors.red}>  -{stats().deletions}</text>
-                    <Show when={props.item.kind === "tool" && props.item.diffPath}>
-                      <text fg={colors.muted}>  {props.item.kind === "tool" ? props.item.diffPath ?? "" : ""}</text>
+                    <Show when={item.kind === "tool" && item.diffPath}>
+                      <text fg={colors.muted}>  {item.kind === "tool" ? item.diffPath ?? "" : ""}</text>
                     </Show>
                     <box flexGrow={1} />
                     <text fg={colors.subtle}>{props.diffExpanded ? "click to collapse" : "click to view diff"}</text>
@@ -380,26 +396,26 @@ export function MessageView(props: {
         })()}
       </Show>
 
-      <Show when={props.item.kind === "system"}>
-        <box id={props.item.id} paddingLeft={1} marginBottom={1}>
+      <Show when={item.kind === "system"}>
+        <box id={item.id} paddingLeft={1} marginBottom={1}>
           <text
             selectable
             wrapMode="word"
             fg={
-              props.item.kind !== "system"
+              item.kind !== "system"
                 ? colors.muted
-                : props.item.tone === "error"
+                : item.tone === "error"
                   ? colors.red
-                  : props.item.tone === "warning"
+                  : item.tone === "warning"
                     ? colors.yellow
-                    : props.item.tone === "success"
+                    : item.tone === "success"
                       ? colors.green
-                      : props.item.tone === "info"
+                      : item.tone === "info"
                         ? colors.cyan
                         : colors.muted
             }
           >
-            {props.item.kind === "system" ? `· ${cleanTerminalText(props.item.text)}` : ""}
+            {item.kind === "system" ? `· ${cleanTerminalText(item.text)}` : ""}
           </text>
         </box>
       </Show>

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { TextareaRenderable } from "@opentui/core";
+import { KeyEvent, Renderable, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import type { TestRendererSetup } from "@opentui/core/testing";
 import { testRender } from "@opentui/solid";
-import { Show, createSignal } from "solid-js";
+import { For, Show, createSignal } from "solid-js";
 import { cleanThinkingText, MessageView, toolOutputExpandable } from "../src/ui/message.tsx";
 import { filterModelChoices, formatContextWindow, ModelSelectorDialog, normalizeModelChoices } from "../src/ui/model-selector.tsx";
 import { PromptMapDialog } from "../src/ui/prompt-map.tsx";
@@ -12,16 +12,19 @@ import { SubagentSelectorDialog } from "../src/ui/subagent-selector.tsx";
 import { subagentTargets } from "../src/subagents/targets.ts";
 import type { ConversationItem, RpcSessionState, SessionStats, SubagentRun } from "../src/types.ts";
 import { registerBundledParsers } from "../src/ui/parsers.ts";
-import { CommandSuggestions, filterCommandChoices } from "../src/ui/command-suggestions.tsx";
+import { CommandSuggestions, filterCommandChoices, selectCommandChoice } from "../src/ui/command-suggestions.tsx";
 import { SessionSelector } from "../src/ui/session-selector.tsx";
 import { EmptyDashboard } from "../src/ui/empty-dashboard.tsx";
 import { Logo } from "../src/ui/logo.tsx";
-import { shouldShowEmptyDashboard } from "../src/app.tsx";
+import { isUnmodifiedEnterKey, shouldShowEmptyDashboard } from "../src/app.tsx";
+import { preserveEquivalentTodos, preserveReferencedList } from "../src/ui/list-stability.ts";
 import type { SessionChoice, SessionDiscoveryState } from "../src/sessions.ts";
-import { deriveTodos } from "../src/ui/todos.tsx";
+import { deriveTodos, type TodoViewItem } from "../src/ui/todos.tsx";
 import { nextDetailToggle } from "../src/app.tsx";
 import { PendingInputPanel } from "../src/ui/pending-input-panel.tsx";
 import { appVersion } from "../src/version.ts";
+import { ConversationModel } from "../src/state/conversation.ts";
+import type { PiEvent } from "../src/types.ts";
 
 registerBundledParsers();
 
@@ -545,6 +548,28 @@ describe("OpenTUI components", () => {
     expect(frame).not.toContain("steering: after you do all the fixes release it as 0.3.3conversation");
   });
 
+  test("bounds pending input rows while keeping the main textarea writable", async () => {
+    let editor: TextareaRenderable | undefined;
+    const queuedFollowUps = Array.from({ length: 12 }, (_, index) => ({ id: `queued-${index}`, text: `queued follow-up ${index}` }));
+    const setup = await mount(() => (
+      <box width="100%" height="100%" flexDirection="column">
+        <box flexGrow={1} minHeight={0} />
+        <box flexGrow={1} minHeight={0}>
+          <PendingInputPanel queuedFollowUps={queuedFollowUps} steering={[]} followUps={[]} onEditQueuedFollowUp={() => {}} />
+        </box>
+        <textarea ref={(value) => { editor = value; }} focused height={2} minHeight={2} flexShrink={0} />
+      </box>
+    ), 80, 14);
+    editor?.focus();
+    await setup.mockInput.typeText("draft remains writable");
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Pending input");
+    expect(editor).toBeDefined();
+    expect(editor?.plainText).toBe("draft remains writable");
+    expect(frame.split("\n")).toHaveLength(15);
+    expect(frame).not.toContain("queued follow-up 11");
+  });
+
   test("renders separate parallel subagents and hides steering input for finished children", async () => {
     const run: SubagentRun = {
       runId: "parallel-run",
@@ -552,8 +577,8 @@ describe("OpenTUI components", () => {
       mode: "parallel",
       state: "running",
       steps: [
-        { index: 0, agent: "implementer", status: "running", sessionFile: "/tmp/impl.jsonl" },
-        { index: 1, agent: "reviewer", status: "completed" },
+        { index: 0, agent: "implementer", status: "running", sessionFile: "/tmp/impl.jsonl", model: "provider/child", contextWindow: 8192, thinking: "high", lastActivityAt: 1_000 },
+        { index: 1, agent: "reviewer", status: "completed", lastActivityAt: 500 },
       ],
     };
     const targets = subagentTargets([run]);
@@ -563,13 +588,28 @@ describe("OpenTUI components", () => {
     const selectorFrame = selector.captureCharFrame();
     expect(selectorFrame).toContain("implementer");
     expect(selectorFrame).toContain("reviewer");
+    expect(selectorFrame.indexOf("implementer")).toBeLessThan(selectorFrame.indexOf("reviewer"));
     expect(selectorFrame).toContain("1 active");
 
     const finished = targets.find((target) => target.step?.agent === "reviewer")!;
     const inspector = await mount(() => <SubagentInspector target={finished} items={[]} now={2_000} />, 100, 24);
     const inspectorFrame = inspector.captureCharFrame();
     expect(inspectorFrame).toContain("Steering input hidden");
+    expect(inspectorFrame).toContain("model unknown");
+    expect(inspectorFrame).toContain("context unknown");
+    expect(inspectorFrame).toContain("thinking unknown");
     expect(inspectorFrame).not.toContain("Steer reviewer #2");
+
+    const active = targets.find((target) => target.step?.agent === "implementer")!;
+    const sidebar = await mount(() => <Sidebar runs={[run]} now={2_000} />, 42, 24);
+    expect(sidebar.captureCharFrame()).toContain("last activi");
+    const tool = await mount(() => <MessageView item={{ kind: "tool", id: "tool", toolCallId: "call", name: "subagent", args: {}, output: "", timestamp: 1, status: "done", isError: false }} showThinking={false} toolExpanded={false} subagentTargets={targets} now={2_000} />, 100, 24);
+    expect(tool.captureCharFrame()).toContain("last activi");
+    const activeInspector = await mount(() => <SubagentInspector target={active} items={[]} now={2_000} />, 100, 24);
+    const activeFrame = activeInspector.captureCharFrame();
+    expect(activeFrame).toContain("model provider/child");
+    expect(activeFrame).toContain("8.2k ctx");
+    expect(activeFrame).toContain("thinking high");
   });
 
   test("collapses and expands thinking while keeping a visible preview", async () => {
@@ -607,6 +647,8 @@ describe("OpenTUI components", () => {
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Thinking");
     expect(frame).toContain("Inspecting the branch state");
+    const thinkingLine = frame.split("\n").find((line) => line.includes("Inspecting the branch state"));
+    expect(thinkingLine?.indexOf("Inspecting the branch state")).toBe(1);
     expect(frame).not.toContain("▍");
   });
 
@@ -624,7 +666,34 @@ describe("OpenTUI components", () => {
     const frame = setup.captureCharFrame();
     expect(frame).toContain("/thinking");
     expect(frame).toContain("/thoughts");
-    expect(frame).toContain("Tab insert");
+    expect(frame).toContain("Tab/Enter insert");
+  });
+
+  test("clamps highlighted command selection and accepts only unmodified Enter", () => {
+    const commands = [{ name: "help" }, { name: "model" }];
+    expect(selectCommandChoice(commands, -1)?.name).toBe("help");
+    expect(selectCommandChoice(commands, 99)?.name).toBe("model");
+    expect(selectCommandChoice([], 0)).toBeUndefined();
+
+    const key = (modifiers: { ctrl?: boolean; meta?: boolean; shift?: boolean; option?: boolean; super?: boolean } = {}) => new KeyEvent({
+      name: "enter",
+      ctrl: modifiers.ctrl ?? false,
+      meta: modifiers.meta ?? false,
+      shift: modifiers.shift ?? false,
+      option: modifiers.option ?? false,
+      ...(modifiers.super === undefined ? {} : { super: modifiers.super }),
+      sequence: "\\r",
+      number: false,
+      raw: "\\r",
+      eventType: "press",
+      source: "raw",
+    });
+    expect(isUnmodifiedEnterKey(key())).toBe(true);
+    expect(isUnmodifiedEnterKey(key({ shift: true }))).toBe(false);
+    expect(isUnmodifiedEnterKey(key({ ctrl: true }))).toBe(false);
+    expect(isUnmodifiedEnterKey(key({ option: true }))).toBe(false);
+    expect(isUnmodifiedEnterKey(key({ meta: true }))).toBe(false);
+    expect(isUnmodifiedEnterKey(key({ super: true }))).toBe(false);
   });
 
   test("derives active todos first and completed todos at the end", () => {
@@ -669,6 +738,26 @@ describe("OpenTUI components", () => {
     expect(todos[1]?.done).toBe(true);
   });
 
+  test("removes deleted todos and preserves unchanged panel inputs", () => {
+    const items: ConversationItem[] = [
+      { kind: "tool", id: "todo-add", toolCallId: "todo-add", name: "todo", args: { action: "add", id: "1", text: "Remove me" }, output: "Created todo #1: Remove me (pending)", timestamp: 1, status: "done", isError: false },
+      { kind: "tool", id: "todo-delete", toolCallId: "todo-delete", name: "todo", args: { action: "delete", id: "1" }, output: "Deleted todo #1", timestamp: 2, status: "done", isError: false },
+    ];
+    expect(deriveTodos(items)).toEqual([]);
+
+    const todo: TodoViewItem = { id: "2", text: "Keep me", status: "pending", done: false, activeForm: "keeping me" };
+    const todos = [todo];
+    expect(preserveEquivalentTodos(todos, [{ ...todo }])).toBe(todos);
+    const changedTodos = [{ ...todo, text: "Changed" }];
+    expect(preserveEquivalentTodos(todos, changedTodos)).toBe(changedTodos);
+    const firstTool = items[0]!;
+    const toolList = [firstTool];
+    expect(preserveReferencedList(toolList, [firstTool])).toBe(toolList);
+    const replacement = { ...firstTool };
+    expect(preserveReferencedList(toolList, [replacement])).toBeInstanceOf(Array);
+    expect(preserveReferencedList(toolList, [replacement])).not.toBe(toolList);
+  });
+
   test("renders a request map for jumping to previous prompts", async () => {
     const setup = await mount(() => (
       <PromptMapDialog
@@ -689,6 +778,75 @@ describe("OpenTUI components", () => {
 });
 
 describe("duration and sidebar repaint regressions", () => {
+  test("keeps native renderables bounded through 5,000 assistant updates", async () => {
+    const conversation = new ConversationModel([{
+      kind: "assistant",
+      id: "live-assistant",
+      text: "",
+      thinking: "",
+      timestamp: 1,
+      status: "streaming",
+    }]);
+    const initialAssistant = conversation.items[0];
+    if (!initialAssistant || initialAssistant.kind !== "assistant") throw new Error("stress fixture missing assistant");
+    const [ids, setIds] = createSignal<string[]>(["live-assistant"]);
+    const [renderedItem, setRenderedItem] = createSignal<ConversationItem>(initialAssistant);
+    let transcriptScroll: ScrollBoxRenderable | undefined;
+    const event = <T extends Record<string, unknown>>(value: T): PiEvent => value;
+    const Transcript = () => {
+      return (
+        <scrollbox ref={(value) => { transcriptScroll = value; }} width="100%" height="100%">
+          <For each={ids()}>
+            {(id) => {
+              return <MessageView item={renderedItem()} showThinking thinkingExpanded toolExpanded={false} />;
+            }}
+          </For>
+        </scrollbox>
+      );
+    };
+    const setup = await mount(() => <Transcript />, 100, 30);
+    const baseline = Renderable.renderablesByNumber.size;
+    let peak = baseline;
+    try {
+      conversation.apply(event({ type: "message_start", message: { role: "assistant", content: [] } }));
+      for (let update = 1; update <= 5_000; update += 1) {
+        const isThinking = update <= 40;
+        conversation.apply(event({
+          type: "message_update",
+          message: { role: "assistant", content: [] },
+          assistantMessageEvent: {
+            type: isThinking ? "thinking_delta" : "text_delta",
+            delta: isThinking ? `thought ${update} ` : update === 41 ? " FINAL_STREAMED_TEXT " : `stream ${update} `,
+          },
+        }));
+        setIds(conversation.items.map((item) => item.id));
+        const currentItem = conversation.items[0];
+        if (currentItem) setRenderedItem(currentItem);
+        if (update % 100 === 0) {
+          await Bun.sleep(0);
+          await setup.flush();
+          peak = Math.max(peak, Renderable.renderablesByNumber.size);
+        }
+      }
+      conversation.apply(event({ type: "message_end", message: { role: "assistant", content: [] } }));
+      setIds(conversation.items.map((item) => item.id));
+      await Bun.sleep(0);
+      await setup.flush();
+      peak = Math.max(peak, Renderable.renderablesByNumber.size);
+      transcriptScroll?.scrollTo({ x: 0, y: Number.MAX_SAFE_INTEGER });
+      await setup.flush();
+      expect(conversation.items[0]?.kind === "assistant" && conversation.items[0].text).toContain("FINAL_STREAMED_TEXT");
+      expect(Renderable.renderablesByNumber.size).toBeLessThanOrEqual(baseline + 40);
+      expect(peak).toBeLessThanOrEqual(baseline + 40);
+    } finally {
+      setup.renderer.destroy();
+      const cleanupDeadline = Date.now() + 2_000;
+      while (Renderable.renderablesByNumber.size > baseline && Date.now() < cleanupDeadline) {
+        await Bun.sleep(10);
+      }
+      expect(Renderable.renderablesByNumber.size).toBeLessThanOrEqual(baseline);
+    }
+  });
   test("shows sub-second tool durations in milliseconds", async () => {
     const item: ConversationItem = {
       kind: "tool",
