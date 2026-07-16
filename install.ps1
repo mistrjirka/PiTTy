@@ -64,7 +64,8 @@ try {
   $MetadataJson = $Metadata | ConvertTo-Json -Compress
   [IO.File]::WriteAllText((Join-Path $NewDir "pitty-install.json"), "$MetadataJson`n", (New-Object Text.UTF8Encoding($false)))
   $SmokeLog = Join-Path $LogRoot "smoke.log"
-  & node (Join-Path $NewDir "bin\pitty.mjs") --help *> $SmokeLog
+  Push-Location $NewDir
+  try { & node (Join-Path $NewDir "bin\pitty.mjs") --help *> $SmokeLog } finally { Pop-Location }
   if ($LASTEXITCODE -ne 0) { Fail "staged smoke validation failed. See $SmokeLog" }
 
   if ($DeferApply) {
@@ -78,7 +79,8 @@ try {
     New-Item -ItemType Directory -Force -Path (Split-Path $InstallDir) | Out-Null
     if (Test-Path $InstallDir) { Move-Item $InstallDir $Backup; $MovedBackup = $true }
     Move-Item $NewDir $InstallDir
-    & node (Join-Path $InstallDir "bin\pitty.mjs") --help *> $SmokeLog
+    Push-Location $InstallDir
+    try { & node (Join-Path $InstallDir "bin\pitty.mjs") --help *> $SmokeLog } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { Fail "installation smoke validation failed. See $SmokeLog" }
     if ($MovedBackup) { Remove-Item -Recurse -Force $Backup }
   } catch {
