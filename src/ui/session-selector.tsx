@@ -34,14 +34,14 @@ export function SessionSelector(props: SessionSelectorProps) {
     if (event.eventType === "release") return;
     if (handleSearchableDialogCancel(event, props.onCancel)) return;
     if (props.pending) {
-      if (event.name === "enter" || event.name === "y") {
-        event.preventDefault();
-        event.stopPropagation();
-        props.onConfirm?.();
-      } else if (event.name === "n") {
+      if (event.name === "n") {
         event.preventDefault();
         event.stopPropagation();
         props.onDecline?.();
+      } else if (event.name === "enter" || event.name === "return" || event.name === "y") {
+        event.preventDefault();
+        event.stopPropagation();
+        props.onConfirm?.();
       }
       return;
     }

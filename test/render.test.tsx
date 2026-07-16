@@ -53,6 +53,7 @@ describe("OpenTUI components", () => {
       return setup.captureCharFrame();
     };
 
+    expect(await renderState({ kind: "loading" })).toContain("Loading sessions…");
     expect(await renderState({ kind: "loading", progress: { loaded: 1, total: 2 } })).toContain("Loading sessions… 1/2");
     expect(await renderState({ kind: "empty", choices: [] })).toContain("No resumable sessions in this directory.");
     expect(await renderState({ kind: "error", error: "permission denied" })).toContain("Unable to discover sessions: permission denied");
@@ -95,6 +96,12 @@ describe("OpenTUI components", () => {
       const frame = setup.captureCharFrame();
       expect(frame).toContain("PiTTy");
       expect(frame).not.toContain("undefined");
+      const expectedText = state.kind === "loading"
+        ? "Loading recent sessions…"
+        : state.kind === "success" ? "Dashboard work"
+        : state.kind === "empty" ? "No recent sessions in this directory."
+        : "Unable to load recent sessions:";
+      expect(frame).toContain(expectedText);
       for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(44);
     }
     expect(shouldShowEmptyDashboard(0)).toBe(true);
@@ -137,7 +144,7 @@ describe("OpenTUI components", () => {
     const y = frame.split("\n").findIndex((line) => line.includes("Dashboard work"));
     expect(y).toBeGreaterThanOrEqual(0);
     await setup.mockMouse.click(Math.max(0, frame.split("\n")[y]!.indexOf("Dashboard work")), y);
-    await Bun.sleep(30);
+    await setup.flush();
     expect(selected).toEqual(choice);
   });
 
@@ -173,6 +180,21 @@ describe("OpenTUI components", () => {
     await Bun.sleep(30);
     await cancelSetup.flush();
     expect(cancelled).toBe(1);
+  });
+
+  test("session selector confirms and declines pending streaming switches", async () => {
+    const choice: SessionChoice = { path: "/tmp/pending", id: "pending", name: "Pending session", modified: new Date(), messageCount: 1, firstMessage: "Pending" };
+    let confirmed = 0;
+    const enterSetup = await mount(() => <SessionSelector state={{ kind: "success", choices: [choice] }} streaming pending={choice} onSelect={() => {}} onCancel={() => {}} onConfirm={() => { confirmed += 1; }} onDecline={() => {}} />);
+    enterSetup.mockInput.pressKey("y");
+    await enterSetup.flush();
+    expect(confirmed).toBe(1);
+
+    let declined = 0;
+    const declineSetup = await mount(() => <SessionSelector state={{ kind: "success", choices: [choice] }} streaming pending={choice} onSelect={() => {}} onCancel={() => {}} onConfirm={() => {}} onDecline={() => { declined += 1; }} />);
+    declineSetup.mockInput.pressKey("n");
+    await declineSetup.flush();
+    expect(declined).toBe(1);
   });
 
   test("selector selection and cancellation restore keyboard input to the chat editor", async () => {

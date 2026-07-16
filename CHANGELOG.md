@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.3
+
+- Added a non-blocking empty dashboard with terminal-safe branding and recent sessions.
+- Added searchable `/sessions` and `/resume` flows plus the `pitty-resume` launcher.
+- Added session switching through Pi RPC, foreground subagent visibility, resumed-child deduplication, and constrained-terminal interaction fixes.
+
 ## 0.3.1
 
 - Added searchable model selection with visible draft preservation and keyboard list navigation.
