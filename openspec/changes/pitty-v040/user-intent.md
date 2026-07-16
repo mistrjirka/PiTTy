@@ -38,7 +38,18 @@
 - The subagent sidebar shows foreground and async agents, treats pending agents as active/queued, deduplicates resumed children, keeps inspector history stable, and removes the redundant Selected section.
 - Pending steering/follow-up text must remain readable at constrained terminal heights.
 
+## Approved completion scope
+
+- Implement the full remaining update and upgrade path: cached startup notification, `pitty upgrade --check`, explicit-version upgrade, POSIX and PowerShell staged replacement with rollback, and local-fixture installer coverage.
+- Parallel subagents must retain stable launch/index order in both sidebar and tool-call displays; changing activity timestamps must not reorder them.
+- Each subagent display must show compact last-activity information without clipping the existing state or agent label.
+- When slash-command suggestions are visible, unmodified Enter accepts the highlighted suggestion; a subsequent Enter executes the completed command.
+- Ctrl+C clears a nonempty prompt draft and retains it in session-local input history; when the draft is empty, existing stream-abort and exit behavior remains unchanged.
+- Up/Down restore older/newer session-local prompt history only when doing so does not interfere with multiline editing; cleared drafts are recoverable through that history.
+- Installers detect optional Pi packages before prompting; they skip the prompt when all are present and offer only missing packages.
+
 ## Explicitly deferred
 
 - Full parity with Pi's direct interactive TUI, especially commands and components absent from RPC.
 - PiTTy-owned credential storage, API-key entry, or OAuth/web login.
+- GitHub social-preview upload and real terminal screenshot capture require maintainer/manual execution and remain release blockers until evidence is supplied.

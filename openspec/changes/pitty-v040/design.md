@@ -65,7 +65,13 @@ Alternative considered: a native login modal. Deferred because Pi RPC explicitly
 
 ### Use staged installer replacement and explicit release checks
 
-Installers and `pitty upgrade` share release source, selected version, install paths, and optional-plugin mode through installed metadata. A candidate installation is downloaded with its selected asset entry in the exact GitHub Release `SHA256SUMS` over HTTPS, checksum/structure-validated, installed into a sibling staging directory, smoke-validated, then atomically swapped with the prior install retained as a rollback backup. This detects accidental or in-transit corruption, not a compromised GitHub Release; release signing is intentionally out of scope. Tests use local fixture releases and mocked tools; no live release network is required.
+Installers and `pitty upgrade` share release source, selected version, install paths, and optional-plugin mode through installed metadata. A candidate installation is downloaded with its selected asset entry in the exact GitHub Release `SHA256SUMS` over HTTPS, checksum/structure-validated, installed into a sibling staging directory, and smoke-validated with the prior install retained as a rollback backup. Fresh installers atomically swap the validated stage into place. `pitty upgrade` writes the validated stage to a sibling pending directory; the Node launcher applies it before spawning Bun on the next startup, which avoids replacing a locked `bun.exe` on Windows. This detects accidental or in-transit corruption, not a compromised GitHub Release; release signing is intentionally out of scope. Tests use local fixture releases and mocked tools; no live release network is required.
+
+### Keep parallel child order stable while exposing activity
+
+Parallel child identity is its launch/run and child index, not its most recent update timestamp. Sidebar and tool-call rows retain that order while displaying compact activity text derived from each child's last update. This avoids visual reshuffling when concurrent children report progress at different times while still exposing freshness.
+
+Slash-command suggestions remain a prompt-completion state: when visible, unmodified Enter accepts the highlighted suggestion and leaves it editable; only a later Enter submits it. This keeps partial commands from being forwarded while preserving normal prompt submission when no suggestion is present.
 
 ### Keep repository branding scoped
 

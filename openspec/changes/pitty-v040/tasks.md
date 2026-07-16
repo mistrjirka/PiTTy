@@ -8,16 +8,16 @@
 
 ## 2. Chat interaction controls
 
-- [ ] 2.1 Add a named main-prompt focus policy that preserves secondary editor/modal ownership and returns focus after non-input chat interactions.
-- [ ] 2.2 Add a regression harness for main-prompt draft identity/content and visible editor geometry across model-selector open, close, and model selection; resolve actual buffer loss or modal occlusion from that evidence.
-- [ ] 2.3 Bound command suggestions above the prompt so constrained terminals retain a visible writable editor and add layout coverage.
-- [ ] 2.4 Implement the global Ctrl+O details toggle, including reset of tool and thinking per-item overrides, and update control/help text.
+- [x] 2.1 Add a named main-prompt focus policy that preserves secondary editor/modal ownership and returns focus after non-input chat interactions.
+- [x] 2.2 Add a regression harness for main-prompt draft identity/content and visible editor geometry across model-selector open, close, and model selection; resolve actual buffer loss or modal occlusion from that evidence.
+- [x] 2.3 Bound command suggestions above the prompt so constrained terminals retain a visible writable editor and add layout coverage.
+- [x] 2.4 Implement the global Ctrl+O details toggle, including reset of tool and thinking per-item overrides, and update control/help text.
 - [ ] 2.5 Align thinking-only panels with the assistant left border and add a visual regression test.
-- [ ] 2.6 Intercept `/login` locally, show the approved Pi CLI guidance, and add it to command suggestions without forwarding it through RPC.
+- [x] 2.6 Intercept `/login` locally, show the approved Pi CLI guidance, and add it to command suggestions without forwarding it through RPC.
 
 ## 3. Searchable model selector
 
-- [ ] 3.1 Add a pure normalized-model filtering helper with provider/id/display-name matching and no-match handling.
+- [x] 3.1 Add a pure normalized-model filtering helper with provider/id/display-name matching and no-match handling.
 - [x] 3.2 Ensure the selector-local search editor explicitly takes focus on mount, supports typing and keyboard list navigation without a click, retains matched-count/empty state and selection reset, and restores chat focus after selection/cancel.
 - [x] 3.3 Add tests for filtering, stale-selection prevention, immediate typing/navigation, draft preservation, and focus restoration.
 
@@ -41,3 +41,6 @@
 - [x] 6.1 Merge foreground tool progress with async subagent artifacts, count pending children as active/queued, deduplicate resumed children while preserving inspector transcripts, and keep foreground controls read-only.
 - [x] 6.2 Remove the redundant sidebar Selected section and preserve pending steering/follow-up text at constrained terminal heights with production-component regression coverage.
 - [x] 6.3 Complete the approved dashboard/session/focus slice, run full validation and `impl-check`, resolve verified findings, bump to `0.3.3`, push `main`, publish tag `v0.3.3`, and verify release archives plus checksums.
+- [ ] 6.4 Keep parallel subagent order stable while showing last activity in sidebar and tool-call displays, and accept the highlighted slash-command suggestion with Enter.
+- [ ] 6.5 Add recoverable session-local prompt history, including Ctrl+C draft clearing and empty-editor Up/Down navigation that preserves multiline and streaming controls.
+- [ ] 6.6 Detect optional packages before installer prompts, skip prompts when all are installed, and offer only missing packages.

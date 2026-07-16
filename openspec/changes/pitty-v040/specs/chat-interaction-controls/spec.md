@@ -33,6 +33,25 @@ Command suggestions SHALL remain in normal layout flow above the main prompt and
 - **WHEN** a user types a slash-command prefix in a constrained terminal
 - **THEN** PiTTy caps or scrolls suggestions while preserving a visible writable prompt
 
+#### Scenario: Accept highlighted command with Enter
+- **WHEN** a slash-command prefix has visible suggestions and the user presses unmodified Enter
+- **THEN** PiTTy replaces the prefix with the highlighted command and keeps the prompt editable; a subsequent Enter executes that command
+
+### Requirement: Recoverable prompt history
+PiTTy SHALL retain session-local prompt-history entries for submitted messages and drafts cleared with Ctrl+C. Ctrl+C with a nonempty draft SHALL clear and save the draft without aborting Pi; with an empty draft it SHALL retain existing abort and exit behavior. Up/Down SHALL navigate prompt history only from an empty single-line editor state so normal multiline cursor navigation remains available.
+
+#### Scenario: Recover a cleared draft
+- **WHEN** a user clears a nonempty draft with Ctrl+C then presses Up from an empty prompt
+- **THEN** PiTTy restores that draft without sending it to Pi
+
+#### Scenario: Preserve stream abort behavior
+- **WHEN** Pi is streaming and the main prompt is empty
+- **THEN** Ctrl+C retains its existing abort behavior
+
+#### Scenario: Preserve multiline editing
+- **WHEN** the main prompt contains text or multiple lines
+- **THEN** Up/Down retain normal editor cursor-navigation behavior rather than replacing prompt text
+
 ### Requirement: Global detail toggle
 Ctrl+O SHALL globally toggle tool output and thinking blocks together. If either category has globally visible detail, Ctrl+O SHALL collapse both and clear per-item expansion overrides; only when both categories are fully collapsed SHALL Ctrl+O expand both.
 

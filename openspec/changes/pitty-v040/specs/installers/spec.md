@@ -28,3 +28,10 @@ The repository SHALL run local-fixture behavior tests for installer success, che
 #### Scenario: Induced dependency failure
 - **WHEN** an installer behavior test makes dependency installation fail
 - **THEN** the test verifies that the prior installation remains launchable
+
+### Requirement: Installed optional-package detection
+Before prompting to install optional Pi packages, installers SHALL inspect the installed package list. They SHALL skip the prompt when every optional package is already present and SHALL offer only missing packages otherwise.
+
+#### Scenario: Optional packages are already installed
+- **WHEN** `pi list` confirms that every recommended optional package is installed
+- **THEN** the installer reports that state and does not prompt for optional-package installation
