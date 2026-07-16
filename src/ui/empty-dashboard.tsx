@@ -9,7 +9,7 @@ export type EmptyDashboardProps = {
   height?: number;
 };
 
-const commonCommands = ["/help", "/sessions", "/new", "/model"];
+const commonCommands = ["/help", "/resume", "/new", "/model"];
 
 export function EmptyDashboard(props: EmptyDashboardProps) {
   const constrainedHeight = props.height !== undefined && props.height <= 12;
