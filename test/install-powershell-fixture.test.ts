@@ -24,7 +24,7 @@ describe("PowerShell installer executable fixture", () => {
     const wrapper = path.join(base, "wrapper.ps1");
     expect((await run(["-Command", `Compress-Archive -Path '${payload.replace(/'/g, "''")}' -DestinationPath '${archiveLiteral}' -Force`], process.env)).code).toBe(0);
     const archiveHash = createHash("sha256").update(await readFile(archive)).digest("hex");
-    await writeFile(wrapper, `function Invoke-WebRequest { param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing) if ($Uri -like '*SHA256SUMS') { if ($env:PITTY_MISSING_CHECKSUM -eq '1') { return [pscustomobject]@{ Content = 'deadbeef  other.zip' } }; if ($env:PITTY_FAIL_CHECKSUM -eq '1') { throw 'checksum unavailable' }; return [pscustomobject]@{ Content = '${archiveHash}  pitty-1.2.3.zip' } } if ($OutFile) { Copy-Item '${archiveLiteral}' $OutFile } else { [pscustomobject]@{ Content = '' } } }\n& '${scriptLiteral}' @args\n`);
+    await writeFile(wrapper, `function Invoke-WebRequest { param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing) if ($Uri -like '*SHA256SUMS') { if ($env:PITTY_MISSING_CHECKSUM -eq '1') { return [pscustomobject]@{ Content = 'deadbeef  other.zip' } }; if ($env:PITTY_FAIL_CHECKSUM -eq '1') { throw 'checksum unavailable' }; return [pscustomobject]@{ Content = '${archiveHash}  pitty-1.2.3.zip' } } if ($OutFile) { Copy-Item '${archiveLiteral}' $OutFile } else { [pscustomobject]@{ Content = '' } } }\n& '${scriptLiteral}' @args\nif (-not $?) { exit 1 }\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n`);
     const env: NodeJS.ProcessEnv = { ...process.env };
     env.Path = `${fake};${process.env.Path ?? process.env.PATH ?? ""}`;
     env.PATHEXT = process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD";

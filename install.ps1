@@ -99,4 +99,4 @@ try {
   foreach ($Plugin in @(@("npm:pi-subagents", "pi-subagents"), @("npm:@juicesharp/rpiv-todo", "@juicesharp/rpiv-todo"))) { if ($PluginMode -eq "yes" -and -not $PiList.Contains($Plugin[1])) { $Log = Join-Path $LogRoot ("plugin-" + $Plugin[1].Replace("@", "_").Replace("/", "_") + ".log"); & pi install $Plugin[0] *> $Log; if ($LASTEXITCODE -ne 0) { $Failures++; Write-Warning "Optional Pi package $($Plugin[0]) failed (exit code: $LASTEXITCODE); log: $Log" } } }
   Write-Host "PiTTy $Ver installed. Installer logs: $LogRoot"
   if ($Failures -gt 0 -and -not $AllowPluginFailure) { exit 2 }
-} catch { Write-Error $_.Exception.Message; exit 1 } finally { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Temp }
+} catch { Write-Error $_.Exception.Message -ErrorAction Continue; exit 1 } finally { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Temp }
