@@ -190,6 +190,9 @@ describe("OpenTUI components", () => {
     await enterSetup.flush();
     expect(confirmed).toBe(1);
 
+    const settledSetup = await mount(() => <SessionSelector state={{ kind: "success", choices: [choice] }} pending={choice} onSelect={() => {}} onCancel={() => {}} />);
+    expect(settledSetup.captureCharFrame()).toContain("Pi has settled. Switch to “Pending session”?");
+
     let declined = 0;
     const declineSetup = await mount(() => <SessionSelector state={{ kind: "success", choices: [choice] }} streaming pending={choice} onSelect={() => {}} onCancel={() => {}} onConfirm={() => {}} onDecline={() => { declined += 1; }} />);
     declineSetup.mockInput.pressKey("n");

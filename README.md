@@ -10,7 +10,8 @@ PiTTy is not affiliated with the Pi or OpenCode maintainers.
 - Windowed long-session rendering with on-demand older history.
 - Markdown assistant output and collapsible Markdown thinking.
 - Distinct expandable tool cards with timings, errors, and edit/write diffs.
-- Model selector with context sizes and direct thinking-effort controls.
+- Searchable model and current-project session selectors with immediate keyboard focus.
+- Non-blocking empty-chat dashboard with common commands and recent sessions.
 - Request map, command autocomplete, extension dialogs, editable local follow-up queue, and diagnostics.
 - Generic fallback rendering for arbitrary Pi tools and extension commands.
 
@@ -63,7 +64,7 @@ The installers:
 - download a versioned release archive
 - verify SHA-256 when release checksums are available
 - install the local Bun runtime
-- create a `pitty` launcher
+- create `pitty` and `pitty-resume` launchers
 - optionally install supported Pi packages
 - print the failed command, exit code, log path, and recent output when something fails
 
@@ -85,6 +86,7 @@ node bin/pitty.mjs -C /path/to/project --continue
 ```bash
 pitty -C /path/to/project --continue
 pitty --session /path/to/session.jsonl
+pitty-resume -C /path/to/project
 pitty --help
 ```
 
@@ -99,10 +101,13 @@ Useful options:
 --thinking <level>    set Pi thinking level
 --pi <path>           use a non-default Pi executable
 --no-sidebar          start without the sidebar
+--session-picker      open the searchable session picker on startup
 --log-dir <dir>       override diagnostic log directory
 --no-logs             disable diagnostics
 --verbose-rpc-logs    include RPC content; may contain prompts/source
 ```
+
+Inside PiTTy, use `/sessions` or `/resume` to search and switch current-project sessions.
 
 ## Controls
 

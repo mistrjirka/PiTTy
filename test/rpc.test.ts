@@ -43,5 +43,7 @@ describe("PiRpcClient", () => {
     await client.start();
     expect(await client.switchSession("/tmp/next-session.jsonl")).toEqual({ cancelled: false });
     expect(await client.switchSession("cancel")).toEqual({ cancelled: true });
+    await expect(client.switchSession("unsupported")).rejects.toThrow("Unknown command: switch_session");
+    await expect(client.switchSession("failed")).rejects.toThrow("Session file not found");
   });
 });
