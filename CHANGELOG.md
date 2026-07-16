@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Thanks to @herm1t0 for the Windows support intent in PRs #3 and #4; added safer installation PATH management and launcher/runtime fixes.
+
 ## 0.4.1
 
 - Added the asymmetric bracket-Pi logo and refreshed logo assets with rebuilt documentation.

@@ -8,6 +8,16 @@ import { execFile } from "node:child_process";
 const root = path.resolve(import.meta.dir, "..");
 const fixtures: string[] = [];
 const run = (args: string[], env: NodeJS.ProcessEnv): Promise<{ code: number; output: string }> => new Promise((resolve) => execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", ...args], { env, encoding: "utf8" }, (error, stdout, stderr) => resolve({ code: error?.code === undefined ? 0 : Number(error.code), output: `${stdout}${stderr}` })));
+const readUserPath = async (): Promise<string> => {
+  const result = await run(["-Command", "$value=[Environment]::GetEnvironmentVariable('Path','User'); if ($null -eq $value) {$value=''}; [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($value))"], process.env);
+  if (result.code !== 0) throw new Error(result.output);
+  return Buffer.from(result.output.trim(), "base64").toString("utf8");
+};
+const writeUserPath = async (value: string): Promise<void> => {
+  const encoded = Buffer.from(value, "utf8").toString("base64");
+  const result = await run(["-Command", `$value=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}')); [Environment]::SetEnvironmentVariable('Path',$value,'User')`], process.env);
+  if (result.code !== 0) throw new Error(result.output);
+};
 afterEach(async () => { await Promise.all(fixtures.splice(0).map((item) => rm(item, { recursive: true, force: true }))); });
 
 describe("PowerShell installer executable fixture", () => {
@@ -24,24 +34,50 @@ describe("PowerShell installer executable fixture", () => {
     const wrapper = path.join(base, "wrapper.ps1");
     expect((await run(["-Command", `Compress-Archive -Path '${payload.replace(/'/g, "''")}' -DestinationPath '${archiveLiteral}' -Force`], process.env)).code).toBe(0);
     const archiveHash = createHash("sha256").update(await readFile(archive)).digest("hex");
-    await writeFile(wrapper, `function Invoke-WebRequest { param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing) if ($Uri -like '*SHA256SUMS') { if ($env:PITTY_MISSING_CHECKSUM -eq '1') { return [pscustomobject]@{ Content = 'deadbeef  other.zip' } }; if ($env:PITTY_FAIL_CHECKSUM -eq '1') { throw 'checksum unavailable' }; return [pscustomobject]@{ Content = '${archiveHash}  pitty-1.2.3.zip' } } if ($OutFile) { Copy-Item '${archiveLiteral}' $OutFile } else { [pscustomobject]@{ Content = '' } } }\n& '${scriptLiteral}' @args\nif (-not $?) { exit 1 }\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n`);
+    await writeFile(wrapper, `function Invoke-WebRequest { param([string]$Uri, [string]$OutFile, [switch]$UseBasicParsing) if ($Uri -like '*SHA256SUMS') { if ($env:PITTY_MISSING_CHECKSUM -eq '1') { return [pscustomobject]@{ Content = 'deadbeef  other.zip' } }; if ($env:PITTY_FAIL_CHECKSUM -eq '1') { throw 'checksum unavailable' }; return [pscustomobject]@{ Content = [Text.Encoding]::UTF8.GetBytes("${archiveHash}  *pitty-1.2.3.zip\`r\`n") } } if ($OutFile) { Copy-Item '${archiveLiteral}' $OutFile } else { [pscustomobject]@{ Content = '' } } }\n& '${scriptLiteral}' @args\nif (-not $?) { exit 1 }\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }\n`);
     const env: NodeJS.ProcessEnv = { ...process.env };
     env.Path = `${fake};${process.env.Path ?? process.env.PATH ?? ""}`;
     env.PATHEXT = process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD";
     env.PITTY_LOG_DIR = path.join(base, "logs");
     delete env.PATH;
-    const staged = await run(["-File", wrapper, "-DeferApply", "-Version", "1.2.3", "-InstallDir", install, "-BinDir", bin, "-Repo", "example/repo"], env);
-    expect(staged.code, staged.output).toBe(0);
-    const expectedMetadata = JSON.stringify({ schemaVersion: 1, repository: "example/repo", installedVersion: "1.2.3", installDirectory: install, binDirectory: bin, pluginMode: "ask" }) + "\n";
-    expect(await readFile(path.join(`${install}.pending`, "pitty-install.json"), "utf8")).toBe(expectedMetadata);
-    expect(await readFile(path.join(install, "old-marker"), "utf8")).toBe("old");
-    const direct = await run(["-File", wrapper, "-Version", "1.2.3", "-InstallDir", install, "-BinDir", bin, "-Repo", "example/repo"], env);
-    expect(direct.code, direct.output).toBe(0); expect(direct.output).toContain("already installed"); expect(direct.output).not.toContain("pi install");
-    const failed = await run(["-File", wrapper, "-Version", "1.2.3", "-InstallDir", install, "-BinDir", bin, "-Repo", "example/repo"], { ...env, PITTY_FIXTURE_SMOKE_FAIL: "1" });
-    expect(failed.code).not.toBe(0); expect(await readFile(path.join(install, "old-marker"), "utf8")).toBe("old"); expect(await readFile(`${install}.backup`, "utf8").catch(() => "")).toBe(""); expect(failed.output).toContain("previous installation was restored");
-    const missing = await run(["-File", wrapper, "-DeferApply", "-Version", "1.2.3", "-InstallDir", install, "-BinDir", bin], { ...env, PITTY_MISSING_CHECKSUM: "1" });
-    expect(missing.code).not.toBe(0); expect(missing.output).toContain("did not contain");
-    const unavailable = await run(["-File", wrapper, "-DeferApply", "-Version", "1.2.3", "-InstallDir", install, "-BinDir", bin], { ...env, PITTY_FAIL_CHECKSUM: "1" });
-    expect(unavailable.code).not.toBe(0); expect(unavailable.output).toContain("checksum");
+    const originalUserPath = await readUserPath();
+    const other = path.join(base, "other path");
+    try {
+      await writeUserPath(`${originalUserPath};${other}`);
+      const staged = await run(["-File", wrapper, "-DeferApply", "-Version", "1.2.3", "-InstallDir", install, "-BinDir", bin, "-Repo", "example/repo"], env);
+      expect(staged.code, staged.output).toBe(0);
+      const expectedMetadata = JSON.stringify({ schemaVersion: 1, repository: "example/repo", installedVersion: "1.2.3", installDirectory: install, binDirectory: bin, pluginMode: "ask" }) + "\n";
+      expect(await readFile(path.join(`${install}.pending`, "pitty-install.json"), "utf8")).toBe(expectedMetadata);
+      expect(await readFile(path.join(install, "old-marker"), "utf8")).toBe("old");
+      const direct = await run(["-File", wrapper, "-Version", "1.2.3", "-InstallDir", install, "-BinDir", bin, "-Repo", "example/repo"], env);
+      expect(direct.code, direct.output).toBe(0);
+      expect(direct.output).toContain("already installed");
+      expect(direct.output).not.toContain("pi install");
+      const second = await run(["-File", wrapper, "-Version", "1.2.3", "-InstallDir", install, "-BinDir", bin, "-Repo", "example/repo"], env);
+      expect(second.code, second.output).toBe(0);
+      expect(second.output).toContain("already installed");
+      const installedPath = await readUserPath();
+      const normalizedBin = path.resolve(bin).toLowerCase();
+      const binMatches = installedPath.split(";").filter((entry) => path.resolve(entry.trim().replace(/^['\"]|['\"]$/g, "")).toLowerCase() === normalizedBin);
+      expect(binMatches).toHaveLength(1);
+      expect(installedPath).toContain(other);
+      await writeFile(path.join(install, "old-marker"), "current");
+      const failed = await run(["-File", wrapper, "-Version", "1.2.3", "-InstallDir", install, "-BinDir", bin, "-Repo", "example/repo"], { ...env, PITTY_FIXTURE_SMOKE_FAIL: "1" });
+      expect(failed.code).not.toBe(0);
+      expect(failed.output).toContain("previous installation was restored");
+      expect(await readFile(path.join(install, "old-marker"), "utf8")).toBe("current");
+      const uninstall = await run(["-File", path.join(root, "uninstall.ps1"), "-InstallDir", install, "-BinDir", bin], env);
+      expect(uninstall.code, uninstall.output).toBe(0);
+      const uninstalledPath = await readUserPath();
+      const remainingBinMatches = uninstalledPath.split(";").filter((entry) => path.resolve(entry.trim().replace(/^['\"]|['\"]$/g, "")).toLowerCase() === normalizedBin);
+      expect(remainingBinMatches).toHaveLength(0);
+      expect(uninstalledPath).toContain(other);
+      const missing = await run(["-File", wrapper, "-DeferApply", "-Version", "1.2.3", "-InstallDir", install, "-BinDir", bin], { ...env, PITTY_MISSING_CHECKSUM: "1" });
+      expect(missing.code).not.toBe(0); expect(missing.output).toContain("did not contain");
+      const unavailable = await run(["-File", wrapper, "-DeferApply", "-Version", "1.2.3", "-InstallDir", install, "-BinDir", bin], { ...env, PITTY_FAIL_CHECKSUM: "1" });
+      expect(unavailable.code).not.toBe(0); expect(unavailable.output).toContain("checksum");
+    } finally {
+      await writeUserPath(originalUserPath);
+    }
   }, { timeout: 30_000 });
 });

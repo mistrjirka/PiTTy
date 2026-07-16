@@ -12,6 +12,11 @@
 - Installers SHALL support explicit `--with-plugins` / `--without-plugins` or PowerShell equivalents.
 - Installers SHALL verify release checksums when available.
 
+## Windows command path
+
+- The PowerShell installer SHALL add the configured binary directory to the current user's `PATH` without duplicating an equivalent entry.
+- The PowerShell uninstaller SHALL remove only `PATH` entries equivalent to the configured binary directory and SHALL preserve unrelated entries.
+
 ## Diagnostics
 
 - Missing prerequisites SHALL identify the missing command.

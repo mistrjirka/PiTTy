@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { defaultDiagnosticsDirectory, sanitizeArgv } from "./logger.ts";
+import { resolveDefaultPiExecutable, resolvePiCommand } from "../pi-command.ts";
 
 export type DiagnosticBundleOptions = {
   logDirectory?: string;
@@ -16,7 +17,8 @@ function stamp(): string {
 
 function commandVersion(command: string, args = ["--version"]): string | undefined {
   try {
-    const result = spawnSync(command, args, { encoding: "utf8", timeout: 5_000 });
+    const resolved = resolvePiCommand(command, args);
+    const result = spawnSync(resolved.executable, resolved.args, { encoding: "utf8", timeout: 5_000 });
     const text = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
     return text ? text.slice(0, 2_000) : undefined;
   } catch {
@@ -82,7 +84,7 @@ export function createDiagnosticBundle(options: DiagnosticBundleOptions = {}): s
         x11: Boolean(process.env.DISPLAY),
       },
       versions: {
-        pi: commandVersion(process.env.PI_BIN ?? "pi"),
+        pi: commandVersion(resolveDefaultPiExecutable()),
         bun: commandVersion("bun"),
         node: commandVersion("node"),
       },

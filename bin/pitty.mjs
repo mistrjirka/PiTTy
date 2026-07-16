@@ -44,11 +44,18 @@ const isUpgrade = process.argv[2] === "upgrade";
 const bundledBun = findBundledBun(root);
 if (isUpgrade) {
   if (!bundledBun) { console.error("PiTTy could not find its bundled Bun runtime for upgrade."); process.exit(1); }
-  const child = spawn(bundledBun, ["run", path.join(root, "src", "upgrade.ts"), ...process.argv.slice(3)], { cwd: process.cwd(), stdio: "inherit", env: process.env });
+  const childEnv = { ...process.env, PITTY_NODE_EXECUTABLE: process.execPath };
+  const child = spawn(bundledBun, ["run", path.join(root, "src", "upgrade.ts"), ...process.argv.slice(3)], { cwd: process.cwd(), stdio: "inherit", env: childEnv });
   child.on("error", (error) => { console.error(`PiTTy upgrade failed: ${error.message}`); process.exit(1); });
   child.on("exit", (code, signal) => { if (signal) process.kill(process.pid, signal); else process.exit(code ?? 1); });
 } else {
   try { activatePending(); root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); }
+  const preload = path.join(root, "src", "preload.ts");
+  const childEnv = { ...process.env, PITTY_NODE_EXECUTABLE: process.execPath };
+  if (process.platform === "win32") {
+    const bundledPi = path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
+    if (!childEnv.PI_BIN && fs.existsSync(bundledPi)) childEnv.PI_BIN = bundledPi;
+  }
   const bun = findBundledBun(root);
   if (!bun) {
     console.error("PiTTy could not find its bundled Bun runtime.");
@@ -56,7 +63,7 @@ if (isUpgrade) {
     console.error("Re-run the installer, or run: npm ci --ignore-scripts && node node_modules/bun/install.js");
     process.exit(1);
   }
-  const child = spawn(bun, ["run", path.join(root, "src", "index.tsx"), ...process.argv.slice(2)], { cwd: process.cwd(), stdio: "inherit", env: process.env });
+  const child = spawn(bun, ["run", `--preload=${preload}`, path.join(root, "src", "index.tsx"), ...process.argv.slice(2)], { cwd: process.cwd(), stdio: "inherit", env: childEnv });
   child.on("error", (error) => { console.error(`PiTTy failed to start: ${error.message}`); process.exit(1); });
   child.on("exit", (code, signal) => { if (signal) process.kill(process.pid, signal); else process.exit(code ?? 1); });
 }
