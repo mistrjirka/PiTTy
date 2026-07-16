@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/pitty-tail-icon-dark.svg">
-    <img src="docs/images/pitty-tail-icon.svg" width="176" alt="PiTTy PTY Tail logo">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/pitty-terminal-mark-dark.svg">
+    <img src="docs/images/pitty-terminal-mark.svg" width="250" alt="PiTTy terminal PTY Tail logo">
   </picture>
 </p>
 
@@ -80,7 +80,7 @@ It starts directly in the normal chat. An empty conversation shows a passive das
   <img src="docs/images/pitty-terminal-preview.svg" width="760" alt="PiTTy terminal-native PTY Tail logo preview">
 </p>
 
-The canonical vector artwork and terminal adaptation are documented in [Branding](docs/BRANDING.md).
+The README artwork is a real SVG image matching the original double-line and dotted-curve design. The terminal UI uses the closest portable Unicode approximation because OpenTUI renders character cells rather than arbitrary vector paths. Details and source assets are in [Branding](docs/BRANDING.md).
 
 ## Highlights
 
