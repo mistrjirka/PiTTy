@@ -1,26 +1,37 @@
 import { describe, expect, test } from "bun:test";
-import { compactLogoLines, wideLogoLines } from "../src/ui/logo.tsx";
+import {
+  compactLogoLines,
+  logoCellWidth,
+  microLogo,
+  wideLogoLines,
+} from "../src/ui/logo.tsx";
 
-function cellWidth(line: string): number {
-  return [...line].length;
+const halfBlocks = /^[ █▀▄]+$/u;
+
+function expectTerminalRaster(
+  lines: readonly string[],
+  expectedHeight: number,
+  expectedWidth: number,
+): void {
+  expect(lines).toHaveLength(expectedHeight);
+  expect(logoCellWidth(lines)).toBe(expectedWidth);
+  expect(lines.every((line) => halfBlocks.test(line))).toBe(true);
+  expect(lines.some((line) => line.includes("▀"))).toBe(true);
+  expect(lines.some((line) => line.includes("▄"))).toBe(true);
+  expect(lines.some((line) => line.includes("█"))).toBe(true);
 }
 
-function expectTerminalSafe(lines: readonly string[], maximumWidth: number): void {
-  expect(lines[0]?.startsWith("■")).toBe(true);
-  expect(lines.at(-1)?.startsWith("■")).toBe(true);
-  expect(lines.some((line) => line.includes("═"))).toBe(true);
-  expect(lines.some((line) => /[\u2800-\u28ff]/u.test(line))).toBe(true);
-  for (const line of lines) expect(cellWidth(line)).toBeLessThanOrEqual(maximumWidth);
-}
-
-describe("PTY Tail terminal logo", () => {
-  test("keeps the wide double-line and dotted mark cell-safe", () => {
-    expectTerminalSafe(wideLogoLines, 27);
-    expect(wideLogoLines).toHaveLength(12);
+describe("bracket-pi terminal logo", () => {
+  test("keeps the micro mark literal and evenly spaced", () => {
+    expect(microLogo).toBe("[> π <]");
+    expect([...microLogo]).toHaveLength(7);
   });
 
-  test("keeps the compact mark inside narrow dashboards", () => {
-    expectTerminalSafe(compactLogoLines, 17);
-    expect(compactLogoLines).toHaveLength(8);
+  test("keeps the compact font raster cell-safe", () => {
+    expectTerminalRaster(compactLogoLines, 10, 85);
+  });
+
+  test("keeps the wide font raster cell-safe", () => {
+    expectTerminalRaster(wideLogoLines, 14, 118);
   });
 });
