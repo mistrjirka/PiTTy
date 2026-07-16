@@ -21,17 +21,19 @@ function expectTerminalRaster(
   expect(lines.some((line) => line.includes("█"))).toBe(true);
 }
 
-describe("bracket-pi terminal logo", () => {
+describe("asymmetric bracket-pi terminal logo", () => {
   test("keeps the micro mark literal and evenly spaced", () => {
     expect(microLogo).toBe("[> π <]");
     expect([...microLogo]).toHaveLength(7);
   });
 
-  test("keeps the compact font raster cell-safe", () => {
-    expectTerminalRaster(compactLogoLines, 10, 85);
+  test("keeps the compact vector-derived raster cell-safe", () => {
+    expectTerminalRaster(compactLogoLines, 8, 32);
+    expect(compactLogoLines[5]).toContain("████▄");
   });
 
-  test("keeps the wide font raster cell-safe", () => {
-    expectTerminalRaster(wideLogoLines, 14, 118);
+  test("keeps the wide vector-derived raster cell-safe", () => {
+    expectTerminalRaster(wideLogoLines, 12, 41);
+    expect(wideLogoLines[8]).toContain("██ ▀███");
   });
 });
