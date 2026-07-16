@@ -14,6 +14,9 @@ import type { ConversationItem, RpcSessionState, SessionStats, SubagentRun } fro
 import { registerBundledParsers } from "../src/ui/parsers.ts";
 import { CommandSuggestions, filterCommandChoices } from "../src/ui/command-suggestions.tsx";
 import { SessionSelector } from "../src/ui/session-selector.tsx";
+import { EmptyDashboard } from "../src/ui/empty-dashboard.tsx";
+import { Logo } from "../src/ui/logo.tsx";
+import { shouldShowEmptyDashboard } from "../src/app.tsx";
 import type { SessionChoice, SessionDiscoveryState } from "../src/sessions.ts";
 import { deriveTodos } from "../src/ui/todos.tsx";
 import { nextDetailToggle, PendingInputPanel } from "../src/app.tsx";
@@ -59,6 +62,74 @@ describe("OpenTUI components", () => {
     await setup.mockInput.typeText("target");
     setup.mockInput.pressEnter();
     await setup.flush();
+    expect(selected).toEqual(choice);
+  });
+
+  test("renders wide and compact logo variants without clipping", async () => {
+    const wide = await mount(() => <Logo />, 80, 8);
+    expect(wide.captureCharFrame()).toContain("■────╮");
+    const compact = await mount(() => <Logo compact />, 24, 8);
+    const frame = compact.captureCharFrame();
+    expect(frame).toContain("■───╮");
+    for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(24);
+  });
+
+  test("renders the empty dashboard states and keeps constrained content inside the viewport", async () => {
+    const choice: SessionChoice = { path: "/tmp/dashboard", id: "dashboard", name: "Dashboard work", modified: new Date(), messageCount: 2, firstMessage: "Dashboard work" };
+    const states: SessionDiscoveryState[] = [
+      { kind: "loading" },
+      { kind: "success", choices: [choice] },
+      { kind: "empty", choices: [] },
+      { kind: "error", error: "permission denied" },
+    ];
+    for (const state of states) {
+      const setup = await mount(() => <EmptyDashboard sessionState={state} onSelectSession={() => {}} />, 44, 16);
+      const frame = setup.captureCharFrame();
+      expect(frame).toContain("PiTTy");
+      expect(frame).not.toContain("undefined");
+      for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(44);
+    }
+    expect(shouldShowEmptyDashboard(0)).toBe(true);
+    expect(shouldShowEmptyDashboard(1)).toBe(false);
+  });
+
+  test("keeps the wordmark and session state readable at constrained height", async () => {
+    const setup = await mount(() => (
+      <EmptyDashboard
+        sessionState={{ kind: "loading" }}
+        width={44}
+        height={10}
+        onSelectSession={() => {}}
+      />
+    ), 44, 10);
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("PiTTy");
+    expect(frame).toContain("Loading recent sessions");
+    expect(frame).not.toContain("■───╮");
+    for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(44);
+  });
+
+  test("dashboard leaves the prompt editor focusable", async () => {
+    let editor: TextareaRenderable | undefined;
+    const setup = await mount(() => (
+      <box flexDirection="column" width="100%" height="100%">
+        <box flexGrow={1}><EmptyDashboard sessionState={{ kind: "loading" }} onSelectSession={() => {}} /></box>
+        <textarea ref={(value) => { editor = value; }} focused height={2} />
+      </box>
+    ), 70, 16);
+    await setup.mockInput.typeText("draft while dashboard is visible");
+    expect(editor?.plainText).toBe("draft while dashboard is visible");
+  });
+
+  test("dashboard session rows use the shared choice callback", async () => {
+    const choice: SessionChoice = { path: "/tmp/dashboard", id: "dashboard", name: "Dashboard work", modified: new Date(), messageCount: 2, firstMessage: "Dashboard work" };
+    let selected: SessionChoice | undefined;
+    const setup = await mount(() => <EmptyDashboard sessionState={{ kind: "success", choices: [choice] }} onSelectSession={(value) => { selected = value; }} />);
+    const frame = setup.captureCharFrame();
+    const y = frame.split("\n").findIndex((line) => line.includes("Dashboard work"));
+    expect(y).toBeGreaterThanOrEqual(0);
+    await setup.mockMouse.click(Math.max(0, frame.split("\n")[y]!.indexOf("Dashboard work")), y);
+    await Bun.sleep(30);
     expect(selected).toEqual(choice);
   });
 

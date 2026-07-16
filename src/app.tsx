@@ -18,6 +18,7 @@ import { ExtensionDialog } from "./ui/dialog.tsx";
 import { MessageView } from "./ui/message.tsx";
 import { ModelSelectorDialog, normalizeModelChoices, type ModelChoice } from "./ui/model-selector.tsx";
 import { SessionSelector } from "./ui/session-selector.tsx";
+import { EmptyDashboard } from "./ui/empty-dashboard.tsx";
 import { discoverSessions, type SessionChoice, type SessionDiscoveryState } from "./sessions.ts";
 import { PromptMapDialog, type PromptMapEntry } from "./ui/prompt-map.tsx";
 import { Sidebar } from "./ui/sidebar.tsx";
@@ -132,6 +133,8 @@ const localCommandChoices: CommandChoice[] = [
   { name: "settings", description: "Show current UI and Pi settings", source: "ui" },
   { name: "status", description: "Show current UI and Pi settings", source: "ui" },
   { name: "commands", description: "List Pi extension, template, and skill commands", source: "ui" },
+  { name: "sessions", description: "Browse and resume sessions", source: "ui" },
+  { name: "resume", description: "Alias for /sessions", source: "ui" },
   { name: "model", description: "Show or change the current model", source: "ui" },
   { name: "models", description: "List available models", source: "ui" },
   { name: "thinking", description: "Show or change reasoning effort", source: "ui" },
@@ -221,6 +224,10 @@ function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
       error: step.error,
     })),
   };
+}
+
+export function shouldShowEmptyDashboard(renderedItemCount: number): boolean {
+  return renderedItemCount === 0;
 }
 
 export function App(props: AppOptions) {
@@ -1022,10 +1029,11 @@ export function App(props: AppOptions) {
         conversation.isStreaming = state.isStreaming;
         touch();
         queueMicrotask(() => scroll?.scrollTo({ x: 0, y: Number.MAX_SAFE_INTEGER }));
-        await refreshState();
-        setStatus(state.isStreaming ? "working" : "ready");
         if (props.openSessionSelector) openSessionSelector();
         else prompt?.focus();
+        if (!props.openSessionSelector) void discoverCurrentSessions();
+        await refreshState();
+        setStatus(state.isStreaming ? "working" : "ready");
       } catch (error) {
         props.logger.error("ui.start_failed", error);
         conversation.system(error instanceof Error ? error.message : String(error), "error");
@@ -1404,6 +1412,17 @@ export function App(props: AppOptions) {
               onMouseScroll={() => queueMicrotask(updateScrollPosition)}
               onMouseDown={() => focusMainPrompt()}
             >
+              <Show when={shouldShowEmptyDashboard(items().length)}>
+                <EmptyDashboard
+                  sessionState={sessionDiscovery()}
+                  width={dimensions().width}
+                  height={dimensions().height}
+                  onSelectSession={(choice) => {
+                    if (conversation.isStreaming) setSessionSelectorOpen(true);
+                    void switchToSession(choice);
+                  }}
+                />
+              </Show>
               <Show when={hiddenMessageCount() > 0}>
                 <box
                   id="load-older-messages"
