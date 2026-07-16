@@ -4,7 +4,7 @@
 
 - Continue the planned 0.4.0 release, but remove its blocking welcome screen.
 - Plain PiTTy startup must open the normal, immediately writable chat. A refined PiTTy logo replaces the welcome screen only as a passive empty-transcript state.
-- The canonical logo is the scalable bracket-pi mark `[> π <]`. Repository documentation uses exact SVG artwork; OpenTUI uses responsive half-block rasters of the complete mark plus micro and wordmark fallbacks.
+- The canonical logo is the scalable asymmetric bracket-pi mark `[> π <]`: equal spacing around `π`, a straight left leg, and a curled right leg. Repository documentation uses exact SVG artwork; OpenTUI uses responsive vector-derived half-block rasters plus micro and wordmark fallbacks.
 - Keep `/resume` as the in-application route to browse and switch sessions.
 
 ## Approved chat interaction requirements
@@ -24,8 +24,8 @@
 
 ## Repository branding
 
-- Commit exact light/dark SVGs of `[> π <]` as repository assets.
-- Keep the terminal logo portable: store only pre-rasterized half-block strings, never a bundled font file.
+- Commit exact light/dark SVGs of the approved asymmetric `[> π <]` geometry as repository assets.
+- Keep the terminal logo portable: store only vector-derived half-block strings, never a bundled font file.
 - Configure a GitHub social preview before public announcement; do not change the `mistrjirka` account avatar without separate approval.
 - The current environment is not authenticated with `gh`; repository settings cannot be changed until the owner authenticates or supplies an appropriate token.
 
