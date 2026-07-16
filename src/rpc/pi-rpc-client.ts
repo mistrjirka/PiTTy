@@ -209,6 +209,10 @@ export class PiRpcClient extends EventEmitter {
     return this.data(await this.request({ type: "new_session" }));
   }
 
+  async switchSession(sessionPath: string): Promise<{ cancelled: boolean }> {
+    return this.data<{ cancelled: boolean }>(await this.request({ type: "switch_session", sessionPath }));
+  }
+
   async sendExtensionUiResponse(response: RpcExtensionUIResponse): Promise<void> {
     this.write(response);
   }

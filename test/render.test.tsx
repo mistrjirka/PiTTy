@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import type { TextareaRenderable } from "@opentui/core";
 import type { TestRendererSetup } from "@opentui/core/testing";
 import { testRender } from "@opentui/solid";
+import { Show, createSignal } from "solid-js";
 import { cleanThinkingText, MessageView, toolOutputExpandable } from "../src/ui/message.tsx";
 import { filterModelChoices, formatContextWindow, ModelSelectorDialog, normalizeModelChoices } from "../src/ui/model-selector.tsx";
 import { PromptMapDialog } from "../src/ui/prompt-map.tsx";
@@ -11,6 +13,8 @@ import { subagentTargets } from "../src/subagents/targets.ts";
 import type { ConversationItem, RpcSessionState, SessionStats, SubagentRun } from "../src/types.ts";
 import { registerBundledParsers } from "../src/ui/parsers.ts";
 import { CommandSuggestions, filterCommandChoices } from "../src/ui/command-suggestions.tsx";
+import { SessionSelector } from "../src/ui/session-selector.tsx";
+import type { SessionChoice, SessionDiscoveryState } from "../src/sessions.ts";
 import { deriveTodos } from "../src/ui/todos.tsx";
 import { nextDetailToggle, PendingInputPanel } from "../src/app.tsx";
 import { appVersion } from "../src/version.ts";
@@ -31,6 +35,107 @@ async function mount(node: () => unknown, width = 100, height = 30): Promise<Tes
 }
 
 describe("OpenTUI components", () => {
+  test("renders every session picker state and selects the first search result", async () => {
+    const choice: SessionChoice = {
+      path: "/tmp/target.jsonl",
+      id: "target",
+      name: "Target session",
+      modified: new Date("2024-01-01T00:00:00Z"),
+      messageCount: 3,
+      firstMessage: "Find the target",
+    };
+    const renderState = async (state: SessionDiscoveryState, switching = false) => {
+      const setup = await mount(() => <SessionSelector state={state} switching={switching} onSelect={() => {}} onCancel={() => {}} />);
+      return setup.captureCharFrame();
+    };
+
+    expect(await renderState({ kind: "loading", progress: { loaded: 1, total: 2 } })).toContain("Loading sessions… 1/2");
+    expect(await renderState({ kind: "empty", choices: [] })).toContain("No resumable sessions in this directory.");
+    expect(await renderState({ kind: "error", error: "permission denied" })).toContain("Unable to discover sessions: permission denied");
+    expect(await renderState({ kind: "success", choices: [choice] })).toContain("Target session");
+
+    let selected: SessionChoice | undefined;
+    const setup = await mount(() => <SessionSelector state={{ kind: "success", choices: [choice] }} onSelect={(value) => { selected = value; }} onCancel={() => {}} />);
+    await setup.mockInput.typeText("target");
+    setup.mockInput.pressEnter();
+    await setup.flush();
+    expect(selected).toEqual(choice);
+  });
+
+  test("model and session selectors accept immediate keyboard search, navigation, selection, and cancel", async () => {
+    const models = [{ provider: "openai", id: "alpha", name: "Alpha" }, { provider: "anthropic", id: "beta", name: "Beta" }];
+    let selectedModel: string | undefined;
+    const modelSetup = await mount(() => <ModelSelectorDialog models={models} onSelect={(model) => { selectedModel = model.id; }} onCancel={() => {}} />);
+    await modelSetup.mockInput.typeText("beta");
+    await modelSetup.flush();
+    expect(modelSetup.captureCharFrame()).toContain("anthropic/beta");
+    modelSetup.mockInput.pressArrow("down");
+    await modelSetup.flush();
+    modelSetup.mockInput.pressEnter();
+    await modelSetup.flush();
+    expect(selectedModel).toBe("beta");
+
+    let selected = 0;
+    const choice: SessionChoice = { path: "/tmp/session", id: "session", name: "Planning", modified: new Date(), messageCount: 1, firstMessage: "Planning" };
+    const sessionSetup = await mount(() => <SessionSelector state={{ kind: "success", choices: [choice] }} onSelect={() => { selected += 1; }} onCancel={() => {}} />);
+    await sessionSetup.mockInput.typeText("planning");
+    await sessionSetup.flush();
+    sessionSetup.mockInput.pressArrow("up");
+    await sessionSetup.flush();
+    sessionSetup.mockInput.pressArrow("down");
+    await sessionSetup.flush();
+    sessionSetup.mockInput.pressEnter();
+    await sessionSetup.flush();
+    expect(selected).toBe(1);
+
+    let cancelled = 0;
+    const cancelSetup = await mount(() => <SessionSelector state={{ kind: "success", choices: [choice] }} onSelect={() => {}} onCancel={() => { cancelled += 1; }} />);
+    cancelSetup.mockInput.pressEscape();
+    await Bun.sleep(30);
+    await cancelSetup.flush();
+    expect(cancelled).toBe(1);
+  });
+
+  test("selector selection and cancellation restore keyboard input to the chat editor", async () => {
+    const models = [{ provider: "anthropic", id: "beta", name: "Beta" }];
+    let modelEditor: TextareaRenderable | undefined;
+    const [modelOpen, setModelOpen] = createSignal(true);
+    const closeModel = () => {
+      setModelOpen(false);
+      queueMicrotask(() => modelEditor?.focus());
+    };
+    const modelSetup = await mount(() => (
+      <box flexDirection="column">
+        <textarea ref={(value) => { modelEditor = value; }} focused={!modelOpen()} height={1} />
+        <Show when={modelOpen()}><ModelSelectorDialog models={models} onSelect={closeModel} onCancel={closeModel} /></Show>
+      </box>
+    ));
+    await modelSetup.mockInput.typeText("beta");
+    modelSetup.mockInput.pressEnter();
+    await modelSetup.flush();
+    await modelSetup.mockInput.typeText("chat after model");
+    expect(modelEditor?.plainText).toBe("chat after model");
+
+    const choice: SessionChoice = { path: "/tmp/session", id: "session", name: "Planning", modified: new Date(), messageCount: 1, firstMessage: "Planning" };
+    let sessionEditor: TextareaRenderable | undefined;
+    const [sessionOpen, setSessionOpen] = createSignal(true);
+    const closeSession = () => {
+      setSessionOpen(false);
+      queueMicrotask(() => sessionEditor?.focus());
+    };
+    const sessionSetup = await mount(() => (
+      <box flexDirection="column">
+        <textarea ref={(value) => { sessionEditor = value; }} focused={!sessionOpen()} height={1} />
+        <Show when={sessionOpen()}><SessionSelector state={{ kind: "success", choices: [choice] }} onSelect={closeSession} onCancel={closeSession} /></Show>
+      </box>
+    ));
+    sessionSetup.mockInput.pressEscape();
+    await Bun.sleep(30);
+    await sessionSetup.flush();
+    await sessionSetup.mockInput.typeText("chat after session");
+    expect(sessionEditor?.plainText).toBe("chat after session");
+  });
+
   test("removes repeated provider thinking headings without changing prose", () => {
     expect(cleanThinkingText("Thinking:\nThinking: **Planning work**")).toBe("**Planning work**");
     expect(cleanThinkingText("Reasoning\nThinking: inspect files")).toBe("inspect files");

@@ -17,6 +17,8 @@ import { pauseSubagent, steerSubagent, stopSubagent } from "./subagents/control.
 import { ExtensionDialog } from "./ui/dialog.tsx";
 import { MessageView } from "./ui/message.tsx";
 import { ModelSelectorDialog, normalizeModelChoices, type ModelChoice } from "./ui/model-selector.tsx";
+import { SessionSelector } from "./ui/session-selector.tsx";
+import { discoverSessions, type SessionChoice, type SessionDiscoveryState } from "./sessions.ts";
 import { PromptMapDialog, type PromptMapEntry } from "./ui/prompt-map.tsx";
 import { Sidebar } from "./ui/sidebar.tsx";
 import { SubagentInspector } from "./ui/subagent-inspector.tsx";
@@ -43,6 +45,7 @@ export type AppOptions = {
   sidebar: boolean;
   logger: DiagnosticLogger;
   integrations: OptionalIntegrationStatus;
+  openSessionSelector?: boolean;
 };
 
 type LocalQueuedMessage = {
@@ -251,6 +254,10 @@ export function App(props: AppOptions) {
   const [modelSelectorOpen, setModelSelectorOpen] = createSignal(false);
   const [modelOptions, setModelOptions] = createSignal<ModelChoice[]>([]);
   const [modelSelectorLoading, setModelSelectorLoading] = createSignal(false);
+  const [sessionSelectorOpen, setSessionSelectorOpen] = createSignal(false);
+  const [sessionDiscovery, setSessionDiscovery] = createSignal<SessionDiscoveryState>({ kind: "loading" });
+  const [sessionSwitching, setSessionSwitching] = createSignal(false);
+  const [pendingSession, setPendingSession] = createSignal<SessionChoice>();
   const [promptMapOpen, setPromptMapOpen] = createSignal(false);
   const [thinkingExpanded, setThinkingExpanded] = createSignal(true);
   const [thinkingExpansionOverrides, setThinkingExpansionOverrides] = createSignal<Map<string, boolean>>(new Map());
@@ -520,7 +527,7 @@ export function App(props: AppOptions) {
       case "help":
         addSystem([
           "UI commands:",
-          "  /settings /status /commands",
+          "  /settings /status /commands /sessions /resume",
           "  /model [provider/model] /thinking [level]",
           "  /thoughts expanded|collapsed /prompts",
           "  /compact [instructions] /new /name <name>",
@@ -531,8 +538,12 @@ export function App(props: AppOptions) {
           "  Ctrl+T (or Shift+Tab) cycles thinking effort; click a Thinking heading to expand/collapse it.",
           "",
           "Unknown /commands are passed to Pi, so extension, prompt-template, and skill commands still work.",
-          "Built-in full-screen Pi pickers such as /resume and the original /settings are not exposed by Pi RPC.",
+          "Session browsing is available through /sessions and /resume.",
         ].join("\n"));
+        return true;
+      case "sessions":
+      case "resume":
+        openSessionSelector();
         return true;
       case "settings":
       case "status":
@@ -791,10 +802,60 @@ export function App(props: AppOptions) {
   };
 
   const focusMainPrompt = () => {
-    if (dialog() || modelSelectorOpen() || promptMapOpen() || subagentSelectorOpen() || inspectSubagent()) return;
+    if (dialog() || modelSelectorOpen() || sessionSelectorOpen() || promptMapOpen() || subagentSelectorOpen() || inspectSubagent()) return;
     queueMicrotask(() => {
-      if (!dialog() && !modelSelectorOpen() && !promptMapOpen() && !subagentSelectorOpen() && !inspectSubagent()) prompt?.focus();
+      if (!dialog() && !modelSelectorOpen() && !sessionSelectorOpen() && !promptMapOpen() && !subagentSelectorOpen() && !inspectSubagent()) prompt?.focus();
     });
+  };
+
+  const discoverCurrentSessions = async () => {
+    setSessionDiscovery({ kind: "loading" });
+    try {
+      const choices = await discoverSessions(props.cwd, sessionState()?.sessionFile, (loaded, total) => setSessionDiscovery({ kind: "loading", progress: { loaded, total } }));
+      setSessionDiscovery(choices.length ? { kind: "success", choices } : { kind: "empty", choices: [] });
+    } catch (error) {
+      setSessionDiscovery({ kind: "error", error: error instanceof Error ? error.message : String(error) });
+    }
+  };
+
+  const openSessionSelector = () => {
+    setSessionSelectorOpen(true);
+    void discoverCurrentSessions();
+  };
+
+  const closeSessionSelector = () => {
+    if (sessionSwitching()) return;
+    setPendingSession(undefined);
+    setSessionSelectorOpen(false);
+    focusMainPrompt();
+  };
+
+  const switchToSession = async (choice: SessionChoice) => {
+    if (sessionSwitching()) return;
+    if (streaming() && !pendingSession()) {
+      setPendingSession(choice);
+      return;
+    }
+    setSessionSwitching(true);
+    try {
+      const result = await client.switchSession(choice.path);
+      if (result.cancelled) {
+        setPendingSession(undefined);
+        toast("Session switch was cancelled by Pi", "warning");
+        return;
+      }
+      await loadCurrentSession();
+      setSessionSelectorOpen(false);
+      setPendingSession(undefined);
+      toast(`Resumed ${choice.name}`, "success");
+    } catch (error) {
+      setPendingSession(undefined);
+      const message = error instanceof Error ? error.message : String(error);
+      toast(message.includes("switch_session") ? "Session switching requires a Pi version with RPC switch_session support." : `Failed to switch session: ${message}`, "error");
+    } finally {
+      setSessionSwitching(false);
+      focusMainPrompt();
+    }
   };
 
   const closeModelSelector = () => {
@@ -963,7 +1024,8 @@ export function App(props: AppOptions) {
         queueMicrotask(() => scroll?.scrollTo({ x: 0, y: Number.MAX_SAFE_INTEGER }));
         await refreshState();
         setStatus(state.isStreaming ? "working" : "ready");
-        prompt?.focus();
+        if (props.openSessionSelector) openSessionSelector();
+        else prompt?.focus();
       } catch (error) {
         props.logger.error("ui.start_failed", error);
         conversation.system(error instanceof Error ? error.message : String(error), "error");
@@ -1057,6 +1119,26 @@ export function App(props: AppOptions) {
         event.preventDefault();
         event.stopPropagation();
         setSubagentSelectorOpen(false);
+      }
+      return;
+    }
+    if (sessionSelectorOpen()) {
+      if (pendingSession()) {
+        if (event.name === "escape" || event.name === "n") {
+          event.preventDefault();
+          setPendingSession(undefined);
+          return;
+        }
+        if (event.name === "enter" || event.name === "y") {
+          event.preventDefault();
+          void switchToSession(pendingSession()!);
+        }
+        return;
+      }
+      if (event.name === "escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSessionSelector();
       }
       return;
     }
@@ -1423,7 +1505,7 @@ export function App(props: AppOptions) {
           >
             <textarea
               ref={(value) => { prompt = value; }}
-              focused={!dialog() && !modelSelectorOpen() && !promptMapOpen() && !subagentSelectorOpen()}
+              focused={!dialog() && !modelSelectorOpen() && !sessionSelectorOpen() && !promptMapOpen() && !subagentSelectorOpen()}
               placeholder={streaming() ? "Enter sends steering immediately · Alt+Enter queues editable follow-up" : "Ask Pi anything… (/help for commands)"}
               wrapMode="word"
               backgroundColor={colors.panel}
@@ -1497,6 +1579,22 @@ export function App(props: AppOptions) {
           </box>
         )}
       </For>
+      <Show when={sessionSelectorOpen()}>
+        <SessionSelector
+          state={sessionDiscovery()}
+          switching={sessionSwitching()}
+          streaming={streaming()}
+          pending={pendingSession()}
+          onSelect={(choice) => void switchToSession(choice)}
+          onConfirm={() => {
+            const choice = pendingSession();
+            if (choice) void switchToSession(choice);
+          }}
+          onDecline={() => setPendingSession(undefined)}
+          onCancel={closeSessionSelector}
+          onRetry={() => void discoverCurrentSessions()}
+        />
+      </Show>
       <Show when={modelSelectorOpen()}>
         <ModelSelectorDialog
           models={modelOptions()}

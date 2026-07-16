@@ -24,6 +24,7 @@ const parsed = parseArgs({
     provider: { type: "string" },
     thinking: { type: "string" },
     "no-sidebar": { type: "boolean" },
+    "session-picker": { type: "boolean" },
     "log-dir": { type: "string" },
     "no-logs": { type: "boolean" },
     "verbose-rpc-logs": { type: "boolean" },
@@ -32,7 +33,7 @@ const parsed = parseArgs({
 });
 
 if (parsed.values.help) {
-  process.stdout.write(`PiTTy v${appVersion}\n\nUsage: pitty [options] [-- extra Pi args]\n\n  -C, --cwd <dir>       Working directory\n  -c, --continue        Continue recent Pi session\n      --session <path>  Open a Pi session file\n  -m, --model <id>      Pi model id\n      --provider <id>   Pi provider\n      --thinking <lvl>  off|minimal|low|medium|high|xhigh\n      --pi <path>       Pi executable (default: pi)\n      --no-sidebar      Hide the right sidebar initially\n      --log-dir <dir>   Diagnostic log directory\n      --no-logs         Disable file diagnostics\n      --verbose-rpc-logs Include RPC contents (may contain source/prompts)\n`);
+  process.stdout.write(`PiTTy v${appVersion}\n\nUsage: pitty [options] [-- extra Pi args]\n\n  -C, --cwd <dir>       Working directory\n  -c, --continue        Continue recent Pi session\n      --session <path>  Open a Pi session file\n  -m, --model <id>      Pi model id\n      --provider <id>   Pi provider\n      --thinking <lvl>  off|minimal|low|medium|high|xhigh\n      --pi <path>       Pi executable (default: pi)\n      --no-sidebar      Hide the right sidebar initially\n      --session-picker  Open the session picker on startup\n      --log-dir <dir>   Diagnostic log directory\n      --no-logs         Disable file diagnostics\n      --verbose-rpc-logs Include RPC contents (may contain source/prompts)\n`);
   process.exit(0);
 }
 
@@ -102,6 +103,7 @@ try {
         sidebar={!parsed.values["no-sidebar"]}
         logger={logger}
         integrations={integrationStatus}
+        openSessionSelector={parsed.values["session-picker"] === true}
       />
     ),
     renderer,

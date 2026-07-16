@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 const root = path.resolve(import.meta.dir, "..");
 
@@ -14,6 +15,9 @@ describe("public installers", () => {
     expect(script).toContain("exit code:");
     expect(script).toContain("log:");
     expect(script).toContain("/dev/tty");
+    expect(script).toContain("pitty-resume");
+    const uninstall = fs.readFileSync(path.join(root, "uninstall.sh"), "utf8");
+    expect(uninstall).toContain('"$BIN_DIR/pitty-resume"');
   });
 
   test("Windows installer exposes the same optional integrations", () => {
@@ -24,6 +28,14 @@ describe("public installers", () => {
     expect(script).toContain("npm:@juicesharp/rpiv-todo");
     expect(script).toContain("exit code:");
     expect(script).toContain("log:");
+    expect(script).toContain("pitty-resume");
+    const uninstall = fs.readFileSync(path.join(root, "uninstall.ps1"), "utf8");
+    expect(uninstall).toContain("pitty-resume.cmd");
+  });
+
+  test("pitty-resume exposes executable help", () => {
+    const output = execFileSync("node", [path.join(root, "bin/pitty-resume.mjs"), "--help"], { encoding: "utf8" });
+    expect(output).toContain("--session-picker");
   });
 
   test("OpenSpec project and capability specs are present", () => {

@@ -79,6 +79,8 @@ try {
   New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
   $Cmd = Join-Path $BinDir "pitty.cmd"
   "@echo off`r`nnode `"$InstallDir\bin\pitty.mjs`" %*`r`n" | Set-Content -Encoding ASCII $Cmd
+  $ResumeCmd = Join-Path $BinDir "pitty-resume.cmd"
+  "@echo off`r`nnode `"$InstallDir\bin\pitty-resume.mjs`" %*`r`n" | Set-Content -Encoding ASCII $ResumeCmd
 
   $PluginMode = if ($WithPlugins) { "yes" } elseif ($WithoutPlugins) { "no" } elseif ($Yes) { "yes" } else { "ask" }
   if ($PluginMode -eq "ask") {

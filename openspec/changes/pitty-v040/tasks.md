@@ -2,8 +2,8 @@
 
 - [ ] 1.1 Add the canonical PiTTy SVG repository asset and a tested terminal-cell-safe logo component with compact, wide, and constrained-terminal wordmark layouts.
 - [ ] 1.2 Render the non-blocking empty-transcript dashboard with logo, common commands, and a stable loading/available/empty/error current-directory session region while preserving direct RPC startup and an immediately focused main prompt.
-- [ ] 1.3 Add current-project session listing and one reusable searchable selector shared by `/sessions`, `/resume`, the empty dashboard, and `pitty-resume`, with loading, empty, selection, cancellation, and streaming-confirmation states.
-- [ ] 1.4 Add documented `switch_session` RPC support, both command aliases, the `pitty-resume` launcher/install/uninstall path, state reload, error handling, picker autofocus, and main-prompt focus restoration.
+- [x] 1.3 Add current-project session listing and one reusable searchable selector shared by `/sessions`, `/resume`, the empty dashboard, and `pitty-resume`, with loading, empty, selection, cancellation, and streaming-confirmation states.
+- [x] 1.4 Add documented `switch_session` RPC support, both command aliases, the `pitty-resume` launcher/install/uninstall path, state reload, error handling, picker autofocus, and main-prompt focus restoration.
 - [ ] 1.5 Add focused render/unit coverage for direct startup, constrained-logo fallback, dashboard session states, immediate picker keyboard input/navigation, selector cancellation, streaming confirmation decline/settle behavior, successful/unsupported/failed session switch, and launcher/install/uninstall behavior.
 
 ## 2. Chat interaction controls
@@ -18,8 +18,8 @@
 ## 3. Searchable model selector
 
 - [ ] 3.1 Add a pure normalized-model filtering helper with provider/id/display-name matching and no-match handling.
-- [ ] 3.2 Ensure the selector-local search editor explicitly takes focus on mount, supports typing and keyboard list navigation without a click, retains matched-count/empty state and selection reset, and restores chat focus after selection/cancel.
-- [ ] 3.3 Add tests for filtering, stale-selection prevention, immediate typing/navigation, draft preservation, and focus restoration.
+- [x] 3.2 Ensure the selector-local search editor explicitly takes focus on mount, supports typing and keyboard list navigation without a click, retains matched-count/empty state and selection reset, and restores chat focus after selection/cancel.
+- [x] 3.3 Add tests for filtering, stale-selection prevention, immediate typing/navigation, draft preservation, and focus restoration.
 
 ## 4. Update and upgrade safety
 

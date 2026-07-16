@@ -36,4 +36,12 @@ describe("PiRpcClient", () => {
     expect(events.some((event) => event.type === "message_end")).toBe(true);
     expect(events.some((event) => event.type === "agent_settled")).toBe(true);
   });
+
+  test("switches sessions and reports Pi cancellation", async () => {
+    const client = new PiRpcClient({ cwd: process.cwd(), executable: path.resolve("scripts/mock-pi-rpc.mjs") });
+    clients.push(client);
+    await client.start();
+    expect(await client.switchSession("/tmp/next-session.jsonl")).toEqual({ cancelled: false });
+    expect(await client.switchSession("cancel")).toEqual({ cancelled: true });
+  });
 });

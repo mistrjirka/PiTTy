@@ -45,6 +45,8 @@ rl.on("line", (line) => {
     case "get_messages": response({ messages: history }); break;
     case "get_session_stats": response(stats); break;
     case "cycle_model": response({ model: state.model, thinkingLevel: state.thinkingLevel, isScoped: false }); break;
+    case "get_available_models": response({ models: [state.model] }); break;
+    case "switch_session": response({ cancelled: command.sessionPath === "cancel" }); break;
     case "cycle_thinking_level": response({ level: state.thinkingLevel }); break;
     case "prompt":
     case "steer":

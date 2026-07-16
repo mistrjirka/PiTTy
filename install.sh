@@ -145,6 +145,11 @@ cat > "$BIN_DIR/pitty" <<EOF
 exec node "$INSTALL_DIR/bin/pitty.mjs" "\$@"
 EOF
 chmod +x "$BIN_DIR/pitty"
+cat > "$BIN_DIR/pitty-resume" <<EOF
+#!/usr/bin/env sh
+exec node "$INSTALL_DIR/bin/pitty-resume.mjs" "\$@"
+EOF
+chmod +x "$BIN_DIR/pitty-resume"
 
 if [ "$PLUGIN_MODE" = "ask" ]; then
   if [ "$ASSUME_YES" -eq 1 ]; then
@@ -192,6 +197,7 @@ say ""
 say "PiTTy $VER installed."
 say "Installer logs: $LOG_DIR"
 say "Run: pitty -C /path/to/project --continue"
+say "Resume picker: pitty-resume -C /path/to/project"
 case ":${PATH:-}:" in *":$BIN_DIR:"*) : ;; *) warn "$BIN_DIR is not on PATH; add it to your shell profile or run $BIN_DIR/pitty" ;; esac
 
 if [ "$PLUGIN_FAILURES" -gt 0 ] && [ "$ALLOW_PLUGIN_FAILURE" -ne 1 ]; then

@@ -1,5 +1,5 @@
-import type { SelectRenderable, TextareaRenderable } from "@opentui/core";
-import { createMemo, createSignal } from "solid-js";
+import type { KeyEvent, SelectRenderable, TextareaRenderable } from "@opentui/core";
+import { createMemo, createSignal, onMount } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import { colors } from "./theme.ts";
 
@@ -71,6 +71,11 @@ export function ModelSelectorDialog(props: {
   let search: TextareaRenderable | undefined;
   const [query, setQuery] = createSignal("");
   const [focusTarget, setFocusTarget] = createSignal<ModelSelectorFocus>("search");
+  let activeFocus: ModelSelectorFocus = "search";
+  const setActiveFocus = (next: ModelSelectorFocus) => {
+    activeFocus = next;
+    setFocusTarget(next);
+  };
   const filteredModels = createMemo(() => filterModelChoices(props.models, query()));
   const options = createMemo(() => filteredModels().map((model) => {
     const details = [
@@ -83,6 +88,14 @@ export function ModelSelectorDialog(props: {
       value: model,
     };
   }));
+  onMount(() => queueMicrotask(() => search?.focus()));
+  const cancelOnEscape = (event: KeyEvent) => {
+    if (event.name !== "escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    props.onCancel();
+  };
+
   const selectedIndex = createMemo(() => {
     const index = filteredModels().findIndex((model) => model.provider === props.currentProvider && model.id === props.currentModelId);
     return index >= 0 ? index : 0;
@@ -90,11 +103,30 @@ export function ModelSelectorDialog(props: {
 
   useKeyboard((event) => {
     if (event.eventType === "release") return;
+    if (event.name === "escape") { event.preventDefault(); event.stopPropagation(); props.onCancel(); return; }
+    if ((event.name === "down" || event.name === "up") && activeFocus === "search" && filteredModels().length) {
+      event.preventDefault();
+      event.stopPropagation();
+      setActiveFocus("list");
+      queueMicrotask(() => { if (activeFocus === "list") select?.focus(); });
+      if (event.name === "up") select?.setSelectedIndex(Math.max(0, filteredModels().length - 1));
+      return;
+    }
+    if (event.name === "enter" || event.name === "return") {
+      const models = filteredModels();
+      const model = models[activeFocus === "list" ? (select?.getSelectedIndex() ?? 0) : 0];
+      if (model) {
+        event.preventDefault();
+        event.stopPropagation();
+        props.onSelect(model);
+      }
+      return;
+    }
     if (event.name !== "tab") return;
     event.preventDefault();
     event.stopPropagation();
     const next: ModelSelectorFocus = event.shift ? "search" : "list";
-    setFocusTarget(next);
+    setActiveFocus(next);
     if (next === "list") select?.focus();
     else search?.focus();
   });
@@ -136,6 +168,7 @@ export function ModelSelectorDialog(props: {
         focusedBackgroundColor={colors.panel}
         textColor={colors.textBright}
         placeholderColor={colors.muted}
+        onKeyDown={cancelOnEscape}
         onContentChange={() => {
           setQuery(search?.plainText ?? "");
           queueMicrotask(() => select?.setSelectedIndex(0));
@@ -158,6 +191,7 @@ export function ModelSelectorDialog(props: {
         selectedDescriptionColor={colors.text}
         showScrollIndicator
         wrapSelection
+        onKeyDown={cancelOnEscape}
         onSelect={(_index, option) => {
           const model = option?.value;
           if (model && filteredModels().some((candidate) => candidate.provider === model.provider && candidate.id === model.id)) props.onSelect(model);
