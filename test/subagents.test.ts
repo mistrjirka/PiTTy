@@ -26,7 +26,7 @@ describe("subagent controls", () => {
 
   test("parses pi-subagents v1 progress and cost fields", () => {
     const target = run();
-    fs.writeFileSync(path.join(target.asyncDir, "status.json"), JSON.stringify({
+    fs.writeFileSync(path.join(target.asyncDir!, "status.json"), JSON.stringify({
       lifecycleArtifactVersion: 1,
       runId: "run-1",
       sessionId: "session-1",
@@ -44,7 +44,7 @@ describe("subagent controls", () => {
       totalCost: { inputTokens: 100, outputTokens: 50, costUsd: 0.0123 },
       steps: [{ agent: "worker", status: "running", currentTool: "edit", turnCount: 2, toolCount: 3, tokens: { input: 40, output: 20, total: 60 } }],
     }));
-    const parsed = readSubagentRun(target.asyncDir);
+    const parsed = readSubagentRun(target.asyncDir!);
     expect(parsed?.totalTokens).toBe(150);
     expect(parsed?.totalCost).toBe(0.0123);
     expect(parsed?.steps[0]?.currentTool).toBe("edit");
@@ -71,14 +71,14 @@ describe("subagent controls", () => {
     const target = run();
     pauseSubagent(target);
     stopSubagent(target);
-    expect(JSON.parse(fs.readFileSync(path.join(target.asyncDir, "control", "interrupt.json"), "utf8")).type).toBe("interrupt");
-    expect(JSON.parse(fs.readFileSync(path.join(target.asyncDir, "control", "timeout.json"), "utf8")).type).toBe("timeout");
+    expect(JSON.parse(fs.readFileSync(path.join(target.asyncDir!, "control", "interrupt.json"), "utf8")).type).toBe("interrupt");
+    expect(JSON.parse(fs.readFileSync(path.join(target.asyncDir!, "control", "timeout.json"), "utf8")).type).toBe("timeout");
   });
 
   test("writes a steer request", () => {
     const target = run();
     steerSubagent(target, "focus on tests", 0);
-    const dir = path.join(target.asyncDir, "control", "steer-requests");
+    const dir = path.join(target.asyncDir!, "control", "steer-requests");
     const files = fs.readdirSync(dir);
     expect(files).toHaveLength(1);
     expect(JSON.parse(fs.readFileSync(path.join(dir, files[0]!), "utf8")).message).toBe("focus on tests");
@@ -111,11 +111,61 @@ describe("subagent controls", () => {
     expect(targets[1]?.canSteer).toBe(false);
   });
 
+  test("dedupes resumed children by session file and keeps the active transcript", () => {
+    const original = run();
+    original.runId = "failed-run";
+    original.state = "failed";
+    original.steps = [{ index: 0, agent: "old-label", status: "completed", sessionFile: "/tmp/shared-child.jsonl", transcriptPath: "/tmp/missing-old.jsonl" }];
+    const resumed = run();
+    resumed.runId = "resumed-run";
+    resumed.steps = [{ index: 0, agent: "new-label", status: "running", sessionFile: "/tmp/shared-child.jsonl", transcriptPath: "/tmp/live-child.jsonl" }];
+    const targets = subagentTargets([original, resumed]);
+    expect(targets).toHaveLength(1);
+    expect(targets[0]?.active).toBe(true);
+    expect(targets[0]?.label).toBe("new-label");
+    expect(targets[0]?.transcriptPath).toBe("/tmp/live-child.jsonl");
+  });
+
+  test("keeps distinct parallel child indexes sharing a session file", () => {
+    const target = run();
+    target.mode = "parallel";
+    target.steps = [
+      { index: 0, agent: "first", status: "running", sessionFile: "/tmp/shared-parallel.jsonl" },
+      { index: 1, agent: "second", status: "running", sessionFile: "/tmp/shared-parallel.jsonl" },
+    ];
+    expect(subagentTargets([target])).toHaveLength(2);
+  });
+
+  test("dedupes resumed children using the run session file fallback", () => {
+    const original = run();
+    original.runId = "original-run";
+    original.sessionFile = "/tmp/shared-run-session.jsonl";
+    original.steps = [{ index: 0, agent: "old", status: "completed" }];
+    const resumed = run();
+    resumed.runId = "resumed-run";
+    resumed.sessionFile = original.sessionFile;
+    resumed.steps = [{ index: 0, agent: "new", status: "running" }];
+    const targets = subagentTargets([original, resumed]);
+    expect(targets).toHaveLength(1);
+    expect(targets[0]?.label).toBe("new");
+  });
+
+  test("keeps distinct foreground entries sharing a session file", () => {
+    const tool = {
+      kind: "tool" as const, id: "foreground-indexed", toolCallId: "call-foreground-indexed", name: "subagent",
+      args: {}, output: "", details: { progress: [
+        { agent: "first", status: "running", sessionFile: "/tmp/shared-foreground.jsonl" },
+        { agent: "second", status: "running", sessionFile: "/tmp/shared-foreground.jsonl" },
+      ] }, timestamp: Date.now(), status: "streaming" as const, isError: false,
+    };
+    expect(subagentTargets([], [tool])).toHaveLength(2);
+  });
+
   test("reads a specifically selected parallel child transcript", () => {
     const target = run();
     target.mode = "parallel";
-    const first = path.join(target.asyncDir, "first.jsonl");
-    const second = path.join(target.asyncDir, "second.jsonl");
+    const first = path.join(target.asyncDir!, "first.jsonl");
+    const second = path.join(target.asyncDir!, "second.jsonl");
     fs.writeFileSync(first, JSON.stringify({ recordType: "message", role: "assistant", text: "first child", ts: 1 }));
     fs.writeFileSync(second, JSON.stringify({ recordType: "message", role: "assistant", text: "second child", ts: 2 }));
     target.steps = [
@@ -125,6 +175,82 @@ describe("subagent controls", () => {
     const items = readSubagentConversation(target, 160, 1);
     expect(items).toHaveLength(1);
     expect(items[0]?.kind === "assistant" ? items[0].text : "").toBe("second child");
+  });
+
+  test("maps a live foreground tool progress item and dedupes its async launch", () => {
+    const target = run();
+    const tool = {
+      kind: "tool" as const,
+      id: "foreground-tool",
+      toolCallId: "call-foreground",
+      name: "subagent",
+      args: {},
+      output: "working",
+      details: { progress: [{ agent: "worker", status: "pending", currentTool: "bash" }] },
+      timestamp: Date.now(),
+      status: "streaming" as const,
+      isError: false,
+    };
+    const asyncLaunch = { ...tool, toolCallId: "call-async", details: { asyncDir: target.asyncDir! }, status: "done" as const };
+    const targets = subagentTargets([target], [tool, asyncLaunch]);
+    expect(targets.filter((item) => item.run.runId === target.runId)).toHaveLength(1);
+    const foreground = targets.find((item) => item.toolCallId === tool.toolCallId);
+    expect(foreground?.active).toBe(true);
+    expect(foreground?.state).toBe("pending");
+    expect(foreground?.canSteer).toBe(false);
+    expect(targetsForTool(tool, targets).map((item) => item.toolCallId)).toEqual([tool.toolCallId]);
+  });
+
+  test("preserves foreground transcript metadata from running result progress", () => {
+    const tool = {
+      kind: "tool" as const, id: "metadata", toolCallId: "call-metadata", name: "subagent",
+      args: {}, output: "", details: { results: [{
+        agent: "worker", transcriptPath: "/tmp/foreground.jsonl", sessionFile: "/tmp/foreground-session.jsonl",
+        progress: { agent: "worker", status: "running", currentTool: "bash", turnCount: 3, toolCount: 4, tokens: { total: 99 } },
+      }] }, timestamp: Date.now(), status: "streaming" as const, isError: false,
+    };
+    const target = subagentTargets([], [tool])[0];
+    expect(target?.transcriptPath).toBe("/tmp/foreground.jsonl");
+    expect(target?.sessionFile).toBe("/tmp/foreground-session.jsonl");
+    expect(target?.run.currentTool).toBe("bash");
+    expect(target?.run.turnCount).toBe(3);
+    expect(target?.run.totalTokens).toBe(99);
+  });
+
+  test("parses progress objects nested in result details", () => {
+    const tool = {
+      kind: "tool" as const, id: "nested", toolCallId: "call-nested", name: "subagent",
+      args: {}, output: "", details: { results: [{ progress: { agent: "nested-worker", status: "running" } }] }, timestamp: Date.now(),
+      status: "done" as const, isError: false,
+    };
+    const targets = subagentTargets([], [tool]);
+    expect(targets[0]?.label).toBe("nested-worker");
+    expect(targets[0]?.active).toBe(true);
+  });
+
+  test("keeps completed foreground result metadata without progress", () => {
+    const tool = {
+      kind: "tool" as const, id: "completed", toolCallId: "call-completed", name: "subagent",
+      args: {}, output: "done", details: { results: [{
+        agent: "worker", exitCode: 0, transcriptPath: "/tmp/completed.jsonl", sessionFile: "/tmp/completed-session.jsonl",
+      }] }, timestamp: Date.now(), status: "done" as const, isError: false,
+    };
+    const target = subagentTargets([], [tool])[0];
+    expect(target?.state).toBe("completed");
+    expect(target?.active).toBe(false);
+    expect(target?.transcriptPath).toBe("/tmp/completed.jsonl");
+  });
+
+  test("falls back safely for malformed foreground details", () => {
+    const tool = {
+      kind: "tool" as const, id: "malformed", toolCallId: "call-malformed", name: "subagent",
+      args: {}, output: "", details: { progress: [null, 42, "bad"] }, timestamp: Date.now(),
+      status: "pending" as const, isError: false,
+    };
+    const targets = subagentTargets([], [tool]);
+    expect(targets).toHaveLength(1);
+    expect(targets[0]?.active).toBe(true);
+    expect(targets[0]?.toolCallId).toBe("call-malformed");
   });
 
   test("maps a subagent tool result to each child in its run", () => {
@@ -151,7 +277,7 @@ describe("subagent controls", () => {
 
   test("reads the active subagent transcript", () => {
     const target = run();
-    const transcriptPath = path.join(target.asyncDir, "transcript.jsonl");
+    const transcriptPath = path.join(target.asyncDir!, "transcript.jsonl");
     fs.writeFileSync(transcriptPath, [
       JSON.stringify({ recordType: "message", role: "assistant", text: "visible result", ts: 1 }),
       JSON.stringify({ recordType: "tool_start", toolName: "bash", argsPreview: "git status", ts: 2 }),
@@ -163,7 +289,7 @@ describe("subagent controls", () => {
 
   test("builds the same conversation model for subagent thinking and tools", () => {
     const target = run();
-    const transcriptPath = path.join(target.asyncDir, "conversation.jsonl");
+    const transcriptPath = path.join(target.asyncDir!, "conversation.jsonl");
     fs.writeFileSync(transcriptPath, [
       JSON.stringify({
         recordType: "message",

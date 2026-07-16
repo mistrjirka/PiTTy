@@ -10,8 +10,13 @@ function atomicJson(target: string, value: unknown): void {
   fs.renameSync(temporary, target);
 }
 
+function requireFileControl(run: SubagentRun): string {
+  if (run.control === "foreground" || !run.asyncDir) throw new Error("Foreground subagents do not support file control.");
+  return run.asyncDir;
+}
+
 export function pauseSubagent(run: SubagentRun): void {
-  const target = path.join(run.asyncDir, "control", "interrupt.json");
+  const target = path.join(requireFileControl(run), "control", "interrupt.json");
   atomicJson(target, { type: "interrupt", ts: Date.now(), source: "pitty" });
   if (run.pid && run.pid > 0 && process.platform !== "win32") {
     try {
@@ -23,7 +28,7 @@ export function pauseSubagent(run: SubagentRun): void {
 }
 
 export function stopSubagent(run: SubagentRun): void {
-  const target = path.join(run.asyncDir, "control", "timeout.json");
+  const target = path.join(requireFileControl(run), "control", "timeout.json");
   atomicJson(target, { type: "timeout", ts: Date.now(), source: "pitty", reason: "Stopped from PiTTy" });
 }
 
@@ -39,5 +44,5 @@ export function steerSubagent(run: SubagentRun, message: string, targetIndex?: n
     ...(targetIndex !== undefined ? { targetIndex } : {}),
   };
   const filename = `${String(request.ts).padStart(13, "0")}-${Buffer.from(request.id).toString("base64url")}.json`;
-  atomicJson(path.join(run.asyncDir, "control", "steer-requests", filename), request);
+  atomicJson(path.join(requireFileControl(run), "control", "steer-requests", filename), request);
 }

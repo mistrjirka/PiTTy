@@ -90,7 +90,9 @@ export type SubagentStep = {
 
 export type SubagentRun = {
   runId: string;
-  asyncDir: string;
+  asyncId?: string | undefined;
+  asyncDir?: string | undefined;
+  control?: "file" | "foreground" | undefined;
   sessionId?: string | undefined;
   sessionFile?: string | undefined;
   mode: string;

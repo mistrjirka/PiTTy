@@ -1,6 +1,6 @@
 import { For, Show } from "solid-js";
 import stripAnsi from "strip-ansi";
-import type { RpcSessionState, SessionStats, SubagentRun } from "../types.ts";
+import type { RpcSessionState, SessionStats, SubagentRun, ToolItem } from "../types.ts";
 import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
 import { formatDuration } from "./duration.ts";
 import { colors } from "./theme.ts";
@@ -52,6 +52,7 @@ export function Sidebar(props: {
   state?: RpcSessionState | undefined;
   stats?: SessionStats | undefined;
   runs: SubagentRun[];
+  tools?: ToolItem[] | undefined;
   selectedTargetKey?: string | undefined;
   selectedRunId?: string | undefined;
   now?: number | undefined;
@@ -65,16 +66,15 @@ export function Sidebar(props: {
   height?: number | undefined;
 }) {
   const now = () => props.now ?? Date.now();
-  const targets = () => subagentTargets(props.runs);
+  const targets = () => subagentTargets(props.runs, props.tools ?? []);
   const active = () => targets().filter((target) => target.active);
   const finished = () => targets().filter((target) => !target.active);
   const selectedKey = () => props.selectedTargetKey ?? targets().find((target) => target.run.runId === props.selectedRunId)?.key;
-  const current = () => targets().find((target) => target.key === selectedKey()) ?? targets()[0];
   const sidebarHeight = () => Math.max(24, props.height ?? 40);
   const hasSubagents = () => props.subagentsAvailable !== false;
   const hasTodos = () => props.todosAvailable !== false && (props.todos?.length ?? 0) > 0;
   const todoHeight = () => hasTodos() ? Math.max(7, Math.min(16, Math.floor(sidebarHeight() * 0.3))) : 0;
-  const subagentHeight = () => hasSubagents() ? Math.max(8, sidebarHeight() - todoHeight() - (hasTodos() ? 15 : 13)) : 0;
+  const subagentHeight = () => hasSubagents() ? Math.max(8, sidebarHeight() - todoHeight() - (hasTodos() ? 11 : 9)) : 0;
 
   const renderTarget = (target: SubagentTarget) => {
     const selected = () => target.key === selectedKey() || (!selectedKey() && target === targets()[0]);
@@ -157,17 +157,6 @@ export function Sidebar(props: {
           <Show when={finished().length}>
             <box height={1} minHeight={1} marginTop={1}><text fg={colors.subtle} attributes={1}>Finished</text></box>
             <For each={finished()}>{renderTarget}</For>
-          </Show>
-          <Show when={current()}>
-            {(selected) => (
-              <box flexDirection="column" marginTop={1} border={["top"]} borderColor={colors.borderStrong} paddingTop={1}>
-                <text width="100%" height={1} fg={colors.textBright} attributes={1}>Selected</text>
-                <text width="100%" height={1} fg={colors.muted} wrapMode="none">{clip(`${selected().label} · ${selected().run.mode}`)}</text>
-                <text width="100%" height={1} fg={selected().canSteer ? colors.green : colors.subtle} wrapMode="none">
-                  {selected().canSteer ? "live steering available" : "read-only / finished"}
-                </text>
-              </box>
-            )}
           </Show>
         </Show>
         </scrollbox>

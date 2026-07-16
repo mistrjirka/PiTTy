@@ -12,7 +12,7 @@ import type { ConversationItem, RpcSessionState, SessionStats, SubagentRun } fro
 import { registerBundledParsers } from "../src/ui/parsers.ts";
 import { CommandSuggestions, filterCommandChoices } from "../src/ui/command-suggestions.tsx";
 import { deriveTodos } from "../src/ui/todos.tsx";
-import { nextDetailToggle } from "../src/app.tsx";
+import { nextDetailToggle, PendingInputPanel } from "../src/app.tsx";
 import { appVersion } from "../src/version.ts";
 
 registerBundledParsers();
@@ -201,6 +201,7 @@ describe("OpenTUI components", () => {
     expect(frame).toContain("gpt-5.6-sol");
     expect(frame).toContain("implementer");
     expect(frame).toContain("running");
+    expect(frame).not.toContain("Selected");
   });
 
   test("renders live assistant output as stable plain text and tool timing", async () => {
@@ -316,6 +317,26 @@ describe("OpenTUI components", () => {
     expect(closed).toBeGreaterThan(0);
   });
 
+
+  test("keeps pending steering text intact in an 80x10 layout", async () => {
+    const setup = await mount(() => (
+      <box width="100%" height="100%" flexDirection="column">
+        <box flexGrow={1} minHeight={1}>
+          <text>conversation output</text>
+        </box>
+        <PendingInputPanel
+          queuedFollowUps={[]}
+          steering={["after you do all the fixes release it as 0.3.3"]}
+          followUps={[]}
+          onEditQueuedFollowUp={() => {}}
+        />
+        <textarea height={2} minHeight={2} />
+      </box>
+    ), 80, 10);
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("steering: after you do all the fixes release it as 0.3.3");
+    expect(frame).not.toContain("steering: after you do all the fixes release it as 0.3.3conversation");
+  });
 
   test("renders separate parallel subagents and hides steering input for finished children", async () => {
     const run: SubagentRun = {

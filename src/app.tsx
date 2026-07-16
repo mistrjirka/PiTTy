@@ -6,7 +6,7 @@ import {
 } from "@opentui/core";
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid";
-import type { RpcExtensionUIRequest, RpcSessionState, SessionStats, SubagentRun, Toast } from "./types.ts";
+import type { RpcExtensionUIRequest, RpcSessionState, SessionStats, SubagentRun, ToolItem, Toast } from "./types.ts";
 import type { DiagnosticLogger } from "./diagnostics/logger.ts";
 import { createDiagnosticBundle } from "./diagnostics/bundle.ts";
 import { PiRpcClient } from "./rpc/pi-rpc-client.ts";
@@ -54,6 +54,59 @@ const spinnerFrames = ["◐", "◓", "◑", "◒"] as const;
 const thinkingLevels = new Set(["minimal", "low", "medium", "high", "xhigh", "max"]);
 
 const LOGIN_GUIDANCE = "Sorry, login is not supported in PiTTy yet. Run `pi` and use /login there; your credentials will then be available to PiTTy.";
+
+export type PendingInputPanelProps = {
+  queuedFollowUps: readonly LocalQueuedMessage[];
+  steering: readonly string[];
+  followUps: readonly string[];
+  onEditQueuedFollowUp: (messageId: string) => void;
+};
+
+export function PendingInputPanel(props: PendingInputPanelProps) {
+  return (
+    <box
+      flexDirection="column"
+      paddingLeft={2}
+      paddingRight={2}
+      paddingTop={1}
+      paddingBottom={1}
+      flexShrink={0}
+      backgroundColor={colors.panelSoft}
+      border={["top"]}
+      borderColor={colors.borderStrong}
+    >
+      <text fg={colors.yellow} attributes={1}>Pending input</text>
+      <For each={props.queuedFollowUps}>
+        {(item, index) => (
+          <box
+            flexDirection="row"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              props.onEditQueuedFollowUp(item.id);
+            }}
+          >
+            <text fg={colors.text} selectable wrapMode="word">  {index() + 1}. editable later: {item.text}</text>
+            <box flexGrow={1} />
+            <text fg={colors.cyan}>click to edit</text>
+          </box>
+        )}
+      </For>
+      <Show when={props.steering.length || props.followUps.length}>
+        <text fg={colors.subtle}>Already sent to Pi — RPC cannot edit these:</text>
+      </Show>
+      <For each={props.steering}>
+        {(text) => <text fg={colors.muted} selectable wrapMode="word">  steering: {text}</text>}
+      </For>
+      <For each={props.followUps}>
+        {(text) => <text fg={colors.muted} selectable wrapMode="word">  follow-up: {text}</text>}
+      </For>
+      <Show when={props.queuedFollowUps.length}>
+        <text fg={colors.subtle}>Alt+Up edits the last editable local follow-up.</text>
+      </Show>
+    </box>
+  );
+}
 
 export type DetailToggleState = {
   toolsExpanded: boolean;
@@ -266,7 +319,8 @@ export function App(props: AppOptions) {
     if (last?.kind === "tool" && (last.status === "streaming" || last.status === "pending")) return false;
     return true;
   });
-  const availableSubagentTargets = createMemo(() => subagentTargets(runs()));
+  const subagentTools = createMemo(() => items().filter((item): item is ToolItem => item.kind === "tool"));
+  const availableSubagentTargets = createMemo(() => subagentTargets(runs(), subagentTools()));
   const selectedSubagentTarget = createMemo(() =>
     availableSubagentTargets().find((target) => target.key === selectedTargetKey()) ?? availableSubagentTargets()[0],
   );
@@ -310,7 +364,7 @@ export function App(props: AppOptions) {
         ? listSubagentRuns({ sessionId: state.sessionId, sessionFile: state.sessionFile })
         : [];
       setRuns(nextRuns);
-      const nextTargets = subagentTargets(nextRuns);
+      const nextTargets = subagentTargets(nextRuns, subagentTools());
       if (!nextTargets.some((target) => target.key === selectedTargetKey())) {
         setSelectedTargetKey(nextTargets[0]?.key);
       }
@@ -928,7 +982,7 @@ export function App(props: AppOptions) {
         lastRunsDigest = digest;
         setRuns(next);
         props.logger.info("subagents.changed", { runs: summaries });
-        const nextTargets = subagentTargets(next);
+        const nextTargets = subagentTargets(next, subagentTools());
         if (!nextTargets.some((target) => target.key === selectedTargetKey())) {
           setSelectedTargetKey(nextTargets[0]?.key);
         }
@@ -1341,46 +1395,12 @@ export function App(props: AppOptions) {
             </Show>
           </box>
           <Show when={!inspectSubagent() && (queuedFollowUps().length || steeringQueue().length || followUpQueue().length)}>
-            <box
-              flexDirection="column"
-              paddingLeft={2}
-              paddingRight={2}
-              paddingTop={1}
-              paddingBottom={1}
-              backgroundColor={colors.panelSoft}
-              border={["top"]}
-              borderColor={colors.borderStrong}
-            >
-              <text fg={colors.yellow} attributes={1}>Pending input</text>
-              <For each={queuedFollowUps()}>
-                {(item, index) => (
-                  <box
-                    flexDirection="row"
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      editQueuedFollowUp(item.id);
-                    }}
-                  >
-                    <text fg={colors.text} selectable wrapMode="word">  {index() + 1}. editable later: {item.text}</text>
-                    <box flexGrow={1} />
-                    <text fg={colors.cyan}>click to edit</text>
-                  </box>
-                )}
-              </For>
-              <Show when={steeringQueue().length || followUpQueue().length}>
-                <text fg={colors.subtle}>Already sent to Pi — RPC cannot edit these:</text>
-              </Show>
-              <For each={steeringQueue()}>
-                {(text) => <text fg={colors.muted} selectable wrapMode="word">  steering: {text}</text>}
-              </For>
-              <For each={followUpQueue()}>
-                {(text) => <text fg={colors.muted} selectable wrapMode="word">  follow-up: {text}</text>}
-              </For>
-              <Show when={queuedFollowUps().length}>
-                <text fg={colors.subtle}>Alt+Up edits the last editable local follow-up.</text>
-              </Show>
-            </box>
+            <PendingInputPanel
+              queuedFollowUps={queuedFollowUps()}
+              steering={steeringQueue()}
+              followUps={followUpQueue()}
+              onEditQueuedFollowUp={editQueuedFollowUp}
+            />
           </Show>
           <Show when={commandSuggestions().length && !inspectSubagent()}>
             <CommandSuggestions
@@ -1438,6 +1458,7 @@ export function App(props: AppOptions) {
             state={sessionState()}
             stats={sessionStats()}
             runs={runs()}
+            tools={subagentTools()}
             selectedTargetKey={selectedTargetKey()}
             now={clockNow()}
             onSelectTarget={setSelectedTargetKey}
