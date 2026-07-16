@@ -12,7 +12,7 @@ PiTTy SHALL provide `pitty upgrade`, `pitty upgrade --check`, and an explicit-ve
 - **THEN** the previous PiTTy installation remains usable and the failure identifies the retained log path
 
 ### Requirement: Non-blocking update notification
-After UI mount, PiTTy SHALL check for a newer stable GitHub Release without delaying the UI. It SHALL cache a successful or unsuccessful check for at least 24 hours and support disabling the check.
+After UI mount, PiTTy SHALL check for a newer stable GitHub Release without delaying the UI. It SHALL cache a successful or unsuccessful check for at least 24 hours and support disabling the check. Successful caches are scoped to the local PiTTy version that was checked; a cached newer release may notify without another network request.
 
 #### Scenario: New stable release
 - **WHEN** a newer non-prerelease release is discovered

@@ -21,11 +21,19 @@ export type UpdateCheckConfig = {
   onNewerRelease: (version: string) => void;
 };
 
-type UpdateCache = {
+type UpdateCacheSuccess = {
   checkedAt: number;
-  outcome: "success" | "failure";
-  version?: string;
+  outcome: "success";
+  version: string;
+  checkedForVersion?: string;
 };
+
+type UpdateCacheFailure = {
+  checkedAt: number;
+  outcome: "failure";
+};
+
+type UpdateCache = UpdateCacheSuccess | UpdateCacheFailure;
 
 type ReleasePayload = {
   tag_name: string;
@@ -67,13 +75,24 @@ export function isUpdateCheckDisabled(environment: UpdateEnvironment): boolean {
   return environment.PITTY_NO_UPDATE_CHECK === "1";
 }
 
+function isStableVersion(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    compareStableVersions(value, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isUpdateCache(value: unknown): value is UpdateCache {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
-  return typeof record.checkedAt === "number"
-    && Number.isFinite(record.checkedAt)
-    && (record.outcome === "success" || record.outcome === "failure")
-    && (record.version === undefined || typeof record.version === "string");
+  if (typeof record.checkedAt !== "number" || !Number.isFinite(record.checkedAt)) return false;
+  if (record.outcome === "failure") return true;
+  if (record.outcome !== "success") return false;
+  return isStableVersion(record.version)
+    && (record.checkedForVersion === undefined || isStableVersion(record.checkedForVersion));
 }
 
 function isReleasePayload(value: unknown): value is ReleasePayload {
@@ -115,7 +134,16 @@ export async function checkForUpdates(config: UpdateCheckConfig): Promise<void> 
   if (isUpdateCheckDisabled(config.environment)) return;
   const now = config.now();
   const cached = await readCache(config.cachePath);
-  if (cached && now >= cached.checkedAt && now - cached.checkedAt < CACHE_MAX_AGE_MS) return;
+  const isFresh = cached !== undefined && now >= cached.checkedAt && now - cached.checkedAt < CACHE_MAX_AGE_MS;
+  if (isFresh && cached.outcome === "failure") return;
+  if (isFresh && cached.outcome === "success") {
+    const cachedIsNewer = compareStableVersions(config.localVersion, cached.version) < 0;
+    if (cachedIsNewer) {
+      config.onNewerRelease(cached.version);
+      return;
+    }
+    if (cached.checkedForVersion !== undefined && compareStableVersions(cached.checkedForVersion, config.localVersion) === 0) return;
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs ?? DEFAULT_TIMEOUT_MS);
@@ -131,7 +159,7 @@ export async function checkForUpdates(config: UpdateCheckConfig): Promise<void> 
       throw new Error("GitHub returned an invalid stable release payload");
     }
     compareStableVersions(config.localVersion, payload.tag_name);
-    await writeCache(config.cachePath, { checkedAt: now, outcome: "success", version: payload.tag_name });
+    await writeCache(config.cachePath, { checkedAt: now, outcome: "success", version: payload.tag_name, checkedForVersion: config.localVersion });
     config.logger.info("update_check.release", { localVersion: config.localVersion, remoteVersion: payload.tag_name });
     if (compareStableVersions(config.localVersion, payload.tag_name) < 0) config.onNewerRelease(payload.tag_name);
   } catch (error) {

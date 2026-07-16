@@ -49,14 +49,45 @@ describe("update checks", () => {
     expect(await fs.stat(cachePath).catch(() => undefined)).toBeUndefined();
     expect(isUpdateCheckDisabled({ PITTY_NO_UPDATE_CHECK: "1" })).toBe(true);
   });
-  test("uses fresh success and failure caches without requesting", async () => {
+  test("revalidates a fresh legacy success cache and persists its local version", async () => {
     await fs.writeFile(cachePath, JSON.stringify({ checkedAt: 1_000, outcome: "success", version: "0.3.3" }));
+    let calls = 0;
+    let announced = "";
+    const localConfig = config({ localVersion: "0.3.4", fetch: async () => { calls++; return new Response(JSON.stringify({ tag_name: "v0.4.2" }), { status: 200 }); }, onNewerRelease: (version) => { announced = version; } });
+    await checkForUpdates(localConfig);
+    expect(calls).toBe(1);
+    expect(announced).toBe("v0.4.2");
+    expect(JSON.parse(await fs.readFile(cachePath, "utf8")).checkedForVersion).toBe("0.3.4");
+    announced = "";
+    await checkForUpdates(localConfig);
+    expect(calls).toBe(1);
+    expect(announced).toBe("v0.4.2");
+  });
+  test("notifies from a fresh newer cache checked for another local version", async () => {
+    await fs.writeFile(cachePath, JSON.stringify({ checkedAt: 1_000, outcome: "success", version: "v0.4.2", checkedForVersion: "0.3.1" }));
+    let announced = "";
+    await checkForUpdates(config({ fetch: async () => { throw new Error("network"); }, onNewerRelease: (version) => { announced = version; } }));
+    expect(announced).toBe("v0.4.2");
+  });
+  test("suppresses a same-local current cache and fresh failures", async () => {
+    await fs.writeFile(cachePath, JSON.stringify({ checkedAt: 2_000, outcome: "success", version: "0.3.2", checkedForVersion: "0.3.2" }));
     let calls = 0;
     await checkForUpdates(config({ fetch: async () => { calls++; throw new Error("network"); } }));
     expect(calls).toBe(0);
-    await fs.writeFile(cachePath, JSON.stringify({ checkedAt: 1_000, outcome: "failure" }));
+    await fs.writeFile(cachePath, JSON.stringify({ checkedAt: 2_000, outcome: "success", version: "0.3.1", checkedForVersion: "0.3.2" }));
     await checkForUpdates(config({ fetch: async () => { calls++; throw new Error("network"); } }));
     expect(calls).toBe(0);
+    await fs.writeFile(cachePath, JSON.stringify({ checkedAt: 2_000, outcome: "failure" }));
+    await checkForUpdates(config({ fetch: async () => { calls++; throw new Error("network"); } }));
+    expect(calls).toBe(0);
+  });
+  test("refetches malformed cached versions", async () => {
+    let calls = 0;
+    await fs.writeFile(cachePath, JSON.stringify({ checkedAt: 1_000, outcome: "success", version: "not-a-version", checkedForVersion: "0.3.2" }));
+    await checkForUpdates(config({ fetch: async () => { calls++; return new Response(JSON.stringify({ tag_name: "0.3.2" }), { status: 200 }); } }));
+    await fs.writeFile(cachePath, JSON.stringify({ checkedAt: 1_000, outcome: "success", version: "0.3.3", checkedForVersion: "bad" }));
+    await checkForUpdates(config({ fetch: async () => { calls++; return new Response(JSON.stringify({ tag_name: "0.3.2" }), { status: 200 }); } }));
+    expect(calls).toBe(2);
   });
   test("fetches stale release and announces newer versions", async () => {
     let announced = "";
