@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- Refined the terminal-native PTY Tail mark with responsive wide, compact, and wordmark-only variants.
-- Added exact light/dark SVGs of the original double-line and dotted-curve design plus a closer Unicode/Braille terminal approximation.
+- Replaced the provisional PTY Tail artwork with the scalable `[> π <]` bracket-pi mark.
+- Added exact light/dark SVG assets plus responsive half-block terminal rasters with equal spacing around the enlarged `π`.
 - Reworked the README around the standard installer and added dedicated usage, branding, and documentation-index pages.
 
 ## 0.3.3
