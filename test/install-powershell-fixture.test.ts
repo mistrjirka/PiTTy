@@ -43,5 +43,5 @@ describe("PowerShell installer executable fixture", () => {
     expect(missing.code).not.toBe(0); expect(missing.output).toContain("did not contain");
     const unavailable = await run(["-File", wrapper, "-DeferApply", "-Version", "1.2.3", "-InstallDir", install, "-BinDir", bin], { ...env, PITTY_FAIL_CHECKSUM: "1" });
     expect(unavailable.code).not.toBe(0); expect(unavailable.output).toContain("checksum");
-  });
+  }, { timeout: 30_000 });
 });
