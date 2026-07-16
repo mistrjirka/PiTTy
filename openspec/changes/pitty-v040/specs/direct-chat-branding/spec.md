@@ -31,11 +31,11 @@ PiTTy SHALL show a non-blocking empty-transcript dashboard only while the normal
 - **THEN** PiTTy removes the empty-transcript dashboard without changing prompt focus or transcript behavior
 
 ### Requirement: Canonical logo source
-PiTTy SHALL commit the bracket-pi `[> π <]` SVG as its canonical repository artwork. Terminal rendering SHALL use responsive terminal-cell rasters derived from the complete mark rather than attempt direct SVG rendering.
+PiTTy SHALL commit the asymmetric bracket-pi `[> π <]` SVG as its canonical repository artwork. The center pi SHALL have a straight left leg and curled right leg, with equal clear space between it and both chevrons. Terminal rendering SHALL use responsive terminal-cell rasters derived from the canonical vector rather than attempt direct SVG rendering.
 
 #### Scenario: Repository documentation
 - **WHEN** a maintainer or contributor needs the canonical logo
-- **THEN** the SVG is available from repository content and terminal UI uses a separate half-block rendering
+- **THEN** the SVG is available from repository content and terminal UI uses a separate half-block rendering derived from the same geometry
 
 ### Requirement: Constrained-terminal logo fallback
 PiTTy SHALL choose a large, compact, micro, or wordmark rendering according to available terminal dimensions instead of clipping the logo.
