@@ -33,6 +33,21 @@ type ReleasePayload = {
   prerelease?: boolean;
 };
 
+export type StableRelease = { version: string; tag: string };
+
+export async function fetchLatestStableRelease(repository = DEFAULT_REPOSITORY, fetcher: UpdateFetch = fetch, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<StableRelease> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetcher(`https://api.github.com/repos/${repository}/releases/latest`, { headers: { Accept: "application/vnd.github+json", "User-Agent": "PiTTy upgrade" }, signal: controller.signal });
+    if (!response.ok) throw new Error(`GitHub responded with HTTP ${response.status}`);
+    const payload: unknown = await response.json();
+    if (!isReleasePayload(payload) || payload.draft === true || payload.prerelease === true) throw new Error("GitHub returned an invalid stable release payload");
+    compareStableVersions(payload.tag_name, payload.tag_name);
+    return { version: payload.tag_name.replace(/^v/, ""), tag: payload.tag_name };
+  } finally { clearTimeout(timeout); }
+}
+
 export function compareStableVersions(left: string, right: string): -1 | 0 | 1 {
   const parse = (value: string): [number, number, number] => {
     const match = /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(value);

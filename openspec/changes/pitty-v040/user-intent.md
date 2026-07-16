@@ -47,6 +47,7 @@
 - Ctrl+C clears a nonempty prompt draft and retains it in session-local input history; when the draft is empty, existing stream-abort and exit behavior remains unchanged.
 - Up/Down restore older/newer session-local prompt history only when doing so does not interfere with multiline editing; cleared drafts are recoverable through that history.
 - Installers detect optional Pi packages before prompting; they skip the prompt when all are present and offer only missing packages.
+- Subagent detail and selected-child configuration displays use the child's reported model, context, and thinking level; missing child fields remain unknown rather than falling back to parent-session values.
 
 ## Explicitly deferred
 

@@ -8,6 +8,7 @@ BIN_DIR="${PITTY_BIN_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}"
 PLUGIN_MODE="ask"
 ASSUME_YES=0
 ALLOW_PLUGIN_FAILURE=0
+DEFER_APPLY=0
 if [ "${PITTY_WITH_PLUGINS:-}" = "1" ]; then PLUGIN_MODE="yes"; fi
 if [ "${PITTY_WITHOUT_PLUGINS:-}" = "1" ]; then PLUGIN_MODE="no"; fi
 
@@ -24,6 +25,7 @@ Usage: install.sh [options]
   --install-dir <path>    Application directory
   --bin-dir <path>        Wrapper directory
   --repo <owner/name>     GitHub repository
+  --defer-apply           Internal: stage validated files for pitty upgrade
   -h, --help              Show this help
 
 Environment equivalents: PITTY_REPO, PITTY_VERSION, PITTY_INSTALL_DIR, PITTY_BIN_DIR,
@@ -37,6 +39,7 @@ while [ "$#" -gt 0 ]; do
     --without-plugins) PLUGIN_MODE="no" ;;
     --yes) ASSUME_YES=1 ;;
     --allow-plugin-failure) ALLOW_PLUGIN_FAILURE=1 ;;
+    --defer-apply) DEFER_APPLY=1 ;;
     --version) shift; [ "$#" -gt 0 ] || { echo "error: --version needs a value" >&2; exit 64; }; VERSION="$1" ;;
     --install-dir) shift; [ "$#" -gt 0 ] || { echo "error: --install-dir needs a value" >&2; exit 64; }; INSTALL_DIR="$1" ;;
     --bin-dir) shift; [ "$#" -gt 0 ] || { echo "error: --bin-dir needs a value" >&2; exit 64; }; BIN_DIR="$1" ;;
@@ -136,8 +139,26 @@ if ! (cd "$INSTALL_DIR.new" && node node_modules/bun/install.js) >"$BUN_LOG" 2>&
   tail -n 30 "$BUN_LOG" >&2 || true
   exit 1
 fi
-rm -rf "$INSTALL_DIR"
-mv "$INSTALL_DIR.new" "$INSTALL_DIR"
+# Metadata is part of the staged payload and is consumed by pitty upgrade.
+node -e 'const fs=require("fs"); const out={schemaVersion:1,repository:process.argv[1],installedVersion:process.argv[2],installDirectory:process.argv[3],binDirectory:process.argv[4],pluginMode:process.argv[5]}; fs.writeFileSync(process.argv[6], JSON.stringify(out)+"\n")' "$REPO" "$VER" "$INSTALL_DIR" "$BIN_DIR" "$PLUGIN_MODE" "$INSTALL_DIR.new/pitty-install.json"
+[ -f "$INSTALL_DIR.new/bin/pitty.mjs" ] || die "archive is missing bin/pitty.mjs"
+[ -f "$INSTALL_DIR.new/package.json" ] || die "archive is missing package.json"
+[ -f "$INSTALL_DIR.new/node_modules/.bin/bun" ] || die "staged dependencies are missing bundled Bun"
+if [ "$DEFER_APPLY" -eq 1 ]; then
+  [ ! -e "$INSTALL_DIR.pending" ] || die "another upgrade is already staged at $INSTALL_DIR.pending"
+  mv "$INSTALL_DIR.new" "$INSTALL_DIR.pending"
+  say "PiTTy $VER validated and staged at $INSTALL_DIR.pending; it will activate on next launch."
+  exit 0
+fi
+BACKUP="$INSTALL_DIR.backup"
+rm -rf "$BACKUP"
+if [ -e "$INSTALL_DIR" ]; then mv "$INSTALL_DIR" "$BACKUP"; fi
+if ! mv "$INSTALL_DIR.new" "$INSTALL_DIR" || ! (cd "$INSTALL_DIR" && node bin/pitty.mjs --help) < /dev/null 2>"$LOG_DIR/smoke.log"; then
+  rm -rf "$INSTALL_DIR"
+  [ -e "$BACKUP" ] && mv "$BACKUP" "$INSTALL_DIR"
+  die "installation smoke validation failed; previous installation was restored (see $LOG_DIR/smoke.log)"
+fi
+rm -rf "$BACKUP"
 
 mkdir -p "$BIN_DIR"
 cat > "$BIN_DIR/pitty" <<EOF
@@ -151,14 +172,21 @@ exec node "$INSTALL_DIR/bin/pitty-resume.mjs" "\$@"
 EOF
 chmod +x "$BIN_DIR/pitty-resume"
 
-if [ "$PLUGIN_MODE" = "ask" ]; then
+PI_LIST=""
+if [ "$PLUGIN_MODE" = "ask" ] || [ "$PLUGIN_MODE" = "yes" ]; then
+  PI_LIST="$(pi list 2>/dev/null || true)"
+  MISSING_PLUGINS=""
+  printf '%s\n' "$PI_LIST" | grep -F "pi-subagents" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-subagents"
+  printf '%s\n' "$PI_LIST" | grep -F "@juicesharp/rpiv-todo" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS @juicesharp/rpiv-todo"
+fi
+if [ "$PLUGIN_MODE" = "ask" ] && [ -z "$MISSING_PLUGINS" ]; then
+  say "Recommended Pi packages are already installed; skipping plugin prompt."
+  PLUGIN_MODE="no"
+elif [ "$PLUGIN_MODE" = "ask" ]; then
   if [ "$ASSUME_YES" -eq 1 ]; then
     PLUGIN_MODE="yes"
   elif [ -r /dev/tty ]; then
-    printf 'Install recommended Pi packages?
-  - pi-subagents: live child-agent inspection and steering
-  - @juicesharp/rpiv-todo: Todo sidebar
-Install both? [Y/n] ' >/dev/tty
+    printf 'Install missing recommended Pi packages:%s\nInstall them? [Y/n] ' "$MISSING_PLUGINS" >/dev/tty
     read answer </dev/tty || answer=""
     case "$answer" in n|N|no|NO) PLUGIN_MODE="no" ;; *) PLUGIN_MODE="yes" ;; esac
   else
@@ -169,7 +197,7 @@ fi
 PLUGIN_FAILURES=0
 install_plugin() {
   spec="$1"; needle="$2"; log="$LOG_DIR/plugin-$(printf '%s' "$needle" | tr '/@' '__').log"
-  if pi list 2>/dev/null | grep -F "$needle" >/dev/null 2>&1; then
+  if printf '%s\n' "$PI_LIST" | grep -F "$needle" >/dev/null 2>&1 || pi list 2>/dev/null | grep -F "$needle" >/dev/null 2>&1; then
     say "Optional Pi package already installed: $spec"
     return 0
   fi

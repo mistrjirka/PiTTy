@@ -25,7 +25,7 @@
 
 - [x] 4.1 Add version comparison, cached asynchronous latest-release check, disable controls, and focused update tests.
 - [ ] 4.2 Add installed metadata and `pitty upgrade --check` using the installer release source and explicit version options.
-- [ ] 4.3 Implement POSIX staged installation, checksum/archive/directory preflight, validation, backup, rollback, and retained diagnostics.
+- [x] 4.3 Implement POSIX staged installation, checksum/archive/directory preflight, validation, backup, rollback, and retained diagnostics.
 - [ ] 4.4 Implement equivalent PowerShell staging/rollback behavior, including temporary-directory creation and user-scoped PATH guidance.
 - [ ] 4.5 Add local-fixture installer behavior tests and CI coverage for success, failure, paths with spaces, plugins, and rollback.
 
@@ -44,3 +44,4 @@
 - [ ] 6.4 Keep parallel subagent order stable while showing last activity in sidebar and tool-call displays, and accept the highlighted slash-command suggestion with Enter.
 - [ ] 6.5 Add recoverable session-local prompt history, including Ctrl+C draft clearing and empty-editor Up/Down navigation that preserves multiline and streaming controls.
 - [ ] 6.6 Detect optional packages before installer prompts, skip prompts when all are installed, and offer only missing packages.
+- [ ] 6.7 Display child-reported model, context, and thinking configuration without parent-session fallback.
