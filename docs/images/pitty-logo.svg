@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="480" viewBox="0 0 800 480" fill="none" role="img" aria-labelledby="title desc">
   <title id="title">PiTTy bracket-pi logo</title>
-  <desc id="desc">Square terminal brackets contain inward chevrons and a centered pi symbol, expressing the compact mark [> π <].</desc>
+  <desc id="desc">Square terminal brackets contain inward chevrons and a centered pi symbol, expressing the compact mark [&gt; π &lt;].</desc>
   <g stroke="#111111" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
     <path d="M230 100H120V380H230"/>
     <path d="M570 100H680V380H570"/>
