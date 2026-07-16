@@ -1,15 +1,23 @@
 ## ADDED Requirements
 
-### Requirement: In-application session browsing
-PiTTy SHALL provide a `/resume` command that opens a current-project session selector without changing the active session before selection.
+### Requirement: Shared session browsing
+PiTTy SHALL provide `/sessions` and `/resume` aliases that open the same searchable current-project session selector without changing the active session before selection. The `pitty-resume` executable SHALL start the normal PiTTy application with this same selector open rather than implement a separate picker.
 
-#### Scenario: Open selector
-- **WHEN** an idle user submits `/resume`
+#### Scenario: Open selector from a command
+- **WHEN** an idle user submits `/sessions` or `/resume`
 - **THEN** PiTTy displays available current-project sessions and keeps the active session unchanged
+
+#### Scenario: Open selector from pitty-resume
+- **WHEN** a user starts `pitty-resume`
+- **THEN** PiTTy starts its normal RPC-backed application and opens the shared current-project session selector
+
+#### Scenario: Picker takes focus
+- **WHEN** the session selector opens
+- **THEN** its search input receives focus without a mouse click, typing filters sessions, and Up/Down navigation can move through results
 
 #### Scenario: Cancel selection
 - **WHEN** a user cancels the session selector
-- **THEN** PiTTy retains the current transcript and returns focus to the main prompt
+- **THEN** PiTTy retains the current transcript and returns focus to the unchanged main prompt draft
 
 #### Scenario: No resumable sessions
 - **WHEN** current-project session discovery returns no sessions
@@ -20,11 +28,11 @@ PiTTy SHALL provide a `/resume` command that opens a current-project session sel
 - **THEN** PiTTy preserves the active session and displays a readable error state
 
 ### Requirement: RPC session switching
-After a user selects a session, PiTTy SHALL use Pi's documented RPC session-switch command and reload the state, messages, statistics, queues, subagent state, and message window before accepting subsequent input.
+After a user selects a session from the picker or empty-transcript dashboard, PiTTy SHALL use Pi's documented RPC session-switch command and reload the state, messages, statistics, queues, subagent state, and message window before accepting subsequent input.
 
 #### Scenario: Successful switch
 - **WHEN** a user selects a resumable session and Pi does not cancel the switch
-- **THEN** PiTTy renders the selected session data and returns focus to the main prompt
+- **THEN** PiTTy renders the selected session data and returns focus to the unchanged main prompt draft
 
 #### Scenario: Cancelled or failed switch
 - **WHEN** Pi cancels the session switch or the RPC request fails

@@ -5,12 +5,13 @@ PiTTy 0.3.0 provides a capable RPC terminal UI but has interaction defects that 
 ## What Changes
 
 - Remove the planned blocking welcome screen; keep direct startup and add a passive PiTTy logo empty state.
-- Add `/resume` session browsing and switching without restarting the terminal UI.
+- Add `/sessions` and `/resume` session browsing and switching without restarting the terminal UI, plus a `pitty-resume` launcher that opens the same picker.
 - Make the main prompt retain drafts across the model selector, recover focus after non-input mouse interaction, and remain visible beside bounded command suggestions.
 - Add local search to the model selector, and make `Ctrl+O` globally toggle tool and thinking detail while fixing thinking-only panel alignment.
 - Preserve Pi RPC command compatibility and show safe local guidance for unsupported `/login` rather than forwarding it or handling credentials.
 - Add release update/upgrade support and harden installers with staging, rollback, and executable behavior tests.
 - Add the canonical logo asset, documentation/screenshot work, and a manual GitHub social-preview release check.
+- Deliver the approved empty-state dashboard, session picker/launcher, focus fixes, subagent visibility fixes, and steering layout fix as the `v0.3.3` slice after `impl-check`.
 
 ## Capabilities
 
@@ -28,7 +29,8 @@ PiTTy 0.3.0 provides a capable RPC terminal UI but has interaction defects that 
 
 ## Impact
 
-- UI: `src/app.tsx`, `src/ui/message.tsx`, `src/ui/model-selector.tsx`, command suggestions, new logo/session/update modules, and render tests.
+- UI: `src/app.tsx`, `src/ui/message.tsx`, `src/ui/model-selector.tsx`, `src/ui/sidebar.tsx`, command suggestions, new logo/session/update modules, and render tests.
+- Executables/installers: add `pitty-resume` alongside `pitty` and remove both during uninstall.
 - RPC: `PiRpcClient` gains only documented session/update-related calls; Pi remains the execution, session, provider, and credential source of truth.
 - Install/release: POSIX and PowerShell installers, launcher, CI, documentation, and release assets.
 - Dependencies: no credential or OAuth dependency is added in 0.4.0; any future native login work requires a separate security-reviewed change.

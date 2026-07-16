@@ -28,6 +28,16 @@
 - Configure a GitHub social preview before public announcement; do not change the `mistrjirka` account avatar without separate approval.
 - The current environment is not authenticated with `gh`; repository settings cannot be changed until the owner authenticates or supplies an appropriate token.
 
+## Approved v0.3.3 slice
+
+- Release the requested fixes and session/dashboard work as `v0.3.3` after full validation and `impl-check`.
+- The empty-transcript view remains non-blocking but now includes the PiTTy logo, common commands, and recent sessions for the current directory; the main chat prompt remains immediately usable.
+- `/sessions` and `/resume` are aliases for the same searchable current-directory session picker.
+- Add a `pitty-resume` executable that starts the normal PiTTy application with that same picker open; do not implement a second picker.
+- Search fields in the model and session pickers take focus immediately. Typing filters without a click, Up/Down navigates results, and selection or cancellation returns focus to the unchanged main chat draft.
+- The subagent sidebar shows foreground and async agents, treats pending agents as active/queued, deduplicates resumed children, keeps inspector history stable, and removes the redundant Selected section.
+- Pending steering/follow-up text must remain readable at constrained terminal heights.
+
 ## Explicitly deferred
 
 - Full parity with Pi's direct interactive TUI, especially commands and components absent from RPC.

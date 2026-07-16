@@ -1,10 +1,10 @@
 ## 1. Direct chat, branding, and sessions
 
 - [ ] 1.1 Add the canonical PiTTy SVG repository asset and a tested terminal-cell-safe logo component with compact, wide, and constrained-terminal wordmark layouts.
-- [ ] 1.2 Render the logo only as the passive empty-transcript state while preserving direct RPC startup and an immediately focused main prompt.
-- [ ] 1.3 Add current-project session listing and a reusable selector with loading, empty, selection, cancellation, and streaming-confirmation states.
-- [ ] 1.4 Add documented `switch_session` RPC support, `/resume`, state reload, error handling, and focus restoration.
-- [ ] 1.5 Add focused render/unit coverage for direct startup, constrained-logo fallback, empty/error session discovery, selector cancellation, streaming confirmation decline/settle behavior, and successful/unsupported/failed session switch.
+- [ ] 1.2 Render the non-blocking empty-transcript dashboard with logo, common commands, and a stable loading/available/empty/error current-directory session region while preserving direct RPC startup and an immediately focused main prompt.
+- [ ] 1.3 Add current-project session listing and one reusable searchable selector shared by `/sessions`, `/resume`, the empty dashboard, and `pitty-resume`, with loading, empty, selection, cancellation, and streaming-confirmation states.
+- [ ] 1.4 Add documented `switch_session` RPC support, both command aliases, the `pitty-resume` launcher/install/uninstall path, state reload, error handling, picker autofocus, and main-prompt focus restoration.
+- [ ] 1.5 Add focused render/unit coverage for direct startup, constrained-logo fallback, dashboard session states, immediate picker keyboard input/navigation, selector cancellation, streaming confirmation decline/settle behavior, successful/unsupported/failed session switch, and launcher/install/uninstall behavior.
 
 ## 2. Chat interaction controls
 
@@ -18,8 +18,8 @@
 ## 3. Searchable model selector
 
 - [ ] 3.1 Add a pure normalized-model filtering helper with provider/id/display-name matching and no-match handling.
-- [ ] 3.2 Add the selector-local search editor, matched-count/empty state, selection reset, and mouse/keyboard focus lifecycle.
-- [ ] 3.3 Add tests for filtering, stale-selection prevention, draft preservation, and focus restoration.
+- [ ] 3.2 Ensure the selector-local search editor explicitly takes focus on mount, supports typing and keyboard list navigation without a click, retains matched-count/empty state and selection reset, and restores chat focus after selection/cancel.
+- [ ] 3.3 Add tests for filtering, stale-selection prevention, immediate typing/navigation, draft preservation, and focus restoration.
 
 ## 4. Update and upgrade safety
 
@@ -35,3 +35,9 @@
 - [ ] 5.2 Add screenshot references and real terminal captures with the canonical logo asset.
 - [ ] 5.3 Configure and visually verify the repository social-preview image after maintainer GitHub authentication; do not change the owner avatar.
 - [ ] 5.4 Run typecheck, unit/UI tests, installer behavior tests, cross-platform CI, and manual Arch/Konsole and Windows Terminal checks before version bump and release.
+
+## 6. v0.3.3 stabilization and release
+
+- [x] 6.1 Merge foreground tool progress with async subagent artifacts, count pending children as active/queued, deduplicate resumed children while preserving inspector transcripts, and keep foreground controls read-only.
+- [x] 6.2 Remove the redundant sidebar Selected section and preserve pending steering/follow-up text at constrained terminal heights with production-component regression coverage.
+- [ ] 6.3 Complete the approved dashboard/session/focus slice, run full validation and `impl-check`, resolve verified findings, bump to `0.3.3`, push `main`, publish tag `v0.3.3`, and verify release archives plus checksums.

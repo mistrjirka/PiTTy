@@ -11,16 +11,24 @@ PiTTy SHALL start the normal RPC-backed chat immediately for launches with no se
 - **WHEN** a user starts PiTTy with `--continue` or `--session`
 - **THEN** PiTTy retains the existing direct session behavior
 
-### Requirement: Terminal logo empty state
-PiTTy SHALL show a passive PiTTy logo empty state only while the normal transcript contains no rendered conversation items. The empty state SHALL not capture mouse or keyboard input and SHALL disappear when the first item is rendered.
+### Requirement: Informative empty-transcript dashboard
+PiTTy SHALL show a non-blocking empty-transcript dashboard only while the normal transcript contains no rendered conversation items. The dashboard SHALL show the PiTTy logo, common commands, and recent sessions for the current directory without capturing the main prompt's keyboard focus. It SHALL disappear when the first transcript item is rendered.
 
-#### Scenario: New empty conversation
-- **WHEN** a directly started conversation has no rendered items
-- **THEN** the transcript shows the PiTTy logo while the main prompt remains visible and focused
+#### Scenario: New empty conversation with sessions
+- **WHEN** a directly started conversation has no rendered items and current-directory sessions are available
+- **THEN** the transcript shows the logo, common commands, and recent sessions while the main prompt remains visible, focused, and writable
+
+#### Scenario: Sessions are loading
+- **WHEN** an empty transcript is visible while current-directory sessions are loading
+- **THEN** the dashboard keeps its layout, shows a loading state in the session region, and leaves the main prompt usable
+
+#### Scenario: No sessions or discovery failure
+- **WHEN** current-directory session discovery is empty or fails
+- **THEN** the dashboard shows an explicit empty or readable error state without blocking the prompt or changing the active session
 
 #### Scenario: First transcript item
 - **WHEN** a conversation item is rendered
-- **THEN** PiTTy removes the empty-state logo without changing prompt focus or transcript behavior
+- **THEN** PiTTy removes the empty-transcript dashboard without changing prompt focus or transcript behavior
 
 ### Requirement: Canonical logo source
 PiTTy SHALL commit the supplied PiTTy tail SVG as its canonical repository artwork. Terminal rendering SHALL use a terminal-cell-safe glyph component derived from that artwork rather than attempt direct SVG rendering.

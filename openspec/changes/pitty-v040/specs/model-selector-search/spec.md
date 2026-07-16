@@ -23,8 +23,16 @@ The model selector SHALL reset selection to the first matching choice when its q
 - **THEN** keyboard selection targets the first choice in the new result set
 
 ### Requirement: Modal focus lifecycle
-The model search input SHALL own keyboard focus while the selector is open. Escape, cancel, or successful selection SHALL restore focus to the unchanged main prompt draft after the selector closes.
+The model search input SHALL take keyboard focus immediately when the selector opens, without requiring a mouse click. Typing SHALL filter models, intentional keyboard navigation SHALL move through results, and Escape, cancel, or successful selection SHALL restore focus to the unchanged main prompt draft after the selector closes.
+
+#### Scenario: Open selector and type
+- **WHEN** a user opens the model selector and starts typing without clicking inside it
+- **THEN** the search query receives the text and filters the model list
 
 #### Scenario: Escape from search
 - **WHEN** a user presses Escape while model search is active
 - **THEN** PiTTy closes the selector and focuses the preserved main prompt draft
+
+#### Scenario: Select model and return to chat
+- **WHEN** a user navigates to and selects a model
+- **THEN** PiTTy changes the model and returns focus to the preserved main prompt draft
