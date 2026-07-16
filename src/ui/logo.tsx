@@ -9,26 +9,27 @@ export type LogoProps = {
 /**
  * Terminal-cell-safe interpretation of the canonical PTY Tail artwork.
  *
- * Rounded box-drawing glyphs keep the mark light while the two square
- * endpoints remain visible at small sizes. Every glyph occupies one cell.
+ * Rounded box-drawing glyphs preserve the open loop and flowing lower tail
+ * without relying on image protocols or wide block runs. The two square
+ * endpoints remain visually distinct and every glyph occupies one cell.
  */
 export const wideLogoLines = [
   "■────╮",
-  "     ╰───────╮",
-  "             ╰──╮",
-  "        ╭───────╯",
-  "      ╭─╯",
-  "      ╰╮",
-  "■──────╯",
+  "     ╰────────╮",
+  "              │",
+  "       ╭──────╯",
+  "      ╭╯",
+  "      ╰──╮",
+  "■────────╯",
 ] as const;
 
 export const compactLogoLines = [
   "■───╮",
-  "    ╰───╮",
-  "        ╰─╮",
+  "    ╰────╮",
+  "         │",
   "    ╭────╯",
-  "    ╰╮",
-  "■────╯",
+  "    ╰─╮",
+  "■─────╯",
 ] as const;
 
 export function Logo(props: LogoProps) {
