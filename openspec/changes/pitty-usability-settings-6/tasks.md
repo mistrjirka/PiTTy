@@ -31,7 +31,7 @@
 - [x] 5.3 Extend POSIX/PowerShell installer coverage and assert adapter offer/install/skip/failure contract strings.
 - [x] 5.4 Add Settings render tests for install/config/preview/activation states and assert `/mcp` custom panels are never invoked.
 - [x] 5.5 Run focused MCP/integration/RPC/installer tests, `npm run typecheck`, `npm run check`, and `git diff --check` with explicit timeouts.
-- [ ] 5.6 Run Windows, Linux, and macOS CI plus a bounded local smoke with a harmless fixture MCP server and same-session restart.
+- [x] 5.6 Run Windows, Linux, and macOS CI plus a bounded local smoke with a harmless fixture MCP server and same-session restart.
 
 ## 6. List-first management refinement
 
@@ -44,4 +44,4 @@
 - [x] 7.1 Default the MCP Settings scope to Global and keep explicit scope switching available.
 - [x] 7.2 Replace the space-separated server names with compact rows showing inferred transport, clipped definition summary, selected-scope configuration, and known later-source overlap.
 - [x] 7.3 Replace unverified active-connection wording and add render coverage for the refined list states.
-- [ ] 7.4 Run focused MCP/UI validation, manual terminal smoke, review, full local checks, then release through the existing CI gate.
+- [x] 7.4 Run focused MCP/UI validation, manual terminal smoke, review, full local checks, then release through the existing CI gate.
