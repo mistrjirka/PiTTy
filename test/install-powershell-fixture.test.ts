@@ -28,7 +28,7 @@ describe("PowerShell installer executable fixture", () => {
     await writeFile(path.join(payload, "bin", "pitty.mjs"), "#!/usr/bin/env node\n"); await writeFile(path.join(payload, "package.json"), "{}\n"); await writeFile(path.join(payload, "old-marker"), "old"); await writeFile(path.join(payload, "node_modules", "bun", "install.js"), "\n"); await writeFile(path.join(install, "old-marker"), "old");
     await writeFile(path.join(fake, "node.cmd"), "@echo off\r\nif \"%~1\"==\"-p\" echo 22.19.0\r\nif \"%~2\"==\"--help\" if defined PITTY_FIXTURE_SMOKE_FAIL echo %~1| findstr /L \".new\" >nul\r\nif \"%~2\"==\"--help\" if defined PITTY_FIXTURE_SMOKE_FAIL if errorlevel 1 exit /b 1\r\nexit /b 0\r\n");
     await writeFile(path.join(fake, "npm.cmd"), "@echo off\r\nif not exist node_modules\\.bin mkdir node_modules\\.bin\r\necho @echo off>node_modules\\.bin\\bun.exe\r\n");
-    await writeFile(path.join(fake, "pi.cmd"), "@echo off\r\nif \"%1\"==\"list\" echo pi-subagents & echo @juicesharp/rpiv-todo\r\n");
+    await writeFile(path.join(fake, "pi.cmd"), "@echo off\r\nif \"%1\"==\"list\" echo pi-subagents & echo @juicesharp/rpiv-todo & echo pi-mcp-adapter\r\n");
     const archive = path.join(base, "pitty-1.2.3.zip");
     const archiveLiteral = archive.replace(/'/g, "''"); const scriptLiteral = path.join(root, "install.ps1").replace(/'/g, "''");
     const wrapper = path.join(base, "wrapper.ps1");

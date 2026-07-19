@@ -9,7 +9,7 @@ describe("MCP standard config boundary", () => {
   test("resolves explicit project and global paths", async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), "pitty-mcp-"));
     expect(mcpConfigPath("project", cwd, "/home/test")).toBe(path.join(cwd, ".mcp.json"));
-    expect(mcpConfigPath("global", cwd, "/home/test")).toBe("/home/test/.config/mcp/mcp.json");
+    expect(mcpConfigPath("global", cwd, "/home/test")).toBe(path.join("/home/test", ".config", "mcp", "mcp.json"));
   });
   test("preserves unknown root and server values through atomic mutation", async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), "pitty-mcp-"));
