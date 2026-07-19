@@ -7,6 +7,7 @@
 | Guide | Contents |
 |---|---|
 | [Usage and controls](USAGE.md) | Launch modes, commands, shortcuts, sessions, models, follow-ups, integrations, and troubleshooting |
+| [Themes](THEMES.md) | Preset sources, semantic adaptation, persistence, and contrast policy |
 | [Branding](BRANDING.md) | Canonical bracket-pi artwork, terminal rendering, and asset usage |
 | [Open-source readiness](OPEN_SOURCE_READINESS.md) | Architecture, compatibility boundaries, privacy, and release support |
 | [Security policy](../SECURITY.md) | Safe issue reporting and sensitive-data guidance |

@@ -28,7 +28,7 @@ describe("POSIX installer executable fixture", () => {
     await writeFile(path.join(fake, "curl"), `#!/bin/sh\nwhile [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then shift; out="$1"; fi; shift; done\nif [ "\${PITTY_FAIL_CHECKSUM:-}" = 1 ] && printf '%s' "$out" | grep SHA256SUMS >/dev/null; then exit 1; fi
 if [ "\${PITTY_MISSING_CHECKSUM:-}" = 1 ] && printf '%s' "$out" | grep SHA256SUMS >/dev/null; then printf 'deadbeef  other.tar.gz\\n' > "$out"; exit 0; fi\ncase "$out" in *release.json) printf '{"tag_name":"v1.2.3"}' > "$out" ;; *SHA256SUMS) sha256sum "$PITTY_FIXTURE_ARCHIVE" | sed 's#  .*#  pitty-1.2.3.tar.gz#' > "$out" ;; *) cp "$PITTY_FIXTURE_ARCHIVE" "$out" ;; esac\n`);
     await writeFile(path.join(fake, "npm"), "#!/bin/sh\nmkdir -p node_modules/.bin; printf '#!/bin/sh\n' > node_modules/.bin/bun; chmod +x node_modules/.bin/bun\n");
-    await writeFile(path.join(fake, "pi"), "#!/bin/sh\nif [ \"$1\" = list ]; then printf 'pi-subagents\\n@juicesharp/rpiv-todo\\n'; fi\n");
+    await writeFile(path.join(fake, "pi"), "#!/bin/sh\nif [ \"$1\" = list ]; then printf 'pi-subagents\\n@juicesharp/rpiv-todo\\npi-mcp-adapter\\n'; fi\n");
     for (const command of ["curl", "npm", "pi"]) await chmod(path.join(fake, command), 0o755);
     const install = path.join(base, "install dir"); const bin = path.join(base, "bin dir");
     await mkdir(install, { recursive: true }); await writeFile(path.join(install, "old-marker"), "old");

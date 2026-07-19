@@ -1,71 +1,110 @@
 import { SyntaxStyle } from "@opentui/core";
-
-export const colors = {
-  background: "#09090b",
-  panel: "#111113",
-  panelRaised: "#18181b",
-  panelSoft: "#131316",
-  border: "#27272a",
-  borderStrong: "#3f3f46",
-  text: "#e4e4e7",
-  textBright: "#fafafa",
-  muted: "#71717a",
-  subtle: "#52525b",
-  accent: "#60a5fa",
-  cyan: "#22d3ee",
-  green: "#4ade80",
-  yellow: "#facc15",
-  orange: "#fb923c",
-  red: "#f87171",
-  purple: "#c084fc",
-  thinkingBg: "#11111a",
-  toolReadBg: "#0b1720",
-  toolWriteBg: "#0d1b13",
-  toolShellBg: "#20170b",
-  toolAgentBg: "#1b1023",
-  toolOtherBg: "#10151d",
-  diffBg: "#0d1117",
-  selection: "#334155",
+import { createSignal } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
+import { themeColorTokens, themePresetNames, themePresets, type ThemePresetName } from "./theme-presets.ts";
+import type { ThemeColor, ThemeOverrides, ThemePalette } from "../theme/contracts.ts";
+export type { ThemeColor, ThemeOverrides, ThemePalette, ThemePresetName } from "../theme/contracts.ts";
+export type EffectiveTheme = {
+  preset: ThemePresetName;
+  overrides: ThemeOverrides;
+  palette: ThemePalette;
+};
+export type ThemeRenderer = {
+  setBackgroundColor: (color: string) => void;
+};
+export type ThemeControllerOptions = {
+  isolated?: boolean;
+  initialPalette?: ThemePalette;
+};
+export type ThemeController = {
+  readonly colors: ThemePalette;
+  readonly revision: () => number;
+  readonly markdownStyle: SyntaxStyle;
+  readonly thinkingMarkdownStyle: SyntaxStyle;
+  apply: (theme: EffectiveTheme) => void;
+  attachRenderer: (renderer: ThemeRenderer) => void;
 };
 
-export const markdownStyle = SyntaxStyle.fromStyles({
-  default: { fg: colors.text },
-  text: { fg: colors.text },
-  paragraph: { fg: colors.text },
-  heading: { fg: colors.textBright, bold: true },
-  "markup.heading": { fg: colors.textBright, bold: true },
-  "markup.bold": { fg: colors.textBright, bold: true },
-  "markup.italic": { fg: colors.text, italic: true },
-  "markup.link": { fg: colors.cyan, underline: true },
-  "markup.raw": { fg: colors.green },
-  "markup.quote": { fg: colors.muted, italic: true },
-  comment: { fg: colors.muted, italic: true },
-  keyword: { fg: colors.purple },
-  function: { fg: colors.accent },
-  string: { fg: colors.green },
-  number: { fg: colors.yellow },
-  type: { fg: colors.cyan },
-  operator: { fg: colors.purple },
-  punctuation: { fg: colors.muted },
-});
+const [colors, setColors] = createStore<ThemePalette>({ ...themePresets["PiTTy Midnight"] });
+export { colors };
 
-export const thinkingMarkdownStyle = SyntaxStyle.fromStyles({
-  default: { fg: colors.muted },
-  text: { fg: colors.muted },
-  paragraph: { fg: colors.muted },
-  heading: { fg: colors.purple, bold: true },
-  "markup.heading": { fg: colors.purple, bold: true },
-  "markup.bold": { fg: colors.textBright, bold: true },
-  "markup.italic": { fg: colors.muted, italic: true },
-  "markup.link": { fg: colors.cyan, underline: true },
-  "markup.raw": { fg: colors.green },
-  "markup.quote": { fg: colors.subtle, italic: true },
-  comment: { fg: colors.subtle, italic: true },
-  keyword: { fg: colors.purple },
-  function: { fg: colors.accent },
-  string: { fg: colors.green },
-  number: { fg: colors.yellow },
-  type: { fg: colors.cyan },
-  operator: { fg: colors.purple },
-  punctuation: { fg: colors.subtle },
-});
+function createStyles(palette: ThemePalette, thinking: boolean): SyntaxStyle {
+  const base = thinking ? palette.muted : palette.text;
+  return SyntaxStyle.fromStyles({
+    default: { fg: base },
+    text: { fg: base },
+    paragraph: { fg: base },
+    heading: { fg: thinking ? palette.purple : palette.textBright, bold: true },
+    "markup.heading": { fg: thinking ? palette.purple : palette.textBright, bold: true },
+    "markup.bold": { fg: palette.textBright, bold: true },
+    "markup.italic": { fg: base, italic: true },
+    "markup.link": { fg: palette.cyan, underline: true },
+    "markup.raw": { fg: palette.green },
+    "markup.quote": { fg: palette.muted, italic: true },
+    comment: { fg: palette.muted, italic: true },
+    keyword: { fg: palette.purple },
+    function: { fg: palette.accent },
+    string: { fg: palette.green },
+    number: { fg: palette.yellow },
+    type: { fg: palette.cyan },
+    operator: { fg: palette.purple },
+    punctuation: { fg: palette.muted },
+  });
+}
+
+const [globalRevision, setGlobalRevision] = createSignal(0);
+let globalMainStyle = createStyles(colors, false);
+let globalThinkingStyle = createStyles(colors, true);
+
+export function getThemeRevision(): number { return globalRevision(); }
+export function getThemeColorTokens(): readonly (keyof ThemePalette)[] { return themeColorTokens; }
+export function getThemePresets(): readonly ThemePresetName[] { return themePresetNames; }
+export function getMarkdownStyle(): SyntaxStyle { return globalMainStyle; }
+export function getThinkingMarkdownStyle(): SyntaxStyle { return globalThinkingStyle; }
+
+function samePalette(left: ThemePalette, right: ThemePalette): boolean {
+  return themeColorTokens.every((token) => left[token] === right[token]);
+}
+
+export function createThemeController(options: ThemeControllerOptions = {}): ThemeController {
+  const isolated = options.isolated === true;
+  let currentPalette: ThemePalette = { ...(options.initialPalette ?? colors) };
+  let controllerMainStyle = isolated ? createStyles(currentPalette, false) : globalMainStyle;
+  let controllerThinkingStyle = isolated ? createStyles(currentPalette, true) : globalThinkingStyle;
+  const [isolatedRevision, setIsolatedRevision] = createSignal(0);
+  let renderer: ThemeRenderer | undefined;
+
+  return {
+    get colors() { return currentPalette; },
+    revision: isolated ? isolatedRevision : getThemeRevision,
+    get markdownStyle() { return controllerMainStyle; },
+    get thinkingMarkdownStyle() { return controllerThinkingStyle; },
+    attachRenderer(value: ThemeRenderer): void {
+      renderer = value;
+      renderer.setBackgroundColor(currentPalette.background);
+    },
+    apply(theme: EffectiveTheme): void {
+      if (samePalette(currentPalette, theme.palette)) return;
+      currentPalette = { ...theme.palette };
+      controllerMainStyle = createStyles(currentPalette, false);
+      controllerThinkingStyle = createStyles(currentPalette, true);
+      renderer?.setBackgroundColor(currentPalette.background);
+      if (isolated) {
+        setIsolatedRevision((value) => value + 1);
+        return;
+      }
+      setColors(reconcile(currentPalette));
+      globalMainStyle = controllerMainStyle;
+      globalThinkingStyle = controllerThinkingStyle;
+      setGlobalRevision((value) => value + 1);
+    },
+  };
+}
+
+export function effectiveTheme(preset: ThemePresetName, overrides: ThemeOverrides = {}): EffectiveTheme {
+  return {
+    preset,
+    overrides: { ...overrides },
+    palette: { ...themePresets[preset], ...overrides },
+  };
+}

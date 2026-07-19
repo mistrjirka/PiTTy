@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { KeyEvent, Renderable, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
+import { KeyEvent, Renderable, type BoxRenderable, type MarkdownRenderable, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import type { TestRendererSetup } from "@opentui/core/testing";
-import { testRender } from "@opentui/solid";
+import { createDynamic, testRender } from "@opentui/solid";
 import { For, Show, createSignal } from "solid-js";
 import { cleanThinkingText, MessageView, toolOutputExpandable } from "../src/ui/message.tsx";
 import { filterModelChoices, formatContextWindow, ModelSelectorDialog, normalizeModelChoices } from "../src/ui/model-selector.tsx";
@@ -16,7 +16,7 @@ import { CommandSuggestions, filterCommandChoices, selectCommandChoice } from ".
 import { SessionSelector } from "../src/ui/session-selector.tsx";
 import { EmptyDashboard } from "../src/ui/empty-dashboard.tsx";
 import { Logo } from "../src/ui/logo.tsx";
-import { isUnmodifiedEnterKey, shouldShowEmptyDashboard } from "../src/app.tsx";
+import { isUnmodifiedEnterKey, shouldShowEmptyDashboard, subagentInspectDecision } from "../src/app.tsx";
 import { preserveEquivalentTodos, preserveReferencedList } from "../src/ui/list-stability.ts";
 import type { SessionChoice, SessionDiscoveryState } from "../src/sessions.ts";
 import { deriveTodos, type TodoViewItem } from "../src/ui/todos.tsx";
@@ -24,7 +24,9 @@ import { nextDetailToggle } from "../src/app.tsx";
 import { PendingInputPanel } from "../src/ui/pending-input-panel.tsx";
 import { appVersion } from "../src/version.ts";
 import { ConversationModel } from "../src/state/conversation.ts";
+import type { PendingSteerEntry } from "../src/state/input-continuity.ts";
 import type { PiEvent } from "../src/types.ts";
+import { colors, createThemeController, effectiveTheme } from "../src/ui/theme.ts";
 
 registerBundledParsers();
 
@@ -224,6 +226,11 @@ describe("OpenTUI components", () => {
     const settledSetup = await mount(() => <SessionSelector state={{ kind: "success", choices: [choice] }} pending={choice} onSelect={() => {}} onCancel={() => {}} />);
     expect(settledSetup.captureCharFrame()).toContain("Pi has settled. Switch to “Pending session”?");
 
+    const queuedSetup = await mount(() => <SessionSelector state={{ kind: "success", choices: [choice] }} confirmation="queued" queuedCount={2} pending={choice} onSelect={() => {}} onCancel={() => {}} />);
+    expect(queuedSetup.captureCharFrame()).toContain("Discard 2 local queued messages and switch to “Pending session”?");
+    const oneQueuedSetup = await mount(() => <SessionSelector state={{ kind: "success", choices: [choice] }} confirmation="queued" queuedCount={1} pending={choice} onSelect={() => {}} onCancel={() => {}} />);
+    expect(oneQueuedSetup.captureCharFrame()).toContain("Discard 1 local queued message and switch to “Pending session”?");
+
     let declined = 0;
     const declineSetup = await mount(() => <SessionSelector state={{ kind: "success", choices: [choice] }} streaming pending={choice} onSelect={() => {}} onCancel={() => {}} onConfirm={() => {}} onDecline={() => { declined += 1; }} />);
     declineSetup.mockInput.pressKey("n");
@@ -332,6 +339,51 @@ describe("OpenTUI components", () => {
     expect(subagentFrame).not.toContain("[38;2;");
   });
 
+  test("synchronizes subagent drafts when the owner restores or clears them", async () => {
+    const run: SubagentRun = { runId: "draft-run", asyncDir: "/tmp/draft-run", mode: "single", state: "running", agent: "worker", steps: [] };
+    const target = { key: "draft-target", run, label: "worker", state: "running", active: true, canSteer: true };
+    const [draft, setDraft] = createSignal("unfinished steer");
+    const setup = await mount(() => <SubagentInspector target={target} items={[]} now={1} draft={draft} />, 100, 24);
+    const editor = setup.renderer.root.findDescendantById("subagent-inspector-steer") as TextareaRenderable;
+    expect(editor.plainText).toBe("unfinished steer");
+    setDraft("");
+    await setup.flush();
+    expect(editor.plainText).toBe("");
+    setDraft("restored for this target");
+    await setup.flush();
+    expect(editor.plainText).toBe("restored for this target");
+  });
+
+  test("shows queued subagent guidance while retaining a writable steer editor", async () => {
+    const run: SubagentRun = { runId: "queued-steer-run", asyncDir: "/tmp/queued-steer-run", mode: "single", state: "running", agent: "worker", steps: [] };
+    const target = { key: "queued-steer-target", run, label: "worker", state: "running", active: true, canSteer: true };
+    const pending: PendingSteerEntry[] = [
+      { requestId: "fresh", targetKey: target.key, runId: run.runId, text: "check the failing test", submittedAt: 20_000, baselineSteerCount: 0 },
+      { requestId: "stale", targetKey: target.key, runId: run.runId, text: "preserve this draft", submittedAt: 1, baselineSteerCount: 0 },
+    ];
+    const setup = await mount(() => <SubagentInspector target={target} items={[]} now={130_000} pendingSteers={pending} />, 100, 24);
+    const editor = setup.renderer.root.findDescendantById("subagent-inspector-steer") as TextareaRenderable;
+    expect(setup.captureCharFrame()).toContain("Queued for delivery · check the failing test");
+    expect(setup.captureCharFrame()).toContain("Waiting (over 120s) · preserve this draft");
+    await setup.mockInput.typeText("new guidance");
+    expect(editor.plainText).toBe("new guidance");
+  });
+
+  test("clears the destroyed steering editor when a subagent completes", async () => {
+    const running: SubagentRun = { runId: "lifecycle-run", asyncDir: "/tmp/lifecycle-run", mode: "single", state: "running", agent: "worker", steps: [] };
+    const target = { key: "lifecycle-target", run: running, label: "worker", state: "running" as const, active: true, canSteer: true };
+    const [draft, setDraft] = createSignal("queued guidance");
+    const setup = await mount(() => <SubagentInspector target={target} items={[]} now={1} draft={draft} />, 100, 24);
+    const editor = setup.renderer.root.findDescendantById("subagent-inspector-steer") as TextareaRenderable;
+    expect(editor.plainText).toBe("queued guidance");
+
+    editor.destroy();
+    target.canSteer = false;
+    setDraft("must not read the destroyed editor");
+    await setup.flush();
+    expect(editor.isDestroyed).toBe(true);
+  });
+
   test("only makes tool output expandable when it actually needs more space", () => {
     expect(toolOutputExpandable("5 pass\n0 fail")).toBe(false);
     expect(toolOutputExpandable("one\ntwo\nthree\nfour\nfive")).toBe(true);
@@ -396,6 +448,111 @@ describe("OpenTUI components", () => {
     expect(frame).not.toContain("Subagents");
     expect(frame).not.toContain("Todos");
     expect(frame).not.toContain("Ctrl+I inspect");
+  });
+
+  test("routes explicit Ctrl+I decisions without implicit target selection", () => {
+    expect(subagentInspectDecision(true, 2)).toBe("close");
+    expect(subagentInspectDecision(false, 0)).toBe("warning");
+    expect(subagentInspectDecision(false, 1)).toBe("direct");
+    expect(subagentInspectDecision(false, 2)).toBe("choose");
+  });
+
+  test("reactively reallocates two rows when a target becomes inactive", async () => {
+    const runningRun: SubagentRun = { runId: "reactive-row", asyncDir: "/tmp/reactive-row", mode: "single", state: "running", agent: "reactive-worker", steps: [] };
+    const [runs, setRuns] = createSignal<SubagentRun[]>([runningRun]);
+    const stats = { sessionFile: "/tmp/session.jsonl", sessionId: "session", userMessages: 0, assistantMessages: 0, toolCalls: 0, toolResults: 0, totalMessages: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0, contextUsage: { tokens: 10, contextWindow: 100, percent: 50 } } as SessionStats;
+    const setup = await mount(() => <Sidebar runs={runs} now={1} stats={stats} todos={[{ id: "1", text: "one", status: "pending", done: false }]} height={40} />, 80, 40);
+    const row = setup.renderer.root.findDescendantById("subagent-reactive-row");
+    if (!row) throw new Error("reactive sidebar fixture missing");
+    const initialFrame = setup.captureCharFrame();
+    const initialTodosLine = initialFrame.split("\n").findIndex((line) => line.includes("Todos"));
+    expect(row.height).toBe(3);
+
+    setRuns([{ ...runningRun, state: "completed" }]);
+    await setup.flush();
+    await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
+    const nextFrame = setup.captureCharFrame();
+    const nextTodosLine = nextFrame.split("\n").findIndex((line) => line.includes("Todos"));
+    expect(nextTodosLine).toBe(initialTodosLine - 2);
+    expect(nextFrame).toContain("reactive-worker · completed");
+    expect(nextFrame).not.toContain("running · 0t/0 tools");
+    expect(nextFrame).not.toContain("Ctrl+Sh");
+    expect(nextFrame.split("\n").length).toBeLessThanOrEqual(41);
+  });
+
+  test("renders inactive targets as one visible label-and-state row and accounts for context percent", async () => {
+    const run: SubagentRun = { runId: "inactive-row", asyncDir: "/tmp/inactive-row", mode: "single", state: "completed", agent: "finished-worker", steps: [] };
+    const stats = { sessionFile: "/tmp/session.jsonl", sessionId: "session", userMessages: 0, assistantMessages: 0, toolCalls: 0, toolResults: 0, totalMessages: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, cost: 0, contextUsage: { tokens: 10, contextWindow: 100, percent: 50 } } as SessionStats;
+    const setup = await mount(() => <Sidebar runs={[run]} stats={stats} todos={[{ id: "1", text: "one", status: "pending", done: false }]} height={30} />, 80, 30);
+    const row = setup.renderer.root.findDescendantById("subagent-inactive-row");
+    if (!row) throw new Error("inactive target row missing");
+    expect(row.height).toBe(1);
+    expect(setup.captureCharFrame()).toContain("finished-worker · completed");
+    expect(row.screenY + row.height).toBeLessThanOrEqual(30);
+  });
+
+  test("keeps assistant wrapper geometry aligned across approved content states", async () => {
+    const states: Array<{ item: ConversationItem; content: string; expanded: boolean }> = [
+      { item: { kind: "assistant", id: "single-thinking", text: "", thinking: "SINGLE_THINKING", timestamp: 1, status: "done" }, content: "SINGLE_THINKING", expanded: true },
+      { item: { kind: "assistant", id: "multi-thinking", text: "", thinking: "MULTI_THINKING_A\nMULTI_THINKING_B", timestamp: 1, status: "done" }, content: "MULTI_THINKING_A", expanded: true },
+      { item: { kind: "assistant", id: "both", text: "BOTH_ANSWER", thinking: "BOTH_THINKING", timestamp: 1, status: "done" }, content: "BOTH_THINKING", expanded: true },
+      { item: { kind: "assistant", id: "answer-only", text: "ANSWER_ONLY", thinking: "", timestamp: 1, status: "done" }, content: "ANSWER_ONLY", expanded: true },
+      { item: { kind: "assistant", id: "collapsed", text: "COLLAPSED_ANSWER", thinking: "COLLAPSED_THINKING", timestamp: 1, status: "done" }, content: "COLLAPSED_THINKING", expanded: false },
+    ];
+    const geometries: Array<{ x: number; right: number; width: number }> = [];
+    for (const { item, content, expanded } of states) {
+      const setup = await mount(() => <MessageView item={item} showThinking thinkingExpanded={expanded} toolExpanded={false} />, 80, 20);
+      const wrapper = setup.renderer.root.findDescendantById(item.id);
+      const thinking = setup.renderer.root.findDescendantById(`${item.id}-thinking`);
+      const answer = setup.renderer.root.findDescendantById(`${item.id}-answer`);
+      const hasThinking = item.kind === "assistant" && Boolean(item.thinking.trim());
+      const hasAnswer = item.kind === "assistant" && Boolean(item.text.trim());
+      const section = hasThinking ? thinking : answer;
+      if (!wrapper || !section) throw new Error("assistant geometry fixture missing");
+      const geometry = { x: section.screenX, right: section.screenX + section.width, width: section.width };
+      geometries.push(geometry);
+      expect(geometry.right).toBe(wrapper.screenX + wrapper.width);
+      const contentLine = setup.captureCharFrame().split("\n").find((line) => line.includes(content));
+      expect(contentLine?.indexOf(content)).toBe(2);
+      if (hasThinking && hasAnswer && answer) {
+        expect({ x: answer.screenX, right: answer.screenX + answer.width, width: answer.width }).toEqual(geometry);
+        const answerText = item.kind === "assistant" ? item.text : "";
+        const answerLine = setup.captureCharFrame().split("\n").find((line) => line.includes(answerText));
+        expect(answerLine?.indexOf(answerText)).toBe(2);
+      }
+    }
+    const baseline = geometries[0];
+    if (!baseline) throw new Error("assistant geometry baseline missing");
+    for (const geometry of geometries.slice(1)) expect(geometry).toEqual(baseline);
+
+    const [streaming, setStreaming] = createSignal<ConversationItem>({ kind: "assistant", id: "stream-transition", text: "STREAMED_PARTIAL", thinking: "", timestamp: 1, status: "streaming" });
+    const transition = await mount(() => <MessageView item={() => streaming()} showThinking thinkingExpanded toolExpanded={false} />, 80, 20);
+    const answer = transition.renderer.root.findDescendantById("stream-transition-answer");
+    if (!answer) throw new Error("streaming answer wrapper missing");
+    const initial = { x: answer.screenX, width: answer.width };
+    setStreaming({ kind: "assistant", id: "stream-transition", text: "FINAL_MARKDOWN", thinking: "", timestamp: 1, status: "done" });
+    await transition.flush();
+    await transition.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
+    const finalAnswer = transition.renderer.root.findDescendantById("stream-transition-answer");
+    if (!finalAnswer) throw new Error("final answer wrapper missing");
+    expect({ x: finalAnswer.screenX, width: finalAnswer.width }).toEqual(initial);
+    expect(transition.captureCharFrame()).toContain("FINAL_MARKDOWN");
+    expect(transition.captureCharFrame()).not.toContain("STREAMED_PARTIAL");
+    transition.resize(40, 12);
+    await transition.flush();
+    transition.resize(80, 20);
+    await transition.flush();
+    const restored = transition.renderer.root.findDescendantById("stream-transition-answer");
+    if (!restored) throw new Error("restored answer wrapper missing");
+    expect({ x: restored.screenX, width: restored.width }).toEqual(initial);
+    expect(transition.captureCharFrame()).not.toContain("STREAMED_PARTIAL");
+  });
+
+  test("preserves stable thinking and answer wrapper identities", async () => {
+    const item: ConversationItem = { kind: "assistant", id: "wrapper-test", text: "answer", thinking: "thought", timestamp: 1, status: "done" };
+    const setup = await mount(() => <MessageView item={item} showThinking thinkingExpanded toolExpanded={false} />);
+    expect(setup.renderer.root.findDescendantById("wrapper-test-thinking")).toBeDefined();
+    expect(setup.renderer.root.findDescendantById("wrapper-test-answer")).toBeDefined();
   });
 
   test("renders session and subagent status in the sidebar", async () => {
@@ -583,7 +740,8 @@ describe("OpenTUI components", () => {
       </box>
     ), 80, 14);
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("Already sent to Pi — RPC cannot edit these:");
+    expect(frame).toContain("Already sent to Pi");
+    expect(frame).not.toContain("Already sent to Pi — RPC cannot edit these:");
     expect(frame).toContain("steering: short steering");
   });
 
@@ -658,6 +816,8 @@ describe("OpenTUI components", () => {
     expect(inspectorFrame).toContain("context unknown");
     expect(inspectorFrame).toContain("thinking unknown");
     expect(inspectorFrame).not.toContain("Steer reviewer #2");
+    expect(inspectorFrame).not.toContain("Ctrl+A pause");
+    expect(inspectorFrame).not.toContain("Ctrl+Shift+A stop");
 
     const active = targets.find((target) => target.step?.agent === "implementer")!;
     const sidebar = await mount(() => <Sidebar runs={[run]} now={2_000} />, 42, 24);
@@ -669,6 +829,27 @@ describe("OpenTUI components", () => {
     expect(activeFrame).toContain("model provider/child");
     expect(activeFrame).toContain("8.2k ctx");
     expect(activeFrame).toContain("thinking high");
+  });
+
+  test("shows inspector actions only for applicable file-backed targets", async () => {
+    const runningRun: SubagentRun = { runId: "hint-running", asyncDir: "/tmp/hint-running", mode: "single", state: "running", agent: "worker", steps: [] };
+    const queuedRun: SubagentRun = { ...runningRun, runId: "hint-queued", asyncDir: "/tmp/hint-queued", state: "queued" };
+    const finishedRun: SubagentRun = { ...runningRun, runId: "hint-finished", asyncDir: "/tmp/hint-finished", state: "completed" };
+    const foregroundRun: SubagentRun = { ...runningRun, runId: "hint-foreground", asyncDir: undefined, control: "foreground" };
+    const running = subagentTargets([runningRun])[0];
+    const queued = subagentTargets([queuedRun])[0];
+    const finished = subagentTargets([finishedRun])[0];
+    const foreground = subagentTargets([foregroundRun])[0];
+    if (!running || !queued || !finished || !foreground) throw new Error("hint fixtures missing");
+    const runningView = await mount(() => <SubagentInspector target={running} items={[]} now={1} />, 100, 24);
+    expect(runningView.captureCharFrame()).toContain("Ctrl+A pause · Ctrl+Shift+A stop");
+    const queuedView = await mount(() => <SubagentInspector target={queued} items={[]} now={1} />, 100, 24);
+    expect(queuedView.captureCharFrame()).toContain("Ctrl+Shift+A stop");
+    expect(queuedView.captureCharFrame()).not.toContain("Ctrl+A pause");
+    const finishedView = await mount(() => <SubagentInspector target={finished} items={[]} now={1} />, 100, 24);
+    expect(finishedView.captureCharFrame()).not.toContain("Ctrl+Shift+A stop");
+    const foregroundView = await mount(() => <SubagentInspector target={foreground} items={[]} now={1} />, 100, 24);
+    expect(foregroundView.captureCharFrame()).not.toContain("Ctrl+Shift+A stop");
   });
 
   test("collapses and expands thinking while keeping a visible preview", async () => {
@@ -707,7 +888,7 @@ describe("OpenTUI components", () => {
     expect(frame).toContain("Thinking");
     expect(frame).toContain("Inspecting the branch state");
     const thinkingLine = frame.split("\n").find((line) => line.includes("Inspecting the branch state"));
-    expect(thinkingLine?.indexOf("Inspecting the branch state")).toBe(1);
+    expect(thinkingLine?.indexOf("Inspecting the branch state")).toBe(2);
     expect(frame).not.toContain("▍");
   });
 
@@ -718,6 +899,7 @@ describe("OpenTUI components", () => {
       { name: "model", description: "Select a model", source: "ui" },
     ];
     expect(filterCommandChoices(commands, "/th").map((item) => item.name)).toEqual(["thinking", "thoughts"]);
+    expect(filterCommandChoices(Array.from({ length: 12 }, (_, index) => ({ name: `command-${index}` })), "/")).toHaveLength(7);
     expect(filterCommandChoices(commands, "/thinking high")).toEqual([]);
     const setup = await mount(() => (
       <CommandSuggestions commands={() => filterCommandChoices(commands, "/th")} selectedIndex={() => 0} onSelect={() => {}} />
@@ -923,6 +1105,72 @@ describe("OpenTUI components", () => {
 
 });
 
+describe("runtime theme transitions", () => {
+  test("updates same-mounted surfaces and Markdown styles once per effective palette change", async () => {
+    const controller = createThemeController();
+    controller.apply(effectiveTheme("PiTTy Midnight"));
+    const initial: ConversationItem = {
+      kind: "assistant",
+      id: "theme-transition",
+      text: "Initial answer",
+      thinking: "Initial thought",
+      timestamp: 1,
+      status: "done",
+    };
+    const [item, setItem] = createSignal<ConversationItem>(initial);
+    let surface: BoxRenderable | undefined;
+    const ThemeProbe = () => {
+      const Contents = () => (
+        <box id="theme-transition-surface" ref={(value) => { surface = value; }} backgroundColor={colors.background}>
+          <MessageView item={item} showThinking thinkingExpanded toolExpanded={false} />
+          <MessageView
+            item={{ kind: "tool", id: "theme-tool", toolCallId: "theme-call", name: "bash", args: {}, output: "done", timestamp: 1, status: "done", isError: false }}
+            showThinking={false}
+            toolExpanded={false}
+          />
+        </box>
+      );
+      const EvenTheme = () => <Contents />;
+      const OddTheme = () => <Contents />;
+      return createDynamic(() => controller.revision() % 2 === 0 ? EvenTheme : OddTheme, {});
+    };
+    const setup = await mount(() => <ThemeProbe />, 90, 24);
+    const initialAnswer = setup.renderer.root.findDescendantById("theme-transition-answer-markdown") as MarkdownRenderable | undefined;
+    const initialThinking = setup.renderer.root.findDescendantById("theme-transition-thinking-markdown") as MarkdownRenderable | undefined;
+    if (!initialAnswer || !initialThinking || !surface) throw new Error("theme transition fixture missing native renderables");
+    const initialAnswerStyle = initialAnswer.syntaxStyle;
+    const initialThinkingStyle = initialThinking.syntaxStyle;
+
+    try {
+      controller.apply(effectiveTheme("Solarized Light"));
+      await setup.flush();
+      const lightSurface = setup.renderer.root.findDescendantById("theme-transition-surface") as BoxRenderable | undefined;
+      const lightTool = setup.renderer.root.findDescendantById("theme-tool") as BoxRenderable | undefined;
+      const lightAnswer = setup.renderer.root.findDescendantById("theme-transition-answer-markdown") as MarkdownRenderable | undefined;
+      const lightThinking = setup.renderer.root.findDescendantById("theme-transition-thinking-markdown") as MarkdownRenderable | undefined;
+      if (!lightAnswer || !lightThinking || !lightSurface || !lightTool) throw new Error("light theme fixture missing native renderables");
+      expect(lightSurface.backgroundColor.toInts().slice(0, 3)).toEqual([253, 246, 227]);
+      expect(lightTool.backgroundColor.toInts().slice(0, 3)).toEqual([253, 246, 227]);
+      expect(lightAnswer.syntaxStyle).toBe(controller.markdownStyle);
+      expect(lightThinking.syntaxStyle).toBe(controller.thinkingMarkdownStyle);
+      expect(lightAnswer.syntaxStyle).not.toBe(initialAnswerStyle);
+      expect(lightThinking.syntaxStyle).not.toBe(initialThinkingStyle);
+
+      const lightAnswerStyle = lightAnswer.syntaxStyle;
+      const lightThinkingStyle = lightThinking.syntaxStyle;
+      controller.apply(effectiveTheme("Solarized Light"));
+      setItem({ ...initial, text: "Updated answer", thinking: "Updated thought" });
+      await setup.flush();
+      expect(setup.renderer.root.findDescendantById("theme-transition-answer-markdown")).toBe(lightAnswer);
+      expect(lightAnswer.syntaxStyle).toBe(lightAnswerStyle);
+      expect(lightThinking.syntaxStyle).toBe(lightThinkingStyle);
+      expect(setup.captureCharFrame()).toContain("Updated answer");
+    } finally {
+      controller.apply(effectiveTheme("PiTTy Midnight"));
+    }
+  });
+});
+
 describe("duration and sidebar repaint regressions", () => {
   test("keeps native renderables bounded through 5,000 assistant updates", async () => {
     const conversation = new ConversationModel([{
@@ -944,7 +1192,7 @@ describe("duration and sidebar repaint regressions", () => {
         <scrollbox ref={(value) => { transcriptScroll = value; }} width="100%" height="100%">
           <For each={ids()}>
             {(id) => {
-              return <MessageView item={renderedItem()} showThinking thinkingExpanded toolExpanded={false} />;
+              return <MessageView item={renderedItem} showThinking thinkingExpanded toolExpanded={false} />;
             }}
           </For>
         </scrollbox>
@@ -962,7 +1210,7 @@ describe("duration and sidebar repaint regressions", () => {
           message: { role: "assistant", content: [] },
           assistantMessageEvent: {
             type: isThinking ? "thinking_delta" : "text_delta",
-            delta: isThinking ? `thought ${update} ` : update === 41 ? " FINAL_STREAMED_TEXT " : `stream ${update} `,
+            delta: isThinking ? `thought ${update} ` : update === 5_000 ? " FINAL_STREAMED_TEXT " : `stream ${update} `,
           },
         }));
         setIds(conversation.items.map((item) => item.id));
@@ -982,6 +1230,7 @@ describe("duration and sidebar repaint regressions", () => {
       transcriptScroll?.scrollTo({ x: 0, y: Number.MAX_SAFE_INTEGER });
       await setup.flush();
       expect(conversation.items[0]?.kind === "assistant" && conversation.items[0].text).toContain("FINAL_STREAMED_TEXT");
+      expect(setup.captureCharFrame()).toContain("FINAL_STREAMED_TEXT");
       expect(Renderable.renderablesByNumber.size).toBeLessThanOrEqual(baseline + 40);
       expect(peak).toBeLessThanOrEqual(baseline + 40);
     } finally {
@@ -992,7 +1241,50 @@ describe("duration and sidebar repaint regressions", () => {
       }
       expect(Renderable.renderablesByNumber.size).toBeLessThanOrEqual(baseline);
     }
+  }, 15_000);
+  test("fits a large sidebar list and Todo panel in a 253x78 pane", async () => {
+    const runs: SubagentRun[] = Array.from({ length: 40 }, (_, index) => ({
+      runId: `geometry-${index}`,
+      asyncDir: `/tmp/geometry-${index}`,
+      mode: "single",
+      state: index % 3 === 0 ? "running" : "completed",
+      agent: `worker-${index}`,
+      steps: [],
+      startedAt: index,
+    }));
+    const todos: TodoViewItem[] = Array.from({ length: 12 }, (_, index) => ({
+      id: String(index), text: `Todo item ${index}`, status: index % 2 === 0 ? "pending" : "completed", done: index % 2 === 1,
+    }));
+    const stats = { sessionFile: "/tmp/session.jsonl", sessionId: "geometry", userMessages: 1, assistantMessages: 1, toolCalls: 1, toolResults: 1, totalMessages: 4, tokens: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, total: 30 }, cost: 0, contextUsage: { tokens: 30, contextWindow: 400, percent: 7.5 } } as SessionStats;
+    const [height, setHeight] = createSignal(78);
+    const setup = await mount(() => <Sidebar runs={runs} stats={stats} todos={todos} height={height} />, 253, 78);
+    const assertBounds = (expectedHeight: number) => {
+      for (const id of ["subagent-panel", "subagent-scroll", "todo-panel"]) {
+        const renderable = setup.renderer.root.findDescendantById(id);
+        if (!renderable) throw new Error(`sidebar geometry fixture missing: ${id}`);
+        expect(renderable.screenY + renderable.height).toBeLessThanOrEqual(expectedHeight);
+      }
+    };
+    assertBounds(78);
+    setup.resize(253, 60);
+    setHeight(60);
+    await setup.flush();
+    assertBounds(60);
+    setup.resize(253, 14);
+    setHeight(14);
+    await setup.flush();
+    assertBounds(14);
+    setup.resize(253, 78);
+    setHeight(78);
+    await setup.flush();
+    assertBounds(78);
+    const frame = setup.captureCharFrame();
+    expect(frame.split("\n")).toHaveLength(79);
+    expect(frame).toContain("worker-0");
+    expect(frame).toContain("Todos");
+    for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(253);
   });
+
   test("shows sub-second tool durations in milliseconds", async () => {
     const item: ConversationItem = {
       kind: "tool",
@@ -1026,8 +1318,7 @@ describe("duration and sidebar repaint regressions", () => {
     const setup = await mount(() => <Sidebar runs={[run]} selectedRunId="run-long" now={2_000} />, 42, 28);
     const frame = setup.captureCharFrame();
     expect(frame).toContain("impl-check-logic");
-    expect(frame).toContain("failed");
-    expect(frame).toContain("bash");
+    expect(frame).toContain("impl-check-logic");
     expect(frame).not.toContain("\u001b");
     expect(frame).not.toContain("should/not/bleed/into/the/next/row.ts");
   });

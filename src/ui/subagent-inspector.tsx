@@ -1,6 +1,7 @@
-import { For, Show } from "solid-js";
+import { For, Show, createEffect } from "solid-js";
 import type { MouseEvent, ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
 import type { ConversationItem, SubagentRun } from "../types.ts";
+import type { PendingSteerEntry } from "../state/input-continuity.ts";
 import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
 import { colors } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
@@ -15,7 +16,10 @@ export function SubagentInspector(props: {
   scrollRef?: (value: ScrollBoxRenderable) => void;
   onClose?: () => void;
   onChooseTarget?: () => void;
+  draft?: (() => string) | undefined;
+  onDraftChange?: (message: string) => void;
   onSteer?: (message: string) => void;
+  pendingSteers?: readonly PendingSteerEntry[];
   thinkingExpanded?: (itemId: string) => boolean;
   onToggleThinking?: (itemId: string) => void;
   toolExpanded?: (toolId: string) => boolean;
@@ -47,11 +51,19 @@ export function SubagentInspector(props: {
     props.onClose?.();
   };
 
+  createEffect(() => {
+    if (!target().canSteer) {
+      steerEditor = undefined;
+      return;
+    }
+    const value = props.draft?.() ?? "";
+    if (steerEditor && steerEditor.plainText !== value) steerEditor.setText(value);
+  });
+
   const sendSteer = () => {
     const message = steerEditor?.plainText.trim() ?? "";
     if (!message) return;
     props.onSteer?.(message);
-    steerEditor?.setText("");
   };
 
   return (
@@ -88,6 +100,12 @@ export function SubagentInspector(props: {
         <text height={1} minHeight={1} flexShrink={0} wrapMode="none" fg={colors.subtle}>
           Click the agent name to switch · Esc / Ctrl+I close · F6 next
         </text>
+        <Show when={target().active && target().canSteer && Boolean(run().asyncDir) && run().control !== "foreground" && run().state === "running"}>
+          <text height={1} fg={colors.yellow} wrapMode="none">Ctrl+A pause · Ctrl+Shift+A stop</text>
+        </Show>
+        <Show when={target().active && target().canSteer && Boolean(run().asyncDir) && run().control !== "foreground" && run().state === "queued"}>
+          <text height={1} fg={colors.yellow} wrapMode="none">Ctrl+Shift+A stop</text>
+        </Show>
         <text fg={colors.muted} wrapMode="word">
           {run().mode} · {target().state} · {formatDuration(elapsed())}
           {timeoutMs() ? ` / timeout ${formatDuration(timeoutMs())}` : ""}
@@ -130,7 +148,7 @@ export function SubagentInspector(props: {
             <MessageView
               item={item}
               showThinking
-              thinkingExpanded={props.thinkingExpanded?.(item.id) ?? true}
+              thinkingExpanded={() => props.thinkingExpanded?.(item.id) ?? true}
               onToggleThinking={() => props.onToggleThinking?.(item.id)}
               toolExpanded={item.kind === "tool" ? props.toolExpanded?.(item.id) ?? false : false}
               {...(props.onToggleTool ? { onToggleTool: props.onToggleTool } : {})}
@@ -145,6 +163,20 @@ export function SubagentInspector(props: {
           )}
         </For>
       </scrollbox>
+      <Show when={props.pendingSteers && props.pendingSteers.length > 0}>
+        <box flexShrink={0} flexDirection="column" paddingLeft={1} paddingRight={1} paddingTop={1}>
+          <For each={props.pendingSteers}>
+            {(entry) => {
+              const age = () => props.now - entry.submittedAt;
+              return (
+                <text fg={colors.yellow} wrapMode="word">
+                  {age() >= 120_000 ? "Waiting (over 120s)" : "Queued for delivery"} · {entry.text} · Waiting for pi-subagents to pick this up
+                </text>
+              );
+            }}
+          </For>
+        </box>
+      </Show>
       <Show when={target().canSteer}>
         <box
           flexShrink={0}
@@ -159,6 +191,7 @@ export function SubagentInspector(props: {
           maxHeight={9}
         >
           <textarea
+            id="subagent-inspector-steer"
             ref={(value) => { steerEditor = value; }}
             focused
             placeholder={`Steer ${target().label}…`}
@@ -179,6 +212,7 @@ export function SubagentInspector(props: {
             ]}
             minHeight={2}
             maxHeight={7}
+            onContentChange={() => props.onDraftChange?.(steerEditor?.plainText ?? "")}
             onSubmit={sendSteer}
           />
         </box>

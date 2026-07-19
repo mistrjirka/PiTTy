@@ -23,19 +23,79 @@ function activeState(value: string | undefined): boolean {
   return value === "pending" || value === "running" || value === "queued" || value === "active" || value === "working";
 }
 
-function targetLabel(run: SubagentRun, step?: SubagentStep): string {
+function targetLabel(run: SubagentRun, step?: SubagentStep, requested?: RequestedMetadata): string {
   if (step) {
     const child = run.steps.length > 1 ? ` #${step.index + 1}` : "";
-    const detail = step.label ?? step.phase;
-    return detail ? `${step.agent}${child} · ${detail}` : `${step.agent}${child}`;
+    const agent = step.agent || requested?.agent || run.agent || run.mode;
+    const detail = step.label ?? step.phase ?? requested?.label;
+    return detail ? `${agent}${child} · ${detail}` : `${agent}${child}`;
   }
-  return run.agent ?? run.agents?.join(", ") ?? run.mode;
+  return run.agent ?? run.agents?.join(", ") ?? requested?.label ?? requested?.agent ?? run.mode;
 }
 
 type ForegroundEntry = {
   progress: Record<string, unknown>;
   result?: Record<string, unknown> | undefined;
 };
+
+type RequestedMetadata = {
+  label?: string;
+  agent?: string;
+  model?: string;
+  thinking?: string;
+  contextWindow?: number;
+};
+
+function requestedChildren(args: unknown): RequestedMetadata[] {
+  const root = record(args);
+  if (!root) return [];
+  const children: Record<string, unknown>[] = [];
+  const tasks = Array.isArray(root.tasks) ? root.tasks : undefined;
+  if (tasks) {
+    for (const value of tasks) {
+      const task = record(value);
+      if (!task) continue;
+      const count = typeof task.count === "number" && Number.isInteger(task.count) && task.count > 0 && task.count <= 100 ? task.count : 1;
+      for (let index = 0; index < count; index++) children.push(task);
+    }
+  } else if (Array.isArray(root.chain)) {
+    for (const value of root.chain) {
+      const step = record(value);
+      if (!step) continue;
+      if (Array.isArray(step.parallel)) {
+        for (const child of step.parallel) {
+          const task = record(child);
+          if (task) children.push(task);
+        }
+      } else {
+        children.push(step);
+      }
+    }
+  } else if (Array.isArray(root.parallel)) {
+    for (const value of root.parallel) {
+      const task = record(value);
+      if (task) children.push(task);
+    }
+  } else {
+    children.push(root);
+  }
+  return children.map((child) => ({
+    ...(typeof child.label === "string" && child.label.trim() ? { label: child.label.trim() } : {}),
+    ...(typeof child.agent === "string" && child.agent.trim() ? { agent: child.agent.trim() } : {}),
+    ...(typeof child.model === "string" && child.model.trim() ? { model: child.model.trim() } : {}),
+    ...(typeof child.thinking === "string" && child.thinking.trim() ? { thinking: child.thinking.trim() } : {}),
+    ...(typeof child.contextWindow === "number" && Number.isFinite(child.contextWindow) ? { contextWindow: child.contextWindow } : {}),
+  }));
+}
+
+function meaningfulResult(result: Record<string, unknown>): boolean {
+  const stringFields = ["agent", "label", "status", "transcriptPath", "sessionFile", "model", "thinking"];
+  for (const field of stringFields) {
+    const value = result[field];
+    if (typeof value === "string" && value.trim().length > 0) return true;
+  }
+  return ["exitCode", "contextWindow", "turnCount", "toolCount"].some((field) => typeof result[field] === "number" && Number.isFinite(result[field]));
+}
 
 function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
   const details = record(item.details);
@@ -45,14 +105,23 @@ function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
       const result = record(value);
       if (!result) return [];
       const nested = result.progress;
+      const nestedRecord = record(nested);
+      const hasProgress = Array.isArray(nested)
+        ? nested.some((value) => {
+          const progress = record(value);
+          return progress !== undefined && Object.keys(progress).length > 0;
+        })
+        : nestedRecord !== undefined && Object.keys(nestedRecord).length > 0;
+      if (!meaningfulResult(result) && !hasProgress) return [];
       if (Array.isArray(nested)) {
         const progress = nested.flatMap((progressValue): Record<string, unknown>[] => {
           const entry = record(progressValue);
           return entry ? [entry] : [];
         });
-        return progress.length > 0 ? progress.map((entry) => ({ progress: entry, result })) : [{ progress: {}, result }];
+        return progress.length > 0 ? progress.map((entry) => ({ progress: entry, result })) : meaningfulResult(result) ? [{ progress: {}, result }] : [];
       }
-      return [{ progress: record(nested) ?? {}, result }];
+      const progressRecord = record(nested);
+      return progressRecord && Object.keys(progressRecord).length > 0 ? [{ progress: progressRecord, result }] : [{ progress: {}, result }];
     });
     if (entries.length > 0) return entries;
   }
@@ -60,15 +129,17 @@ function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
   if (!Array.isArray(directProgress)) return [];
   return directProgress.flatMap((value): ForegroundEntry[] => {
     const progress = record(value);
-    return progress ? [{ progress }] : [];
+    return progress && Object.keys(progress).length > 0 ? [{ progress }] : [];
   });
 }
 
 function foregroundTargets(item: ToolItem): SubagentTarget[] {
   if (!/subagent|delegate|agent/i.test(item.name)) return [];
-  const parsed = foregroundEntries(item);
-  const entries = parsed.length > 0 ? parsed : [{ progress: {} }];
+  const entries = foregroundEntries(item);
+  const requested = requestedChildren(item.args);
+  if (entries.length === 0) return [];
   return entries.map(({ progress, result }, index) => {
+    const requestedMetadata = requested.length === entries.length ? requested[index] : requested.length === 1 ? requested[0] : undefined;
     const exitCode = typeof result?.exitCode === "number" ? result.exitCode : undefined;
     const state = typeof progress.status === "string"
       ? progress.status
@@ -79,7 +150,9 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
       ? progress.label
       : typeof progress.agent === "string"
         ? progress.agent
-        : typeof result?.agent === "string" ? result.agent : "foreground subagent";
+        : typeof result?.label === "string" ? result.label
+          : typeof result?.agent === "string" ? result.agent
+            : requestedMetadata?.label ?? requestedMetadata?.agent ?? "foreground subagent";
     const runId = `${item.toolCallId}:${index}`;
     const tokens = record(progress.tokens);
     const transcriptPath = typeof result?.transcriptPath === "string"
@@ -106,9 +179,9 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
       turnCount: typeof progress.turnCount === "number" ? progress.turnCount : undefined,
       toolCount: typeof progress.toolCount === "number" ? progress.toolCount : undefined,
       totalTokens: typeof progress.totalTokens === "number" ? progress.totalTokens : typeof tokens?.total === "number" ? tokens.total : undefined,
-      ...(typeof result?.model === "string" ? { model: result.model } : typeof progress.model === "string" ? { model: progress.model } : {}),
-      ...(typeof result?.thinking === "string" ? { thinking: result.thinking } : typeof progress.thinking === "string" ? { thinking: progress.thinking } : {}),
-      ...(typeof result?.contextWindow === "number" ? { contextWindow: result.contextWindow } : typeof progress.contextWindow === "number" ? { contextWindow: progress.contextWindow } : {}),
+      ...(typeof result?.model === "string" ? { model: result.model } : typeof progress.model === "string" ? { model: progress.model } : requestedMetadata?.model ? { model: requestedMetadata.model } : {}),
+      ...(typeof result?.thinking === "string" ? { thinking: result.thinking } : typeof progress.thinking === "string" ? { thinking: progress.thinking } : requestedMetadata?.thinking ? { thinking: requestedMetadata.thinking } : {}),
+      ...(typeof result?.contextWindow === "number" ? { contextWindow: result.contextWindow } : typeof progress.contextWindow === "number" ? { contextWindow: progress.contextWindow } : requestedMetadata?.contextWindow !== undefined ? { contextWindow: requestedMetadata.contextWindow } : {}),
     };
     return {
       key: runId,
@@ -132,7 +205,17 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 
 export function subagentTargets(runs: readonly SubagentRun[], tools: readonly ToolItem[] = []): SubagentTarget[] {
   const result: SubagentTarget[] = [];
+  const requestedByArtifactId = new Map<string, RequestedMetadata[]>();
   const asyncIds = new Set(runs.flatMap((run) => [run.runId, run.asyncId, run.asyncDir].filter((value): value is string => typeof value === "string" && value.trim().length > 0)));
+  for (const item of tools) {
+    const details = record(item.details);
+    const identifiers = [details?.runId, details?.asyncId, details?.asyncDir]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+    const requested = requestedChildren(item.args);
+    for (const identifier of identifiers) {
+      if (requested.length > 0) requestedByArtifactId.set(identifier, requested);
+    }
+  }
   for (const item of tools) {
     const details = record(item.details);
     const identifiers = [details?.runId, details?.asyncId, details?.asyncDir]
@@ -140,8 +223,12 @@ export function subagentTargets(runs: readonly SubagentRun[], tools: readonly To
     if (!identifiers.some((identifier) => asyncIds.has(identifier))) result.push(...foregroundTargets(item));
   }
   for (const run of runs) {
+    const requested = [run.runId, run.asyncId, run.asyncDir]
+      .map((identifier) => identifier ? requestedByArtifactId.get(identifier) : undefined)
+      .find((metadata): metadata is RequestedMetadata[] => metadata !== undefined);
     if (run.steps.length > 0) {
       for (const step of run.steps) {
+        const requestedMetadata = requested && (requested.length === run.steps.length ? requested[step.index] : requested.length === 1 ? requested[0] : undefined);
         const active = activeState(step.activityState) || activeState(step.status);
         const sessionFile = step.sessionFile ?? run.sessionFile;
         result.push({
@@ -149,7 +236,7 @@ export function subagentTargets(runs: readonly SubagentRun[], tools: readonly To
           run,
           step,
           stepIndex: step.index,
-          label: targetLabel(run, step),
+          label: targetLabel(run, step, requestedMetadata),
           state: step.status,
           active,
           // pi-subagents accepts file-backed steering for running and queued
@@ -160,9 +247,9 @@ export function subagentTargets(runs: readonly SubagentRun[], tools: readonly To
           sessionFile,
           startedAt: step.startedAt ?? run.startedAt,
           lastUpdate: step.lastActivityAt ?? run.lastActivityAt ?? run.lastUpdate ?? step.endedAt ?? run.endedAt,
-          model: step.model ?? run.model,
-          thinking: step.thinking ?? run.thinking,
-          contextWindow: step.contextWindow ?? run.contextWindow,
+          model: step.model ?? run.model ?? requestedMetadata?.model,
+          thinking: step.thinking ?? run.thinking ?? requestedMetadata?.thinking,
+          contextWindow: step.contextWindow ?? run.contextWindow ?? requestedMetadata?.contextWindow,
         });
       }
       continue;
@@ -172,7 +259,7 @@ export function subagentTargets(runs: readonly SubagentRun[], tools: readonly To
     result.push({
       key: run.runId,
       run,
-      label: targetLabel(run),
+      label: targetLabel(run, undefined, requested?.length === 1 ? requested[0] : undefined),
       state: run.state,
       active,
       canSteer: active && Boolean(run.asyncDir),
@@ -180,9 +267,9 @@ export function subagentTargets(runs: readonly SubagentRun[], tools: readonly To
       sessionFile: run.sessionFile,
       startedAt: run.startedAt,
       lastUpdate: run.lastActivityAt ?? run.lastUpdate ?? run.endedAt,
-      model: run.model,
-      thinking: run.thinking,
-      contextWindow: run.contextWindow,
+      model: run.model ?? (requested?.length === 1 ? requested[0]?.model : undefined),
+      thinking: run.thinking ?? (requested?.length === 1 ? requested[0]?.thinking : undefined),
+      contextWindow: run.contextWindow ?? (requested?.length === 1 ? requested[0]?.contextWindow : undefined),
     });
   }
 

@@ -11,6 +11,8 @@ import type {
   SessionStats,
 } from "../types.ts";
 
+export type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
 export type PiRpcClientOptions = {
   cwd: string;
   executable?: string;
@@ -33,15 +35,20 @@ export class PiRpcClient extends EventEmitter {
   private stdoutBuffer = "";
   private stderrBuffer = "";
   private stopping = false;
+  private startupArgs: string[];
 
   constructor(private readonly options: PiRpcClientOptions) {
     super();
+    this.startupArgs = [...(options.args ?? [])];
   }
 
   async start(): Promise<void> {
     if (this.child) throw new Error("Pi RPC client is already started.");
+    this.stopping = false;
+    this.stdoutBuffer = "";
+    this.stderrBuffer = "";
     const configuredExecutable = this.options.executable ?? resolveDefaultPiExecutable();
-    const piArgs = ["--mode", "rpc", ...(this.options.args ?? [])];
+    const piArgs = ["--mode", "rpc", ...this.startupArgs];
     const command = resolvePiCommand(configuredExecutable, piArgs);
     const executable = command.executable;
     const args = command.args;
@@ -93,6 +100,7 @@ export class PiRpcClient extends EventEmitter {
     if (!child) return;
     this.stopping = true;
     this.options.logger?.info("pi.stop", { pid: child.pid });
+    this.failAll(new Error("Pi RPC client stopped."));
     child.kill("SIGTERM");
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
@@ -105,6 +113,25 @@ export class PiRpcClient extends EventEmitter {
       });
     });
     this.child = undefined;
+  }
+
+  /** Restart this client in the authoritative current session without replacing its event listeners. */
+  async restart(sessionFile?: string): Promise<void> {
+    const authoritativeSession = sessionFile ?? (await this.getState()).sessionFile;
+    if (!authoritativeSession?.trim()) throw new Error("Cannot restart Pi RPC without an authoritative session file.");
+    await this.stop();
+    const nextArgs: string[] = [];
+    for (let index = 0; index < this.startupArgs.length; index += 1) {
+      const argument = this.startupArgs[index];
+      if (argument === undefined || argument === "--continue") continue;
+      if (argument === "--session" || argument === "--session-id") {
+        index += 1;
+        continue;
+      }
+      nextArgs.push(argument);
+    }
+    this.startupArgs = [...nextArgs, "--session", authoritativeSession];
+    await this.start();
   }
 
   onEvent(listener: (event: PiEvent) => void): () => void {
@@ -164,8 +191,8 @@ export class PiRpcClient extends EventEmitter {
     return this.data<{ level?: string } | null>(await this.request({ type: "cycle_thinking_level" }));
   }
 
-  async setThinkingLevel(level: "minimal" | "low" | "medium" | "high" | "xhigh" | "max"): Promise<void> {
-    await this.request({ type: "set_thinking_level", level });
+  async setThinkingLevel(level: ThinkingLevel): Promise<void> {
+    this.data(await this.request({ type: "set_thinking_level", level }));
   }
 
   async getAvailableModels(): Promise<unknown[]> {
@@ -194,7 +221,7 @@ export class PiRpcClient extends EventEmitter {
   }
 
   async setSessionName(name: string): Promise<void> {
-    await this.request({ type: "set_session_name", name });
+    this.data(await this.request({ type: "set_session_name", name }));
   }
 
   async getCommands(): Promise<Array<{ name: string; description?: string; source: string }>> {

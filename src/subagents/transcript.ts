@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { initialItems } from "../state/conversation.ts";
 import type {
   ConversationItem,
   SubagentRun,
@@ -6,6 +7,8 @@ import type {
   SubagentTranscriptEntry,
   ToolItem,
 } from "../types.ts";
+
+export const MAX_SUBAGENT_SESSION_LINES = 700;
 
 function text(value: unknown): string {
   return typeof value === "string" ? value : "";
@@ -78,6 +81,31 @@ export function subagentTranscriptPath(run: SubagentRun, stepIndex?: number): st
   return undefined;
 }
 
+function readSessionMessages(run: SubagentRun, stepIndex?: number): unknown[] {
+  const selected = stepIndex !== undefined ? run.steps.find((step) => step.index === stepIndex)?.sessionFile : undefined;
+  const sessionFile = selected ?? run.sessionFile;
+  if (!sessionFile) return [];
+  let content: string;
+  try {
+    content = fs.readFileSync(sessionFile, "utf8");
+  } catch {
+    return [];
+  }
+  const lines = content.split("\n").filter((line) => line.trim().length > 0);
+  const messages: unknown[] = [];
+  for (let index = Math.max(0, lines.length - MAX_SUBAGENT_SESSION_LINES); index < lines.length; index++) {
+    const line = lines[index];
+    if (line === undefined) continue;
+    try {
+      const record = objectRecord(JSON.parse(line));
+      if (record?.message && objectRecord(record.message)) messages.push(record.message);
+    } catch {
+      // Ignore malformed JSONL records at this trust boundary.
+    }
+  }
+  return messages;
+}
+
 function readRecords(run: SubagentRun, stepIndex?: number): Array<{ record: Record<string, unknown>; index: number }> {
   const transcriptPath = subagentTranscriptPath(run, stepIndex);
   if (!transcriptPath) return [];
@@ -89,9 +117,11 @@ function readRecords(run: SubagentRun, stepIndex?: number): Array<{ record: Reco
   }
   const lines = content.split("\n").filter((line) => line.trim().length > 0);
   const records: Array<{ record: Record<string, unknown>; index: number }> = [];
-  for (let index = Math.max(0, lines.length - 700); index < lines.length; index++) {
+  for (let index = Math.max(0, lines.length - MAX_SUBAGENT_SESSION_LINES); index < lines.length; index++) {
+    const line = lines[index];
+    if (line === undefined) continue;
     try {
-      const parsed = JSON.parse(lines[index]!) as unknown;
+      const parsed = JSON.parse(line) as unknown;
       const record = objectRecord(parsed);
       if (record) records.push({ record, index });
     } catch {
@@ -122,11 +152,16 @@ function findPendingTool(
  */
 export function readSubagentConversation(run: SubagentRun, maxItems = 160, stepIndex?: number): ConversationItem[] {
   const items: ConversationItem[] = [];
+  const artifactRecords = readRecords(run, stepIndex);
+  if (artifactRecords.length === 0) {
+    const sessionItems = initialItems(readSessionMessages(run, stepIndex));
+    if (sessionItems.length > 0) return sessionItems.slice(-maxItems);
+  }
   const pendingByName = new Map<string, number[]>();
   const resolvedTools = new Set<number>();
   const seenUsers = new Set<string>();
 
-  for (const { record, index } of readRecords(run, stepIndex)) {
+  for (const { record, index } of artifactRecords) {
     const timestamp = recordTimestamp(record);
     const base = `subagent-${text(record.runId) || run.runId}-${timestamp}-${index}`;
     const recordType = text(record.recordType);

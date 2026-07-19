@@ -4,7 +4,8 @@ import { render } from "@opentui/solid";
 import { parseArgs } from "node:util";
 import { App } from "./app.tsx";
 import { DiagnosticLogger, installProcessDiagnostics, sanitizeArgv, summarizePiArgs } from "./diagnostics/logger.ts";
-import { colors } from "./ui/theme.ts";
+import { colors, createThemeController, effectiveTheme } from "./ui/theme.ts";
+import { defaultThemeConfig, loadThemeConfig, type ThemeConfigLoadResult } from "./config/theme-config.ts";
 import { registerBundledParsers } from "./ui/parsers.ts";
 import { detectOptionalIntegrations } from "./integrations/detect.ts";
 import { appVersion } from "./version.ts";
@@ -78,6 +79,15 @@ logger.info("app.start", {
   integrations: integrationStatus,
 });
 
+let themeConfig: ThemeConfigLoadResult;
+try {
+  themeConfig = await loadThemeConfig();
+} catch (error) {
+  themeConfig = { document: defaultThemeConfig(), warning: `PiTTy theme settings could not be read: ${error instanceof Error ? error.message : String(error)}` };
+}
+const themeController = createThemeController();
+themeController.apply(effectiveTheme(themeConfig.document.theme.preset, themeConfig.document.theme.overrides));
+
 try {
   renderer = await createCliRenderer({
     targetFps: 45,
@@ -93,6 +103,7 @@ try {
     backgroundColor: colors.background,
     openConsoleOnError: false,
   });
+  themeController.attachRenderer(renderer);
   logger.info("renderer.created");
 
   const rendererDestroyed = new Promise<void>((resolve) => renderer!.once("destroy", resolve));
@@ -106,6 +117,9 @@ try {
         logger={logger}
         integrations={integrationStatus}
         openSessionSelector={parsed.values["session-picker"] === true}
+        {...(themeConfig.warning ? { themeWarning: themeConfig.warning } : {})}
+        themeConfig={themeConfig.document}
+        themeController={themeController}
       />
     ),
     renderer,

@@ -30,7 +30,7 @@ export function extractThinking(message: unknown): string {
       if (typeof block.text === "string") return block.text;
       return "";
     })
-    .join("");
+    .join("\n\n");
 }
 
 function messageRole(message: unknown): string | undefined {
@@ -151,6 +151,24 @@ function mergeStreamingText(existing: string, full: string, delta: string): stri
   return existing;
 }
 
+type PersistedToolCallMetadata = {
+  toolCallId: string;
+  name: string;
+  arguments: unknown;
+};
+
+function persistedToolCallMetadata(message: unknown): PersistedToolCallMetadata[] {
+  return contentBlocks(message).flatMap((block): PersistedToolCallMetadata[] => {
+    if (block.type !== "toolCall") return [];
+    const rawId = typeof block.id === "string" && block.id.trim() ? block.id : block.toolCallId;
+    if (typeof rawId !== "string" || !rawId.trim() || typeof block.name !== "string" || !block.name.trim()) return [];
+    if (!("arguments" in block)) return [];
+    const args = block.arguments;
+    if (!args || typeof args !== "object" || Array.isArray(args)) return [];
+    return [{ toolCallId: rawId, name: block.name, arguments: args }];
+  });
+}
+
 function toolTimeoutMs(args: unknown): number | undefined {
   if (!args || typeof args !== "object" || Array.isArray(args)) return undefined;
   const record = args as Record<string, unknown>;
@@ -161,6 +179,10 @@ function toolTimeoutMs(args: unknown): number | undefined {
 
 export function initialItems(messages: unknown[]): ConversationItem[] {
   const items: ConversationItem[] = [];
+  const toolCalls = new Map<string, PersistedToolCallMetadata>();
+  for (const message of messages) {
+    for (const call of persistedToolCallMetadata(message)) toolCalls.set(call.toolCallId, call);
+  }
   for (const message of messages) {
     const role = messageRole(message);
     if (role === "user") {
@@ -175,12 +197,14 @@ export function initialItems(messages: unknown[]): ConversationItem[] {
     } else if (role === "toolResult" || role === "tool") {
       const record = message as Record<string, unknown>;
       const output = toolOutput(message);
+      const toolCallId = typeof record.toolCallId === "string" && record.toolCallId.trim() ? record.toolCallId : id("tool-call");
+      const call = toolCalls.get(toolCallId);
       items.push({
         kind: "tool",
         id: id("history-tool"),
-        toolCallId: typeof record.toolCallId === "string" ? record.toolCallId : id("tool-call"),
-        name: typeof record.toolName === "string" ? record.toolName : "tool",
-        args: undefined,
+        toolCallId,
+        name: call?.name ?? (typeof record.toolName === "string" && record.toolName.trim() ? record.toolName : "tool"),
+        args: call?.arguments,
         output,
         details: record.details,
         timestamp: messageTimestamp(message),

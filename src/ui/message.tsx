@@ -1,8 +1,9 @@
-import { For, Show, type Accessor } from "solid-js";
+import { For, Show, createEffect, createMemo, type Accessor } from "solid-js";
+import type { BoxRenderable, MarkdownRenderable, TextRenderable } from "@opentui/core";
 import stripAnsi from "strip-ansi";
 import type { ConversationItem, ToolItem } from "../types.ts";
 import type { SubagentTarget } from "../subagents/targets.ts";
-import { colors, markdownStyle, thinkingMarkdownStyle } from "./theme.ts";
+import { colors, getMarkdownStyle, getThinkingMarkdownStyle, getThemeRevision } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
 
 
@@ -132,7 +133,7 @@ function currentMessageItem(source: MessageItemSource): ConversationItem {
 export function MessageView(props: {
   item: MessageItemSource;
   showThinking: boolean;
-  thinkingExpanded?: boolean;
+  thinkingExpanded?: boolean | Accessor<boolean>;
   onToggleThinking?: () => void;
   toolExpanded: boolean;
   onToggleTool?: (toolId: string) => void;
@@ -142,17 +143,81 @@ export function MessageView(props: {
   onInspectSubagentTarget?: ((targetKey: string) => void) | undefined;
   now?: number;
 }) {
-  const source = props.item;
-  const initialItem = currentMessageItem(source);
-  const item = typeof source === "function"
+  const currentItem = createMemo(() => currentMessageItem(props.item));
+  const initialItem = currentItem();
+  const item = typeof props.item === "function"
     ? new Proxy(initialItem, {
       get(_target, property, receiver) {
-        return Reflect.get(currentMessageItem(source), property, receiver);
+        return Reflect.get(currentItem(), property, receiver);
       },
     })
     : initialItem;
-  const thinking = () => item.kind === "assistant" ? cleanThinkingText(item.thinking) : "";
-  const answer = () => item.kind === "assistant" ? cleanAnswerText(item.text) : "";
+  const thinking = createMemo(() => {
+    const value = currentItem();
+    return value.kind === "assistant" ? cleanThinkingText(value.thinking) : "";
+  });
+  const answer = createMemo(() => {
+    const value = currentItem();
+    return value.kind === "assistant" ? cleanAnswerText(value.text) : "";
+  });
+  const assistantStatus = createMemo(() => {
+    const value = currentItem();
+    return value.kind === "assistant" ? value.status : "done";
+  });
+  const thinkingIsExpanded = () => typeof props.thinkingExpanded === "function" ? props.thinkingExpanded() : props.thinkingExpanded !== false;
+  let thinkingWrapper: BoxRenderable | undefined;
+  let thinkingTitle: TextRenderable | undefined;
+  let thinkingCount: TextRenderable | undefined;
+  let thinkingPreview: TextRenderable | undefined;
+  let thinkingMarkdown: MarkdownRenderable | undefined;
+  let answerWrapper: BoxRenderable | undefined;
+  let streamingAnswer: TextRenderable | undefined;
+  let finalAnswer: MarkdownRenderable | undefined;
+
+  createEffect(() => {
+    getThemeRevision();
+    if (thinkingMarkdown) thinkingMarkdown.syntaxStyle = getThinkingMarkdownStyle();
+    if (finalAnswer) finalAnswer.syntaxStyle = getMarkdownStyle();
+  });
+
+  createEffect(() => {
+    const value = currentItem();
+    if (value.kind !== "assistant") return;
+    const thought = thinking();
+    const response = answer();
+    const showThinking = props.showThinking && Boolean(thought.trim());
+    const expanded = thinkingIsExpanded();
+    if (thinkingWrapper) {
+      thinkingWrapper.visible = showThinking;
+      thinkingWrapper.marginBottom = response.trim() ? 1 : 0;
+    }
+    if (thinkingTitle) thinkingTitle.content = expanded ? "▼ Thinking" : "▶ Thinking";
+    if (thinkingCount) {
+      const lines = thinkingLineCount(thought);
+      thinkingCount.content = `${lines} line${lines === 1 ? "" : "s"} · click`;
+    }
+    if (thinkingPreview) {
+      thinkingPreview.content = collapsedThinkingPreview(thought);
+      thinkingPreview.visible = !expanded;
+    }
+    if (thinkingMarkdown) {
+      thinkingMarkdown.content = thought;
+      thinkingMarkdown.visible = expanded;
+    }
+
+    const showAnswer = Boolean(response.trim()) || (value.status === "streaming" && !thought.trim());
+    if (answerWrapper) answerWrapper.visible = showAnswer;
+    if (streamingAnswer) {
+      streamingAnswer.content = response || "▍";
+      streamingAnswer.visible = value.status === "streaming";
+    }
+    if (finalAnswer) {
+      const final = value.status !== "streaming";
+      finalAnswer.visible = final;
+      if (final) finalAnswer.content = response || "▍";
+    }
+  });
+
   return (
     <>
       <Show when={item.kind === "user"}>
@@ -179,59 +244,77 @@ export function MessageView(props: {
           flexDirection="column"
           marginBottom={1}
           paddingLeft={0}
-          paddingRight={1}
+          paddingRight={0}
           border={["left"]}
           borderColor={colors.cyan}
         >
-          <Show when={props.showThinking && thinking().trim()}>
-            <box flexDirection="column" marginBottom={answer().trim() ? 1 : 0} paddingLeft={answer().trim() ? 1 : 0} backgroundColor={colors.thinkingBg}>
-              <box
-                flexDirection="row"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  props.onToggleThinking?.();
-                }}
-              >
-                <text fg={colors.purple} attributes={1}>{props.thinkingExpanded === false ? "▶ Thinking" : "▼ Thinking"}</text>
-                <box flexGrow={1} />
-                <text fg={colors.subtle}>{thinkingLineCount(thinking())} line{thinkingLineCount(thinking()) === 1 ? "" : "s"} · click</text>
-              </box>
-              <Show
-                when={props.thinkingExpanded !== false}
-                fallback={<text fg={colors.subtle} selectable wrapMode="none">{collapsedThinkingPreview(thinking())}</text>}
-              >
-                <markdown
-                  content={thinking()}
-                  syntaxStyle={thinkingMarkdownStyle}
-                  fg={colors.muted}
-                  conceal
-                  streaming
-                  tableOptions={{ style: "columns", wrapMode: "word", selectable: true }}
-                />
-              </Show>
-            </box>
-          </Show>
-          <Show when={item.kind === "assistant" && (answer().trim() || (item.status === "streaming" && !thinking().trim()))}>
-            <Show
-              when={item.kind === "assistant" && item.status !== "streaming"}
-              fallback={
-                // Streaming Markdown frequently contains incomplete fences and
-                // emphasis markers. Plain text prevents the grey truncation and
-                // stale-cell overlaps seen while a response is still arriving.
-                <text fg={colors.textBright} selectable wrapMode="word">{answer() || "▍"}</text>
-              }
+          <box
+            ref={(value) => { thinkingWrapper = value; }}
+            id={`${item.id}-thinking`}
+            visible={props.showThinking && Boolean(thinking().trim())}
+            flexDirection="column"
+            marginBottom={answer().trim() ? 1 : 0}
+            paddingLeft={1}
+            paddingRight={1}
+            backgroundColor={colors.thinkingBg}
+          >
+            <box
+              flexDirection="row"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                props.onToggleThinking?.();
+              }}
             >
-              <markdown
-                content={answer() || "▍"}
-                syntaxStyle={markdownStyle}
-                fg={colors.textBright}
-                conceal
-                streaming
-                tableOptions={{ style: "columns", wrapMode: "word", selectable: true }}
-              />
-            </Show>
-          </Show>
+              <text ref={(value) => { thinkingTitle = value; }} fg={colors.purple} attributes={1}>{thinkingIsExpanded() ? "▼ Thinking" : "▶ Thinking"}</text>
+              <box flexGrow={1} />
+              <text ref={(value) => { thinkingCount = value; }} fg={colors.subtle}>{thinkingLineCount(thinking())} line{thinkingLineCount(thinking()) === 1 ? "" : "s"} · click</text>
+            </box>
+            <text
+              ref={(value) => { thinkingPreview = value; }}
+              visible={!thinkingIsExpanded()}
+              fg={colors.subtle}
+              selectable
+              wrapMode="none"
+            >{collapsedThinkingPreview(thinking())}</text>
+            <markdown
+              id={`${item.id}-thinking-markdown`}
+              ref={(value) => { thinkingMarkdown = value; }}
+              visible={thinkingIsExpanded()}
+              content={thinking()}
+              syntaxStyle={getThinkingMarkdownStyle()}
+              fg={colors.muted}
+              conceal
+              streaming
+              tableOptions={{ style: "columns", wrapMode: "word", selectable: true }}
+            />
+          </box>
+          <box
+            ref={(value) => { answerWrapper = value; }}
+            id={`${item.id}-answer`}
+            visible={Boolean(answer().trim()) || (assistantStatus() === "streaming" && !thinking().trim())}
+            paddingLeft={1}
+            paddingRight={1}
+          >
+            <text
+              ref={(value) => { streamingAnswer = value; }}
+              visible={assistantStatus() === "streaming"}
+              fg={colors.textBright}
+              selectable
+              wrapMode="word"
+            >{answer() || "▍"}</text>
+            <markdown
+              id={`${item.id}-answer-markdown`}
+              ref={(value) => { finalAnswer = value; }}
+              visible={assistantStatus() !== "streaming"}
+              content={answer() || "▍"}
+              syntaxStyle={getMarkdownStyle()}
+              fg={colors.textBright}
+              conceal
+              streaming
+              tableOptions={{ style: "columns", wrapMode: "word", selectable: true }}
+            />
+          </box>
         </box>
       </Show>
 

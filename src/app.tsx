@@ -3,15 +3,17 @@ import {
   type KeyEvent,
   type ScrollBoxRenderable,
   type TextareaRenderable,
+  type Renderable,
 } from "@opentui/core";
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
-import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { createDynamic, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid";
 import type { RpcExtensionUIRequest, RpcSessionState, SessionStats, SubagentRun, ToolItem, Toast } from "./types.ts";
 import type { DiagnosticLogger } from "./diagnostics/logger.ts";
 import { createDiagnosticBundle } from "./diagnostics/bundle.ts";
 import { PiRpcClient } from "./rpc/pi-rpc-client.ts";
 import { ConversationModel, initialItems } from "./state/conversation.ts";
 import { PromptHistory, shouldRecoverPromptDraft } from "./state/prompt-history.ts";
+import { abortFailed, clearTargetDraft, markAbort, reconcilePendingSteers, restoreQueue, sessionDrafts, settledDispatchDecision, snapshotQueue, type DispatchGate, type DraftState, type PendingSteerEntry } from "./state/input-continuity.ts";
 import { listSubagentRuns } from "./subagents/artifacts.ts";
 import { readSubagentConversation } from "./subagents/transcript.ts";
 import { pauseSubagent, steerSubagent, stopSubagent } from "./subagents/control.ts";
@@ -20,6 +22,17 @@ import { MessageView } from "./ui/message.tsx";
 import { PendingInputPanel, type LocalQueuedMessage } from "./ui/pending-input-panel.tsx";
 import { ModelSelectorDialog, normalizeModelChoices, type ModelChoice } from "./ui/model-selector.tsx";
 import { SessionSelector } from "./ui/session-selector.tsx";
+import { SettingsHub, type SettingsSectionDescriptor } from "./ui/settings-hub.tsx";
+import { ThemePresetBrowser, ThemeTokenEditor } from "./ui/theme-settings.tsx";
+import { writeThemeConfig, type ThemeConfigDocument } from "./config/theme-config.ts";
+import { loadMcpConfig, previewMcpMutation, commitMcpMutation, type McpConfigSnapshot, type McpPreview, type McpScope, type McpServerForm } from "./config/mcp-config.ts";
+import { McpSettings, type McpConfigState, type McpFormConfirmations, type McpInstallState, type McpSettingsView } from "./ui/mcp-settings.tsx";
+import { createThemeController, type ThemeController, type ThemePalette } from "./ui/theme.ts";
+import { commitThemeDocument } from "./ui/theme-transaction.ts";
+import type { ThemePresetName } from "./ui/theme-presets.ts";
+import { ThinkingSelector, THINKING_LEVELS } from "./ui/thinking-selector.tsx";
+import { SessionSettings, SessionRename } from "./ui/session-settings.tsx";
+import type { ThinkingLevel } from "./rpc/pi-rpc-client.ts";
 import { EmptyDashboard } from "./ui/empty-dashboard.tsx";
 import { discoverSessions, type SessionChoice, type SessionDiscoveryState } from "./sessions.ts";
 import { PromptMapDialog, type PromptMapEntry } from "./ui/prompt-map.tsx";
@@ -31,7 +44,7 @@ import { colors } from "./ui/theme.ts";
 import { CommandSuggestions, filterCommandChoices, selectCommandChoice, type CommandChoice } from "./ui/command-suggestions.tsx";
 import { deriveTodos, type TodoViewItem } from "./ui/todos.tsx";
 import { preserveEquivalentTodos, preserveReferencedList } from "./ui/list-stability.ts";
-import type { OptionalIntegrationStatus } from "./integrations/detect.ts";
+import { detectOptionalIntegrations, installOptionalIntegrationAsync, type OptionalIntegrationStatus } from "./integrations/detect.ts";
 import { appVersion } from "./version.ts";
 import { defaultUpdateCheckConfig, isUpdateCheckDisabled, checkForUpdates } from "./update/check.ts";
 import {
@@ -52,10 +65,12 @@ export type AppOptions = {
   logger: DiagnosticLogger;
   integrations: OptionalIntegrationStatus;
   openSessionSelector?: boolean;
+  themeWarning?: string;
+  themeConfig?: ThemeConfigDocument;
+  themeController?: ThemeController;
 };
 
 const spinnerFrames = ["◐", "◓", "◑", "◒"] as const;
-const thinkingLevels = new Set(["minimal", "low", "medium", "high", "xhigh", "max"]);
 
 const LOGIN_GUIDANCE = "Sorry, login is not supported in PiTTy yet. Run `pi` and use /login there; your credentials will then be available to PiTTy.";
 
@@ -65,6 +80,23 @@ export type DetailToggleState = {
   hasExpandedToolOverride?: boolean;
   hasExpandedThinkingOverride?: boolean;
 };
+
+export type SettingsRoute = "closed" | "root" | "model" | "thinking" | "session" | "session-switch" | "session-rename" | "theme" | "theme-editor" | "mcp";
+
+export function settingsBackRoute(route: SettingsRoute): SettingsRoute {
+  if (route === "root") return "closed";
+  if (route === "session-switch" || route === "session-rename") return "session";
+  if (route === "theme-editor") return "theme";
+  return "root";
+}
+
+export type SubagentInspectDecision = "close" | "warning" | "direct" | "choose";
+
+export function subagentInspectDecision(inspectorOpen: boolean, targetCount: number): SubagentInspectDecision {
+  if (inspectorOpen) return "close";
+  if (targetCount === 0) return "warning";
+  return targetCount === 1 ? "direct" : "choose";
+}
 
 export function nextDetailToggle(state: DetailToggleState): boolean {
   const hasVisibleDetails = state.toolsExpanded
@@ -191,6 +223,16 @@ function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
   };
 }
 
+function isThinkingLevel(value: string): value is ThinkingLevel {
+  return THINKING_LEVELS.some((level) => level === value);
+}
+
+export function globalFooterHint(width: number, inspectorOpen: boolean): string {
+  if (inspectorOpen) return "f6 next  click agent  esc main chat";
+  if (width < 110) return "ctrl+x settings  ctrl+s sidebar  ctrl+p models";
+  return "ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort  ctrl+i inspect  f6 next  alt+enter queue  ctrl+o details";
+}
+
 export function shouldShowEmptyDashboard(renderedItemCount: number): boolean {
   return renderedItemCount === 0;
 }
@@ -218,6 +260,8 @@ export function App(props: AppOptions) {
   const [expandedDiffIds, setExpandedDiffIds] = createSignal<Set<string>>(new Set());
   const [showJumpLatest, setShowJumpLatest] = createSignal(false);
   const [queuedFollowUps, setQueuedFollowUps] = createSignal<LocalQueuedMessage[]>([]);
+  const [pendingSteers, setPendingSteers] = createSignal<PendingSteerEntry[]>([]);
+  const draftState: DraftState = new Map();
   const [autoRetryEnabled, setAutoRetryEnabled] = createSignal(true);
   const [spinnerIndex, setSpinnerIndex] = createSignal(0);
   const [clockNow, setClockNow] = createSignal(Date.now());
@@ -228,9 +272,26 @@ export function App(props: AppOptions) {
   const [modelOptions, setModelOptions] = createSignal<ModelChoice[]>([]);
   const [modelSelectorLoading, setModelSelectorLoading] = createSignal(false);
   const [sessionSelectorOpen, setSessionSelectorOpen] = createSignal(false);
+  const [settingsRoute, setSettingsRoute] = createSignal<SettingsRoute>("closed");
+  const [mcpScope, setMcpScope] = createSignal<McpScope>("global");
+  const [mcpView, setMcpView] = createSignal<McpSettingsView>("list");
+  const [mcpSnapshot, setMcpSnapshot] = createSignal<McpConfigSnapshot>();
+  const [mcpPreview, setMcpPreview] = createSignal<McpPreview>();
+  const [mcpError, setMcpError] = createSignal<string>();
+  const [mcpInstallState, setMcpInstallState] = createSignal<McpInstallState>(props.integrations.mcpAdapter.installed ? "ready" : "missing");
+  const [mcpConfigState, setMcpConfigState] = createSignal<McpConfigState>("empty");
+  const [mcpActivationPending, setMcpActivationPending] = createSignal(false);
+  const [settingsSelectedId, setSettingsSelectedId] = createSignal("model");
+  const [rpcAvailable, setRpcAvailable] = createSignal(false);
+  const [settingsBusy, setSettingsBusy] = createSignal<"model" | "thinking" | "rename" | "theme">();
+  const [settingsErrors, setSettingsErrors] = createSignal<Partial<Record<"model" | "thinking" | "rename" | "theme", string>>>({});
+  const [themeConfig, setThemeConfig] = createSignal<ThemeConfigDocument>(props.themeConfig ?? { version: 1, theme: { preset: "PiTTy Midnight", overrides: {} } });
+  const themeController = props.themeController ?? createThemeController();
+  let settingsOrigin: Renderable | null = null;
   const [sessionDiscovery, setSessionDiscovery] = createSignal<SessionDiscoveryState>({ kind: "loading" });
   const [sessionSwitching, setSessionSwitching] = createSignal(false);
   const [pendingSession, setPendingSession] = createSignal<SessionChoice>();
+  const [pendingSessionReason, setPendingSessionReason] = createSignal<"streaming" | "queued">();
   const [promptMapOpen, setPromptMapOpen] = createSignal(false);
   const [thinkingExpanded, setThinkingExpanded] = createSignal(true);
   const [thinkingExpansionOverrides, setThinkingExpansionOverrides] = createSignal<Map<string, boolean>>(new Map());
@@ -249,7 +310,33 @@ export function App(props: AppOptions) {
   let lastRunsDigest = "";
   let sessionDiscoveryGeneration = 0;
   let lastCtrlC = 0;
-  let flushingQueuedFollowUp = false;
+  let dispatchGate: DispatchGate = { inFlight: false, suppressNextSettled: false };
+
+  const activeRunState = (state: string): boolean => ["pending", "running", "queued", "active", "working"].includes(state);
+  const reconcileSteers = (nextRuns: readonly SubagentRun[]) => {
+    const nextTargets = subagentTargets(nextRuns, subagentTools());
+    setPendingSteers((entries) => reconcilePendingSteers(entries, nextTargets.map((target) => ({
+      runId: target.run.runId,
+      targetKey: target.key,
+      steerCount: target.run.steerCount,
+      active: target.active,
+    }))));
+  };
+
+  const currentSessionKey = () => sessionState()?.sessionId ?? props.cwd;
+  const currentDrafts = () => {
+    revision();
+    return sessionDrafts(draftState, currentSessionKey());
+  };
+  createEffect(() => {
+    if (inspectSubagent()) {
+      prompt = undefined;
+      return;
+    }
+    const value = currentDrafts().main;
+    if (prompt && prompt.plainText !== value) prompt.setText(value);
+    setPromptText(value);
+  });
 
   const touch = () => setRevision((value) => value + 1);
   const visibleSidebar = createMemo(() => sidebarEnabled() && dimensions().width >= 104);
@@ -276,7 +363,7 @@ export function App(props: AppOptions) {
   const todos = createMemo<TodoViewItem[]>((previous) => preserveEquivalentTodos(previous, deriveTodos(items())));
   const subagentsAvailable = createMemo(() => props.integrations.subagents.installed || runs().length > 0);
   const todosAvailable = createMemo(() => props.integrations.todos.installed || todos().length > 0);
-  const commandSuggestions = createMemo(() => filterCommandChoices(commandChoices(), promptText(), Math.max(1, Math.min(7, dimensions().height - 10))));
+  const commandSuggestions = createMemo(() => filterCommandChoices(commandChoices(), promptText(), 7));
   const thinkingIsExpanded = (itemId: string): boolean => thinkingExpansionOverrides().get(itemId) ?? thinkingExpanded();
   const setAllThinkingExpanded = (expanded: boolean) => {
     setThinkingExpanded(expanded);
@@ -338,7 +425,7 @@ export function App(props: AppOptions) {
     setTimeout(() => setToasts((current) => current.filter((item) => item.id !== entry.id)), duration).unref?.();
   };
 
-  const refreshState = async () => {
+  const refreshState = async (): Promise<boolean> => {
     try {
       const [state, stats] = await Promise.all([client.getState(), client.getSessionStats()]);
       setSessionState(state);
@@ -347,6 +434,7 @@ export function App(props: AppOptions) {
       const nextRuns = props.integrations.subagents.installed
         ? listSubagentRuns({ sessionId: state.sessionId, sessionFile: state.sessionFile })
         : [];
+      reconcileSteers(nextRuns);
       const summaries = nextRuns.map(subagentLogSummary);
       const digest = JSON.stringify(summaries);
       if (digest !== lastRunsDigest) {
@@ -356,10 +444,14 @@ export function App(props: AppOptions) {
         setSelectedTargetKey(reconcileSubagentSelection(selectedTargetKey(), availableSubagentTargets(), nextTargets));
         props.logger.info("subagents.changed", { runs: summaries });
       }
+      setRpcAvailable(true);
+      return true;
     } catch (error) {
       props.logger.error("ui.refresh_state_failed", error);
       setStatus("Pi disconnected");
+      setRpcAvailable(false);
       toast(error instanceof Error ? error.message : String(error), "error", 5000);
+      return false;
     }
   };
 
@@ -371,6 +463,22 @@ export function App(props: AppOptions) {
     const viewportHeight = Math.max(1, scroll.height || dimensions().height - 8);
     const maxTop = Math.max(0, scroll.scrollHeight - viewportHeight);
     setShowJumpLatest(scroll.scrollTop < maxTop - 2);
+  };
+
+  type ThemeViewportSnapshot = {
+    mainTop: number | undefined;
+    subagentTop: number | undefined;
+  };
+  const captureThemeViewport = (): ThemeViewportSnapshot => ({
+    mainTop: scroll?.scrollTop,
+    subagentTop: subagentScroll?.scrollTop,
+  });
+  const restoreThemeViewport = (snapshot: ThemeViewportSnapshot) => {
+    queueMicrotask(() => queueMicrotask(() => setTimeout(() => {
+      if (snapshot.mainTop !== undefined) scroll?.scrollTo({ x: 0, y: snapshot.mainTop });
+      if (snapshot.subagentTop !== undefined) subagentScroll?.scrollTo({ x: 0, y: snapshot.subagentTop });
+      updateScrollPosition();
+    }, 0)));
   };
 
   const scrollToBottom = () => {
@@ -434,6 +542,7 @@ export function App(props: AppOptions) {
 
   const insertSuggestedCommand = (command: CommandChoice) => {
     const value = `/${command.name} `;
+    currentDrafts().main = value;
     prompt?.setText(value);
     setPromptText(value);
     setCommandSuggestionIndex(0);
@@ -521,6 +630,8 @@ export function App(props: AppOptions) {
         openSessionSelector();
         return true;
       case "settings":
+        openSettings();
+        return true;
       case "status":
         addSystem(settingsSummary());
         return true;
@@ -588,11 +699,11 @@ export function App(props: AppOptions) {
           addSystem(`Thinking level: ${sessionState()?.thinkingLevel ?? "unknown"}. Thinking text stays visible; click each Thinking heading to expand or collapse it.`);
           return true;
         }
-        if (!thinkingLevels.has(argument)) {
+        if (!isThinkingLevel(argument)) {
           addSystem("Usage: /thinking minimal|low|medium|high|xhigh|max", "warning");
           return true;
         }
-        await client.setThinkingLevel(argument as "minimal" | "low" | "medium" | "high" | "xhigh" | "max");
+        await client.setThinkingLevel(argument);
         await refreshState();
         addSystem(`Thinking level set to ${argument}.`, "success");
         return true;
@@ -677,11 +788,18 @@ export function App(props: AppOptions) {
     const wasStreaming = conversation.isStreaming;
     props.logger.info("ui.submit", { chars: text.length, streaming: wasStreaming });
     if (!wasStreaming) {
-      conversation.optimisticUser(text);
+      const optimisticId = conversation.optimisticUser(text);
       trimMessageWindowIfFollowingLatest();
       touch();
       scrollToBottom();
-      await client.prompt(text);
+      try {
+        await client.prompt(text);
+      } catch (error) {
+        const index = conversation.items.findIndex((item) => item.id === optimisticId);
+        if (index >= 0) conversation.items.splice(index, 1);
+        touch();
+        throw error;
+      }
       return;
     }
     // Match Pi's native Enter behavior while a turn is running. prompt(...,
@@ -697,11 +815,17 @@ export function App(props: AppOptions) {
     const text = prompt?.plainText.trim() ?? "";
     if (!text) return;
     promptHistory.recordSubmitted(text);
-    prompt?.clear();
-    setPromptText("");
     try {
-      if (await handleSlashCommand(text)) return;
+      if (await handleSlashCommand(text)) {
+        currentDrafts().main = "";
+        prompt?.clear();
+        setPromptText("");
+        return;
+      }
       await sendText(text);
+      currentDrafts().main = "";
+      prompt?.clear();
+      setPromptText("");
     } catch (error) {
       props.logger.error("ui.submit_failed", error);
       addSystem(error instanceof Error ? error.message : String(error), "error");
@@ -716,6 +840,11 @@ export function App(props: AppOptions) {
       void submit();
       return;
     }
+    if (text.startsWith("/")) {
+      toast("Command-like input must be submitted with Enter.", "warning");
+      return;
+    }
+    currentDrafts().main = "";
     prompt?.clear();
     setPromptText("");
     setQueuedFollowUps((current) => [...current, { id: crypto.randomUUID(), text }]);
@@ -728,6 +857,7 @@ export function App(props: AppOptions) {
     const selected = current.find((item) => item.id === messageId);
     if (!selected) return;
     setQueuedFollowUps(current.filter((item) => item.id !== messageId));
+    currentDrafts().main = selected.text;
     prompt?.setText(selected.text);
     setPromptText(selected.text);
     prompt?.focus();
@@ -752,19 +882,33 @@ export function App(props: AppOptions) {
   };
 
   const flushQueuedFollowUp = async () => {
-    if (flushingQueuedFollowUp || conversation.isStreaming) return;
-    const next = queuedFollowUps()[0];
-    if (!next) return;
-    flushingQueuedFollowUp = true;
-    setQueuedFollowUps((current) => current.filter((item) => item.id !== next.id));
-    try {
-      await sendText(next.text);
-    } catch (error) {
-      setQueuedFollowUps((current) => [next, ...current]);
-      addSystem(`Failed to send queued follow-up: ${error instanceof Error ? error.message : String(error)}`, "error");
-    } finally {
-      flushingQueuedFollowUp = false;
+    const decision = settledDispatchDecision(dispatchGate, queuedFollowUps().length > 0, conversation.isStreaming);
+    if (decision === "busy" || decision === "empty") return;
+    if (decision === "suppressed") {
+      dispatchGate = { ...dispatchGate, suppressNextSettled: false };
+      return;
     }
+    const snapshot = snapshotQueue(queuedFollowUps());
+    dispatchGate = { ...dispatchGate, inFlight: true };
+    setQueuedFollowUps((current) => current.filter((item) => !snapshot.items.some((queued) => queued.id === item.id)));
+    try {
+      await sendText(snapshot.prompt);
+    } catch (error) {
+      setQueuedFollowUps((current) => restoreQueue(snapshot.items, current));
+      addSystem(`Failed to send queued follow-ups: ${error instanceof Error ? error.message : String(error)}`, "error");
+    } finally {
+      dispatchGate = { ...dispatchGate, inFlight: false };
+    }
+  };
+
+  const abortActiveWork = () => {
+    dispatchGate = markAbort(dispatchGate);
+    void client.abort()
+      .then(() => toast("Aborting current Pi turn", "warning"))
+      .catch((error) => {
+        dispatchGate = abortFailed(dispatchGate);
+        toast(String(error), "error");
+      });
   };
 
   const copySelection = (): boolean => {
@@ -778,10 +922,129 @@ export function App(props: AppOptions) {
   };
 
   const focusMainPrompt = () => {
-    if (dialog() || modelSelectorOpen() || sessionSelectorOpen() || promptMapOpen() || subagentSelectorOpen() || inspectSubagent()) return;
+    if (dialog() || modelSelectorOpen() || sessionSelectorOpen() || promptMapOpen() || subagentSelectorOpen() || inspectSubagent() || settingsRoute() !== "closed") return;
     queueMicrotask(() => {
       if (!dialog() && !modelSelectorOpen() && !sessionSelectorOpen() && !promptMapOpen() && !subagentSelectorOpen() && !inspectSubagent()) prompt?.focus();
     });
+  };
+
+  const closeSettings = () => {
+    setSettingsRoute("closed");
+    const origin = settingsOrigin;
+    settingsOrigin = null;
+    queueMicrotask(() => { if (origin && !origin.isDestroyed) origin.focus(); else focusMainPrompt(); });
+  };
+  const openSettings = () => {
+    if (settingsRoute() !== "closed") return;
+    settingsOrigin = renderer.currentFocusedRenderable;
+    setSettingsErrors({});
+    setSettingsSelectedId("model");
+    setSettingsRoute("root");
+  };
+  const loadModels = async (fromSettings: boolean): Promise<boolean> => {
+    if (modelSelectorLoading()) return false;
+    if (fromSettings) { setSettingsBusy("model"); setSettingsErrors((errors) => { const next = { ...errors }; delete next.model; return next; }); }
+    setModelSelectorLoading(true);
+    try {
+      const models = normalizeModelChoices(await client.getAvailableModels());
+      if (!models.length) throw new Error("Pi returned no available models");
+      setModelOptions(models);
+      if (fromSettings) setSettingsRoute("model");
+      else setModelSelectorOpen(true);
+      return true;
+    } catch (error) {
+      if (fromSettings) setSettingsErrors((errors) => ({ ...errors, model: error instanceof Error ? error.message : String(error) }));
+      else toast(`Failed to load models: ${error instanceof Error ? error.message : String(error)}`, "error");
+      return false;
+    } finally { setModelSelectorLoading(false); if (fromSettings) setSettingsBusy(undefined); }
+  };
+  const applySettingsModel = async (model: ModelChoice) => {
+    if (settingsBusy()) return;
+    setSettingsRoute("root");
+    setSettingsSelectedId("model");
+    setSettingsBusy("model"); setSettingsErrors((errors) => { const next = { ...errors }; delete next.model; return next; });
+    try { await client.setModel(model.provider, model.id); if (!(await refreshState())) throw new Error("Pi accepted the model change but state refresh failed."); setSettingsRoute("root"); }
+    catch (error) { setSettingsErrors((errors) => ({ ...errors, model: error instanceof Error ? error.message : String(error) })); }
+    finally { setSettingsBusy(undefined); }
+  };
+  const applySettingsThinking = async (level: ThinkingLevel) => {
+    if (settingsBusy()) return;
+    setSettingsRoute("root");
+    setSettingsSelectedId("thinking");
+    setSettingsBusy("thinking"); setSettingsErrors((errors) => { const next = { ...errors }; delete next.thinking; return next; });
+    try { await client.setThinkingLevel(level); if (!(await refreshState())) throw new Error("Pi accepted the effort change but state refresh failed."); setSettingsRoute("root"); }
+    catch (error) { setSettingsErrors((errors) => ({ ...errors, thinking: error instanceof Error ? error.message : String(error) })); }
+    finally { setSettingsBusy(undefined); }
+  };
+  const applyThemeDocument = async (document: ThemeConfigDocument) => {
+    if (settingsBusy() === "theme") return;
+    const previous = themeConfig();
+    setSettingsBusy("theme");
+    setSettingsErrors((errors) => { const next = { ...errors }; delete next.theme; return next; });
+    const viewport = captureThemeViewport();
+    setThemeConfig(document);
+    const pendingCommit = commitThemeDocument(themeController, previous, document, writeThemeConfig);
+    restoreThemeViewport(viewport);
+    const result = await pendingCommit;
+    setThemeConfig(result.document);
+    if (!result.ok) {
+      restoreThemeViewport(viewport);
+      setSettingsErrors((errors) => ({ ...errors, theme: result.error }));
+    }
+    setSettingsBusy(undefined);
+  };
+  const applyThemePreset = (preset: ThemePresetName) => void applyThemeDocument({ version: 1, theme: { preset, overrides: {} } });
+  const applyThemeToken = (token: keyof ThemePalette, value: string) => void applyThemeDocument({ version: 1, theme: { preset: themeConfig().theme.preset, overrides: { ...themeConfig().theme.overrides, [token]: value.toUpperCase() } } });
+  const resetTheme = () => void applyThemeDocument({ version: 1, theme: { preset: themeConfig().theme.preset, overrides: {} } });
+
+  const applySettingsRename = async (name: string) => {
+    if (settingsBusy()) return;
+    setSettingsBusy("rename"); setSettingsErrors((errors) => { const next = { ...errors }; delete next.rename; return next; });
+    try { await client.setSessionName(name); if (!(await refreshState())) throw new Error("Rename accepted but session refresh failed."); setSettingsRoute("session"); }
+    catch (error) { setSettingsErrors((errors) => ({ ...errors, rename: error instanceof Error ? error.message : String(error) })); }
+    finally { setSettingsBusy(undefined); }
+  };
+  const openMcpSettings = () => { const snapshot = loadMcpConfig(mcpScope(), props.cwd); setMcpView("list"); setMcpPreview(undefined); setMcpSnapshot(snapshot); setMcpConfigState(snapshot.readOnlyReason ? "malformed-readonly" : Object.keys(snapshot.servers).length ? "loaded" : "empty"); setMcpError(undefined); setSettingsRoute("mcp"); };
+  const activateMcp = async (): Promise<boolean> => {
+    try {
+      const sessionFile = sessionState()?.sessionFile;
+      if (!sessionFile) throw new Error("Pi did not report a current session file.");
+      await client.restart(sessionFile);
+      const integrations = detectOptionalIntegrations({ ...(props.piExecutable ? { piExecutable: props.piExecutable } : {}), cwd: props.cwd });
+      setMcpInstallState(integrations.mcpAdapter.installed ? "ready" : "missing");
+      await loadCurrentSession();
+      const refreshedCommands = await client.getCommands();
+      setCommandChoices(mergeCommandChoices(refreshedCommands));
+      setMcpConfigState("saved-active");
+      setMcpActivationPending(false);
+      return true;
+    } catch (error) {
+      setMcpConfigState("saved-inactive-retry");
+      setMcpError(error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  };
+  const installMcpAdapter = () => {
+    setMcpInstallState("installing");
+    void installOptionalIntegrationAsync("pi-mcp-adapter", { ...(props.piExecutable ? { piExecutable: props.piExecutable } : {}), cwd: props.cwd }).then(async (result) => {
+      if (!result.ok) { setMcpInstallState("install-failed"); setMcpError(`Failed to install ${result.packageName}; command ${result.command.join(" ")}; exit ${result.exitCode ?? "unknown"}; log ${result.logPath}`); return; }
+      setMcpInstallState("ready");
+      if (streaming()) { setMcpActivationPending(true); setMcpConfigState("saved-pending-busy"); } else await activateMcp();
+    }).catch((error: unknown) => { setMcpInstallState("install-failed"); setMcpError(error instanceof Error ? error.message : String(error)); });
+  };
+  const prepareMcpMutation = (form: McpServerForm, confirmations: McpFormConfirmations = {}) => { const snapshot = mcpSnapshot(); if (!snapshot) return; try { setMcpPreview(previewMcpMutation(snapshot, { kind: "upsert", server: form }, confirmations.confirmPlaintext === true, confirmations.confirmDuplicate === true)); setMcpConfigState("mutation-preview"); setMcpError(undefined); } catch (error) { setMcpError(error instanceof Error ? error.message : String(error)); } };
+  const deleteMcpServer = (name: string) => { const snapshot = mcpSnapshot(); if (!snapshot) return; try { setMcpPreview(previewMcpMutation(snapshot, { kind: "delete", name })); setMcpConfigState("mutation-preview"); } catch (error) { setMcpError(error instanceof Error ? error.message : String(error)); } };
+  const confirmMcpMutation = () => { const preview = mcpPreview(); if (!preview) return; void commitMcpMutation(preview).then(async () => { setMcpSnapshot(loadMcpConfig(mcpScope(), props.cwd)); setMcpPreview(undefined); if (streaming()) { setMcpActivationPending(true); setMcpConfigState("saved-pending-busy"); } else await activateMcp(); }).catch((error: unknown) => { setMcpConfigState("saved-inactive-retry"); setMcpError(error instanceof Error ? error.message : String(error)); }); };
+  const settingsDescriptors = (): SettingsSectionDescriptor[] => {
+    const state = sessionState();
+    const unavailable = rpcAvailable() ? undefined : "Pi RPC unavailable";
+    return [
+      { id: "model", label: "Model", summary: () => state?.model ? `${state.model.provider}/${state.model.id}` : "Unavailable", disabledReason: () => unavailable, busy: () => settingsBusy() === "model", inlineError: () => settingsErrors().model, open: () => { if (!unavailable) { void loadModels(true); } } },
+      { id: "thinking", label: "Thinking effort", summary: () => state?.thinkingLevel ?? "Unavailable", disabledReason: () => unavailable, busy: () => settingsBusy() === "thinking", inlineError: () => settingsErrors().thinking, open: () => { if (!unavailable) setSettingsRoute("thinking"); } },
+      { id: "session", label: "Session", summary: () => state?.sessionName || "Unnamed", disabledReason: () => unavailable, busy: () => false, inlineError: () => settingsErrors().rename, open: () => { if (!unavailable) setSettingsRoute("session"); } },
+      { id: "theme", label: "Theme", summary: () => themeConfig().theme.preset, disabledReason: () => undefined, busy: () => settingsBusy() === "theme", inlineError: () => settingsErrors().theme, open: () => setSettingsRoute("theme") },
+      { id: "mcp", label: "MCP servers", summary: () => mcpInstallState() === "ready" ? "Adapter ready" : "Adapter optional", disabledReason: () => undefined, busy: () => mcpInstallState() === "installing", inlineError: () => mcpError(), open: openMcpSettings },
+    ];
   };
 
   const discoverCurrentSessions = async () => {
@@ -807,30 +1070,43 @@ export function App(props: AppOptions) {
   const closeSessionSelector = () => {
     if (sessionSwitching()) return;
     setPendingSession(undefined);
+    setPendingSessionReason(undefined);
     setSessionSelectorOpen(false);
-    focusMainPrompt();
+    if (settingsRoute() === "session-switch") setSettingsRoute("session");
+    else focusMainPrompt();
   };
 
   const switchToSession = async (choice: SessionChoice) => {
     if (sessionSwitching()) return;
-    if (streaming() && !pendingSession()) {
+    if (!pendingSession() && queuedFollowUps().length) {
       setPendingSession(choice);
+      setPendingSessionReason("queued");
       return;
     }
+    if (streaming() && !pendingSession()) {
+      setPendingSession(choice);
+      setPendingSessionReason("streaming");
+      return;
+    }
+    if (pendingSessionReason() === "queued") setQueuedFollowUps([]);
     setSessionSwitching(true);
     try {
       const result = await client.switchSession(choice.path);
       if (result.cancelled) {
         setPendingSession(undefined);
+        setPendingSessionReason(undefined);
         toast("Session switch was cancelled by Pi", "warning");
         return;
       }
       await loadCurrentSession();
       setSessionSelectorOpen(false);
+      if (settingsRoute() === "session-switch") setSettingsRoute("root");
       setPendingSession(undefined);
+      setPendingSessionReason(undefined);
       toast(`Resumed ${choice.name}`, "success");
     } catch (error) {
       setPendingSession(undefined);
+      setPendingSessionReason(undefined);
       const message = error instanceof Error ? error.message : String(error);
       toast(message.includes("switch_session") ? "Session switching requires a Pi version with RPC switch_session support." : `Failed to switch session: ${message}`, "error");
     } finally {
@@ -844,23 +1120,7 @@ export function App(props: AppOptions) {
     focusMainPrompt();
   };
 
-  const openModelSelector = async () => {
-    if (modelSelectorLoading()) return;
-    setModelSelectorLoading(true);
-    try {
-      const models = normalizeModelChoices(await client.getAvailableModels());
-      if (!models.length) {
-        toast("Pi returned no available models", "warning");
-        return;
-      }
-      setModelOptions(models);
-      setModelSelectorOpen(true);
-    } catch (error) {
-      toast(`Failed to load models: ${error instanceof Error ? error.message : String(error)}`, "error");
-    } finally {
-      setModelSelectorLoading(false);
-    }
-  };
+  const openModelSelector = async () => { await loadModels(false); };
 
   const selectModel = async (model: ModelChoice) => {
     setModelSelectorOpen(false);
@@ -917,6 +1177,8 @@ export function App(props: AppOptions) {
 
   onMount(() => {
     props.logger.info("ui.mount", { cwd: props.cwd, sidebar: props.sidebar });
+    const themeWarning = props.themeWarning;
+    if (themeWarning) queueMicrotask(() => toast(themeWarning, "warning", 10_000));
     if (!isUpdateCheckDisabled(process.env)) {
       void checkForUpdates(defaultUpdateCheckConfig(appVersion, process.env, props.logger, (version) => {
         toast(`A newer PiTTy release is available (${version}). Run \`pitty upgrade\`.`, "info", 7000);
@@ -945,6 +1207,7 @@ export function App(props: AppOptions) {
           return;
         }
         if (event.method === "set_editor_text") {
+          currentDrafts().main = event.text;
           prompt?.setText(event.text);
           setPromptText(event.text);
           return;
@@ -962,8 +1225,12 @@ export function App(props: AppOptions) {
       if (event.type === "agent_start" || event.type === "agent_settled" || event.type === "agent_end" || event.type === "thinking_level_changed" || event.type === "session_info_changed") {
         void refreshState();
       }
-      if (event.type === "agent_settled" || event.type === "agent_end") {
-        queueMicrotask(() => void flushQueuedFollowUp());
+      if (event.type === "agent_settled") {
+        void (async () => {
+          if (mcpActivationPending()) await activateMcp();
+          await refreshState();
+          if (!mcpActivationPending() && mcpConfigState() !== "saved-inactive-retry") await flushQueuedFollowUp();
+        })();
       }
     });
     client.on("protocol-error", (error: Error) => {
@@ -977,6 +1244,7 @@ export function App(props: AppOptions) {
     });
     client.on("exit", (error: Error) => {
       props.logger.error("ui.pi_exit", error);
+      setRpcAvailable(false);
       conversation.system(error.message, "error");
       touch();
     });
@@ -1013,6 +1281,7 @@ export function App(props: AppOptions) {
         if (!props.openSessionSelector) void discoverCurrentSessions();
         await refreshState();
       } catch (error) {
+        setRpcAvailable(false);
         props.logger.error("ui.start_failed", error);
         conversation.system(error instanceof Error ? error.message : String(error), "error");
         touch();
@@ -1024,6 +1293,7 @@ export function App(props: AppOptions) {
       if (!props.integrations.subagents.installed) return;
       const state = sessionState();
       const next = listSubagentRuns(state ? { sessionId: state.sessionId, sessionFile: state.sessionFile } : undefined);
+      reconcileSteers(next);
       const summaries = next.map(subagentLogSummary);
       const digest = JSON.stringify(summaries);
       if (digest !== lastRunsDigest) {
@@ -1087,9 +1357,19 @@ export function App(props: AppOptions) {
       return;
     }
     try {
-      steerSubagent(target.run, message, target.stepIndex);
-      props.logger.info("subagent.steer_requested", { runId: target.run.runId, index: target.stepIndex, agent: target.label });
-      toast(`Steering sent to ${target.label}`, "success");
+      const request = steerSubagent(target.run, message, target.stepIndex);
+      setPendingSteers((entries) => [...entries, {
+        requestId: request.requestId,
+        targetKey: target.key,
+        runId: target.run.runId,
+        text: message.trim(),
+        submittedAt: request.submittedAt,
+        baselineSteerCount: request.baselineSteerCount,
+      }]);
+      clearTargetDraft(currentDrafts(), target.key);
+      touch();
+      props.logger.info("subagent.steer_requested", { runId: target.run.runId, index: target.stepIndex, agent: target.label, requestId: request.requestId });
+      toast(`Steering queued for ${target.label}`, "success");
     } catch (error) {
       props.logger.error("subagent.steer_failed", { runId: target.run.runId, index: target.stepIndex, error });
       toast(error instanceof Error ? error.message : String(error), "error");
@@ -1098,6 +1378,21 @@ export function App(props: AppOptions) {
 
   useKeyboard((event) => {
     if (event.eventType === "release") return;
+    if (settingsRoute() !== "closed") {
+      if (event.name === "escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        const route = settingsRoute();
+        if (route === "root") closeSettings();
+        else if (route === "mcp" && mcpView() === "form") setMcpView("list");
+        else if (route === "model") {
+          setModelSelectorOpen(false);
+          setSettingsRoute("root");
+        } else if (route === "session-switch") closeSessionSelector();
+        else setSettingsRoute(settingsBackRoute(route));
+      }
+      return;
+    }
     if (subagentSelectorOpen()) {
       if (event.name === "escape") {
         event.preventDefault();
@@ -1172,6 +1467,7 @@ export function App(props: AppOptions) {
       const draft = prompt?.plainText ?? "";
       if (prompt?.focused && shouldRecoverPromptDraft({ draft, hasCopyableSelection: false })) {
         promptHistory.recordDraft(draft);
+        currentDrafts().main = "";
         prompt?.clear();
         setPromptText("");
         focusMainPrompt();
@@ -1179,7 +1475,7 @@ export function App(props: AppOptions) {
         return;
       }
       if (streaming()) {
-        void client.abort().then(() => toast("Aborting current Pi turn", "warning")).catch((error) => toast(String(error), "error"));
+        abortActiveWork();
         return;
       }
       const now = Date.now();
@@ -1195,6 +1491,7 @@ export function App(props: AppOptions) {
       if (result.handled) {
         event.preventDefault();
         event.stopPropagation();
+        currentDrafts().main = result.text ?? "";
         prompt?.setText(result.text ?? "");
         setPromptText(result.text ?? "");
         prompt?.focus();
@@ -1223,6 +1520,9 @@ export function App(props: AppOptions) {
       (inspectSubagent() ? subagentScroll : scroll)?.scrollTo(Number.MAX_SAFE_INTEGER);
       queueMicrotask(updateScrollPosition);
       return;
+    }
+    if (keyIs(event, "x", { ctrl: true })) {
+      event.preventDefault(); event.stopPropagation(); openSettings(); return;
     }
     if (keyIs(event, "p", { ctrl: true })) {
       event.preventDefault();
@@ -1283,21 +1583,32 @@ export function App(props: AppOptions) {
     if (keyIs(event, "i", { ctrl: true })) {
       event.preventDefault();
       event.stopPropagation();
-      if (inspectSubagent()) {
+      const targets = availableSubagentTargets();
+      const decision = subagentInspectDecision(inspectSubagent(), targets.length);
+      if (decision === "close") {
         closeSubagentInspector();
         return;
       }
       if (!subagentsAvailable()) return toast("Install pi-subagents to inspect and steer child agents", "info", 5000);
-      if (!selectedSubagentTarget()) return toast("No subagent selected", "warning");
+      if (decision === "warning") return toast("No subagent selected", "warning");
+      if (decision === "choose") {
+        setSubagentSelectorOpen(true);
+        return;
+      }
+      const target = targets[0];
+      if (!target) return toast("No subagent selected", "warning");
+      setSelectedTargetKey(target.key);
       setInspectSubagent(true);
       queueMicrotask(() => subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER));
       return;
     }
     if (keyIs(event, "a", { ctrl: true, shift: false })) {
+      if (!inspectSubagent()) return;
       event.preventDefault();
       if (!subagentsAvailable()) return toast("Install pi-subagents to control child agents", "info", 5000);
-      const run = selectedSubagent();
-      if (!run || run.control === "foreground" || run.state !== "running") return toast("No running file-controlled subagent selected", "warning");
+      const target = selectedSubagentTarget();
+      const run = target?.run;
+      if (!target?.active || !target.canSteer || !run?.asyncDir || run.control === "foreground" || run.state !== "running") return toast("No running file-controlled subagent selected", "warning");
       try {
         pauseSubagent(run);
         props.logger.info("subagent.pause_requested", { runId: run.runId, agent: run.agent, pid: run.pid });
@@ -1309,10 +1620,12 @@ export function App(props: AppOptions) {
       return;
     }
     if (keyIs(event, "a", { ctrl: true, shift: true })) {
+      if (!inspectSubagent()) return;
       event.preventDefault();
       if (!subagentsAvailable()) return toast("Install pi-subagents to control child agents", "info", 5000);
-      const run = selectedSubagent();
-      if (!run || run.control === "foreground" || (run.state !== "running" && run.state !== "queued")) return toast("No active file-controlled subagent selected", "warning");
+      const target = selectedSubagentTarget();
+      const run = target?.run;
+      if (!target?.active || !target.canSteer || !run?.asyncDir || run.control === "foreground" || (run.state !== "running" && run.state !== "queued")) return toast("No active file-controlled subagent selected", "warning");
       try {
         stopSubagent(run);
         props.logger.info("subagent.stop_requested", { runId: run.runId, agent: run.agent, pid: run.pid });
@@ -1338,7 +1651,7 @@ export function App(props: AppOptions) {
     if (event.name === "escape" && streaming()) {
       event.preventDefault();
       event.stopPropagation();
-      void client.abort().catch((error) => toast(String(error), "error"));
+      abortActiveWork();
     }
   });
 
@@ -1346,21 +1659,29 @@ export function App(props: AppOptions) {
     // Selection is intentionally retained until Ctrl+C or Escape.
   });
 
-  return (
+  const MainContents = () => (
     <box width="100%" height="100%" flexDirection="column" backgroundColor={colors.background}>
       <box flexGrow={1} minHeight={1} flexDirection="row">
         <box flexGrow={1} minWidth={0} flexDirection="column">
           <Show
-            when={!inspectSubagent() || !selectedSubagentTarget()}
-            fallback={
+            when={inspectSubagent() ? selectedSubagentTarget() : undefined}
+            fallback={null}
+          >
+            {(target) => (
               <SubagentInspector
-                target={selectedSubagentTarget()!}
+                target={target()}
                 items={inspectedTranscript()}
                 now={clockNow()}
                 scrollRef={(value) => { subagentScroll = value; }}
                 onClose={closeSubagentInspector}
                 onChooseTarget={() => setSubagentSelectorOpen(true)}
+                draft={() => currentDrafts().subagents.get(target().key) ?? ""}
+                onDraftChange={(text) => {
+                  currentDrafts().subagents.set(target().key, text);
+                  touch();
+                }}
                 onSteer={sendSubagentSteer}
+                pendingSteers={pendingSteers().filter((entry) => entry.targetKey === target().key)}
                 thinkingExpanded={thinkingIsExpanded}
                 onToggleThinking={toggleThinkingItem}
                 toolExpanded={toolExpanded}
@@ -1368,9 +1689,10 @@ export function App(props: AppOptions) {
                 diffExpanded={diffExpanded}
                 onToggleDiff={toggleDiff}
               />
-            }
-          >
-            <scrollbox
+            )}
+          </Show>
+          <Show when={!inspectSubagent()}>
+          <scrollbox
               ref={(value) => { scroll = value; }}
               flexGrow={1}
               minHeight={1}
@@ -1440,7 +1762,7 @@ export function App(props: AppOptions) {
                     <MessageView
                             item={() => itemSource()}
                             showThinking
-                            thinkingExpanded={thinkingIsExpanded(itemId)}
+                            thinkingExpanded={() => thinkingIsExpanded(itemId)}
                             onToggleThinking={() => toggleThinkingItem(itemId)}
                             toolExpanded={tool() !== undefined && toolExpanded(itemId)}
                             onToggleTool={toggleTool}
@@ -1511,7 +1833,11 @@ export function App(props: AppOptions) {
             maxHeight={12}
           >
             <textarea
-              ref={(value) => { prompt = value; }}
+              ref={(value) => {
+                prompt = value;
+                const valueText = currentDrafts().main;
+                if (value.plainText !== valueText) value.setText(valueText);
+              }}
               focused={!dialog() && !modelSelectorOpen() && !sessionSelectorOpen() && !promptMapOpen() && !subagentSelectorOpen()}
               placeholder={streaming() ? "Enter sends steering immediately · Alt+Enter queues editable follow-up" : "Ask Pi anything… (/help for commands)"}
               wrapMode="word"
@@ -1535,6 +1861,7 @@ export function App(props: AppOptions) {
               maxHeight={10}
               onContentChange={() => {
                 const text = prompt?.plainText ?? "";
+                currentDrafts().main = text;
                 promptHistory.noteEditorChange(text);
                 setPromptText(text);
                 setCommandSuggestionIndex(0);
@@ -1548,15 +1875,15 @@ export function App(props: AppOptions) {
           <Sidebar
             state={sessionState()}
             stats={sessionStats()}
-            runs={runs()}
-            tools={subagentTools()}
+            runs={runs}
+            tools={subagentTools}
             selectedTargetKey={selectedTargetKey()}
             now={clockNow()}
             onSelectTarget={setSelectedTargetKey}
-            todos={todos()}
+            todos={todos}
             subagentsAvailable={subagentsAvailable()}
             todosAvailable={todosAvailable()}
-            height={dimensions().height - 1}
+            height={() => dimensions().height - 1}
             onInspectTarget={(targetKey) => {
               setSelectedTargetKey(targetKey);
               setInspectSubagent(true);
@@ -1568,7 +1895,7 @@ export function App(props: AppOptions) {
       <box height={1} flexDirection="row" paddingLeft={1} paddingRight={1} backgroundColor={colors.background}>
         <text fg={streaming() ? colors.green : colors.muted}>● {status()}</text>
         <box flexGrow={1} />
-        <text fg={colors.subtle}>{inspectSubagent() ? "f6 next subagent  click agent name to choose  esc main chat" : "ctrl+p models  ctrl+r requests  ctrl+t effort  ctrl+i inspect  f6 next subagent  alt+enter queue  ctrl+o details"}</text>
+        <text fg={colors.subtle}>{globalFooterHint(dimensions().width, inspectSubagent())}</text>
       </box>
       <For each={toasts()}>
         {(entry, index) => (
@@ -1588,18 +1915,76 @@ export function App(props: AppOptions) {
           </box>
         )}
       </For>
+      </box>
+  );
+  const EvenTheme = () => <MainContents />;
+  const OddTheme = () => <MainContents />;
+
+  return (
+    <>
+      {createDynamic(() => themeController.revision() % 2 === 0 ? EvenTheme : OddTheme, {})}
+      <Show when={settingsRoute() === "root"}>
+        <SettingsHub descriptors={settingsDescriptors} selectedId={settingsSelectedId} onSelected={setSettingsSelectedId} onClose={closeSettings} />
+      </Show>
+      <Show when={settingsRoute() === "mcp"}>
+        <McpSettings adapterState={mcpInstallState} configState={mcpConfigState} scope={mcpScope} snapshot={mcpSnapshot} preview={mcpPreview} error={mcpError} view={mcpView} onViewChange={setMcpView} onInstall={installMcpAdapter} onScope={(scope) => { setMcpScope(scope); openMcpSettings(); }} onAdd={prepareMcpMutation} onDelete={deleteMcpServer} onConfirmPreview={confirmMcpMutation} onCancelPreview={() => { setMcpPreview(undefined); openMcpSettings(); }} onRetryActivation={() => void activateMcp()} onBack={() => setSettingsRoute(settingsBackRoute("mcp"))} />
+      </Show>
+      <Show when={settingsRoute() === "model"}>
+        <ModelSelectorDialog
+          models={modelOptions()}
+          currentProvider={sessionState()?.model?.provider}
+          currentModelId={sessionState()?.model?.id}
+          onSelect={(model) => void applySettingsModel(model)}
+          onCancel={() => setSettingsRoute("root")}
+        />
+      </Show>
+      <Show when={settingsRoute() === "thinking"}>
+        <ThinkingSelector current={THINKING_LEVELS.find((level) => level === sessionState()?.thinkingLevel)} busy={settingsBusy() === "thinking"} {...(settingsErrors().thinking ? { error: settingsErrors().thinking } : {})} onSelect={(level) => void applySettingsThinking(level)} onCancel={() => setSettingsRoute("root")} />
+      </Show>
+      <Show when={settingsRoute() === "theme"}>
+        <ThemePresetBrowser
+          preset={() => themeConfig().theme.preset}
+          busy={() => settingsBusy() === "theme"}
+          error={() => settingsErrors().theme}
+          onPreset={applyThemePreset}
+          onCustomize={() => setSettingsRoute("theme-editor")}
+          onCancel={() => setSettingsRoute("root")}
+        />
+      </Show>
+      <Show when={settingsRoute() === "theme-editor"}>
+        <ThemeTokenEditor
+          preset={() => themeConfig().theme.preset}
+          overrides={() => themeConfig().theme.overrides}
+          busy={() => settingsBusy() === "theme"}
+          error={() => settingsErrors().theme}
+          onToken={applyThemeToken}
+          onReset={resetTheme}
+          onCancel={() => setSettingsRoute("theme")}
+        />
+      </Show>
+      <Show when={settingsRoute() === "session"}>
+        <SessionSettings name={sessionState()?.sessionName ?? ""} {...(streaming() ? { switchDisabledReason: "Unavailable while Pi is streaming" } : {})} onSwitch={() => { if (!streaming()) { setSettingsRoute("session-switch"); openSessionSelector(); } }} onRename={() => setSettingsRoute("session-rename")} onCancel={() => setSettingsRoute("root")} />
+      </Show>
+      <Show when={settingsRoute() === "session-rename"}>
+        <SessionRename initialName={sessionState()?.sessionName ?? ""} busy={() => settingsBusy() === "rename"} error={() => settingsErrors().rename} onConfirm={(name) => void applySettingsRename(name)} onCancel={() => setSettingsRoute("session")} />
+      </Show>
       <Show when={sessionSelectorOpen()}>
         <SessionSelector
           state={sessionDiscovery()}
           switching={sessionSwitching()}
           streaming={streaming()}
+          confirmation={pendingSessionReason()}
+          queuedCount={queuedFollowUps().length}
           pending={pendingSession()}
           onSelect={(choice) => void switchToSession(choice)}
           onConfirm={() => {
             const choice = pendingSession();
             if (choice) void switchToSession(choice);
           }}
-          onDecline={() => setPendingSession(undefined)}
+          onDecline={() => {
+            setPendingSession(undefined);
+            setPendingSessionReason(undefined);
+          }}
           onCancel={closeSessionSelector}
           onRetry={() => void discoverCurrentSessions()}
         />
@@ -1638,6 +2023,6 @@ export function App(props: AppOptions) {
           />
         )}
       </Show>
-    </box>
+    </>
   );
 }

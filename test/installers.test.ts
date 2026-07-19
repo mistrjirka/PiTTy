@@ -13,6 +13,8 @@ describe("public installers", () => {
     expect(script).toContain("--without-plugins");
     expect(script).toContain("npm:pi-subagents");
     expect(script).toContain("npm:@juicesharp/rpiv-todo");
+    expect(script).toContain("npm:pi-mcp-adapter");
+    expect(script).toContain("pi-mcp-adapter");
     expect(script).toContain("exit code:");
     expect(script).toContain("log:");
     expect(script).toContain("/dev/tty");
@@ -27,6 +29,8 @@ describe("public installers", () => {
     expect(script).toContain("[switch]$WithoutPlugins");
     expect(script).toContain("npm:pi-subagents");
     expect(script).toContain("npm:@juicesharp/rpiv-todo");
+    expect(script).toContain("npm:pi-mcp-adapter");
+    expect(script).toContain("pi-mcp-adapter");
     expect(script).toContain("exit code:");
     expect(script).toContain("log:");
     expect(script).toContain("pitty-resume");

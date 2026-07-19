@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, Show, type Accessor } from "solid-js";
 import stripAnsi from "strip-ansi";
 import type { RpcSessionState, SessionStats, SubagentRun, ToolItem } from "../types.ts";
 import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
@@ -54,8 +54,8 @@ function targetActivity(target: SubagentTarget, now: number): string {
 export function Sidebar(props: {
   state?: RpcSessionState | undefined;
   stats?: SessionStats | undefined;
-  runs: SubagentRun[];
-  tools?: ToolItem[] | undefined;
+  runs: SubagentRun[] | Accessor<SubagentRun[]>;
+  tools?: ToolItem[] | Accessor<ToolItem[]> | undefined;
   selectedTargetKey?: string | undefined;
   selectedRunId?: string | undefined;
   now?: number | undefined;
@@ -63,28 +63,40 @@ export function Sidebar(props: {
   onInspectTarget?: ((targetKey: string) => void) | undefined;
   onSelectRun?: ((runId: string) => void) | undefined;
   onInspectRun?: ((runId: string) => void) | undefined;
-  todos?: TodoViewItem[] | undefined;
+  todos?: TodoViewItem[] | Accessor<TodoViewItem[]> | undefined;
   subagentsAvailable?: boolean | undefined;
   todosAvailable?: boolean | undefined;
-  height?: number | undefined;
+  height?: number | Accessor<number> | undefined;
 }) {
   const now = () => props.now ?? Date.now();
-  const targets = () => subagentTargets(props.runs, props.tools ?? []);
+  const runs = () => typeof props.runs === "function" ? props.runs() : props.runs;
+  const tools = () => typeof props.tools === "function" ? props.tools() : props.tools ?? [];
+  const todos = () => typeof props.todos === "function" ? props.todos() : props.todos ?? [];
+  const targets = () => subagentTargets(runs(), tools());
   const active = () => targets().filter((target) => target.active);
   const selectedKey = () => props.selectedTargetKey ?? targets().find((target) => target.run.runId === props.selectedRunId)?.key;
-  const sidebarHeight = () => Math.max(24, props.height ?? 40);
+  const sidebarHeight = () => Math.max(1, (typeof props.height === "function" ? props.height() : props.height) ?? 40);
   const hasSubagents = () => props.subagentsAvailable !== false;
-  const hasTodos = () => props.todosAvailable !== false && (props.todos?.length ?? 0) > 0;
-  const todoHeight = () => hasTodos() ? Math.max(7, Math.min(16, Math.floor(sidebarHeight() * 0.3))) : 0;
-  const subagentHeight = () => hasSubagents() ? Math.max(8, sidebarHeight() - todoHeight() - (hasTodos() ? 11 : 9)) : 0;
+  const hasTodos = () => props.todosAvailable !== false && todos().length > 0;
+  const fixedHeaderRows = () => 11 + (props.stats?.contextUsage?.percent !== undefined && props.stats?.contextUsage?.percent !== null ? 1 : 0);
+  const availableBodyRows = () => Math.max(0, sidebarHeight() - fixedHeaderRows());
+  const compactTargetHeight = () => targets().length
+    ? targets().reduce((height, target) => height + (target.active ? 3 : 1), 1)
+    : 0;
+  const subagentHeight = () => {
+    if (!hasTodos()) return undefined;
+    const todoReserve = Math.min(6, Math.max(0, availableBodyRows() - 1));
+    return Math.min(compactTargetHeight(), Math.max(0, availableBodyRows() - todoReserve));
+  };
+  const todoHeight = () => hasTodos() ? Math.max(0, availableBodyRows() - (subagentHeight() ?? 0)) : 0;
 
   const renderTarget = (target: SubagentTarget) => {
     const selected = () => target.key === selectedKey() || (!selectedKey() && target === targets()[0]);
     return (
       <box
         id={`subagent-${target.key}`}
-        height={3}
-        minHeight={3}
+        height={target.active ? 3 : 1}
+        minHeight={target.active ? 3 : 1}
         flexShrink={0}
         flexDirection="column"
         paddingLeft={1}
@@ -99,13 +111,15 @@ export function Sidebar(props: {
           props.onInspectRun?.(target.run.runId);
         }}
       >
-        <text width="100%" height={1} fg={selected() ? colors.textBright : colors.text} attributes={selected() ? 1 : 0} wrapMode="none">
-          {clip(target.label, 31)}
-        </text>
-        <text width="100%" height={1} fg={colors.muted} wrapMode="none">
-          {clip(`${target.state} · ${target.step?.turnCount ?? target.run.turnCount ?? 0}t/${target.step?.toolCount ?? target.run.toolCount ?? 0} tools · ${formatTokens(targetTokens(target))} tok`, 31)}
-        </text>
-        <text width="100%" height={1} fg={colors.subtle} wrapMode="none">{clip(targetActivity(target, now()), 31)}</text>
+        <Show when={target.active} fallback={<text width="100%" height={1} fg={selected() ? colors.textBright : colors.text} attributes={selected() ? 1 : 0} wrapMode="none">{clip(`${target.label} · ${target.state}`, 31)}</text>}>
+          <text width="100%" height={1} fg={selected() ? colors.textBright : colors.text} attributes={selected() ? 1 : 0} wrapMode="none">
+            {clip(target.label, 31)}
+          </text>
+          <text width="100%" height={1} fg={colors.muted} wrapMode="none">
+            {clip(`${target.state} · ${target.step?.turnCount ?? target.run.turnCount ?? 0}t/${target.step?.toolCount ?? target.run.toolCount ?? 0} tools · ${formatTokens(targetTokens(target))} tok`, 31)}
+          </text>
+          <text width="100%" height={1} fg={colors.subtle} wrapMode="none">{clip(targetActivity(target, now()), 31)}</text>
+        </Show>
       </box>
     );
   };
@@ -133,34 +147,55 @@ export function Sidebar(props: {
       <text width="100%" height={1} fg={colors.muted}>Thinking: {clip(props.state?.thinkingLevel ?? "—")}</text>
       <box height={1} />
 
-      <Show when={hasSubagents()}>
-        <box height={1} minHeight={1} flexDirection="row">
-          <text fg={colors.textBright} attributes={1}>Subagents ({active().length} active)</text>
-          <box flexGrow={1} />
-          <text fg={colors.subtle}>F6</text>
-        </box>
-        <scrollbox
-        height={subagentHeight()}
-        minHeight={8}
-        scrollY
-        scrollX={false}
-        viewportCulling={false}
-        verticalScrollbarOptions={{ showArrows: false, trackOptions: { foregroundColor: colors.borderStrong, backgroundColor: colors.background } }}
-        onMouseScroll={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-        }}
-      >
-        <Show when={targets().length > 0} fallback={<text width="100%" height={1} fg={colors.muted}>No async subagents for this session</text>}>
-          <For each={targets()}>{renderTarget}</For>
-        </Show>
-        </scrollbox>
-        <text width="100%" height={1} fg={colors.subtle} wrapMode="none">Ctrl+I inspect · Ctrl+A pause · Ctrl+Shift+A stop</text>
-      </Show>
+      {
+        // OpenTUI's runtime supports accessor children, but its BoxProps type
+        // currently omits them. The accessor keeps layout reactive without
+        // rebuilding the sidebar on a timer.
+        // @ts-expect-error Accessor children are supported by the JSX runtime.
+        () => (
+        <>
+          <Show when={hasSubagents()}>
+            <box
+              id="subagent-panel"
+              flexGrow={hasTodos() ? 0 : 1}
+              minHeight={Math.min(2, hasTodos() ? subagentHeight() ?? 0 : availableBodyRows())}
+              flexShrink={1}
+              flexDirection="column"
+              {...(hasTodos() ? { height: subagentHeight() ?? 0 } : {})}
+            >
+              <box height={1} minHeight={1} flexShrink={0} flexDirection="row">
+                <text fg={colors.textBright} attributes={1}>Subagents ({active().length} active)</text>
+                <box flexGrow={1} />
+                <text fg={colors.subtle}>Ctrl+I · F6</text>
+              </box>
+              <scrollbox
+                id="subagent-scroll"
+                flexGrow={1}
+                minHeight={1}
+                scrollY
+                scrollX={false}
+                viewportCulling={false}
+                verticalScrollbarOptions={{ showArrows: false, trackOptions: { foregroundColor: colors.borderStrong, backgroundColor: colors.background } }}
+                onMouseScroll={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+              >
+                <Show when={targets().length > 0} fallback={<text width="100%" height={1} fg={colors.muted}>No async subagents for this session</text>}>
+                  <For each={targets()}>{renderTarget}</For>
+                </Show>
+              </scrollbox>
+            </box>
+          </Show>
 
-      <Show when={hasTodos()}>
-        <TodoPanel todos={props.todos ?? []} height={todoHeight()} />
-      </Show>
+          <Show when={hasTodos()}>
+            <box id="todo-panel" height={todoHeight()} minHeight={Math.min(6, todoHeight())} flexShrink={1}>
+              <TodoPanel todos={todos()} height={todoHeight()} />
+            </box>
+          </Show>
+        </>
+        )
+      }
     </box>
   );
 }

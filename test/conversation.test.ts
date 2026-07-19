@@ -2,10 +2,41 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { ConversationModel } from "../src/state/conversation.ts";
+import { ConversationModel, extractThinking, initialItems } from "../src/state/conversation.ts";
 import type { PiEvent } from "../src/types.ts";
 
 const event = (value: Record<string, unknown>): PiEvent => value as PiEvent;
+
+describe("conversation content boundaries", () => {
+  test("separates adjacent thinking blocks while preserving a single block", () => {
+    expect(extractThinking({ content: [{ type: "thinking", thinking: "gap" }, { type: "reasoning", text: "Analyzing" }] })).toBe("gap\n\nAnalyzing");
+    expect(extractThinking({ content: [{ type: "thinking", thinking: "exact\ntext" }] })).toBe("exact\ntext");
+  });
+
+  test("preserves tool details through initial history reconstruction", () => {
+    const items = initialItems([{ role: "toolResult", toolCallId: "call", toolName: "subagent", content: [], details: { results: [] }, timestamp: 1 }]);
+    expect(items[0]?.kind).toBe("tool");
+    expect(items[0]?.kind === "tool" && items[0].details).toEqual({ results: [] });
+  });
+
+  test("correlates persisted tool results by exact tool-call id", () => {
+    const items = initialItems([
+      { role: "assistant", content: [
+        { type: "toolCall", id: "first", name: "subagent", arguments: { agent: "one", model: "m1" } },
+        { type: "toolCall", id: "second", name: "subagent", arguments: { agent: "two", model: "m2" } },
+        { type: "toolCall", id: "bad", name: "subagent", arguments: [] },
+      ] },
+      { role: "toolResult", toolCallId: "second", toolName: "subagent", content: [] },
+      { role: "toolResult", toolCallId: "first", toolName: "wrong", content: [] },
+      { role: "toolResult", toolCallId: "unmatched", toolName: "generic", content: [] },
+    ]);
+    expect(items.filter((item) => item.kind === "tool").map((item) => item.kind === "tool" ? [item.name, item.args] : [])).toEqual([
+      ["subagent", { agent: "two", model: "m2" }],
+      ["subagent", { agent: "one", model: "m1" }],
+      ["generic", undefined],
+    ]);
+  });
+});
 
 describe("ConversationModel", () => {
   test("keeps an optimistic user message visible and reconciles it", () => {

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { resolveDefaultPiExecutable, resolvePiCommand } from "../pi-command.ts";
 
 export type OptionalIntegration = {
@@ -13,6 +13,7 @@ export type OptionalIntegration = {
 export type OptionalIntegrationStatus = {
   subagents: OptionalIntegration;
   todos: OptionalIntegration;
+  mcpAdapter: OptionalIntegration;
   piListError?: string | undefined;
 };
 
@@ -38,6 +39,35 @@ function hasPackage(haystack: string, packageName: string): boolean {
 }
 
 type IntegrationOptions = { piExecutable?: string; cwd?: string };
+export type OptionalInstallResult = { packageName: string; command: string[]; exitCode: number | null; logPath: string; ok: boolean };
+export type OptionalInstallOptions = { piExecutable?: string; cwd?: string; logPath?: string };
+
+export async function installOptionalIntegrationAsync(packageName: string, options: OptionalInstallOptions = {}): Promise<OptionalInstallResult> {
+  const cwd = options.cwd ?? process.cwd();
+  const executable = options.piExecutable ?? resolveDefaultPiExecutable();
+  const command = resolvePiCommand(executable, ["install", `npm:${packageName}`]);
+  const logPath = options.logPath ?? path.join(os.tmpdir(), `pitty-${packageName.replace(/[^A-Za-z0-9_-]/g, "_")}-install.log`);
+  const output: string[] = [];
+  const result = await new Promise<number | null>((resolve, reject) => {
+    const child = spawn(command.executable, command.args, { cwd, env: { ...process.env, NO_COLOR: "1" }, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    child.stdout.setEncoding("utf8"); child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => output.push(chunk)); child.stderr.on("data", (chunk: string) => output.push(chunk));
+    child.once("error", reject); child.once("close", (code) => resolve(code));
+  });
+  try { fs.writeFileSync(logPath, output.join(""), { mode: 0o600 }); } catch { /* retained log is best effort */ }
+  return { packageName, command: [command.executable, ...command.args], exitCode: result, logPath, ok: result === 0 };
+}
+
+export function installOptionalIntegration(packageName: string, options: { piExecutable?: string; cwd?: string; logPath?: string } = {}): OptionalInstallResult {
+  const cwd = options.cwd ?? process.cwd();
+  const executable = options.piExecutable ?? resolveDefaultPiExecutable();
+  const command = resolvePiCommand(executable, ["install", `npm:${packageName}`]);
+  const logPath = options.logPath ?? path.join(os.tmpdir(), `pitty-${packageName.replace(/[^A-Za-z0-9_-]/g, "_")}-install.log`);
+  const result = spawnSync(command.executable, command.args, { cwd, encoding: "utf8", timeout: 120_000, windowsHide: true, env: { ...process.env, NO_COLOR: "1" } });
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  try { fs.writeFileSync(logPath, output, { mode: 0o600 }); } catch {}
+  return { packageName, command: [command.executable, ...command.args], exitCode: result.status, logPath, ok: result.status === 0 };
+}
 
 export function detectOptionalIntegrations(options: IntegrationOptions = {}): OptionalIntegrationStatus {
   const piExecutable = options.piExecutable ?? resolveDefaultPiExecutable();
@@ -61,6 +91,7 @@ export function detectOptionalIntegrations(options: IntegrationOptions = {}): Op
   const filesystemChecks: Record<string, string[]> = {
     "pi-subagents": moduleRoots.map((root) => path.join(root, "pi-subagents")),
     "@juicesharp/rpiv-todo": moduleRoots.map((root) => path.join(root, "@juicesharp", "rpiv-todo")),
+    "pi-mcp-adapter": moduleRoots.map((root) => path.join(root, "pi-mcp-adapter")),
   };
 
   const detect = (packageName: string): OptionalIntegration => {
@@ -75,11 +106,12 @@ export function detectOptionalIntegrations(options: IntegrationOptions = {}): Op
 
   let subagents = detect("pi-subagents");
   let todos = detect("@juicesharp/rpiv-todo");
+  let mcpAdapter = detect("pi-mcp-adapter");
 
   // Local settings/filesystem checks are immediate and cover normal installs.
   // Fall back to `pi list` only when something is still unknown, and keep the
   // timeout short so optional package detection cannot make startup feel hung.
-  if (!subagents.installed || !todos.installed) {
+  if (!subagents.installed || !todos.installed || !mcpAdapter.installed) {
     try {
       const command = resolvePiCommand(piExecutable, ["list"]);
       const result = spawnSync(command.executable, command.args, {
@@ -94,6 +126,7 @@ export function detectOptionalIntegrations(options: IntegrationOptions = {}): Op
         sources.push({ name: "pi list", text });
         subagents = detect("pi-subagents");
         todos = detect("@juicesharp/rpiv-todo");
+        mcpAdapter = detect("pi-mcp-adapter");
       } else {
         piListError = text || `pi list exited with status ${result.status ?? "unknown"}`;
       }
@@ -102,5 +135,5 @@ export function detectOptionalIntegrations(options: IntegrationOptions = {}): Op
     }
   }
 
-  return { subagents, todos, ...(piListError ? { piListError } : {}) };
+  return { subagents, todos, mcpAdapter, ...(piListError ? { piListError } : {}) };
 }

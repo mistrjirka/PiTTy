@@ -195,7 +195,7 @@ export function TodoPanel(props: { todos: TodoViewItem[]; height: number }) {
   const active = () => props.todos.filter((todo) => !todo.done);
   const done = () => props.todos.filter((todo) => todo.done);
   return (
-    <box flexDirection="column" minHeight={6} height={props.height} border={["top"]} borderColor={colors.borderStrong} paddingTop={1}>
+    <box flexDirection="column" minHeight={Math.min(6, props.height)} height={props.height} border={["top"]} borderColor={colors.borderStrong} paddingTop={1}>
       <box height={1} flexDirection="row">
         <text fg={colors.textBright} attributes={1}>Todos</text>
         <box flexGrow={1} />
@@ -204,7 +204,7 @@ export function TodoPanel(props: { todos: TodoViewItem[]; height: number }) {
       <Show when={props.todos.length} fallback={<text fg={colors.muted}>No todo state found</text>}>
         <scrollbox
           flexGrow={1}
-          minHeight={3}
+          minHeight={Math.min(3, Math.max(0, props.height - 2))}
           scrollY
           scrollX={false}
           viewportCulling={false}

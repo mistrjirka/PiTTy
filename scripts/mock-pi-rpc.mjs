@@ -1,8 +1,17 @@
 #!/usr/bin/env node
 import { createInterface } from "node:readline";
+import fs from "node:fs";
 
+const restartFailureFile = process.env.MOCK_RESTART_FAILURE_FILE;
+if (restartFailureFile) {
+  if (fs.existsSync(restartFailureFile)) process.exit(23);
+  fs.writeFileSync(restartFailureFile, "started");
+}
 const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
+const sessionArgumentIndex = process.argv.indexOf("--session");
+const initialSessionFile = sessionArgumentIndex >= 0 ? process.argv[sessionArgumentIndex + 1] : "/tmp/mock-session.jsonl";
 const state = {
+  sessionFile: initialSessionFile,
   thinkingLevel: "high",
   isStreaming: false,
   isCompacting: false,
@@ -22,7 +31,7 @@ const history = [
 ];
 
 const stats = {
-  sessionFile: "/tmp/mock-session.jsonl",
+  sessionFile: initialSessionFile,
   sessionId: "mock-session",
   userMessages: 1,
   assistantMessages: 1,
@@ -46,12 +55,25 @@ rl.on("line", (line) => {
     case "get_session_stats": response(stats); break;
     case "cycle_model": response({ model: state.model, thinkingLevel: state.thinkingLevel, isScoped: false }); break;
     case "get_available_models": response({ models: [state.model] }); break;
+    case "set_model":
+      if (command.modelId === "failed") send({ type: "response", id: command.id, command: command.type, success: false, error: "Model unavailable" });
+      else { state.model = { ...state.model, provider: command.provider, id: command.modelId }; response(state.model); }
+      break;
+    case "set_thinking_level":
+      if (command.level === "xhigh") send({ type: "response", id: command.id, command: command.type, success: false, error: "Thinking level unavailable" });
+      else { state.thinkingLevel = command.level; response(); }
+      break;
+    case "set_session_name":
+      if (command.name === "failed") send({ type: "response", id: command.id, command: command.type, success: false, error: "Rename rejected" });
+      else { state.sessionName = command.name; response(); }
+      break;
     case "switch_session": {
       if (command.sessionPath === "unsupported") {
         send({ type: "response", id: command.id, command: command.type, success: false, error: "Unknown command: switch_session" });
       } else if (command.sessionPath === "failed") {
         send({ type: "response", id: command.id, command: command.type, success: false, error: "Session file not found" });
-      } else response({ cancelled: command.sessionPath === "cancel" });
+      } else if (command.sessionPath === "cancel") response({ cancelled: true });
+      else { state.sessionFile = command.sessionPath; response({ cancelled: false }); }
       break;
     }
     case "cycle_thinking_level": response({ level: state.thinkingLevel }); break;

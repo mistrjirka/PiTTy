@@ -117,11 +117,11 @@ try {
   if (Add-UserPathEntry $BinDir) { Write-Host "PiTTy added $BinDir to your user PATH. Restart open terminals to use the commands." }
 
   $PiList = if ($PluginMode -eq "ask" -or $PluginMode -eq "yes") { (& pi list 2>$null | Out-String) } else { "" }
-  $Missing = @(); if (-not $PiList.Contains("pi-subagents")) { $Missing += "pi-subagents" }; if (-not $PiList.Contains("@juicesharp/rpiv-todo")) { $Missing += "@juicesharp/rpiv-todo" }
+  $Missing = @(); if (-not $PiList.Contains("pi-subagents")) { $Missing += "pi-subagents" }; if (-not $PiList.Contains("@juicesharp/rpiv-todo")) { $Missing += "@juicesharp/rpiv-todo" }; if (-not $PiList.Contains("pi-mcp-adapter")) { $Missing += "pi-mcp-adapter" }
   if ($PluginMode -eq "ask" -and $Missing.Count -eq 0) { Write-Host "Recommended Pi packages are already installed; skipping plugin prompt."; $PluginMode = "no" }
   elseif ($PluginMode -eq "ask") { $PluginMode = if ($Yes) { "yes" } elseif ((Read-Host "Install missing recommended Pi packages ($($Missing -join ', '))? [Y/n]") -match '^(n|no)$') { "no" } else { "yes" } }
   $Failures = 0
-  foreach ($Plugin in @(@("npm:pi-subagents", "pi-subagents"), @("npm:@juicesharp/rpiv-todo", "@juicesharp/rpiv-todo"))) { if ($PluginMode -eq "yes" -and -not $PiList.Contains($Plugin[1])) { $Log = Join-Path $LogRoot ("plugin-" + $Plugin[1].Replace("@", "_").Replace("/", "_") + ".log"); & pi install $Plugin[0] *> $Log; if ($LASTEXITCODE -ne 0) { $Failures++; Write-Warning "Optional Pi package $($Plugin[0]) failed (exit code: $LASTEXITCODE); log: $Log" } } }
+  foreach ($Plugin in @(@("npm:pi-subagents", "pi-subagents"), @("npm:@juicesharp/rpiv-todo", "@juicesharp/rpiv-todo"), @("npm:pi-mcp-adapter", "pi-mcp-adapter"))) { if ($PluginMode -eq "yes" -and -not $PiList.Contains($Plugin[1])) { $Log = Join-Path $LogRoot ("plugin-" + $Plugin[1].Replace("@", "_").Replace("/", "_") + ".log"); & pi install $Plugin[0] *> $Log; if ($LASTEXITCODE -ne 0) { $Failures++; Write-Warning "Optional Pi package $($Plugin[0]) failed (exit code: $LASTEXITCODE); log: $Log" } } }
   Write-Host "PiTTy $Ver installed. Installer logs: $LogRoot"
   if ($Failures -gt 0 -and -not $AllowPluginFailure) { exit 2 }
 } catch { Write-Error $_.Exception.Message -ErrorAction Continue; exit 1 } finally { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Temp }

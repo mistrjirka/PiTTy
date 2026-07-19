@@ -10,6 +10,12 @@ function atomicJson(target: string, value: unknown): void {
   fs.renameSync(temporary, target);
 }
 
+export type SteerRequestIdentity = {
+  requestId: string;
+  submittedAt: number;
+  baselineSteerCount: number;
+};
+
 function requireFileControl(run: SubagentRun): string {
   if (run.control === "foreground") throw new Error("Foreground subagents are read-only; file control is unsupported.");
   if (!run.asyncDir) throw new Error("File-control directory is missing.");
@@ -33,7 +39,7 @@ export function stopSubagent(run: SubagentRun): void {
   atomicJson(target, { type: "timeout", ts: Date.now(), source: "pitty", reason: "Stopped from PiTTy" });
 }
 
-export function steerSubagent(run: SubagentRun, message: string, targetIndex?: number): void {
+export function steerSubagent(run: SubagentRun, message: string, targetIndex?: number): SteerRequestIdentity {
   const trimmed = message.trim();
   if (!trimmed) throw new Error("A steering message is required.");
   const request = {
@@ -46,4 +52,5 @@ export function steerSubagent(run: SubagentRun, message: string, targetIndex?: n
   };
   const filename = `${String(request.ts).padStart(13, "0")}-${Buffer.from(request.id).toString("base64url")}.json`;
   atomicJson(path.join(requireFileControl(run), "control", "steer-requests", filename), request);
+  return { requestId: request.id, submittedAt: request.ts, baselineSteerCount: run.steerCount ?? 0 };
 }

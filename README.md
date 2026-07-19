@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  Scrollable conversations · searchable sessions and models · rich tool output · optional subagent and Todo views
+  Scrollable conversations · searchable sessions and models · live themes · rich tool output · optional subagent, Todo, and MCP views
 </p>
 
 <p align="center">
@@ -135,7 +135,7 @@ It starts directly in the normal chat. An empty conversation shows a passive das
 ## Why use PiTTy instead of Pi's built-in TUI?
 
 - **Inspect subagent chats separately.** Open each child agent's live transcript without losing the main conversation, with active agents grouped first and stable ordering within each group.
-- **Control work while it runs.** Send steering, queue editable follow-ups, and pause or stop supported file-backed subagents from the same interface.
+- **Control work while it runs.** Send steering, see it queued until pi-subagents picks it up, queue editable follow-ups, and pause or stop supported file-backed subagents from the same interface.
 - **Keep the workspace calmer.** The prompt stays fixed while the transcript scrolls independently; thinking, tool output, pending input, suggestions, Todos, and the sidebar stay bounded or collapsible instead of taking over the terminal.
 - **Read code changes more clearly.** Edit/write tools get dedicated diff views, arbitrary tools retain structured cards, and long streaming conversations use stable windowed rendering.
 - **Navigate faster.** Search models and sessions, resume work in place, jump through earlier requests, and recover submitted or cleared prompts from session-local history.
@@ -148,8 +148,9 @@ It starts directly in the normal chat. An empty conversation shows a passive das
 | Conversation | Fixed prompt, independently scrollable transcript, Markdown output, collapsible thinking, and long-session windowing |
 | Tools | Expandable tool cards, timings, readable errors, edit/write diffs, and a generic fallback for arbitrary Pi tools |
 | Navigation | Searchable model selector, `/sessions` and `/resume`, request map, command autocomplete, and on-demand older history |
-| Workflow | Immediate steering while Pi runs, editable local follow-ups, prompt-focus recovery, and diagnostics bundles |
-| Optional views | Parallel subagent inspection and control plus active/completed Todo panels when their Pi packages are installed |
+| Workflow | Immediate steering with visible queued guidance, editable local follow-ups, prompt-focus recovery, and diagnostics bundles |
+| Settings | Pi-authoritative model, thinking, and session controls; process-local presentation preferences; ten live theme presets and complete color editing |
+| Optional views | Parallel subagent inspection/control, active/completed Todo panels, and safe MCP server management when their Pi packages are installed |
 
 ## Interface preview
 
@@ -171,6 +172,7 @@ pitty --help
 Inside PiTTy:
 
 ```text
+/settings    open PiTTy Settings
 /resume      browse and switch current-project sessions
 /model       show or change the current model
 /thinking    show or change reasoning effort
@@ -192,7 +194,8 @@ See the complete [usage and controls guide](docs/USAGE.md).
 | `Ctrl+C` with a nonempty draft | Clear the draft and save it to prompt history |
 | Mouse wheel / `PgUp` / `PgDn` | Scroll the active transcript |
 | `Ctrl+Home` / `Ctrl+End` | Jump to the beginning or latest message |
-| `Ctrl+P` | Open the searchable model selector |
+| `Ctrl+P` | Open the searchable model selector; PiTTy requests the current list from Pi each time it opens |
+| `Ctrl+X` | Open Settings: model, thinking, session, theme, and MCP controls |
 | `Ctrl+T` / `Shift+Tab` | Cycle thinking effort |
 | `Ctrl+R` | Open the request map |
 | `Ctrl+S` | Toggle the sidebar |
@@ -201,21 +204,31 @@ See the complete [usage and controls guide](docs/USAGE.md).
 | `F6` / `Shift+F6` | Select the next or previous subagent (active grouped first, stable within groups) |
 | `Esc` | Close the active dialog/inspector or abort the current Pi turn |
 
+## Settings, themes, and MCP
+
+Open Settings with `Ctrl+X` or `/settings`. Changes to models, thinking effort, and sessions use Pi's authoritative RPC state; Settings retains the previous authoritative value and displays an inline error if an operation fails.
+
+Theme selection and color editing are PiTTy-only user-global preferences. Choose one of ten presets or edit every semantic color token; valid `#RRGGBB` colors apply immediately, while invalid intermediate input remains in the field without changing the live palette. See [theme sources, contrast guidance, and storage details](docs/THEMES.md).
+
+MCP server management is intentionally bounded to the standard project `.mcp.json` and global `~/.config/mcp/mcp.json` scopes. Settings shows the affected path and a before/after preview, preserves unknown config content, warns before command execution or plaintext values, and restarts the same Pi session after saving. It never sends the adapter's `/mcp` or `/mcp setup` custom panels through RPC.
+
 ## Optional integrations
 
 PiTTy works without extra Pi packages. These integrations add specialized panels when installed:
 
 | Package | Adds |
 |---|---|
-| `npm:pi-subagents` | Parallel child-agent list, live transcript inspection, pause/stop, and steering |
+| `npm:pi-subagents` | Parallel child-agent list, live transcript inspection, pause/stop, and queued steering visibility |
 | `npm:@juicesharp/rpiv-todo` | Bounded active and completed Todo panels |
+| `npm:pi-mcp-adapter` | Optional adapter used by Settings to activate standard MCP config changes |
 
 ```bash
 pi install npm:pi-subagents
 pi install npm:@juicesharp/rpiv-todo
+pi install npm:pi-mcp-adapter
 ```
 
-Missing integrations produce one informational notification; their panels remain hidden and the generic chat continues normally.
+The installer and upgrades offer missing optional integrations according to the selected plugin preference. Missing integrations leave the generic chat usable.
 
 ## Compatibility
 
@@ -283,6 +296,7 @@ Larger public behavior changes should include an OpenSpec change under `openspec
 ## Documentation
 
 - [Usage and controls](docs/USAGE.md)
+- [Themes](docs/THEMES.md)
 - [Architecture and compatibility](docs/OPEN_SOURCE_READINESS.md)
 - [Documentation index](docs/README.md)
 - [Changelog](CHANGELOG.md)

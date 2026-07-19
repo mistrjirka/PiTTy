@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- Added process-local drafts, Alt+Enter follow-up batching, and truthful queued subagent steering guidance.
+- Restored historical subagent views and made the conversation/sidebar layout more compact and inspectable.
+- Added the Settings hub for Pi-authoritative model, thinking, and session controls.
+- Added ten persistent PiTTy themes with contrast checks and complete token editing.
+- Added optional, safe MCP configuration management with explicit project/global scopes, previewed atomic writes, same-session restart, and a Global-default compact configured-server list.
+
 ## 0.4.3
 
 - Fixed startup update notifications after upgrading PiTTy by scoping successful update-check caches to the local version.
