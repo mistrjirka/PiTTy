@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { defaultDiagnosticsDirectory } from "../diagnostics/logger.ts";
 
-const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const CACHE_MAX_AGE_MS = 60 * 60 * 1000;
 const DEFAULT_REPOSITORY = "mistrjirka/PiTTy";
 const DEFAULT_TIMEOUT_MS = 5_000;
 

@@ -50,6 +50,12 @@
 - Installers detect optional Pi packages before prompting; they skip the prompt when all are present and offer only missing packages.
 - Subagent detail and selected-child configuration displays use the child's reported model, context, and thinking level; missing child fields remain unknown rather than falling back to parent-session values.
 
+## Approved update-check refinement
+
+The user approved changing the successful and failed startup update-check cache window from 24 hours to one hour, followed by a patch release.
+
+> “cajn it check every hour? can you release it?”
+
 ## Explicitly deferred
 
 - Full parity with Pi's direct interactive TUI, especially commands and components absent from RPC.

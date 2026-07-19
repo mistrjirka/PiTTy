@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- Check for new stable releases hourly instead of daily, so recently published upgrades are discovered sooner.
+
 ## 0.5.0
 
 - Added process-local drafts, Alt+Enter follow-up batching, and truthful queued subagent steering guidance.

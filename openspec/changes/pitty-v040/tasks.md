@@ -46,3 +46,9 @@
 - [x] 6.5 Add recoverable session-local prompt history, including Ctrl+C draft clearing and empty-editor Up/Down navigation that preserves multiline and streaming controls.
 - [x] 6.6 Detect optional packages before installer prompts, skip prompts when all are installed, and offer only missing packages.
 - [x] 6.7 Display child-reported model, context, and thinking configuration without parent-session fallback.
+
+## 8. Hourly update checks
+
+- [x] 8.1 Change successful and failed update-check cache freshness to one hour.
+- [x] 8.2 Add the exact one-hour cache-boundary regression test.
+- [ ] 8.3 Validate the patch release through CI.

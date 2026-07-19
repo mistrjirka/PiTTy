@@ -69,6 +69,15 @@ describe("update checks", () => {
     await checkForUpdates(config({ fetch: async () => { throw new Error("network"); }, onNewerRelease: (version) => { announced = version; } }));
     expect(announced).toBe("v0.4.2");
   });
+  test("reuses a same-local success cache just below one hour and refetches at one hour", async () => {
+    await fs.writeFile(cachePath, JSON.stringify({ checkedAt: 1_000, outcome: "success", version: "0.3.2", checkedForVersion: "0.3.2" }));
+    let calls = 0;
+    const fetch = async () => { calls++; return new Response(JSON.stringify({ tag_name: "0.3.2" }), { status: 200 }); };
+    await checkForUpdates(config({ now: () => 1_000 + 60 * 60 * 1000 - 1, fetch }));
+    expect(calls).toBe(0);
+    await checkForUpdates(config({ now: () => 1_000 + 60 * 60 * 1000, fetch }));
+    expect(calls).toBe(1);
+  });
   test("suppresses a same-local current cache and fresh failures", async () => {
     await fs.writeFile(cachePath, JSON.stringify({ checkedAt: 2_000, outcome: "success", version: "0.3.2", checkedForVersion: "0.3.2" }));
     let calls = 0;
@@ -91,7 +100,7 @@ describe("update checks", () => {
   });
   test("fetches stale release and announces newer versions", async () => {
     let announced = "";
-    await checkForUpdates(config({ now: () => 24 * 60 * 60 * 1000 + 1_001, onNewerRelease: (version) => { announced = version; } }));
+    await checkForUpdates(config({ now: () => 60 * 60 * 1000 + 1_001, onNewerRelease: (version) => { announced = version; } }));
     expect(announced).toBe("v0.3.3");
     expect(JSON.parse(await fs.readFile(cachePath, "utf8")).outcome).toBe("success");
   });
