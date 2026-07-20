@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { pauseSubagent, steerSubagent, stopSubagent } from "../src/subagents/control.ts";
 import { listSubagentRuns, matchesSubagentSession, readSubagentRun, subagentTempRoot } from "../src/subagents/artifacts.ts";
 import { readSubagentConversation, readSubagentTranscript } from "../src/subagents/transcript.ts";
-import { reconcileSubagentSelection, subagentTargets, targetsForTool } from "../src/subagents/targets.ts";
+import { ownedSubagentTargetsForItems, reconcileSubagentSelection, subagentTargets, targetsForTool } from "../src/subagents/targets.ts";
 import { initialItems } from "../src/state/conversation.ts";
 import type { SubagentRun, ToolItem } from "../src/types.ts";
 
@@ -75,8 +75,16 @@ describe("subagent controls", () => {
     const target = run();
     pauseSubagent(target);
     stopSubagent(target);
-    expect(JSON.parse(fs.readFileSync(path.join(target.asyncDir!, "control", "interrupt.json"), "utf8")).type).toBe("interrupt");
-    expect(JSON.parse(fs.readFileSync(path.join(target.asyncDir!, "control", "timeout.json"), "utf8")).type).toBe("timeout");
+    try {
+      expect(JSON.parse(fs.readFileSync(path.join(target.asyncDir!, "control", "interrupt.json"), "utf8")).type).toBe("interrupt");
+    } catch (error) {
+      throw new Error("interrupt control artifact is malformed", { cause: error });
+    }
+    try {
+      expect(JSON.parse(fs.readFileSync(path.join(target.asyncDir!, "control", "timeout.json"), "utf8")).type).toBe("timeout");
+    } catch (error) {
+      throw new Error("timeout control artifact is malformed", { cause: error });
+    }
   });
 
   test("rejects all file controls for foreground runs without writing", () => {
@@ -97,7 +105,11 @@ describe("subagent controls", () => {
     const dir = path.join(target.asyncDir!, "control", "steer-requests");
     const files = fs.readdirSync(dir);
     expect(files).toHaveLength(1);
-    expect(JSON.parse(fs.readFileSync(path.join(dir, files[0]!), "utf8")).message).toBe("focus on tests");
+    try {
+      expect(JSON.parse(fs.readFileSync(path.join(dir, files[0]!), "utf8")).message).toBe("focus on tests");
+    } catch (error) {
+      throw new Error("steer request artifact is malformed", { cause: error });
+    }
   });
 
   test("sorts restored runs by launch order, not activity", () => {
@@ -509,5 +521,43 @@ describe("subagent controls", () => {
       expect(items[1].endedAt).toBe(367);
       expect(items[1].status).toBe("done");
     }
+  });
+
+  test("assigns one owner to repeated logical targets across tool items", () => {
+    const firstTool: ToolItem = {
+      kind: "tool", id: "first-item", toolCallId: "first-call", name: "subagent",
+      args: {}, output: "", details: { progress: [{ agent: "worker", status: "running", sessionFile: "/tmp/repeated.jsonl" }] },
+      timestamp: 1, status: "streaming", isError: false,
+    };
+    const secondTool: ToolItem = {
+      ...firstTool, id: "second-item", toolCallId: "second-call",
+      details: { progress: [{ agent: "worker", status: "completed", sessionFile: "/tmp/repeated.jsonl" }] },
+      status: "done",
+    };
+    const firstTarget = subagentTargets([], [firstTool])[0]!;
+    const secondTarget = subagentTargets([], [secondTool])[0]!;
+    const owned = ownedSubagentTargetsForItems(
+      [firstTool, secondTool],
+      [firstTarget, secondTarget],
+    );
+    expect(owned.get("first-item")).toHaveLength(1);
+    expect(owned.get("second-item") ?? []).toHaveLength(0);
+    expect(owned.get("first-item")?.[0]?.state).toBe("completed");
+  });
+
+  test("keeps distinct parallel step indexes as separate targets", () => {
+    const target = run();
+    target.mode = "parallel";
+    target.steps = [
+      { index: 0, agent: "first", status: "running", sessionFile: "/tmp/shared.jsonl" },
+      { index: 1, agent: "second", status: "running", sessionFile: "/tmp/shared.jsonl" },
+    ];
+    const tool: ToolItem = {
+      kind: "tool", id: "parallel-item", toolCallId: "parallel-call", name: "subagent",
+      args: {}, output: "", details: { runId: target.runId }, timestamp: 1,
+      status: "streaming", isError: false,
+    };
+    const owned = ownedSubagentTargetsForItems([tool], subagentTargets([target]));
+    expect(owned.get("parallel-item")).toHaveLength(2);
   });
 });

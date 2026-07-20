@@ -29,6 +29,26 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           package="$(node -p "require('./package.json').version")"
           test "$tag" = "$package" || { echo "tag $tag does not match package $package" >&2; exit 1; }
+      - name: Prepare release body
+        id: release_body
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          notes=".github/release-notes/v${version}.md"
+          if [[ "$version" == "0.5.4" && ! -f "$notes" ]]; then
+            echo "Required curated release notes are missing: $notes" >&2
+            exit 1
+          fi
+          if [[ -f "$notes" ]]; then
+            cp "$notes" release-body.md
+            echo "generate_release_notes=false" >> "$GITHUB_OUTPUT"
+            echo "Using curated release body from $notes"
+          else
+            : > release-body.md
+            echo "generate_release_notes=true" >> "$GITHUB_OUTPUT"
+            echo "No curated release body for v$version; GitHub-generated notes remain the fallback"
+          fi
       - name: Build source archives
         shell: bash
         run: |
@@ -43,4 +63,5 @@ jobs:
             pitty-*.tar.gz
             pitty-*.zip
             SHA256SUMS
-          generate_release_notes: true
+          body_path: release-body.md
+          generate_release_notes: ${{ steps.release_body.outputs.generate_release_notes == 'true' }}

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.4
+
+### Notification History and Investigation
+
+- Retained every PiTTy toast, including RPC extension `notify` messages, in bounded session-only history while preserving complete Markdown text after transient popups expire.
+- Added unread/read tracking with unread-first and newest-first ordering within each group.
+- Added a compact notification section below Todos, with proportional Subagents > Todos > Notifications allocation, panel floors, and safe hiding on short terminals.
+- Added semantic lifecycle-tone colors and a scrollable Markdown detail modal; opening a notification marks it read without persisting it.
+
+### Subagent Visibility and Rendering
+
+- Main chat now renders each logical subagent once; later updates replace the existing entry instead of displaying duplicates.
+- Foreground and asynchronous representations of the same subagent are merged while distinct parallel child indexes remain separate.
+- Preserved the subagent Markdown finalization, live viewport-culling, lifecycle-state border, and OpenCode-style navigation fixes.
+
+### Context Tools and Interrupt Recovery
+
+- Forwarded abort signals to the context-mode MCP bridge and added cancellation, child termination, and automatic respawn recovery.
+- Added a bounded 50-second timeout for `ctx_search` while keeping `ctx_execute` unbounded.
+- Added single-flight Ctrl-C abort handling and force-close escalation when an abort remains pending.
+
+### Regression Coverage
+
+- Added coverage for notification retention and eviction, ordering, panel floors, clickable rows, full Markdown details, one-owner subagent rendering, parallel-child identity, bridge recovery, and interrupt decisions.
+
 ## 0.5.3
 
 ### Rendering Stability

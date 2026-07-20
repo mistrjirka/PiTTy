@@ -1,10 +1,11 @@
-import { For, Show, type Accessor } from "solid-js";
+import { For, Show, createMemo, type Accessor } from "solid-js";
 import stripAnsi from "strip-ansi";
 import type {
 	RpcSessionState,
 	SessionStats,
 	SubagentRun,
 	ToolItem,
+	NotificationRecord,
 } from "../types.ts";
 import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
 import { formatDuration } from "./duration.ts";
@@ -13,6 +14,104 @@ import { TodoPanel, type TodoViewItem } from "./todos.tsx";
 import { appVersion } from "../version.ts";
 
 const CONTENT_WIDTH = 36;
+
+export type SidebarPanelVisibility = {
+	subagents: boolean;
+	todos: boolean;
+	notifications: boolean;
+};
+
+export type SidebarPanelAllocation = {
+	subagents: number;
+	todos: number;
+	notifications: number;
+};
+
+const PANEL_KEYS = ["subagents", "todos", "notifications"] as const;
+
+const PANEL_WEIGHTS: SidebarPanelAllocation = {
+	subagents: 50,
+	todos: 30,
+	notifications: 20,
+};
+const PANEL_FLOORS: SidebarPanelAllocation = {
+	subagents: 2,
+	todos: 4,
+	notifications: 3,
+};
+
+export function allocateSidebarPanels(
+	availableRows: number,
+	visibility: SidebarPanelVisibility,
+): SidebarPanelAllocation {
+	const rows = Math.max(0, Math.floor(availableRows));
+	const allocation: SidebarPanelAllocation = {
+		subagents: 0,
+		todos: 0,
+		notifications: 0,
+	};
+	let visible = PANEL_KEYS.filter((panel) => visibility[panel]);
+	if (
+		visibility.subagents &&
+		visibility.todos &&
+		visibility.notifications &&
+		rows < 11
+	) {
+		visible = visible.filter((panel) => panel !== "notifications");
+	}
+	const totalWeight = visible.reduce(
+		(sum, panel) => sum + PANEL_WEIGHTS[panel],
+		0,
+	);
+	if (!totalWeight) return allocation;
+	const fractions = visible.map((panel) => ({
+		panel,
+		share: (rows * PANEL_WEIGHTS[panel]) / totalWeight,
+	}));
+	for (const entry of fractions)
+		allocation[entry.panel] = Math.floor(entry.share);
+	let remainder =
+		rows - visible.reduce((sum, panel) => sum + allocation[panel], 0);
+	for (const entry of fractions.sort((a, b) => (b.share % 1) - (a.share % 1))) {
+		if (!remainder) break;
+		allocation[entry.panel] += 1;
+		remainder -= 1;
+	}
+	const floorTotal = visible.reduce(
+		(sum, panel) => sum + PANEL_FLOORS[panel],
+		0,
+	);
+	if (rows < floorTotal) {
+		allocation.subagents = 0;
+		allocation.todos = 0;
+		allocation.notifications = 0;
+		let remainingRows = rows;
+		const priority = fractions.sort((a, b) => b.share - a.share);
+		while (remainingRows > 0) {
+			for (const entry of priority) {
+				if (!remainingRows) break;
+				allocation[entry.panel] += 1;
+				remainingRows -= 1;
+			}
+		}
+		return allocation;
+	}
+	for (const panel of visible) {
+		let deficit = PANEL_FLOORS[panel] - allocation[panel];
+		if (deficit <= 0) continue;
+		allocation[panel] = PANEL_FLOORS[panel];
+		for (const donor of visible) {
+			const donated = Math.min(
+				deficit,
+				Math.max(0, allocation[donor] - PANEL_FLOORS[donor]),
+			);
+			allocation[donor] -= donated;
+			deficit -= donated;
+			if (deficit === 0) break;
+		}
+	}
+	return allocation;
+}
 
 function formatTokens(value: number | undefined): string {
 	if (value === undefined) return "—";
@@ -32,6 +131,13 @@ function clip(value: string, width = CONTENT_WIDTH): string {
 	const clean = cleanInline(value);
 	if (clean.length <= width) return clean;
 	return `${clean.slice(0, Math.max(1, width - 1))}…`;
+}
+
+function notificationToneColor(tone: NotificationRecord["tone"]): string {
+	if (tone === "error") return colors.red;
+	if (tone === "warning") return colors.yellow;
+	if (tone === "success") return colors.green;
+	return colors.borderStrong;
 }
 
 function stateColor(state: string): string {
@@ -82,6 +188,11 @@ export function Sidebar(props: {
 	todos?: TodoViewItem[] | Accessor<TodoViewItem[]> | undefined;
 	subagentsAvailable?: boolean | undefined;
 	todosAvailable?: boolean | undefined;
+	notifications?:
+		| NotificationRecord[]
+		| Accessor<NotificationRecord[]>
+		| undefined;
+	onOpenNotification?: (recordId: string) => void;
 	height?: number | Accessor<number> | undefined;
 }) {
 	const now = () => props.now ?? Date.now();
@@ -91,6 +202,16 @@ export function Sidebar(props: {
 		typeof props.tools === "function" ? props.tools() : (props.tools ?? []);
 	const todos = () =>
 		typeof props.todos === "function" ? props.todos() : (props.todos ?? []);
+	const notifications = () =>
+		typeof props.notifications === "function"
+			? props.notifications()
+			: (props.notifications ?? []);
+	const orderedNotifications = createMemo(() =>
+		[...notifications()].sort((a, b) =>
+			a.read !== b.read ? (a.read ? 1 : -1) : b.createdAt - a.createdAt,
+		),
+	);
+	const hasNotifications = () => orderedNotifications().length > 0;
 	const targets = () => subagentTargets(runs(), tools());
 	const active = () => targets().filter((target) => target.active);
 	const selectedKey = () =>
@@ -112,23 +233,15 @@ export function Sidebar(props: {
 			: 0);
 	const availableBodyRows = () =>
 		Math.max(0, sidebarHeight() - fixedHeaderRows());
-	const compactTargetHeight = () =>
-		targets().length
-			? targets().reduce(
-					(height, target) => height + (target.active ? 3 : 1),
-					1,
-				)
-			: 0;
-	const subagentHeight = () => {
-		if (!hasTodos()) return undefined;
-		const todoReserve = Math.min(6, Math.max(0, availableBodyRows() - 1));
-		return Math.min(
-			compactTargetHeight(),
-			Math.max(0, availableBodyRows() - todoReserve),
-		);
-	};
-	const todoHeight = () =>
-		hasTodos() ? Math.max(0, availableBodyRows() - (subagentHeight() ?? 0)) : 0;
+	const panelAllocation = () =>
+		allocateSidebarPanels(availableBodyRows(), {
+			subagents: hasSubagents(),
+			todos: hasTodos(),
+			notifications: hasNotifications(),
+		});
+	const subagentHeight = () => panelAllocation().subagents;
+	const todoHeight = () => panelAllocation().todos;
+	const notificationHeight = () => panelAllocation().notifications;
 
 	const renderTarget = (target: SubagentTarget) => {
 		const selected = () =>
@@ -255,14 +368,10 @@ export function Sidebar(props: {
 						<Show when={hasSubagents()}>
 							<box
 								id="subagent-panel"
-								flexGrow={hasTodos() ? 0 : 1}
-								minHeight={Math.min(
-									2,
-									hasTodos() ? (subagentHeight() ?? 0) : availableBodyRows(),
-								)}
+								height={subagentHeight()}
+								minHeight={subagentHeight()}
 								flexShrink={1}
 								flexDirection="column"
-								{...(hasTodos() ? { height: subagentHeight() ?? 0 } : {})}
 							>
 								<box
 									height={1}
@@ -318,10 +427,60 @@ export function Sidebar(props: {
 							<box
 								id="todo-panel"
 								height={todoHeight()}
-								minHeight={Math.min(6, todoHeight())}
+								minHeight={todoHeight()}
 								flexShrink={1}
 							>
 								<TodoPanel todos={todos()} height={todoHeight()} />
+							</box>
+						</Show>
+						<Show when={hasNotifications() && notificationHeight() > 0}>
+							<box
+								id="notification-panel"
+								height={notificationHeight()}
+								minHeight={notificationHeight()}
+								flexShrink={1}
+								border={["top"]}
+								borderColor={colors.borderStrong}
+								paddingTop={1}
+							>
+								<text height={1} fg={colors.textBright} attributes={1}>
+									Notifications ({orderedNotifications().length})
+								</text>
+								<scrollbox
+									flexGrow={1}
+									minHeight={1}
+									scrollY
+									scrollX={false}
+									viewportCulling={true}
+								>
+									<For each={orderedNotifications()}>
+										{(record) => (
+											<box
+												height={1}
+												minHeight={1}
+												flexShrink={0}
+												paddingLeft={1}
+												border={["left"]}
+												borderColor={notificationToneColor(record.tone)}
+												onMouseDown={(event) => {
+													event.preventDefault();
+													event.stopPropagation();
+													props.onOpenNotification?.(record.id);
+												}}
+											>
+												<text
+													height={1}
+													width="100%"
+													fg={record.read ? colors.subtle : colors.text}
+													attributes={record.read ? 0 : 1}
+													wrapMode="none"
+												>
+													{clip(record.text)}
+												</text>
+											</box>
+										)}
+									</For>
+								</scrollbox>
 							</box>
 						</Show>
 					</>

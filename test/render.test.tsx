@@ -23,12 +23,14 @@ import {
 	normalizeModelChoices,
 } from "../src/ui/model-selector.tsx";
 import { PromptMapDialog } from "../src/ui/prompt-map.tsx";
-import { Sidebar } from "../src/ui/sidebar.tsx";
+import { allocateSidebarPanels, Sidebar } from "../src/ui/sidebar.tsx";
+import { NotificationDialog } from "../src/ui/notification-dialog.tsx";
 import { SubagentInspector } from "../src/ui/subagent-inspector.tsx";
 import { SubagentSelectorDialog } from "../src/ui/subagent-selector.tsx";
 import { subagentTargets } from "../src/subagents/targets.ts";
 import type {
 	ConversationItem,
+	NotificationRecord,
 	RpcSessionState,
 	SessionStats,
 	SubagentRun,
@@ -42,7 +44,12 @@ import {
 import { SessionSelector } from "../src/ui/session-selector.tsx";
 import { EmptyDashboard } from "../src/ui/empty-dashboard.tsx";
 import { Logo } from "../src/ui/logo.tsx";
-import { isUnmodifiedEnterKey, subagentInspectDecision } from "../src/app.tsx";
+import {
+	appendNotificationHistory,
+	isUnmodifiedEnterKey,
+	streamingCtrlCDecision,
+	subagentInspectDecision,
+} from "../src/app.tsx";
 import {
 	preserveEquivalentTodos,
 	preserveReferencedList,
@@ -864,6 +871,151 @@ describe("OpenTUI components", () => {
 		expect(frame).not.toContain("Ctrl+I inspect");
 	});
 
+	test("bounds notification history with oldest-first eviction", () => {
+		const records = Array.from({ length: 101 }, (_, index) => ({
+			id: `notification-${index}`,
+			text: `notification ${index}`,
+			tone: "info" as const,
+			createdAt: index,
+			read: false,
+		}));
+
+		const history = records.reduce<NotificationRecord[]>(
+			(current, record) => appendNotificationHistory(current, record),
+			[],
+		);
+
+		expect(history).toHaveLength(100);
+		expect(history[0]?.id).toBe("notification-1");
+		expect(history.at(-1)?.id).toBe("notification-100");
+	});
+
+	test("orders sidebar notifications unread-first and newest-first", async () => {
+		const records: NotificationRecord[] = [
+			{
+				id: "read-old",
+				text: "SEEN_EARLIER",
+				tone: "info",
+				createdAt: 1,
+				read: true,
+			},
+			{
+				id: "unread-old",
+				text: "PENDING_EARLIER",
+				tone: "warning",
+				createdAt: 2,
+				read: false,
+			},
+			{
+				id: "read-new",
+				text: "SEEN_LATEST",
+				tone: "success",
+				createdAt: 4,
+				read: true,
+			},
+			{
+				id: "unread-new",
+				text: "PENDING_LATEST",
+				tone: "error",
+				createdAt: 3,
+				read: false,
+			},
+		];
+		const setup = await mount(
+			() => (
+				<Sidebar
+					runs={[]}
+					subagentsAvailable={false}
+					todosAvailable={false}
+					notifications={records}
+					height={30}
+				/>
+			),
+			42,
+			30,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("Notifications (4)");
+		expect(frame.indexOf("PENDING_LATEST")).toBeLessThan(
+			frame.indexOf("PENDING_EARLIER"),
+		);
+		expect(frame.indexOf("PENDING_EARLIER")).toBeLessThan(
+			frame.indexOf("SEEN_LATEST"),
+		);
+		expect(frame.indexOf("SEEN_LATEST")).toBeLessThan(
+			frame.indexOf("SEEN_EARLIER"),
+		);
+	});
+
+	test("hides the notification panel when history is empty", async () => {
+		const setup = await mount(
+			() => (
+				<Sidebar
+					runs={[]}
+					subagentsAvailable={false}
+					todosAvailable={false}
+					notifications={[]}
+					height={30}
+				/>
+			),
+			42,
+			30,
+		);
+		expect(setup.captureCharFrame()).not.toContain("Notifications");
+		expect(
+			setup.renderer.root.findDescendantById("notification-panel"),
+		).toBeUndefined();
+	});
+
+	test("opens a full Markdown notification detail from a sidebar row", async () => {
+		const record: NotificationRecord = {
+			id: "markdown-notification",
+			text: "# FULL_TITLE\n\nParagraph **FULL_BOLD**\n\n```text\nFULL_CODE\n```",
+			tone: "info",
+			createdAt: 1,
+			read: false,
+		};
+		const [selected, setSelected] = createSignal<string>();
+		const setup = await mount(
+			() => (
+				<Sidebar
+					runs={[]}
+					subagentsAvailable={false}
+					todosAvailable={false}
+					notifications={[record]}
+					height={30}
+					onOpenNotification={setSelected}
+				/>
+			),
+			42,
+			30,
+		);
+		const before = setup.captureCharFrame();
+		const row = before
+			.split("\n")
+			.findIndex((line) => line.includes("FULL_TITLE"));
+		expect(row).toBeGreaterThanOrEqual(0);
+		await setup.mockMouse.click(
+			before.split("\n")[row]!.indexOf("FULL_TITLE") + 1,
+			row,
+		);
+		await setup.flush();
+		expect(selected()).toBe(record.id);
+
+		const dialog = await mount(
+			() => <NotificationDialog record={() => record} onClose={() => {}} />,
+			42,
+			30,
+		);
+		expect(dialog.captureCharFrame()).toContain("FULL_TITLE");
+		expect(dialog.captureCharFrame()).toContain("FULL_CODE");
+	});
+
+	test("chooses abort first and force-exit while an abort is pending", () => {
+		expect(streamingCtrlCDecision(false)).toBe("abort");
+		expect(streamingCtrlCDecision(true)).toBe("force-exit");
+	});
+
 	test("routes explicit Ctrl+I decisions without implicit target selection", () => {
 		expect(subagentInspectDecision(true, 2)).toBe("close");
 		expect(subagentInspectDecision(false, 0)).toBe("warning");
@@ -871,7 +1023,7 @@ describe("OpenTUI components", () => {
 		expect(subagentInspectDecision(false, 2)).toBe("choose");
 	});
 
-	test("reactively reallocates two rows when a target becomes inactive", async () => {
+	test("keeps panel allocations stable when a target becomes inactive", async () => {
 		const runningRun: SubagentRun = {
 			runId: "reactive-row",
 			asyncDir: "/tmp/reactive-row",
@@ -908,20 +1060,20 @@ describe("OpenTUI components", () => {
 		);
 		const row = setup.renderer.root.findDescendantById("subagent-reactive-row");
 		if (!row) throw new Error("reactive sidebar fixture missing");
-		const initialFrame = setup.captureCharFrame();
-		const initialTodosLine = initialFrame
-			.split("\n")
-			.findIndex((line) => line.includes("Todos"));
+		const subagentPanel =
+			setup.renderer.root.findDescendantById("subagent-panel");
+		const todoPanel = setup.renderer.root.findDescendantById("todo-panel");
+		if (!subagentPanel || !todoPanel) throw new Error("sidebar panels missing");
+		const initialSubagentHeight = subagentPanel.height;
+		const initialTodoHeight = todoPanel.height;
 		expect(row.height).toBe(3);
 
 		setRuns([{ ...runningRun, state: "completed" }]);
 		await setup.flush();
 		await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
 		const nextFrame = setup.captureCharFrame();
-		const nextTodosLine = nextFrame
-			.split("\n")
-			.findIndex((line) => line.includes("Todos"));
-		expect(nextTodosLine).toBe(initialTodosLine - 2);
+		expect(subagentPanel.height).toBe(initialSubagentHeight);
+		expect(todoPanel.height).toBe(initialTodoHeight);
 		expect(nextFrame).toContain("reactive-worker · completed");
 		expect(nextFrame).not.toContain("running · 0t/0 tools");
 		expect(nextFrame).not.toContain("Ctrl+Sh");
@@ -2292,6 +2444,58 @@ describe("runtime theme transitions", () => {
 		} finally {
 			controller.apply(effectiveTheme("PiTTy Midnight"));
 		}
+	});
+});
+
+describe("sidebar panel allocation", () => {
+	test("allocates all panels proportionally", () => {
+		expect(
+			allocateSidebarPanels(100, {
+				subagents: true,
+				todos: true,
+				notifications: true,
+			}),
+		).toEqual({ subagents: 50, todos: 30, notifications: 20 });
+	});
+	test("redistributes absent panel shares", () => {
+		expect(
+			allocateSidebarPanels(100, {
+				subagents: false,
+				todos: true,
+				notifications: true,
+			}),
+		).toEqual({ subagents: 0, todos: 60, notifications: 40 });
+		expect(
+			allocateSidebarPanels(100, {
+				subagents: true,
+				todos: false,
+				notifications: true,
+			}),
+		).toEqual({ subagents: 71, todos: 0, notifications: 29 });
+	});
+	test("keeps notifications no larger than higher-priority panels across available rows", () => {
+		for (let rows = 0; rows <= 100; rows++) {
+			const allocation = allocateSidebarPanels(rows, {
+				subagents: true,
+				todos: true,
+				notifications: true,
+			});
+			expect(allocation.notifications).toBeLessThanOrEqual(
+				allocation.subagents,
+			);
+			expect(allocation.notifications).toBeLessThanOrEqual(allocation.todos);
+			expect(
+				allocation.subagents + allocation.todos + allocation.notifications,
+			).toBe(rows);
+		}
+	});
+	test("never allocates more rows than a constrained sidebar owns", () => {
+		const allocation = allocateSidebarPanels(5, {
+			subagents: true,
+			todos: true,
+			notifications: true,
+		});
+		expect(allocation).toEqual({ subagents: 3, todos: 2, notifications: 0 });
 	});
 });
 

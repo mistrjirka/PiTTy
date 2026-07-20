@@ -275,12 +275,7 @@ export function subagentTargets(runs: readonly SubagentRun[], tools: readonly To
 
   const deduped = new Map<string, SubagentTarget>();
   for (const target of result) {
-    const sessionIdentity = target.sessionFile?.trim();
-    const identity = sessionIdentity ? `${target.stepIndex ?? "run"}:${sessionIdentity}` : undefined;
-    if (!identity) {
-      deduped.set(`${target.key}:unique`, target);
-      continue;
-    }
+    const identity = subagentTargetIdentity(target);
     const existing = deduped.get(identity);
     if (!existing || (target.active && !existing.active) ||
       (target.active === existing.active && (target.lastUpdate ?? target.startedAt ?? 0) > (existing.lastUpdate ?? existing.startedAt ?? 0))) {
@@ -328,6 +323,45 @@ export function reconcileSubagentSelection(
     if (matches.length === 1) return matches[0]?.key;
   }
   return nextTargets[0]?.key;
+}
+
+export function subagentTargetIdentity(target: SubagentTarget): string {
+  const sessionFile = target.sessionFile?.trim();
+  return sessionFile
+    ? `session:${target.stepIndex ?? "run"}:${sessionFile}`
+    : `key:${target.key}`;
+}
+
+export type OwnedSubagentTargets = ReadonlyMap<string, SubagentTarget[]>;
+
+export function ownedSubagentTargetsForItems(
+  items: readonly ToolItem[],
+  targets: readonly SubagentTarget[],
+): OwnedSubagentTargets {
+  const owners = new Map<string, string>();
+  const assigned = new Map<string, SubagentTarget[]>();
+  for (const item of items) {
+    for (const target of targetsForTool(item, targets)) {
+      const identity = subagentTargetIdentity(target);
+      const ownerId = owners.get(identity);
+      if (ownerId && ownerId !== item.id) {
+        const ownedTargets = assigned.get(ownerId);
+        const targetIndex = ownedTargets?.findIndex(
+          (candidate) => subagentTargetIdentity(candidate) === identity,
+        ) ?? -1;
+        if (ownedTargets && targetIndex >= 0) ownedTargets[targetIndex] = target;
+        continue;
+      }
+      if (!ownerId) owners.set(identity, item.id);
+      const owner = owners.get(identity) ?? item.id;
+      const ownedTargets = assigned.get(owner) ?? [];
+      if (!ownedTargets.some((candidate) => subagentTargetIdentity(candidate) === identity)) {
+        ownedTargets.push(target);
+      }
+      assigned.set(owner, ownedTargets);
+    }
+  }
+  return assigned;
 }
 
 export function targetsForTool(item: ToolItem, targets: readonly SubagentTarget[]): SubagentTarget[] {
