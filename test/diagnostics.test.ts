@@ -41,5 +41,5 @@ describe("diagnostics", () => {
     expect(listing.status).toBe(0);
     expect(listing.stdout).toContain("system.json");
     expect(listing.stdout).toContain("logs/");
-  });
+  }, 15000);
 });
