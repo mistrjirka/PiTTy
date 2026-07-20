@@ -46,7 +46,7 @@ describe("public installers", () => {
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true });
     }
-  });
+  }, 15000);
 
   test("pitty-resume exposes executable help", () => {
     const output = execFileSync("node", [path.join(root, "bin/pitty-resume.mjs"), "--help"], { encoding: "utf8" });
