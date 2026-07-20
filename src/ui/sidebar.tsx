@@ -174,7 +174,7 @@ export function Sidebar(props: {
                 minHeight={1}
                 scrollY
                 scrollX={false}
-                viewportCulling={false}
+                viewportCulling={true}
                 verticalScrollbarOptions={{ showArrows: false, trackOptions: { foregroundColor: colors.borderStrong, backgroundColor: colors.background } }}
                 onMouseScroll={(event) => {
                   event.preventDefault();

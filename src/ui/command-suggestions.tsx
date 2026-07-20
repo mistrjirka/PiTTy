@@ -105,7 +105,7 @@ export function CommandSuggestions(props: CommandSuggestionsProps) {
         focusable={false}
         scrollY
         scrollX={false}
-        viewportCulling={false}
+        viewportCulling={true}
         verticalScrollbarOptions={{ showArrows: false, trackOptions: { foregroundColor: colors.borderStrong, backgroundColor: colors.background } }}
         onSizeChange={scheduleEnsureSelectedVisible}
         onMouseScroll={(event) => {

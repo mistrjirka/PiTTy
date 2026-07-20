@@ -174,7 +174,9 @@ function toolTimeoutMs(args: unknown): number | undefined {
   const record = args as Record<string, unknown>;
   const raw = typeof record.timeoutMs === "number" ? record.timeoutMs : typeof record.timeout === "number" ? record.timeout : undefined;
   if (raw === undefined || !Number.isFinite(raw) || raw <= 0) return undefined;
-  return Math.floor(raw);
+  // If value is less than 1000, assume it's in seconds and convert to milliseconds
+  const ms = raw < 1000 ? raw * 1000 : raw;
+  return Math.floor(ms);
 }
 
 export function initialItems(messages: unknown[]): ConversationItem[] {
@@ -245,7 +247,7 @@ export class ConversationModel {
         this.isStreaming = true;
         return;
       case "agent_settled":
-      case "agent_end":
+      case "agent_end": {
         this.isStreaming = false;
         for (let index = 0; index < this.items.length; index++) {
           const item = this.items[index];
@@ -255,6 +257,7 @@ export class ConversationModel {
         }
         this.removeEmptyAssistantItems();
         return;
+      }
       case "queue_update": {
         const queue = event as unknown as { steering?: readonly string[]; followUp?: readonly string[] };
         this.steering = queue.steering ?? [];

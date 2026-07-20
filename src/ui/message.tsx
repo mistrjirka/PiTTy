@@ -420,7 +420,7 @@ export function MessageView(props: {
                       scrollX={false}
                       stickyScroll
                       stickyStart="bottom"
-                      viewportCulling={false}
+                      viewportCulling={true}
                       onMouseScroll={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -459,7 +459,7 @@ export function MessageView(props: {
                       minHeight={6}
                       scrollY
                       scrollX={false}
-                      viewportCulling={false}
+                      viewportCulling={true}
                       backgroundColor={colors.diffBg}
                       onMouseScroll={(event) => {
                         event.preventDefault();

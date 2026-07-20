@@ -109,7 +109,7 @@ export function McpSettings(props: McpSettingsProps) {
     }}>
       <box height={1} minHeight={1} flexShrink={0} flexDirection="row"><text fg={colors.textBright} attributes={1}>MCP servers</text><box flexGrow={1} /><text fg={colors.cyan} onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); if (view() === "form") closeForm(); else props.onBack(); }}>← {view() === "form" ? "Servers" : "Settings"}</text></box>
       <text fg={colors.subtle}>Standard config only; PiTTy never invokes /mcp or /mcp setup.</text>
-      <scrollbox flexGrow={1} minHeight={1} scrollY viewportCulling={false}>
+      <scrollbox flexGrow={1} minHeight={1} scrollY viewportCulling={true}>
       {props.adapterState() === "missing" ? <text fg={colors.yellow}>pi-mcp-adapter is missing. Configured commands execute with your user permissions.</text> : null}
       {props.adapterState() === "installing" ? <text fg={colors.muted}>Installing pi-mcp-adapter…</text> : null}
       {props.adapterState() === "install-failed" ? <text fg={colors.red}>Install failed; PiTTy remains usable. Check the retained install log and retry.</text> : null}

@@ -207,7 +207,7 @@ export function TodoPanel(props: { todos: TodoViewItem[]; height: number }) {
           minHeight={Math.min(3, Math.max(0, props.height - 2))}
           scrollY
           scrollX={false}
-          viewportCulling={false}
+          viewportCulling={true}
           verticalScrollbarOptions={{ showArrows: false, trackOptions: { foregroundColor: colors.borderStrong, backgroundColor: colors.background } }}
           onMouseScroll={(event) => {
             event.preventDefault();

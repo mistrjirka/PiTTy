@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.5.2
+
+### Performance Optimizations
+
+**Viewport Culling Enabled Across All Scrollboxes**
+
+- Enabled `viewportCulling={true}` on all scrollbox components, reducing render overhead for long conversations
+- Affected components: main chat view, message tool outputs, todo panel, command suggestions, MCP settings, sidebar, subagent inspector, pending input panel
+- OpenTUI's viewport culling now skips rendering offscreen children while maintaining layout calculations
+- Verified compatibility with `scrollChildIntoView`, `stickyScroll`, and text selection for visible items
+
+**Streaming and Conversation Model Improvements**
+
+- Fixed working indicator gap: the "Working..." indicator now correctly shows when transitioning from assistant text output to tool calls
+  - Previously, the indicator would disappear between message completion and tool execution start
+  - Now checks `last.status === "streaming"` instead of checking for text content presence
+- Fixed tool timeout display: timeouts are now correctly displayed in seconds instead of milliseconds
+  - Tool arguments with `timeout: 30` (30 seconds) now display as "timeout 30s" instead of "timeout 30ms"
+  - Added automatic conversion from seconds to milliseconds for values < 1000
+
+### UX Improvements
+
+**Command Execution Fix**
+
+- Pressing Enter on a complete command (e.g., "/help ") now executes it immediately instead of just selecting it from the suggestion list
+- Previously required pressing Enter twice: once to select, once to execute
+- Now detects complete commands (starting with "/" and containing a space) and executes them directly
+
+**OpenCode-Style Keyboard Shortcuts**
+
+- Added Ctrl+Left/Right shortcuts for cycling through subagents (in addition to existing F6/Shift+F6)
+  - Ctrl+Right: cycle to next subagent
+  - Ctrl+Left: cycle to previous subagent
+- Provides more intuitive keyboard navigation for managing multiple subagents
+
+### Testing
+
+- All 187 tests passing (2 pre-existing installer test failures unrelated to these changes)
+- Test suite requires `--conditions=browser` flag for correct SolidJS browser build (already configured in package.json scripts)
+
 ## 0.5.1
 
 - Check for new stable releases hourly instead of daily, so recently published upgrades are discovered sooner.

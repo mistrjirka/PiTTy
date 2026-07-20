@@ -137,7 +137,7 @@ export function SubagentInspector(props: {
         scrollX={false}
         stickyScroll
         stickyStart="bottom"
-        viewportCulling={false}
+        viewportCulling={true}
         verticalScrollbarOptions={{ showArrows: false }}
       >
         <Show when={props.items.length === 0}>

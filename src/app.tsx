@@ -384,7 +384,7 @@ export function App(props: AppOptions) {
   const showWorkingIndicator = createMemo(() => {
     if (!streaming()) return false;
     const last = items().at(-1);
-    if (last?.kind === "assistant" && (last.thinking.trim() || last.text.trim())) return false;
+    if (last?.kind === "assistant" && last.status === "streaming") return false;
     if (last?.kind === "tool" && (last.status === "streaming" || last.status === "pending")) return false;
     return true;
   });
@@ -1441,6 +1441,12 @@ export function App(props: AppOptions) {
         return;
       }
       if (isUnmodifiedEnterKey(event)) {
+        const currentText = prompt?.plainText.trim() ?? "";
+        const isCompleteCommand = currentText.startsWith("/") && currentText.includes(" ");
+        if (isCompleteCommand) {
+          // Let the normal submit flow handle it
+          return false;
+        }
         event.preventDefault();
         event.stopPropagation();
         const command = selectCommandChoice(suggestions, commandSuggestionIndex());
@@ -1642,6 +1648,18 @@ export function App(props: AppOptions) {
       cycleSubagent(event.shift ? -1 : 1);
       return;
     }
+    if (event.name === "left" && event.ctrl) {
+      event.preventDefault();
+      event.stopPropagation();
+      cycleSubagent(-1);
+      return;
+    }
+    if (event.name === "right" && event.ctrl) {
+      event.preventDefault();
+      event.stopPropagation();
+      cycleSubagent(1);
+      return;
+    }
     if (event.name === "escape" && inspectSubagent()) {
       event.preventDefault();
       event.stopPropagation();
@@ -1700,7 +1718,7 @@ export function App(props: AppOptions) {
               scrollX={false}
               stickyScroll
               stickyStart="bottom"
-              viewportCulling={false}
+              viewportCulling={true}
               paddingLeft={2}
               paddingRight={2}
               verticalScrollbarOptions={{
