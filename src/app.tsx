@@ -92,6 +92,29 @@ export function settingsBackRoute(route: SettingsRoute): SettingsRoute {
 
 export type SubagentInspectDecision = "close" | "warning" | "direct" | "choose";
 
+export type SubagentNavigationAction = "inspect" | "previous" | "next" | "main";
+export type SubagentKeyModifiers = {
+  ctrl?: boolean;
+  meta?: boolean;
+  option?: boolean;
+  shift?: boolean;
+  super?: boolean;
+};
+
+export function subagentNavigationAction(
+  inspectorOpen: boolean,
+  name: string,
+  modifiers: SubagentKeyModifiers = {},
+): SubagentNavigationAction | undefined {
+  if (inspectorOpen) {
+    if (name === "left") return "previous";
+    if (name === "right") return "next";
+    if (name === "up") return "main";
+    return undefined;
+  }
+  return name === "down" && modifiers.ctrl ? "inspect" : undefined;
+}
+
 export function subagentInspectDecision(inspectorOpen: boolean, targetCount: number): SubagentInspectDecision {
   if (inspectorOpen) return "close";
   if (targetCount === 0) return "warning";
@@ -227,10 +250,15 @@ function isThinkingLevel(value: string): value is ThinkingLevel {
   return THINKING_LEVELS.some((level) => level === value);
 }
 
-export function globalFooterHint(width: number, inspectorOpen: boolean): string {
-  if (inspectorOpen) return "f6 next  click agent  esc main chat";
-  if (width < 110) return "ctrl+x settings  ctrl+s sidebar  ctrl+p models";
-  return "ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort  ctrl+i inspect  f6 next  alt+enter queue  ctrl+o details";
+export function globalFooterHint(width: number, inspectorOpen: boolean, targetCount = 0): string {
+  if (inspectorOpen) {
+    const switchHint = targetCount > 1 ? "←/→ or ctrl+←/→ switch  " : "";
+    return `${switchHint}↑/ctrl+↑ main chat  esc/ctrl+i close`;
+  }
+  const targetHint = targetCount > 0 ? `  ctrl+down inspect${targetCount > 1 ? "  ctrl+←/→ cycle" : ""}` : "";
+  const inspectHint = targetCount > 0 ? `  ctrl+i inspect${targetHint}` : "";
+  if (width < 110) return `ctrl+x settings  ctrl+s sidebar  ctrl+p models${targetHint}`;
+  return `ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}  alt+enter queue  ctrl+o details`;
 }
 
 export function shouldShowEmptyDashboard(renderedItemCount: number): boolean {
@@ -312,7 +340,6 @@ export function App(props: AppOptions) {
   let lastCtrlC = 0;
   let dispatchGate: DispatchGate = { inFlight: false, suppressNextSettled: false };
 
-  const activeRunState = (state: string): boolean => ["pending", "running", "queued", "active", "working"].includes(state);
   const reconcileSteers = (nextRuns: readonly SubagentRun[]) => {
     const nextTargets = subagentTargets(nextRuns, subagentTools());
     setPendingSteers((entries) => reconcilePendingSteers(entries, nextTargets.map((target) => ({
@@ -395,7 +422,6 @@ export function App(props: AppOptions) {
   const selectedSubagentTarget = createMemo(() =>
     availableSubagentTargets().find((target) => target.key === selectedTargetKey()) ?? availableSubagentTargets()[0],
   );
-  const selectedSubagent = createMemo(() => selectedSubagentTarget()?.run);
   const inspectedTranscript = createMemo(() => {
     const target = selectedSubagentTarget();
     return inspectSubagent() && target ? readSubagentConversation(target.run, 160, target.stepIndex) : [];
@@ -1424,7 +1450,7 @@ export function App(props: AppOptions) {
     }
     const suggestions = commandSuggestions();
     if (suggestions.length && !inspectSubagent()) {
-      if (event.name === "up" || event.name === "down") {
+      if (!event.ctrl && !event.meta && !event.shift && !event.option && !event.super && !hasAlt(event) && (event.name === "up" || event.name === "down")) {
         event.preventDefault();
         event.stopPropagation();
         setCommandSuggestionIndex((current) => {
@@ -1466,6 +1492,29 @@ export function App(props: AppOptions) {
       restoreQueuedFollowUp();
       return;
     }
+    const navigation = subagentNavigationAction(inspectSubagent(), event.name, event);
+    if (navigation) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (navigation === "previous") cycleSubagent(-1);
+      else if (navigation === "next") cycleSubagent(1);
+      else if (navigation === "main") closeSubagentInspector();
+      else {
+        const targets = availableSubagentTargets();
+        if (!subagentsAvailable()) toast("Install pi-subagents to inspect and steer child agents", "info", 5000);
+        else if (targets.length === 0) toast("No subagent selected", "warning");
+        else if (targets.length > 1) setSubagentSelectorOpen(true);
+        else {
+          const target = targets[0];
+          if (target) {
+            setSelectedTargetKey(target.key);
+            setInspectSubagent(true);
+            queueMicrotask(() => subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER));
+          }
+        }
+      }
+      return;
+    }
     if (event.ctrl && event.name === "c") {
       event.preventDefault();
       event.stopPropagation();
@@ -1492,7 +1541,7 @@ export function App(props: AppOptions) {
       }
       return;
     }
-    if (!inspectSubagent() && (event.name === "up" || event.name === "down") && (prompt?.lineCount ?? 1) === 1) {
+    if (!inspectSubagent() && !event.ctrl && !event.meta && !event.shift && !event.option && !event.super && !hasAlt(event) && (event.name === "up" || event.name === "down") && (prompt?.lineCount ?? 1) === 1) {
       const result = promptHistory.browse(prompt?.plainText ?? "", event.name === "up" ? "older" : "newer");
       if (result.handled) {
         event.preventDefault();
@@ -1693,6 +1742,7 @@ export function App(props: AppOptions) {
                 scrollRef={(value) => { subagentScroll = value; }}
                 onClose={closeSubagentInspector}
                 onChooseTarget={() => setSubagentSelectorOpen(true)}
+                targetCount={availableSubagentTargets().length}
                 draft={() => currentDrafts().subagents.get(target().key) ?? ""}
                 onDraftChange={(text) => {
                   currentDrafts().subagents.set(target().key, text);
@@ -1718,7 +1768,7 @@ export function App(props: AppOptions) {
               scrollX={false}
               stickyScroll
               stickyStart="bottom"
-              viewportCulling={true}
+              viewportCulling={false}
               paddingLeft={2}
               paddingRight={2}
               verticalScrollbarOptions={{
@@ -1913,7 +1963,7 @@ export function App(props: AppOptions) {
       <box height={1} flexDirection="row" paddingLeft={1} paddingRight={1} backgroundColor={colors.background}>
         <text fg={streaming() ? colors.green : colors.muted}>● {status()}</text>
         <box flexGrow={1} />
-        <text fg={colors.subtle}>{globalFooterHint(dimensions().width, inspectSubagent())}</text>
+        <text fg={colors.subtle}>{globalFooterHint(dimensions().width, inspectSubagent(), availableSubagentTargets().length)}</text>
       </box>
       <For each={toasts()}>
         {(entry, index) => (

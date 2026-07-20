@@ -16,7 +16,7 @@ import { CommandSuggestions, filterCommandChoices, selectCommandChoice } from ".
 import { SessionSelector } from "../src/ui/session-selector.tsx";
 import { EmptyDashboard } from "../src/ui/empty-dashboard.tsx";
 import { Logo } from "../src/ui/logo.tsx";
-import { isUnmodifiedEnterKey, shouldShowEmptyDashboard, subagentInspectDecision } from "../src/app.tsx";
+import { isUnmodifiedEnterKey, subagentInspectDecision } from "../src/app.tsx";
 import { preserveEquivalentTodos, preserveReferencedList } from "../src/ui/list-stability.ts";
 import type { SessionChoice, SessionDiscoveryState } from "../src/sessions.ts";
 import { deriveTodos, type TodoViewItem } from "../src/ui/todos.tsx";
@@ -535,6 +535,8 @@ describe("OpenTUI components", () => {
     await transition.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
     const finalAnswer = transition.renderer.root.findDescendantById("stream-transition-answer");
     if (!finalAnswer) throw new Error("final answer wrapper missing");
+    const finalMarkdown = transition.renderer.root.findDescendantById("stream-transition-answer-markdown") as MarkdownRenderable | undefined;
+    expect(finalMarkdown?.streaming).toBe(false);
     expect({ x: finalAnswer.screenX, width: finalAnswer.width }).toEqual(initial);
     expect(transition.captureCharFrame()).toContain("FINAL_MARKDOWN");
     expect(transition.captureCharFrame()).not.toContain("STREAMED_PARTIAL");
@@ -1191,7 +1193,7 @@ describe("duration and sidebar repaint regressions", () => {
       return (
         <scrollbox ref={(value) => { transcriptScroll = value; }} width="100%" height="100%">
           <For each={ids()}>
-            {(id) => {
+            {(_id) => {
               return <MessageView item={renderedItem} showThinking thinkingExpanded toolExpanded={false} />;
             }}
           </For>

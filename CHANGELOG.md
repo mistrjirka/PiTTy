@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.3
+
+### Rendering Stability
+
+- Fixed Markdown content above a live response intermittently blinking or disappearing in long conversations.
+- Disabled viewport culling only for the live main conversation, avoiding stale geometry while streaming messages change height.
+- Finalized completed Markdown after its first rendered frame while preserving immediate streaming text fallback.
+
+### Subagent Navigation
+
+- Added OpenCode-style Ctrl+Down inspection and arrow-key navigation inside the subagent inspector.
+- Added Ctrl+Left/Right cycling and Ctrl+Up return-to-chat aliases.
+- Updated footer, sidebar, and inspector hints to show only relevant controls for the available targets.
+
+### Testing
+
+- Added regression coverage for Markdown finalization, navigation shortcuts, and target-count hints.
+
 ## 0.5.2
 
 ### Performance Optimizations

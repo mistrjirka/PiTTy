@@ -180,6 +180,13 @@ export function MessageView(props: {
     if (finalAnswer) finalAnswer.syntaxStyle = getMarkdownStyle();
   });
 
+  const finalizeMarkdownAfterRender = function (this: MarkdownRenderable) {
+    if (assistantStatus() === "streaming" || !this.streaming) return;
+    queueMicrotask(() => {
+      if (!this.isDestroyed && assistantStatus() !== "streaming") this.streaming = false;
+    });
+  };
+
   createEffect(() => {
     const value = currentItem();
     if (value.kind !== "assistant") return;
@@ -201,6 +208,7 @@ export function MessageView(props: {
       thinkingPreview.visible = !expanded;
     }
     if (thinkingMarkdown) {
+      if (!thinkingMarkdown.streaming) thinkingMarkdown.streaming = true;
       thinkingMarkdown.content = thought;
       thinkingMarkdown.visible = expanded;
     }
@@ -214,7 +222,10 @@ export function MessageView(props: {
     if (finalAnswer) {
       const final = value.status !== "streaming";
       finalAnswer.visible = final;
-      if (final) finalAnswer.content = response || "▍";
+      if (final) {
+        if (!finalAnswer.streaming) finalAnswer.streaming = true;
+        finalAnswer.content = response || "▍";
+      }
     }
   });
 
@@ -286,6 +297,7 @@ export function MessageView(props: {
               fg={colors.muted}
               conceal
               streaming
+              renderAfter={finalizeMarkdownAfterRender}
               tableOptions={{ style: "columns", wrapMode: "word", selectable: true }}
             />
           </box>
@@ -312,6 +324,7 @@ export function MessageView(props: {
               fg={colors.textBright}
               conceal
               streaming
+              renderAfter={finalizeMarkdownAfterRender}
               tableOptions={{ style: "columns", wrapMode: "word", selectable: true }}
             />
           </box>

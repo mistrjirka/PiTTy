@@ -166,7 +166,9 @@ export function Sidebar(props: {
               <box height={1} minHeight={1} flexShrink={0} flexDirection="row">
                 <text fg={colors.textBright} attributes={1}>Subagents ({active().length} active)</text>
                 <box flexGrow={1} />
-                <text fg={colors.subtle}>Ctrl+I · F6</text>
+                <Show when={targets().length > 0}>
+                  <text fg={colors.subtle}>Ctrl+I · Ctrl+Down inspect{targets().length > 1 ? " · Ctrl+←/→ cycle" : ""}</text>
+                </Show>
               </box>
               <scrollbox
                 id="subagent-scroll"

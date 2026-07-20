@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { MouseEvent, type SelectRenderable, type TextareaRenderable } from "@opentui/core";
+import type { SelectRenderable, TextareaRenderable } from "@opentui/core";
 import type { TestRendererSetup } from "@opentui/core/testing";
 import { testRender } from "@opentui/solid";
 import { createSignal, type JSX } from "solid-js";
-import { globalFooterHint, settingsBackRoute } from "../src/app.tsx";
+import { globalFooterHint, settingsBackRoute, subagentNavigationAction } from "../src/app.tsx";
 import { SessionRename, SessionSettings } from "../src/ui/session-settings.tsx";
 import { SettingsHub, type SettingsSectionDescriptor } from "../src/ui/settings-hub.tsx";
 import { ThinkingSelector } from "../src/ui/thinking-selector.tsx";
@@ -426,6 +426,17 @@ describe("Settings components", () => {
   test("footer keeps Settings readable at supported and constrained widths", () => {
     expect(globalFooterHint(104, false)).toBe("ctrl+x settings  ctrl+s sidebar  ctrl+p models");
     expect(globalFooterHint(80, false).length).toBeLessThan(60);
-    expect(globalFooterHint(104, true)).toContain("esc main chat");
+    expect(globalFooterHint(104, true)).toContain("main chat");
+    expect(globalFooterHint(104, false, 2)).toContain("ctrl+down inspect");
+    expect(globalFooterHint(104, false, 1)).not.toContain("ctrl+←/→ cycle");
+  });
+
+  test("maps OpenCode-style subagent navigation shortcuts", () => {
+    expect(subagentNavigationAction(false, "down", { ctrl: true })).toBe("inspect");
+    expect(subagentNavigationAction(true, "left")).toBe("previous");
+    expect(subagentNavigationAction(true, "right", { ctrl: true })).toBe("next");
+    expect(subagentNavigationAction(true, "up")).toBe("main");
+    expect(subagentNavigationAction(true, "up", { ctrl: true })).toBe("main");
+    expect(subagentNavigationAction(false, "down")).toBeUndefined();
   });
 });

@@ -16,6 +16,7 @@ export function SubagentInspector(props: {
   scrollRef?: (value: ScrollBoxRenderable) => void;
   onClose?: () => void;
   onChooseTarget?: () => void;
+  targetCount?: number;
   draft?: (() => string) | undefined;
   onDraftChange?: (message: string) => void;
   onSteer?: (message: string) => void;
@@ -98,7 +99,7 @@ export function SubagentInspector(props: {
           >← Main chat</text>
         </box>
         <text height={1} minHeight={1} flexShrink={0} wrapMode="none" fg={colors.subtle}>
-          Click the agent name to switch · Esc / Ctrl+I close · F6 next
+          {props.targetCount && props.targetCount > 1 ? "←/→ or Ctrl+←/→ switch · " : ""}↑/Ctrl+↑ main chat · Esc / Ctrl+I close
         </text>
         <Show when={target().active && target().canSteer && Boolean(run().asyncDir) && run().control !== "foreground" && run().state === "running"}>
           <text height={1} fg={colors.yellow} wrapMode="none">Ctrl+A pause · Ctrl+Shift+A stop</text>
