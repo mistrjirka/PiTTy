@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.5
+
+### Mouse Selection for Model Selector
+
+- OpenTUI Select has no built-in mouse handling. Clicking a model row now maps the pointer Y coordinate (including scrollOffset for scrolled lists) to the visible option index and selects it immediately, matching the same pattern as the thinking-level and settings selectors.
+- The panel overlay no longer steals keyboard focus back to the list when you click the search box. The focus-fix handler now stops propagation so both the search and select retain correct cursor placement.
+
+### Persistent Working Indicator
+
+- The Working indicator now stays visible for the entire agent turn, including while the model is streaming thinking content or calling tools. Previously its visibility was gated on the last conversation item not being a "streaming" assistant or tool — so it vanished exactly when users expect to see it.
+- Internally the production simplification is `showWorkingIndicator = streaming`; the old heuristic with three conditions and explicit streaming-item exclusions is removed.
+
+### Regression Coverage
+
+- Added a mouse-click test that renders the model selector, finds the target row in the character frame, clicks its coordinate, and verifies `onSelect` fires with the correct model.
+
 ## 0.5.4
 
 ### Notification History and Investigation
