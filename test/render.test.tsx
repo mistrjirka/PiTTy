@@ -394,6 +394,35 @@ describe("OpenTUI components", () => {
 		expect(cancelled).toBe(1);
 	});
 
+	test("model selector selects a row on mouse click", async () => {
+		const models = [
+			{ provider: "openai", id: "alpha", name: "Alpha" },
+			{ provider: "anthropic", id: "beta", name: "Beta" },
+		];
+		let selectedModel: string | undefined;
+		const setup = await mount(() => (
+			<ModelSelectorDialog
+				models={models}
+				onSelect={(model) => {
+					selectedModel = model.id;
+				}}
+				onCancel={() => {}}
+			/>
+		));
+		await setup.flush();
+		const frame = setup.captureCharFrame();
+		const y = frame
+			.split("\n")
+			.findIndex((line) => line.includes("anthropic/beta"));
+		expect(y).toBeGreaterThanOrEqual(0);
+		await setup.mockMouse.click(
+			Math.max(0, frame.split("\n")[y]!.indexOf("anthropic/beta")),
+			y,
+		);
+		await setup.flush();
+		expect(selectedModel).toBe("beta");
+	});
+
 	test("session selector confirms and declines pending streaming switches", async () => {
 		const choice: SessionChoice = {
 			path: "/tmp/pending",

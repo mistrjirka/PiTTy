@@ -684,17 +684,10 @@ export function App(props: AppOptions) {
 		revision();
 		return conversation.isStreaming;
 	});
-	const showWorkingIndicator = createMemo(() => {
-		if (!streaming()) return false;
-		const last = items().at(-1);
-		if (last?.kind === "assistant" && last.status === "streaming") return false;
-		if (
-			last?.kind === "tool" &&
-			(last.status === "streaming" || last.status === "pending")
-		)
-			return false;
-		return true;
-	});
+	// Show for the whole agent turn — including thinking streams and tool
+	// calls. Hiding while the latest item is "active" made Working disappear
+	// exactly when users expect it.
+	const showWorkingIndicator = streaming;
 	const subagentTools = createMemo<ToolItem[]>((previous) =>
 		preserveReferencedList(
 			previous,
