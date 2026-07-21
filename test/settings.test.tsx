@@ -13,7 +13,10 @@ import {
 	SettingsHub,
 	type SettingsSectionDescriptor,
 } from "../src/ui/settings-hub.tsx";
-import { ThinkingSelector } from "../src/ui/thinking-selector.tsx";
+import {
+	ThinkingSelector,
+	visibleThinkingLevels,
+} from "../src/ui/thinking-selector.tsx";
 import {
 	filterThemeTokens,
 	ThemePresetBrowser,
@@ -235,6 +238,54 @@ describe("Settings components", () => {
 		expect(settingsBackRoute("session-rename")).toBe("session");
 		expect(settingsBackRoute("theme")).toBe("root");
 		expect(settingsBackRoute("theme-editor")).toBe("theme");
+	});
+
+	test("visibleThinkingLevels filters unsupported efforts from the model map", () => {
+		// GLM-style model that only exposes high and max.
+		const glmMap = {
+			minimal: null,
+			low: null,
+			medium: null,
+			high: "high",
+			xhigh: null,
+			max: "max",
+		};
+		expect(visibleThinkingLevels(true, glmMap)).toEqual(["high", "max"]);
+		// A model that disables reasoning exposes no levels.
+		expect(visibleThinkingLevels(false, glmMap)).toEqual([]);
+		// Without a map, standard levels through high are offered and extended
+		// levels stay hidden until a non-null map entry opt-in.
+		expect(visibleThinkingLevels(true, undefined)).toEqual([
+			"minimal",
+			"low",
+			"medium",
+			"high",
+		]);
+		// Undefined reasoning is treated like a reasoning-capable model without a map.
+		expect(visibleThinkingLevels(undefined, undefined)).toEqual([
+			"minimal",
+			"low",
+			"medium",
+			"high",
+		]);
+		// An empty map behaves like undefined: standard levels shown, extended hidden.
+		expect(visibleThinkingLevels(true, {})).toEqual([
+			"minimal",
+			"low",
+			"medium",
+			"high",
+		]);
+		// Omitted standard levels fall back to the provider default (still shown);
+		// only an explicit null hides them. xhigh/max stay hidden unless given a
+		// non-null entry, so xhigh is skipped while high and max appear.
+		const holeyMap = { high: "high", max: "max" };
+		expect(visibleThinkingLevels(true, holeyMap)).toEqual([
+			"minimal",
+			"low",
+			"medium",
+			"high",
+			"max",
+		]);
 	});
 
 	test("thinking effort supports keyboard and mouse selection", async () => {

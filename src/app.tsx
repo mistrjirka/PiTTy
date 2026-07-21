@@ -101,7 +101,12 @@ import {
 } from "./ui/theme.ts";
 import { commitThemeDocument } from "./ui/theme-transaction.ts";
 import type { ThemePresetName } from "./ui/theme-presets.ts";
-import { ThinkingSelector, THINKING_LEVELS } from "./ui/thinking-selector.tsx";
+import {
+	ThinkingSelector,
+	THINKING_LEVELS,
+	visibleThinkingLevels,
+	type ThinkingLevelMap,
+} from "./ui/thinking-selector.tsx";
 import { SessionSettings, SessionRename } from "./ui/session-settings.tsx";
 import type { ThinkingLevel } from "./rpc/pi-rpc-client.ts";
 import { EmptyDashboard } from "./ui/empty-dashboard.tsx";
@@ -3083,6 +3088,11 @@ export function App(props: AppOptions) {
 				<ThinkingSelector
 					current={THINKING_LEVELS.find(
 						(level) => level === sessionState()?.thinkingLevel,
+					)}
+					levels={visibleThinkingLevels(
+						sessionState()?.model?.reasoning,
+						sessionState()?.model
+							?.thinkingLevelMap as ThinkingLevelMap | undefined,
 					)}
 					busy={settingsBusy() === "thinking"}
 					{...(settingsErrors().thinking

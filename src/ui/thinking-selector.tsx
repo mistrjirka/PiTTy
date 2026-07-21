@@ -1,5 +1,5 @@
 import type { SelectRenderable, TextRenderable } from "@opentui/core";
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal } from "solid-js";
 import type { ThinkingLevel } from "../rpc/pi-rpc-client.ts";
 import { colors } from "./theme.ts";
 
@@ -11,8 +11,38 @@ export const THINKING_LEVELS: ThinkingLevel[] = [
   "xhigh",
   "max",
 ];
+
+// Extended levels require an explicit non-null thinkingLevelMap entry to be
+// offered; standard levels through `high` are supported by provider default
+// when the map omits them.
+const EXTENDED_THINKING_LEVELS: ReadonlySet<ThinkingLevel> = new Set([
+  "xhigh",
+  "max",
+]);
+
+export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
+
+export function visibleThinkingLevels(
+  reasoning: boolean | undefined,
+  map: ThinkingLevelMap | undefined,
+): ThinkingLevel[] {
+  if (reasoning === false) return [];
+  if (!map) {
+    return THINKING_LEVELS.filter(
+      (level) => !EXTENDED_THINKING_LEVELS.has(level),
+    );
+  }
+  return THINKING_LEVELS.filter((level) => {
+    const entry = map[level];
+    if (entry === null) return false;
+    if (entry !== undefined) return true;
+    return !EXTENDED_THINKING_LEVELS.has(level);
+  });
+}
+
 export function ThinkingSelector(props: {
   current: ThinkingLevel | undefined;
+  levels?: ThinkingLevel[];
   busy?: boolean;
   error?: string;
   onSelect: (level: ThinkingLevel) => void;
@@ -20,15 +50,23 @@ export function ThinkingSelector(props: {
 }) {
   let select: SelectRenderable | undefined;
   let status: TextRenderable | undefined;
+  const levels = createMemo(() =>
+    props.levels && props.levels.length > 0 ? props.levels : THINKING_LEVELS,
+  );
   const [index, setIndex] = createSignal(
-    Math.max(0, THINKING_LEVELS.indexOf(props.current ?? "medium")),
+    Math.max(0, levels().indexOf(props.current ?? "medium")),
   );
   const resolve = (value: unknown): ThinkingLevel | undefined =>
-    THINKING_LEVELS.find((level) => level === value);
+    levels().find((level) => level === value);
   createEffect(() => {
-    setIndex(Math.max(0, THINKING_LEVELS.indexOf(props.current ?? "medium")));
+    setIndex(Math.max(0, levels().indexOf(props.current ?? "medium")));
   });
   createEffect(() => {
+    if (select) select.options = levels().map((level) => ({
+      name: level,
+      description: "",
+      value: level,
+    }));
     if (select) select.selectedIndex = index();
     if (status)
       status.content = props.busy
@@ -37,7 +75,7 @@ export function ThinkingSelector(props: {
   });
   const choose = (level: ThinkingLevel | undefined) => {
     if (level && !props.busy) {
-      setIndex(THINKING_LEVELS.indexOf(level));
+      setIndex(levels().indexOf(level));
       props.onSelect(level);
     }
   };
@@ -79,7 +117,7 @@ export function ThinkingSelector(props: {
         ref={(value) => {
           select = value;
         }}
-        options={THINKING_LEVELS.map((level) => ({
+        options={levels().map((level) => ({
           name: level,
           description: "",
           value: level,
@@ -95,7 +133,7 @@ export function ThinkingSelector(props: {
         selectedTextColor={colors.textBright}
         onMouseDown={(event) => {
           if (!select) return;
-          const level = THINKING_LEVELS[Math.floor((event.y - select.screenY) / 2)];
+          const level = levels()[Math.floor((event.y - select.screenY) / 2)];
           if (!level) return;
           event.preventDefault();
           event.stopPropagation();

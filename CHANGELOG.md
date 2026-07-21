@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.6
+
+### Subagent Ownership for Parallel Spawns
+
+- Subagent lists now render under the tool call that actually spawned them, not an earlier unrelated subagent tool call. A two-pass owner algorithm assigns runs by explicit `runId`/`toolCallId` first, then falls back to a global nearest-match within a 30-second window, 1:1, so a later parallel spawn no longer attaches its children to an earlier subagent call.
+- Runs outside the window or with no unambiguous closest call stay hidden instead of attaching to the wrong tool call.
+
+### Thinking Effort Filtering by Model Capability
+
+- The Ctrl+X thinking effort selector now shows only the levels the current model supports, using the model's `thinkingLevelMap`. `null` entries hide unsupported levels, and `xhigh`/`max` require explicit opt-in.
+- A model exposing only `high` and `max` (e.g. GLM) no longer shows `minimal` and `low`.
+
+### Model Selector Full-Height List
+
+- The Ctrl+P model selector list now fills the available modal height and keeps the scroll indicator visible when options overflow, instead of using a fixed half-height with no continuation indication.
+
+### Prompt Shift+Enter and Auto-Expand
+
+- Shift+Enter inserts a newline in the prompt and the prompt auto-expands to the text height within its min/max bounds. The key bindings and auto-grow configuration were already in place; this release documents and validates the behavior.
+
+### Regression Coverage
+
+- Added tests for nearest-match ownership (parallel spawn, outside-window drop, non-subagent tool call), and for `visibleThinkingLevels` across reasoning-disabled, mapless, holey, and empty-map cases.
+
 ## 0.5.5
 
 ### Mouse Selection for Model Selector

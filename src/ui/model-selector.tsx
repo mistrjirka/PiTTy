@@ -228,7 +228,8 @@ export function ModelSelectorDialog(props: {
 						options={options()}
 						selectedIndex={selectedIndex()}
 						focused={focus.focusTarget() === "list"}
-						height={Math.min(22, Math.max(5, options().length * 2))}
+						flexGrow={1}
+						minHeight={5}
 						backgroundColor={colors.panelRaised}
 						focusedBackgroundColor={colors.panelRaised}
 						textColor={colors.text}
@@ -246,11 +247,11 @@ export function ModelSelectorDialog(props: {
 							event.stopPropagation();
 							focus.focusList();
 							const scrollOffset =
-								(select as unknown as { scrollOffset?: number })
-									.scrollOffset ?? 0;
+								(select as unknown as { scrollOffset?: number }).scrollOffset ??
+								0;
 							const linesPerItem =
-								(select as unknown as { linesPerItem?: number })
-									.linesPerItem ?? 2;
+								(select as unknown as { linesPerItem?: number }).linesPerItem ??
+								2;
 							const visibleIndex = Math.floor(
 								(event.y - select.screenY) / Math.max(1, linesPerItem),
 							);
