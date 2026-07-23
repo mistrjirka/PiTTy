@@ -140,12 +140,26 @@ function notificationToneColor(tone: NotificationRecord["tone"]): string {
 	return colors.borderStrong;
 }
 
+function notificationToneIcon(tone: NotificationRecord["tone"]): string {
+	if (tone === "error") return "❌";
+	if (tone === "warning") return "⚠️";
+	if (tone === "success") return "✅";
+	return "🔔";
+}
+
 function stateColor(state: string): string {
 	if (["running", "active", "working"].includes(state)) return colors.green;
 	if (["queued", "paused", "needs_attention"].includes(state))
 		return colors.yellow;
 	if (["failed", "error", "timed_out"].includes(state)) return colors.red;
 	return colors.borderStrong;
+}
+
+function stateIcon(state: string): string {
+	if (["running", "active", "working"].includes(state)) return "🟢";
+	if (["queued", "paused", "needs_attention"].includes(state)) return "🟡";
+	if (["failed", "error", "timed_out"].includes(state)) return "🔴";
+	return "⚪";
 }
 
 function targetTokens(target: SubagentTarget): number | undefined {
@@ -155,22 +169,17 @@ function targetTokens(target: SubagentTarget): number | undefined {
 	);
 }
 
-function targetActivity(target: SubagentTarget, now: number): string {
+function targetToolActivity(target: SubagentTarget): string {
 	const tool = target.step?.currentTool ?? target.run.currentTool;
-	const startedAt =
-		target.step?.currentToolStartedAt ?? target.run.currentToolStartedAt;
-	const elapsed = startedAt ? ` ${formatDuration(now - startedAt)}` : "";
 	const path = target.step?.currentPath ?? target.run.currentPath;
-	const activity =
-		tool || path
-			? `${tool ?? "working"}${elapsed}${path ? ` · ${path}` : ""}`
-			: "click to inspect";
+	if (!tool && !path) return "working";
+	return `${tool ?? "working"}${path ? ` · ${path}` : ""}`;
+}
+
+function targetFreshness(target: SubagentTarget, now: number): string {
 	const lastUpdate = target.lastUpdate;
-	const freshness =
-		lastUpdate === undefined
-			? "last activity unknown"
-			: `last activity ${formatDuration(Math.max(0, now - lastUpdate))} ago`;
-	return `${activity} · ${freshness}`;
+	if (lastUpdate === undefined) return "unknown";
+	return `${formatDuration(Math.max(0, now - lastUpdate))} ago`;
 }
 
 export function Sidebar(props: {
@@ -193,6 +202,7 @@ export function Sidebar(props: {
 		| Accessor<NotificationRecord[]>
 		| undefined;
 	onOpenNotification?: (recordId: string) => void;
+	onOpenTodo?: (todo: TodoViewItem) => void;
 	height?: number | Accessor<number> | undefined;
 }) {
 	const now = () => props.now ?? Date.now();
@@ -276,7 +286,7 @@ export function Sidebar(props: {
 							attributes={selected() ? 1 : 0}
 							wrapMode="none"
 						>
-							{clip(`${target.label} · ${target.state}`, 31)}
+							{clip(`${stateIcon(target.state)} ${target.label}`, 31)}
 						</text>
 					}
 				>
@@ -287,16 +297,19 @@ export function Sidebar(props: {
 						attributes={selected() ? 1 : 0}
 						wrapMode="none"
 					>
-						{clip(target.label, 31)}
+						{clip(`${stateIcon(target.state)} ${target.label}`, 31)}
 					</text>
-					<text width="100%" height={1} fg={colors.muted} wrapMode="none">
+					<text width="100%" height={1} fg={colors.text} wrapMode="none">
 						{clip(
-							`${target.state} · ${target.step?.turnCount ?? target.run.turnCount ?? 0}t/${target.step?.toolCount ?? target.run.toolCount ?? 0} tools · ${formatTokens(targetTokens(target))} tok`,
+							`${targetFreshness(target, now())} · ${targetToolActivity(target)}`,
 							31,
 						)}
 					</text>
 					<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
-						{clip(targetActivity(target, now()), 31)}
+						{clip(
+							`${target.step?.toolCount ?? target.run.toolCount ?? 0} tools · ${formatTokens(targetTokens(target))} tok`,
+							31,
+						)}
 					</text>
 				</Show>
 			</box>
@@ -430,7 +443,7 @@ export function Sidebar(props: {
 								minHeight={todoHeight()}
 								flexShrink={1}
 							>
-								<TodoPanel todos={todos()} height={todoHeight()} />
+								<TodoPanel todos={todos()} height={todoHeight()} onOpenTodo={props.onOpenTodo} />
 							</box>
 						</Show>
 						<Show when={hasNotifications() && notificationHeight() > 0}>
@@ -475,7 +488,7 @@ export function Sidebar(props: {
 													attributes={record.read ? 0 : 1}
 													wrapMode="none"
 												>
-													{clip(record.text)}
+													{clip(`${notificationToneIcon(record.tone)} ${record.text}`)}
 												</text>
 											</box>
 										)}

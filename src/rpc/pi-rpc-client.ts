@@ -230,7 +230,15 @@ export class PiRpcClient extends EventEmitter {
   }
 
   async compact(customInstructions?: string): Promise<unknown> {
-    return this.data(await this.request({ type: "compact", ...(customInstructions ? { customInstructions } : {}) }));
+    // Compaction summarizes the whole conversation and can legitimately take
+    // several minutes on large sessions, well beyond the default request
+    // timeout used for quick commands.
+    return this.data(
+      await this.request(
+        { type: "compact", ...(customInstructions ? { customInstructions } : {}) },
+        10 * 60_000,
+      ),
+    );
   }
 
   async newSession(): Promise<unknown> {
@@ -245,18 +253,19 @@ export class PiRpcClient extends EventEmitter {
     this.write(response);
   }
 
-  private request(command: RpcCommand): Promise<RpcResponse> {
+  private request(command: RpcCommand, timeoutMsOverride?: number): Promise<RpcResponse> {
     if (!this.child?.stdin.writable) return Promise.reject(new Error("Pi RPC is not running."));
     const id = `ui_${++this.nextId}`;
     const request = { ...command, id };
     const startedAt = performance.now();
     this.options.logger?.rpc("tx", request);
     return new Promise<RpcResponse>((resolve, reject) => {
+      const timeoutMs = timeoutMsOverride ?? this.options.requestTimeoutMs ?? 30_000;
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        this.options.logger?.error("rpc.timeout", { id, command: command.type, timeoutMs: this.options.requestTimeoutMs ?? 30_000 });
+        this.options.logger?.error("rpc.timeout", { id, command: command.type, timeoutMs });
         reject(new Error(`Timed out waiting for Pi response to ${command.type}.`));
-      }, this.options.requestTimeoutMs ?? 30_000);
+      }, timeoutMs);
       this.pending.set(id, {
         resolve: (response) => {
           this.options.logger?.rpc("rx", response, { durationMs: Math.round(performance.now() - startedAt), command: command.type });

@@ -255,10 +255,10 @@ describe("subagent controls", () => {
 			},
 		];
 		const targets = subagentTargets([target]);
-		expect(targets.map((item) => item.key)).toEqual(["run-1:1", "run-1:0"]);
-		expect(targets[0]?.label).toBe("implementer #2");
-		expect(targets[0]?.canSteer).toBe(true);
-		expect(targets[1]?.canSteer).toBe(false);
+		expect(targets.map((item) => item.key)).toEqual(["run-1:0", "run-1:1"]);
+		expect(targets[1]?.label).toBe("implementer #2");
+		expect(targets[1]?.canSteer).toBe(true);
+		expect(targets[0]?.canSteer).toBe(false);
 	});
 
 	test("keeps same-start parallel runs grouped and index ordered", () => {
@@ -278,7 +278,7 @@ describe("subagent controls", () => {
 		];
 		expect(
 			subagentTargets([first, second]).map((target) => target.key),
-		).toEqual(["run-a:1", "run-b:0", "run-a:0", "run-b:1"]);
+		).toEqual(["run-a:0", "run-a:1", "run-b:0", "run-b:1"]);
 	});
 
 	test("groups active targets first and keeps stable launch order despite activity updates", () => {
@@ -306,7 +306,7 @@ describe("subagent controls", () => {
 		).toEqual(before);
 	});
 
-	test("moves a target between groups when its active state changes", () => {
+	test("keeps the most recently launched run at the top regardless of activity changes", () => {
 		const first = run();
 		first.runId = "run-a";
 		first.startedAt = 1_000;
@@ -323,11 +323,11 @@ describe("subagent controls", () => {
 		];
 		expect(
 			subagentTargets([first, second]).map((target) => target.key),
-		).toEqual(["run-a:0", "run-b:0", "run-a:1", "run-b:1"]);
+		).toEqual(["run-b:0", "run-b:1", "run-a:0", "run-a:1"]);
 		first.steps[1]!.status = "running";
 		expect(
 			subagentTargets([first, second]).map((target) => target.key),
-		).toEqual(["run-a:0", "run-a:1", "run-b:0", "run-b:1"]);
+		).toEqual(["run-b:0", "run-b:1", "run-a:0", "run-a:1"]);
 	});
 
 	test("reconciles a stale foreground selection to its unique active child", () => {
@@ -1189,9 +1189,10 @@ describe("subagent controls", () => {
 		expect(owned.get("earlier-item") ?? []).toHaveLength(1);
 		expect(owned.get("earlier-item")?.[0]?.run.runId).toBe("run-earlier");
 		expect(owned.get("later-item") ?? []).toHaveLength(2);
-		expect(
-			owned.get("later-item")?.map((target) => target.run.runId),
-		).toEqual(["run-later", "run-later"]);
+		expect(owned.get("later-item")?.map((target) => target.run.runId)).toEqual([
+			"run-later",
+			"run-later",
+		]);
 	});
 
 	test("nearest-match fallback drops a run that is outside the window", () => {

@@ -1103,7 +1103,8 @@ describe("OpenTUI components", () => {
 		const nextFrame = setup.captureCharFrame();
 		expect(subagentPanel.height).toBe(initialSubagentHeight);
 		expect(todoPanel.height).toBe(initialTodoHeight);
-		expect(nextFrame).toContain("reactive-worker · completed");
+		expect(nextFrame).toContain("⚪ reactive-worker");
+		expect(nextFrame).not.toContain("ago");
 		expect(nextFrame).not.toContain("running · 0t/0 tools");
 		expect(nextFrame).not.toContain("Ctrl+Sh");
 		expect(nextFrame.split("\n").length).toBeLessThanOrEqual(41);
@@ -1145,7 +1146,9 @@ describe("OpenTUI components", () => {
 		const row = setup.renderer.root.findDescendantById("subagent-inactive-row");
 		if (!row) throw new Error("inactive target row missing");
 		expect(row.height).toBe(1);
-		expect(setup.captureCharFrame()).toContain("finished-worker · completed");
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("⚪ finished-worker");
+		expect(frame).not.toContain("ago");
 		expect(row.screenY + row.height).toBeLessThanOrEqual(30);
 	});
 
@@ -1417,8 +1420,8 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("OpenCode UI work");
 		expect(frame).toContain(`PiTTy v${appVersion}`);
 		expect(frame).toContain("gpt-5.6-sol");
-		expect(frame).toContain("implementer");
-		expect(frame).toContain("running");
+		expect(frame).toContain("🟢 implementer");
+		expect(frame).toContain("bash");
 		expect(frame).not.toContain("Selected");
 	});
 
@@ -1782,9 +1785,9 @@ describe("OpenTUI components", () => {
 		);
 		const inspectorFrame = inspector.captureCharFrame();
 		expect(inspectorFrame).toContain("Steering input hidden");
-		expect(inspectorFrame).toContain("model unknown");
-		expect(inspectorFrame).toContain("context unknown");
-		expect(inspectorFrame).toContain("thinking unknown");
+		expect(inspectorFrame).toContain("▤unknown");
+		expect(inspectorFrame).toContain("ctx?");
+		expect(inspectorFrame).toContain("◆unknown");
 		expect(inspectorFrame).not.toContain("Steer reviewer #2");
 		expect(inspectorFrame).not.toContain("Ctrl+A pause");
 		expect(inspectorFrame).not.toContain("Ctrl+Shift+A stop");
@@ -1797,7 +1800,7 @@ describe("OpenTUI components", () => {
 			42,
 			24,
 		);
-		expect(sidebar.captureCharFrame()).toContain("last activi");
+		expect(sidebar.captureCharFrame()).toContain("ago");
 		const tool = await mount(
 			() => (
 				<MessageView
@@ -1821,16 +1824,16 @@ describe("OpenTUI components", () => {
 			100,
 			24,
 		);
-		expect(tool.captureCharFrame()).toContain("last activi");
+		expect(tool.captureCharFrame()).toContain("ago");
 		const activeInspector = await mount(
 			() => <SubagentInspector target={active} items={[]} now={2_000} />,
 			100,
 			24,
 		);
 		const activeFrame = activeInspector.captureCharFrame();
-		expect(activeFrame).toContain("model provider/child");
+		expect(activeFrame).toContain("▤provider/child");
 		expect(activeFrame).toContain("8.2k ctx");
-		expect(activeFrame).toContain("thinking high");
+		expect(activeFrame).toContain("◆high");
 	});
 
 	test("shows inspector actions only for applicable file-backed targets", async () => {
@@ -2700,7 +2703,7 @@ describe("duration and sidebar repaint regressions", () => {
 		assertBounds(78);
 		const frame = setup.captureCharFrame();
 		expect(frame.split("\n")).toHaveLength(79);
-		expect(frame).toContain("worker-0");
+		expect(frame).toContain("worker-39");
 		expect(frame).toContain("Todos");
 		for (const line of frame.split("\n"))
 			expect(line.length).toBeLessThanOrEqual(253);

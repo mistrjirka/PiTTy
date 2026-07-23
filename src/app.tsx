@@ -134,6 +134,7 @@ import {
 	type CommandChoice,
 } from "./ui/command-suggestions.tsx";
 import { deriveTodos, type TodoViewItem } from "./ui/todos.tsx";
+import { TodoDialog } from "./ui/todo-dialog.tsx";
 import {
 	preserveEquivalentTodos,
 	preserveReferencedList,
@@ -584,6 +585,7 @@ export function App(props: AppOptions) {
 	>([]);
 	const [notificationDetailId, setNotificationDetailId] =
 		createSignal<string>();
+	const [todoDetailId, setTodoDetailId] = createSignal<string>();
 	const [status, setStatus] = createSignal("starting Pi…");
 	let prompt: TextareaRenderable | undefined;
 	let scroll: ScrollBoxRenderable | undefined;
@@ -1391,6 +1393,7 @@ export function App(props: AppOptions) {
 		if (
 			dialog() ||
 			notificationDetailId() ||
+			todoDetailId() ||
 			modelSelectorOpen() ||
 			sessionSelectorOpen() ||
 			promptMapOpen() ||
@@ -1431,6 +1434,13 @@ export function App(props: AppOptions) {
 	};
 	const closeNotification = () => {
 		setNotificationDetailId(undefined);
+		queueMicrotask(focusMainPrompt);
+	};
+	const openTodo = (id: string) => {
+		setTodoDetailId(id);
+	};
+	const closeTodo = () => {
+		setTodoDetailId(undefined);
 		queueMicrotask(focusMainPrompt);
 	};
 
@@ -2265,6 +2275,14 @@ export function App(props: AppOptions) {
 			}
 			return;
 		}
+		if (todoDetailId()) {
+			if (event.name === "escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				closeTodo();
+			}
+			return;
+		}
 		if (subagentSelectorOpen()) {
 			if (event.name === "escape") {
 				event.preventDefault();
@@ -2922,7 +2940,8 @@ export function App(props: AppOptions) {
 									!sessionSelectorOpen() &&
 									!promptMapOpen() &&
 									!subagentSelectorOpen() &&
-									!notificationDetailId()
+									!notificationDetailId() &&
+									!todoDetailId()
 								}
 								placeholder={
 									streaming()
@@ -2940,7 +2959,11 @@ export function App(props: AppOptions) {
 									{ name: "return", action: "submit" },
 									{ name: "enter", action: "submit" },
 									{ name: "kpenter", action: "submit" },
-									{ name: "linefeed", action: "submit" },
+									// Many terminals cannot report the shift modifier on Enter without
+									// the Kitty keyboard protocol, and instead send a bare linefeed for
+									// Shift+Enter. Treat unmodified linefeed as a newline (not submit) so
+									// Shift+Enter reliably inserts a line in those terminals too.
+									{ name: "linefeed", action: "newline" },
 									{ name: "return", shift: true, action: "newline" },
 									{ name: "enter", shift: true, action: "newline" },
 									{ name: "kpenter", shift: true, action: "newline" },
@@ -2970,6 +2993,7 @@ export function App(props: AppOptions) {
 						now={clockNow()}
 						onSelectTarget={setSelectedTargetKey}
 						todos={todos}
+						onOpenTodo={(todo) => openTodo(todo.id)}
 						subagentsAvailable={subagentsAvailable()}
 						todosAvailable={todosAvailable()}
 						notifications={notificationHistory}
@@ -3091,8 +3115,9 @@ export function App(props: AppOptions) {
 					)}
 					levels={visibleThinkingLevels(
 						sessionState()?.model?.reasoning,
-						sessionState()?.model
-							?.thinkingLevelMap as ThinkingLevelMap | undefined,
+						sessionState()?.model?.thinkingLevelMap as
+							| ThinkingLevelMap
+							| undefined,
 					)}
 					busy={settingsBusy() === "thinking"}
 					{...(settingsErrors().thinking
@@ -3186,6 +3211,12 @@ export function App(props: AppOptions) {
 						)
 					}
 					onClose={closeNotification}
+				/>
+			</Show>
+			<Show when={todoDetailId()}>
+				<TodoDialog
+					todo={() => todos().find((todo) => todo.id === todoDetailId())}
+					onClose={closeTodo}
 				/>
 			</Show>
 			<Show when={promptMapOpen()}>

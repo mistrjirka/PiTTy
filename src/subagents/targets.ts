@@ -454,10 +454,10 @@ export function subagentTargets(
 		}
 	}
 	return [...deduped.values()].sort((a, b) => {
-		if (a.active !== b.active) return a.active ? -1 : 1;
+		// Most recently started subagent run first, so the latest activity
+		// surfaces at the top of the list rather than the bottom.
 		const runStart =
-			(a.run.startedAt ?? Number.MAX_SAFE_INTEGER) -
-			(b.run.startedAt ?? Number.MAX_SAFE_INTEGER);
+			(b.run.startedAt ?? -1) - (a.run.startedAt ?? -1);
 		if (runStart) return runStart;
 		const runIdentity = a.run.runId.localeCompare(b.run.runId);
 		if (runIdentity) return runIdentity;

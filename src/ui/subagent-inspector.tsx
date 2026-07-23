@@ -170,35 +170,44 @@ export function SubagentInspector(props: {
 						Ctrl+Shift+A stop
 					</text>
 				</Show>
-				<text fg={colors.muted} wrapMode="word">
-					{run().mode} · {target().state} · {formatDuration(elapsed())}
-					{timeoutMs() ? ` / timeout ${formatDuration(timeoutMs())}` : ""}
-					{remaining() !== undefined && target().active
-						? ` · ${formatDuration(Math.max(0, remaining()!))} left`
-						: ""}
-				</text>
+				{(() => {
+					const currentStep = step();
+					const who = currentStep
+						? `${currentStep.agent} #${currentStep.index + 1}`
+						: target().label;
+					const timing = [
+						`⏱${formatDuration(elapsed())}`,
+						timeoutMs() ? `⏳${formatDuration(timeoutMs())}` : "",
+						remaining() !== undefined && target().active
+							? `${formatDuration(Math.max(0, remaining()!))} left`
+							: "",
+					]
+						.filter(Boolean)
+						.join(" · ");
+					return (
+						<text
+							height={1}
+							minHeight={1}
+							flexShrink={0}
+							wrapMode="none"
+							fg={colors.muted}
+						>
+							{who} · {run().mode}/{currentStep?.status ?? target().state} · {timing}
+						</text>
+					);
+				})()}
 				<Show when={currentTool() || currentPath()}>
-					<text fg={colors.cyan} wrapMode="word">
-						{currentTool() ?? "working"}
+					<text height={1} minHeight={1} flexShrink={0} wrapMode="none" fg={colors.cyan}>
+						⚙{currentTool() ?? "working"}
 						{toolElapsed() !== undefined
 							? ` ${formatDuration(toolElapsed())}`
 							: ""}
 						{currentPath() ? ` · ${currentPath()}` : ""}
 					</text>
 				</Show>
-				{(() => {
-					const currentStep = step();
-					return (
-						<text fg={colors.muted} wrapMode="word">
-							{currentStep
-								? `child ${currentStep.index + 1} · ${currentStep.agent} · ${currentStep.status}`
-								: `${target().label} · ${target().state}`}
-							{` · model ${target().model ?? "unknown"}`}
-							{` · ${formatContextWindow(target().contextWindow) || "context unknown"}`}
-							{` · thinking ${target().thinking ?? "unknown"}`}
-						</text>
-					);
-				})()}
+				<text height={1} minHeight={1} flexShrink={0} wrapMode="none" fg={colors.subtle}>
+					▤{target().model ?? "unknown"} · {formatContextWindow(target().contextWindow) || "ctx?"} · ◆{target().thinking ?? "unknown"}
+				</text>
 			</box>
 			<scrollbox
 				id="subagent-inspector-transcript"
@@ -306,9 +315,13 @@ export function SubagentInspector(props: {
 							{ name: "return", action: "submit" },
 							{ name: "enter", action: "submit" },
 							{ name: "kpenter", action: "submit" },
+							// Terminals lacking the Kitty keyboard protocol send a bare linefeed
+							// for Shift+Enter, so treat unmodified linefeed as a newline.
+							{ name: "linefeed", action: "newline" },
 							{ name: "return", shift: true, action: "newline" },
 							{ name: "enter", shift: true, action: "newline" },
 							{ name: "kpenter", shift: true, action: "newline" },
+							{ name: "linefeed", shift: true, action: "newline" },
 						]}
 						minHeight={2}
 						maxHeight={7}
