@@ -195,10 +195,10 @@ See the complete [usage and controls guide](docs/USAGE.md).
 | Mouse wheel / `PgUp` / `PgDn` | Scroll the active transcript |
 | `Ctrl+Home` / `Ctrl+End` | Jump to the beginning or latest message |
 | `Ctrl+P` | Open the searchable model selector; PiTTy requests the current list from Pi each time it opens |
-| `Ctrl+X` | Open Settings: model, thinking, session, theme, and MCP controls |
+| `Ctrl+X` | Open Settings: model, thinking, session, theme, memory, and MCP controls |
 | `Ctrl+T` / `Shift+Tab` | Cycle thinking effort |
 | `Ctrl+R` | Open the request map |
-| `Ctrl+M` | Browse, search, and remove persistent memory (requires `pi-hermes-memory`) |
+| `Ctrl+M` | Browse, search, and remove persistent memory (requires `pi-hermes-memory`; on terminals that can't report it distinctly from Enter, use Settings > Memory or `/memory` instead) |
 | `Ctrl+S` | Toggle the sidebar |
 | `Ctrl+O` | Expand or collapse tool and thinking details |
 | `Ctrl+I` | Open or close the selected subagent inspector |
@@ -207,7 +207,7 @@ See the complete [usage and controls guide](docs/USAGE.md).
 
 ## Settings, themes, and MCP
 
-Open Settings with `Ctrl+X` or `/settings`. Changes to models, thinking effort, and sessions use Pi's authoritative RPC state; Settings retains the previous authoritative value and displays an inline error if an operation fails.
+Open Settings with `Ctrl+X` or `/settings`. Changes to models, thinking effort, and sessions use Pi's authoritative RPC state; Settings retains the previous authoritative value and displays an inline error if an operation fails. A Memory entry is also available in Settings, so terminals (e.g. Konsole) that send `Ctrl+M` as an ordinary Enter keystroke can still reach the memory browser.
 
 Theme selection and color editing are PiTTy-only user-global preferences. Choose one of ten presets or edit every semantic color token; valid `#RRGGBB` colors apply immediately, while invalid intermediate input remains in the field without changing the live palette. See [theme sources, contrast guidance, and storage details](docs/THEMES.md).
 

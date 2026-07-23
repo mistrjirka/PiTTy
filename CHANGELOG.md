@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.10
+
+### Memory Access from Settings
+
+- Added a "Memory" entry to Settings (`Ctrl+X`), so the memory browser is reachable without `Ctrl+M`. Several terminals (e.g. Konsole without the Kitty keyboard protocol enabled) send `Ctrl+M` as a plain Enter keystroke and can never trigger the shortcut, so it previously looked like memory browsing "did nothing" there.
+- Escaping out of Memory when opened from Settings now returns to the Settings root list instead of leaving the dialog stuck open or dropping back to the main chat.
+- Updated the in-app `/help` text and docs to point at Settings > Memory (or `/memory`) as the reliable fallback when `Ctrl+M` isn't distinguishable from Enter on a given terminal.
+
 ## 0.5.9
 
 ### Memory Browser

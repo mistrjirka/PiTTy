@@ -215,7 +215,8 @@ export type SettingsRoute =
 	| "session-rename"
 	| "theme"
 	| "theme-editor"
-	| "mcp";
+	| "mcp"
+	| "memory";
 
 export function settingsBackRoute(route: SettingsRoute): SettingsRoute {
 	if (route === "root") return "closed";
@@ -1043,7 +1044,7 @@ export function App(props: AppOptions) {
 						"  /model [provider/model] /thinking [level]",
 						"  /thoughts expanded|collapsed /prompts",
 						"  /compact [instructions] /new /name <name>",
-						"  /memory (Ctrl+M) browse/search/remove persistent memory",
+						"  /memory (Ctrl+M, or Settings > Memory) browse/search/remove persistent memory",
 						"  /tools on|off /sidebar on|off",
 						"  /autocompact on|off /retry on|off",
 						"  /steering-mode all|one-at-a-time",
@@ -1837,6 +1838,21 @@ export function App(props: AppOptions) {
 				inlineError: () => mcpError(),
 				open: openMcpSettings,
 			},
+			{
+				id: "memory",
+				label: "Memory",
+				summary: () =>
+					props.integrations.memory.installed
+						? "Browse, search, remove"
+						: "Requires pi-hermes-memory",
+				disabledReason: () =>
+					props.integrations.memory.installed
+						? undefined
+						: "Install pi-hermes-memory",
+				busy: () => false,
+				inlineError: () => undefined,
+				open: () => openMemoryBrowser(true),
+			},
 		];
 	};
 
@@ -1986,10 +2002,14 @@ export function App(props: AppOptions) {
 
 	const closeMemoryBrowser = () => {
 		setMemoryBrowserOpen(false);
+		if (settingsRoute() === "memory") {
+			setSettingsRoute("root");
+			return;
+		}
 		queueMicrotask(() => prompt?.focus());
 	};
 
-	const openMemoryBrowser = () => {
+	const openMemoryBrowser = (fromSettings = false) => {
 		if (!props.integrations.memory.installed) {
 			toast(
 				"Install pi-hermes-memory to browse persistent memory",
@@ -2003,6 +2023,7 @@ export function App(props: AppOptions) {
 			setMemorySnapshot(snapshot);
 			setModelSelectorOpen(false);
 			setMemoryBrowserOpen(true);
+			if (fromSettings) setSettingsRoute("memory");
 		} catch (error) {
 			toast(
 				`Unable to read memory files: ${error instanceof Error ? error.message : String(error)}`,
@@ -2391,6 +2412,7 @@ export function App(props: AppOptions) {
 					setModelSelectorOpen(false);
 					setSettingsRoute("root");
 				} else if (route === "session-switch") closeSessionSelector();
+				else if (route === "memory") closeMemoryBrowser();
 				else setSettingsRoute(settingsBackRoute(route));
 			}
 			return;

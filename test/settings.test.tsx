@@ -238,6 +238,8 @@ describe("Settings components", () => {
 		expect(settingsBackRoute("session-rename")).toBe("session");
 		expect(settingsBackRoute("theme")).toBe("root");
 		expect(settingsBackRoute("theme-editor")).toBe("theme");
+		expect(settingsBackRoute("mcp")).toBe("root");
+		expect(settingsBackRoute("memory")).toBe("root");
 	});
 
 	test("visibleThinkingLevels filters unsupported efforts from the model map", () => {

@@ -74,7 +74,7 @@ Type `/` to open command suggestions. PiTTy merges its local commands with exten
 | `Ctrl+T` / `Shift+Tab` | Cycle thinking effort |
 | Click a Thinking heading | Toggle one thinking block |
 | `Ctrl+R` | Open the request map |
-| `Ctrl+M` | Browse, search, and remove persistent memory (requires `pi-hermes-memory`) |
+| `Ctrl+M` | Browse, search, and remove persistent memory (requires `pi-hermes-memory`; on terminals that can't report it distinctly from Enter, use Settings > Memory or `/memory` instead) |
 | `Ctrl+S` | Toggle the sidebar |
 | `Ctrl+O` | Expand or collapse tool and thinking details globally |
 | `Ctrl+I` / click a subagent | Open or close the subagent inspector |
