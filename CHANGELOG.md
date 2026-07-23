@@ -4,22 +4,30 @@
 
 ### Subagent Sidebar & Ordering
 
-- Subagent list is now ordered by launch time (newest on top) instead of active-first grouping.
-- Inactive/finished subagents no longer show a live "time since activity" timer; a static "⏱—" is shown instead.
+- The subagent list is now ordered by launch time, newest run on top, instead of grouping active runs first.
+- Inactive/finished subagents no longer show a live "time since activity" timer; the row just shows the state icon and label once the subagent stops.
 - Subagent header drops turn count; icon + state label now compact into one line, freeing space for tool/path context.
+- The subagent inspector header and model/context/thinking line were compacted into single icon-prefixed rows (`⏱`, `⏳`, `▤`, `◆`) so detail panes fit more information per line.
 
-### Todos Panel
+### Todo Detail Dialog
 
-- Each todo is now a single line with a status icon (🟢 active · 🟡 pending · 🔴 blocked · ✔ done) instead of a title line plus a separate status word line.
+- Clicking a todo in the sidebar now opens a detail dialog (Esc to close) instead of only showing a clipped one-line summary.
+- Each todo row is now a single line with a status icon (🟢 active · 🟡 pending · 🔴 blocked · ✔ done) instead of a title line plus a separate status word line.
 - Header now summarizes counts: "N pending · N active · N done".
 
 ### Notifications Panel
 
 - Added tone icons (❌ error · ⚠️ warning · ✅ success · 🔔 info) to notification rows for faster scanning.
 
+### Prompt and Pending Input Fixes
+
+- Shift+Enter now reliably inserts a newline (instead of submitting) on terminals that report it as a bare linefeed without the Kitty keyboard protocol.
+- The pending input panel keeps a fixed height and clips long queued/steering/follow-up lines to one row each, instead of letting them wrap and push the layout around.
+- Conversation compaction now uses a 10-minute request timeout instead of the default 30 seconds, since summarizing large sessions can legitimately take that long.
+
 ### Regression Coverage
 
-- Updated sidebar and inspector rendering tests to match new ordering, icon format, and removed activity timer phrasing.
+- Updated sidebar and inspector rendering tests to match the new ordering, icon format, and removed activity timer phrasing.
 
 ## 0.5.6
 
