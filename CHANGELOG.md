@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.9
+
+### Memory Browser
+
+- Added a Memory browser (`/memory`, or `Ctrl+M` on terminals that report it distinctly from Enter) for the `pi-hermes-memory` extension: search across global Memory/User/Failures notes and the current project's memory, and remove individual entries with a confirmation step.
+- Reads and edits the extension's own Markdown files directly (no RPC support exists for this), and refuses to delete an entry if the underlying file changed since it was loaded, to avoid clobbering a concurrent writer.
+- Added `pi-hermes-memory` to optional-integration detection so the browser can point you at installing it when it's missing.
+
+### Compaction Reliability
+
+- Messages sent while Pi is compacting no longer hang waiting on a request that the agent won't answer until compaction ends. PiTTy now tracks `isCompacting` from `compaction_start`/`compaction_end` events, queues any message typed during that window locally, and flushes it automatically once compaction finishes.
+- `/compact` now warns instead of starting a second overlapping compaction if one is already running.
+- The RPC client no longer misroutes a response that arrives after its own client-side timeout already fired; it's now logged and dropped instead of being resolved against a stale (or reused) request id.
+
+### Codex Usage Tracking
+
+- Fixed the last-hour usage delta being computed from a stale sample (e.g. after PiTTy was closed for a long time), which could report a misleading burn rate. The delta is now left unset unless a sample from within the last hour is actually available.
+
+### Regression Coverage
+
+- Added unit tests for memory parsing/removal, the compaction queuing state machine, RPC late-response handling, and the Codex usage anchor fix.
+
 ## 0.5.8
 
 ### Codex Usage Tracking

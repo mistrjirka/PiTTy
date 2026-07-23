@@ -116,6 +116,13 @@ import {
 	type SessionDiscoveryState,
 } from "./sessions.ts";
 import { PromptMapDialog, type PromptMapEntry } from "./ui/prompt-map.tsx";
+import { MemoryBrowserDialog } from "./ui/memory-browser.tsx";
+import {
+	loadMemorySnapshot,
+	removeMemoryEntry,
+	type MemoryEntry,
+	type MemorySnapshot,
+} from "./integrations/memory-store.ts";
 import { Sidebar } from "./ui/sidebar.tsx";
 import { NotificationDialog } from "./ui/notification-dialog.tsx";
 import { SubagentInspector } from "./ui/subagent-inspector.tsx";
@@ -144,7 +151,10 @@ import {
 	installOptionalIntegrationAsync,
 	type OptionalIntegrationStatus,
 } from "./integrations/detect.ts";
-import { fetchCodexUsage, type CodexUsage } from "./integrations/codex-usage.ts";
+import {
+	fetchCodexUsage,
+	type CodexUsage,
+} from "./integrations/codex-usage.ts";
 import {
 	computeCodexUsageStats,
 	loadCodexUsageHistory,
@@ -295,6 +305,11 @@ const localCommandChoices: CommandChoice[] = [
 		source: "ui",
 	},
 	{ name: "prompts", description: "Open the request map", source: "ui" },
+	{
+		name: "memory",
+		description: "Browse, search, and remove persistent memory",
+		source: "ui",
+	},
 	{ name: "map", description: "Open the request map", source: "ui" },
 	{
 		name: "compact",
@@ -538,7 +553,9 @@ export function App(props: AppOptions) {
 	const [spinnerIndex, setSpinnerIndex] = createSignal(0);
 	const [clockNow, setClockNow] = createSignal(Date.now());
 	const [codexUsage, setCodexUsage] = createSignal<CodexUsage>();
-	const [codexUsageStats, setCodexUsageStats] = createSignal<Record<number, CodexUsageStats>>({});
+	const [codexUsageStats, setCodexUsageStats] = createSignal<
+		Record<number, CodexUsageStats>
+	>({});
 	const [inspectSubagent, setInspectSubagent] = createSignal(false);
 	const [subagentSelectorOpen, setSubagentSelectorOpen] = createSignal(false);
 	const [dialog, setDialog] = createSignal<RpcExtensionUIRequest>();
@@ -583,6 +600,8 @@ export function App(props: AppOptions) {
 		"streaming" | "queued"
 	>();
 	const [promptMapOpen, setPromptMapOpen] = createSignal(false);
+	const [memoryBrowserOpen, setMemoryBrowserOpen] = createSignal(false);
+	const [memorySnapshot, setMemorySnapshot] = createSignal<MemorySnapshot>();
 	const [thinkingExpanded, setThinkingExpanded] = createSignal(true);
 	const [thinkingExpansionOverrides, setThinkingExpansionOverrides] =
 		createSignal<Map<string, boolean>>(new Map());
@@ -1024,6 +1043,7 @@ export function App(props: AppOptions) {
 						"  /model [provider/model] /thinking [level]",
 						"  /thoughts expanded|collapsed /prompts",
 						"  /compact [instructions] /new /name <name>",
+						"  /memory (Ctrl+M) browse/search/remove persistent memory",
 						"  /tools on|off /sidebar on|off",
 						"  /autocompact on|off /retry on|off",
 						"  /steering-mode all|one-at-a-time",
@@ -1166,6 +1186,10 @@ export function App(props: AppOptions) {
 				return true;
 			}
 			case "compact":
+				if (conversation.isCompacting) {
+					addSystem("Compaction is already running.", "warning");
+					return true;
+				}
 				addSystem("Starting compaction…");
 				await client.compact(argument || undefined);
 				await refreshState();
@@ -1229,6 +1253,9 @@ export function App(props: AppOptions) {
 					addSystem("No user requests in this session yet.", "warning");
 				else setPromptMapOpen(true);
 				return true;
+			case "memory":
+				openMemoryBrowser();
+				return true;
 			default:
 				return false;
 		}
@@ -1239,7 +1266,23 @@ export function App(props: AppOptions) {
 		props.logger.info("ui.submit", {
 			chars: text.length,
 			streaming: wasStreaming,
+			compacting: conversation.isCompacting,
 		});
+		if (conversation.isCompacting) {
+			// Pi tears down its agent connection for the duration of compaction, so a
+			// prompt sent right now can wait on a response that never arrives (the
+			// client-side RPC timeout fires, and the message never reaches the model).
+			// Queue it locally and flush once compaction_end confirms it's safe.
+			setQueuedFollowUps((current) => [
+				...current,
+				{ id: crypto.randomUUID(), text },
+			]);
+			props.logger.info("ui.followup_queued_for_compaction", {
+				chars: text.length,
+			});
+			toast("Compacting context… message queued until it finishes.", "info");
+			return;
+		}
 		if (!wasStreaming) {
 			const optimisticId = conversation.optimisticUser(text);
 			trimMessageWindowIfFollowingLatest();
@@ -1410,6 +1453,7 @@ export function App(props: AppOptions) {
 			modelSelectorOpen() ||
 			sessionSelectorOpen() ||
 			promptMapOpen() ||
+			memoryBrowserOpen() ||
 			subagentSelectorOpen() ||
 			inspectSubagent() ||
 			settingsRoute() !== "closed"
@@ -1421,6 +1465,7 @@ export function App(props: AppOptions) {
 				!modelSelectorOpen() &&
 				!sessionSelectorOpen() &&
 				!promptMapOpen() &&
+				!memoryBrowserOpen() &&
 				!subagentSelectorOpen() &&
 				!inspectSubagent()
 			)
@@ -1939,6 +1984,48 @@ export function App(props: AppOptions) {
 		);
 	};
 
+	const closeMemoryBrowser = () => {
+		setMemoryBrowserOpen(false);
+		queueMicrotask(() => prompt?.focus());
+	};
+
+	const openMemoryBrowser = () => {
+		if (!props.integrations.memory.installed) {
+			toast(
+				"Install pi-hermes-memory to browse persistent memory",
+				"info",
+				5000,
+			);
+			return;
+		}
+		try {
+			const snapshot = loadMemorySnapshot(props.cwd);
+			setMemorySnapshot(snapshot);
+			setModelSelectorOpen(false);
+			setMemoryBrowserOpen(true);
+		} catch (error) {
+			toast(
+				`Unable to read memory files: ${error instanceof Error ? error.message : String(error)}`,
+				"error",
+			);
+		}
+	};
+
+	const removeMemory = (entry: MemoryEntry) => {
+		const snapshot = memorySnapshot();
+		const file = snapshot?.files.find(
+			(candidate) => candidate.filePath === entry.filePath,
+		);
+		if (!file) return;
+		const result = removeMemoryEntry(entry, file.fileContent);
+		if (!result.success) {
+			toast(result.error, "error", 6000);
+			return;
+		}
+		toast("Memory entry removed", "success");
+		setMemorySnapshot(loadMemorySnapshot(props.cwd));
+	};
+
 	const completeDialog = async (response: {
 		value?: string;
 		confirmed?: boolean;
@@ -2058,7 +2145,9 @@ export function App(props: AppOptions) {
 				event.type === "agent_settled" ||
 				event.type === "agent_end" ||
 				event.type === "thinking_level_changed" ||
-				event.type === "session_info_changed"
+				event.type === "session_info_changed" ||
+				event.type === "compaction_start" ||
+				event.type === "compaction_end"
 			) {
 				void refreshState();
 			}
@@ -2073,6 +2162,11 @@ export function App(props: AppOptions) {
 						await flushQueuedFollowUp();
 				})();
 			}
+			// Messages typed while Pi is compacting are queued locally (see sendText)
+			// instead of sent over RPC, since the agent connection is torn down for the
+			// duration of compaction and a concurrent prompt can hang indefinitely
+			// instead of ever getting a response. Flush them now that it's safe.
+			if (event.type === "compaction_end") void flushQueuedFollowUp();
 		});
 		client.on("protocol-error", (error: Error) => {
 			props.logger.error("ui.protocol_error", error);
@@ -2325,7 +2419,8 @@ export function App(props: AppOptions) {
 			}
 			return;
 		}
-		if (sessionSelectorOpen() || modelSelectorOpen()) return;
+		if (sessionSelectorOpen() || modelSelectorOpen() || memoryBrowserOpen())
+			return;
 		if (promptMapOpen()) {
 			if (event.name === "escape") {
 				event.preventDefault();
@@ -2540,6 +2635,12 @@ export function App(props: AppOptions) {
 			event.preventDefault();
 			event.stopPropagation();
 			openPromptMap();
+			return;
+		}
+		if (keyIs(event, "m", { ctrl: true })) {
+			event.preventDefault();
+			event.stopPropagation();
+			openMemoryBrowser();
 			return;
 		}
 		if (keyIs(event, "t", { ctrl: true })) {
@@ -3260,6 +3361,13 @@ export function App(props: AppOptions) {
 					entries={promptMapEntries()}
 					onSelect={jumpToPrompt}
 					onCancel={closePromptMap}
+				/>
+			</Show>
+			<Show when={memoryBrowserOpen() && memorySnapshot()}>
+				<MemoryBrowserDialog
+					snapshot={memorySnapshot()!}
+					onRemove={removeMemory}
+					onCancel={closeMemoryBrowser}
 				/>
 			</Show>
 			<Show when={subagentSelectorOpen()}>

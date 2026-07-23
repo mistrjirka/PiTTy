@@ -144,7 +144,7 @@ It starts directly in the normal chat. An empty conversation shows a passive das
 ## Highlights
 
 | Area | What PiTTy adds |
-|---|---|
+| --- | --- |
 | Conversation | Fixed prompt, independently scrollable transcript, Markdown output, collapsible thinking, and long-session windowing |
 | Tools | Expandable tool cards, timings, readable errors, edit/write diffs, and a generic fallback for arbitrary Pi tools |
 | Navigation | Searchable model selector, `/sessions` and `/resume`, request map, command autocomplete, and on-demand older history |
@@ -185,7 +185,7 @@ See the complete [usage and controls guide](docs/USAGE.md).
 ## Controls
 
 | Key | Action |
-|---|---|
+| --- | --- |
 | `Enter` | Accept the highlighted slash suggestion first; otherwise submit or steer immediately |
 | `Shift+Enter` | Insert a newline |
 | `Alt+Enter` | Queue an editable local follow-up |
@@ -198,6 +198,7 @@ See the complete [usage and controls guide](docs/USAGE.md).
 | `Ctrl+X` | Open Settings: model, thinking, session, theme, and MCP controls |
 | `Ctrl+T` / `Shift+Tab` | Cycle thinking effort |
 | `Ctrl+R` | Open the request map |
+| `Ctrl+M` | Browse, search, and remove persistent memory (requires `pi-hermes-memory`) |
 | `Ctrl+S` | Toggle the sidebar |
 | `Ctrl+O` | Expand or collapse tool and thinking details |
 | `Ctrl+I` | Open or close the selected subagent inspector |
@@ -217,7 +218,7 @@ MCP server management is intentionally bounded to the standard project `.mcp.jso
 PiTTy works without extra Pi packages. These integrations add specialized panels when installed:
 
 | Package | Adds |
-|---|---|
+| --- | --- |
 | `npm:pi-subagents` | Parallel child-agent list, live transcript inspection, pause/stop, and queued steering visibility |
 | `npm:@juicesharp/rpiv-todo` | Bounded active and completed Todo panels |
 | `npm:pi-mcp-adapter` | Optional adapter used by Settings to activate standard MCP config changes |
@@ -304,7 +305,7 @@ Larger public behavior changes should include an OpenSpec change under `openspec
 ## Platform status
 
 | Platform | Status |
-|---|---|
+| --- | --- |
 | Linux | Primary development platform |
 | macOS | Included in CI and supported by the POSIX installer |
 | Windows | Included in CI and supported by `install.ps1`; terminal behavior still benefits from wider real-world testing |

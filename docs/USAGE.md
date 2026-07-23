@@ -17,7 +17,7 @@ pitty-resume -C /path/to/project   # open the session picker immediately
 ### Command-line options
 
 | Option | Purpose |
-|---|---|
+| --- | --- |
 | `-C, --cwd <dir>` | Set the working directory |
 | `-c, --continue` | Continue the newest Pi session |
 | `--session <path>` | Open a specific session file |
@@ -38,7 +38,7 @@ Run `pitty --help` for the launcher-supported list in the installed version.
 Type `/` to open command suggestions. PiTTy merges its local commands with extension commands, prompt templates, and skills reported by Pi.
 
 | Command | Purpose |
-|---|---|
+| --- | --- |
 | `/help` | Show PiTTy commands and controls |
 | `/commands` | List Pi extension, template, and skill commands |
 | `/sessions` | Browse and resume current-project sessions |
@@ -48,6 +48,7 @@ Type `/` to open command suggestions. PiTTy merges its local commands with exten
 | `/thinking` | Show or change reasoning effort |
 | `/thoughts` | Expand or collapse thinking blocks |
 | `/prompts` or `/map` | Open the request map |
+| `/memory` | Browse, search, and remove persistent memory (requires `pi-hermes-memory`) |
 | `/compact` | Compact conversation context |
 | `/new` | Start a new Pi session |
 | `/name` | Set the session name |
@@ -60,7 +61,7 @@ Type `/` to open command suggestions. PiTTy merges its local commands with exten
 ## Keyboard and mouse controls
 
 | Input | Action |
-|---|---|
+| --- | --- |
 | `Enter` | Insert the highlighted slash suggestion first; otherwise submit or send immediate steering |
 | `Shift+Enter` | Insert a newline |
 | `Alt+Enter` | Queue an editable local follow-up |
@@ -73,6 +74,7 @@ Type `/` to open command suggestions. PiTTy merges its local commands with exten
 | `Ctrl+T` / `Shift+Tab` | Cycle thinking effort |
 | Click a Thinking heading | Toggle one thinking block |
 | `Ctrl+R` | Open the request map |
+| `Ctrl+M` | Browse, search, and remove persistent memory (requires `pi-hermes-memory`) |
 | `Ctrl+S` | Toggle the sidebar |
 | `Ctrl+O` | Expand or collapse tool and thinking details globally |
 | `Ctrl+I` / click a subagent | Open or close the subagent inspector |

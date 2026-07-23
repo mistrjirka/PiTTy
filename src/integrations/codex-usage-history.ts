@@ -118,6 +118,8 @@ export type CodexUsageStats = {
 };
 
 const MIN_RATE_SPAN_MS = 30 * 60_000;
+/** How stale the "an hour ago" anchor sample may be before it's discarded. */
+const HOUR_ANCHOR_TOLERANCE_MS = 20 * 60_000;
 
 /**
  * Turns raw samples plus the live window reading into the derived stats
@@ -140,11 +142,16 @@ export function computeCodexUsageStats(
 	const currentEpoch = ordered.filter(
 		(sample) => sample.resetAt === current.resetAt,
 	);
+	// The closest sample at or before `hourAgo` stands in for "an hour ago". If
+	// nothing was recorded within a grace window of that mark - e.g. PiTTy was
+	// closed for a stretch spanning it - the nearest sample could be many hours
+	// stale. Presenting that gap's raw delta as a per-hour rate would wildly
+	// misrepresent it, so treat it as no recent data instead.
 	let hourAnchor: CodexUsageSample | undefined;
 	for (let i = currentEpoch.length - 1; i >= 0; i--) {
 		const sample = currentEpoch[i];
 		if (sample && sample.t <= hourAgo) {
-			hourAnchor = sample;
+			if (sample.t >= hourAgo - HOUR_ANCHOR_TOLERANCE_MS) hourAnchor = sample;
 			break;
 		}
 	}

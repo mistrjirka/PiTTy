@@ -185,6 +185,23 @@ describe("computeCodexUsageStats", () => {
 		expect(stats.predictedRunoutAt).toBeUndefined();
 		expect(stats.ratePercentPerHour).toBeUndefined();
 	});
+
+	test("ignores a stale last-hour anchor left by a long gap (e.g. PiTTy closed)", () => {
+		const now = 10 * 60 * 60_000;
+		const samples: CodexUsageSample[] = [
+			// Only sample is from 6h ago, well outside the last-hour tolerance window -
+			// using it as "an hour ago" would misreport a 6h delta as a 1h rate.
+			{ t: now - 6 * 60 * 60_000, usedPercent: 10, resetAt: 1 },
+		];
+		const stats = computeCodexUsageStats(
+			samples,
+			window({ usedPercent: 40, resetAt: 1 }),
+			now,
+		);
+		expect(stats.lastHourDeltaPercent).toBeUndefined();
+		// The blended rate still uses the real elapsed wall-clock span, gap included.
+		expect(stats.ratePercentPerHour).toBeCloseTo(5, 5);
+	});
 });
 
 describe("formatRunoutIn", () => {
