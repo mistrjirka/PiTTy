@@ -144,6 +144,15 @@ import {
 	installOptionalIntegrationAsync,
 	type OptionalIntegrationStatus,
 } from "./integrations/detect.ts";
+import { fetchCodexUsage, type CodexUsage } from "./integrations/codex-usage.ts";
+import {
+	computeCodexUsageStats,
+	loadCodexUsageHistory,
+	recordCodexUsageSample,
+	saveCodexUsageHistory,
+	type CodexUsageHistory,
+	type CodexUsageStats,
+} from "./integrations/codex-usage-history.ts";
 import { appVersion } from "./version.ts";
 import {
 	defaultUpdateCheckConfig,
@@ -528,6 +537,8 @@ export function App(props: AppOptions) {
 	const [autoRetryEnabled, setAutoRetryEnabled] = createSignal(true);
 	const [spinnerIndex, setSpinnerIndex] = createSignal(0);
 	const [clockNow, setClockNow] = createSignal(Date.now());
+	const [codexUsage, setCodexUsage] = createSignal<CodexUsage>();
+	const [codexUsageStats, setCodexUsageStats] = createSignal<Record<number, CodexUsageStats>>({});
 	const [inspectSubagent, setInspectSubagent] = createSignal(false);
 	const [subagentSelectorOpen, setSubagentSelectorOpen] = createSignal(false);
 	const [dialog, setDialog] = createSignal<RpcExtensionUIRequest>();
@@ -594,6 +605,8 @@ export function App(props: AppOptions) {
 	let subagentsTimer: ReturnType<typeof setInterval> | undefined;
 	let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 	let spinnerTimer: ReturnType<typeof setInterval> | undefined;
+	let codexUsageTimer: ReturnType<typeof setInterval> | undefined;
+	let codexUsageHistory: CodexUsageHistory = loadCodexUsageHistory();
 	let lastRunsDigest = "";
 	let sessionDiscoveryGeneration = 0;
 	let lastCtrlC = 0;
@@ -2136,6 +2149,26 @@ export function App(props: AppOptions) {
 				setStatus("failed to start Pi");
 			}
 		})();
+		const updateCodexUsage = (usage: CodexUsage | undefined) => {
+			setCodexUsage(usage);
+			if (!usage) return;
+			const now = Date.now();
+			codexUsageHistory = recordCodexUsageSample(codexUsageHistory, usage, now);
+			saveCodexUsageHistory(codexUsageHistory);
+			const stats: Record<number, CodexUsageStats> = {};
+			for (const window of usage.windows) {
+				stats[window.windowSeconds] = computeCodexUsageStats(
+					codexUsageHistory[window.windowSeconds] ?? [],
+					window,
+					now,
+				);
+			}
+			setCodexUsageStats(stats);
+		};
+		void fetchCodexUsage().then(updateCodexUsage);
+		codexUsageTimer = setInterval(() => {
+			void fetchCodexUsage().then(updateCodexUsage);
+		}, 5 * 60_000);
 		statsTimer = setInterval(() => void refreshState(), 10_000);
 		subagentsTimer = setInterval(() => {
 			if (!props.integrations.subagents.installed) return;
@@ -2181,6 +2214,7 @@ export function App(props: AppOptions) {
 			if (subagentsTimer) clearInterval(subagentsTimer);
 			if (heartbeatTimer) clearInterval(heartbeatTimer);
 			if (spinnerTimer) clearInterval(spinnerTimer);
+			if (codexUsageTimer) clearInterval(codexUsageTimer);
 			props.logger.info("ui.cleanup");
 			void client.stop();
 		});
@@ -2994,6 +3028,8 @@ export function App(props: AppOptions) {
 						onSelectTarget={setSelectedTargetKey}
 						todos={todos}
 						onOpenTodo={(todo) => openTodo(todo.id)}
+						codexUsage={codexUsage}
+						codexUsageStats={codexUsageStats}
 						subagentsAvailable={subagentsAvailable()}
 						todosAvailable={todosAvailable()}
 						notifications={notificationHistory}

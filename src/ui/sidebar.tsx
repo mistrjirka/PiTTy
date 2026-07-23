@@ -12,6 +12,15 @@ import { formatDuration } from "./duration.ts";
 import { colors } from "./theme.ts";
 import { TodoPanel, type TodoViewItem } from "./todos.tsx";
 import { appVersion } from "../version.ts";
+import {
+	formatResetIn,
+	formatWindowLabel,
+	type CodexUsage,
+} from "../integrations/codex-usage.ts";
+import {
+	formatRunoutIn,
+	type CodexUsageStats,
+} from "../integrations/codex-usage-history.ts";
 
 const CONTENT_WIDTH = 36;
 
@@ -113,6 +122,35 @@ export function allocateSidebarPanels(
 	return allocation;
 }
 
+function formatSignedPercent(value: number): string {
+	return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function codexWindowSummaryLine(usedPercent: number, stats: CodexUsageStats | undefined): string {
+	const remaining = stats?.remainingPercent ?? Math.max(0, 100 - usedPercent);
+	const delta =
+		stats?.lastHourDeltaPercent !== undefined
+			? `, ${formatSignedPercent(stats.lastHourDeltaPercent)}/h`
+			: "";
+	return `${Math.round(usedPercent)}% used (${Math.round(remaining)}% left${delta})`;
+}
+
+function codexWindowResetLine(resetAfterSeconds: number, stats: CodexUsageStats | undefined): string {
+	const resetIn = formatResetIn(resetAfterSeconds);
+	if (!stats?.predictedRunoutAt) return `resets ${resetIn}`;
+	const runoutIn = formatRunoutIn(stats.predictedRunoutAt);
+	return stats.runsOutBeforeReset
+		? `resets ${resetIn} · ⚠ runs out ${runoutIn}`
+		: `resets ${resetIn} · runs out ${runoutIn}`;
+}
+
+function codexWindowPaceLine(stats: CodexUsageStats | undefined): string | undefined {
+	if (stats?.ratePercentPerHour === undefined || stats.rateSpanHours === undefined) return undefined;
+	if (stats.rateSpanHours < 20) return undefined;
+	const perDay = stats.ratePercentPerHour * 24;
+	const spanLabel = stats.rateSpanHours >= 24 ? `${(stats.rateSpanHours / 24).toFixed(1)}d` : `${Math.round(stats.rateSpanHours)}h`;
+	return `avg ${perDay.toFixed(1)}%/day (last ${spanLabel})`;
+}
 function formatTokens(value: number | undefined): string {
 	if (value === undefined) return "—";
 	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -201,6 +239,11 @@ export function Sidebar(props: {
 		| NotificationRecord[]
 		| Accessor<NotificationRecord[]>
 		| undefined;
+	codexUsage?: CodexUsage | Accessor<CodexUsage | undefined> | undefined;
+	codexUsageStats?:
+		| Record<number, CodexUsageStats>
+		| Accessor<Record<number, CodexUsageStats> | undefined>
+		| undefined;
 	onOpenNotification?: (recordId: string) => void;
 	onOpenTodo?: (todo: TodoViewItem) => void;
 	height?: number | Accessor<number> | undefined;
@@ -216,6 +259,10 @@ export function Sidebar(props: {
 		typeof props.notifications === "function"
 			? props.notifications()
 			: (props.notifications ?? []);
+	const codexUsage = () =>
+		typeof props.codexUsage === "function" ? props.codexUsage() : props.codexUsage;
+	const codexUsageStats = () =>
+		typeof props.codexUsageStats === "function" ? props.codexUsageStats() : props.codexUsageStats;
 	const orderedNotifications = createMemo(() =>
 		[...notifications()].sort((a, b) =>
 			a.read !== b.read ? (a.read ? 1 : -1) : b.createdAt - a.createdAt,
@@ -235,8 +282,19 @@ export function Sidebar(props: {
 		);
 	const hasSubagents = () => props.subagentsAvailable !== false;
 	const hasTodos = () => props.todosAvailable !== false && todos().length > 0;
+	const codexRows = () => {
+		const usage = codexUsage();
+		if (!usage?.windows.length) return 0;
+		let rows = 2;
+		for (const window of usage.windows) {
+			rows += 2;
+			if (codexWindowPaceLine(codexUsageStats()?.[window.windowSeconds])) rows += 1;
+		}
+		return rows;
+	};
 	const fixedHeaderRows = () =>
 		11 +
+		codexRows() +
 		(props.stats?.contextUsage?.percent !== undefined &&
 		props.stats?.contextUsage?.percent !== null
 			? 1
@@ -369,6 +427,40 @@ export function Sidebar(props: {
 			<text width="100%" height={1} fg={colors.muted}>
 				Thinking: {clip(props.state?.thinkingLevel ?? "—")}
 			</text>
+			<Show when={codexUsage()?.windows.length}>
+				<box height={1} />
+				<text width="100%" height={1} fg={colors.textBright} attributes={1}>
+					Codex
+				</text>
+				<For each={codexUsage()?.windows ?? []}>
+					{(window) => {
+						const stats = () => codexUsageStats()?.[window.windowSeconds];
+						const pace = () => codexWindowPaceLine(stats());
+						return (
+							<>
+								<text width="100%" height={1} fg={colors.muted} wrapMode="none">
+									{clip(
+										`${formatWindowLabel(window.windowSeconds)}: ${codexWindowSummaryLine(window.usedPercent, stats())}`,
+									)}
+								</text>
+								<text
+									width="100%"
+									height={1}
+									fg={stats()?.runsOutBeforeReset ? colors.yellow : colors.subtle}
+									wrapMode="none"
+								>
+									{clip(`  ${codexWindowResetLine(window.resetAfterSeconds, stats())}`)}
+								</text>
+								<Show when={pace()}>
+									<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
+										{clip(`  ${pace()}`)}
+									</text>
+								</Show>
+							</>
+						);
+					}}
+				</For>
+			</Show>
 			<box height={1} />
 
 			{

@@ -232,13 +232,25 @@ export class PiRpcClient extends EventEmitter {
   async compact(customInstructions?: string): Promise<unknown> {
     // Compaction summarizes the whole conversation and can legitimately take
     // several minutes on large sessions, well beyond the default request
-    // timeout used for quick commands.
-    return this.data(
-      await this.request(
-        { type: "compact", ...(customInstructions ? { customInstructions } : {}) },
-        10 * 60_000,
-      ),
-    );
+    // timeout used for quick commands. Pi also streams compaction_start/
+    // compaction_end events independently of this request-response pair, so
+    // if our own client-side timer fires first that's just an unusually slow
+    // compaction still running in the background, not a real failure - the
+    // compaction_end event will still arrive and report the true outcome.
+    try {
+      return this.data(
+        await this.request(
+          { type: "compact", ...(customInstructions ? { customInstructions } : {}) },
+          10 * 60_000,
+        ),
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message === "Timed out waiting for Pi response to compact.") {
+        this.options.logger?.warn("rpc.compact_ack_timeout");
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   async newSession(): Promise<unknown> {

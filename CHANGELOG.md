@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.8
+
+### Codex Usage Tracking
+
+- The sidebar's Codex rate-limit rows now show remaining percentage alongside used percentage, e.g. `5h: 32% used (68% left, +4.1%/h)`.
+- Added a persisted local history of Codex usage samples (`~/.local/state/pitty/codex-usage-history.json`, or under `$XDG_STATE_HOME`) so consumption speed and reset behavior can be tracked across restarts.
+- Added a last-hour consumption delta, a multi-day average burn rate (once at least ~20h of history is retained), and a projected runout time computed from the current pace.
+- The reset/runout row turns a warning color when the projected runout would land before the window's own reset, so you can see at a glance whether you're on pace to exhaust a window early.
+- Window resets are never counted as "negative consumption": a drop in used percentage (or a new reset timestamp) marks a fresh epoch instead of skewing the rate calculation.
+
+### Compaction Timeout Fix
+
+- `/compact` no longer surfaces a scary "Timed out waiting for Pi response to compact." error on sessions where compaction legitimately takes longer than the 10-minute client-side timeout. Pi streams `compaction_start`/`compaction_end` events independently of the request/response pair, so a client-side ack timeout is now treated as a benign, still-running compaction rather than a failure.
+
+### Regression Coverage
+
+- Added unit tests for Codex usage history persistence, reset-epoch-aware rate/delta/runout calculations, and formatting.
+
 ## 0.5.7
 
 ### Subagent Sidebar & Ordering
