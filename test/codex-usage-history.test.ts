@@ -146,7 +146,7 @@ describe("computeCodexUsageStats", () => {
 		expect(stats.ratePercentPerHour).toBeCloseTo(1.5, 5);
 	});
 
-	test("predicts a runout timestamp from the recent rate", () => {
+	test("predicts a runout timestamp from the wall-clock average rate", () => {
 		const now = 2 * 60 * 60_000;
 		const samples: CodexUsageSample[] = [
 			{ t: now - 60 * 60_000, usedPercent: 40, resetAt: 1 },
@@ -157,9 +157,32 @@ describe("computeCodexUsageStats", () => {
 			now,
 		);
 		expect(stats.lastHourDeltaPercent).toBe(10);
+		expect(stats.ratePercentPerHour).toBeCloseTo(10, 5);
 		expect(stats.predictedRunoutAt).toBeDefined();
 		// Remaining 50% at 10%/h => 5h to exhaustion.
 		expect(stats.predictedRunoutAt).toBeCloseTo(now + 5 * 3_600_000, -2);
+	});
+
+	test("ignores a last-hour burst when projecting runout (idle-inclusive week pace)", () => {
+		const now = 10 * 60 * 60_000;
+		const samples: CodexUsageSample[] = [
+			{ t: 0, usedPercent: 0, resetAt: 1 },
+			// Slow burn for most of the span, then a busy final hour.
+			{ t: now - 60 * 60_000, usedPercent: 5, resetAt: 1 },
+		];
+		const stats = computeCodexUsageStats(
+			samples,
+			window({ usedPercent: 15, resetAt: 1 }),
+			now,
+		);
+		expect(stats.lastHourDeltaPercent).toBe(10);
+		// 15% consumed over 10h wall-clock (idle included) => 1.5%/h.
+		expect(stats.ratePercentPerHour).toBeCloseTo(1.5, 5);
+		// Remaining 85% at 1.5%/h => ~56.7h, not the burst's 8.5h.
+		expect(stats.predictedRunoutAt).toBeCloseTo(
+			now + (85 / 1.5) * 3_600_000,
+			-2,
+		);
 	});
 
 	test("flags when the projected runout lands before the window resets", () => {

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.11
+
+### Codex Runout Projection
+
+- Codex "runs out" ETA now uses the wall-clock multi-day/week average burn rate (idle time included) instead of preferring the last-hour spike whenever recent usage exists. A busy hour no longer collapses the projection into a false panic ETA while the true week pace would still be days away.
+- The last-hour `+X%/h` delta remains on the sidebar summary line for short-horizon context, but it no longer drives the runout timestamp or the "runs out before reset" warning.
+
+### Regression Coverage
+
+- Added a unit test that a last-hour burst is ignored when projecting runout from the idle-inclusive average rate.
+
 ## 0.5.10
 
 ### Memory Access from Settings

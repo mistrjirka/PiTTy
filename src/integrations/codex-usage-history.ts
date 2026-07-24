@@ -105,13 +105,13 @@ export function recordCodexUsageSample(
 
 export type CodexUsageStats = {
 	remainingPercent: number;
-	/** Percentage points consumed in roughly the last hour, within the current reset epoch. */
+	/** Percentage points consumed in roughly the last hour, within the current reset epoch (display-only; not used for runout). */
 	lastHourDeltaPercent?: number;
-	/** Average consumption speed in percentage points per hour, blended across the retained history. */
+	/** Wall-clock average consumption in percentage points per hour across retained history (idle time included). */
 	ratePercentPerHour?: number;
 	/** How many hours of history the rate above is based on. */
 	rateSpanHours?: number;
-	/** Projected timestamp (ms) at which usage would hit 100% at the current rate. */
+	/** Projected timestamp (ms) at which usage would hit 100% at the wall-clock average rate. */
 	predictedRunoutAt?: number;
 	/** True when the projected runout would land before the window's own reset. */
 	runsOutBeforeReset?: boolean;
@@ -126,6 +126,10 @@ const HOUR_ANCHOR_TOLERANCE_MS = 20 * 60_000;
  * shown in the UI. Resets never count as "negative consumption": a drop in
  * `usedPercent` (or a change in `resetAt`) marks a new epoch, and only
  * within-epoch increases are summed towards the consumption rate.
+ *
+ * The burn rate is wall-clock (idle included) so runout reflects a realistic
+ * weekly pace rather than assuming continuous 24/7 use. The last-hour delta
+ * is kept for the summary line only and does not drive the runout projection.
  */
 export function computeCodexUsageStats(
 	samples: CodexUsageSample[],
@@ -178,15 +182,15 @@ export function computeCodexUsageStats(
 		: undefined;
 	const rateSpanHours = hasEnoughSpan ? spanMs / 3_600_000 : undefined;
 
+	// Runout uses the wall-clock blended rate (idle included), not the last-hour
+	// spike: workers are not expected to burn 24/7, so a multi-day/week average
+	// is the honest “when do I run out?” estimate. lastHourDeltaPercent stays
+	// display-only on the summary line.
 	let predictedRunoutAt: number | undefined;
 	let runsOutBeforeReset: boolean | undefined;
-	const rateForPrediction =
-		lastHourDeltaPercent && lastHourDeltaPercent > 0
-			? lastHourDeltaPercent
-			: ratePercentPerHour;
-	if (rateForPrediction && rateForPrediction > 0 && remainingPercent > 0) {
+	if (ratePercentPerHour && ratePercentPerHour > 0 && remainingPercent > 0) {
 		predictedRunoutAt =
-			now + (remainingPercent / rateForPrediction) * 3_600_000;
+			now + (remainingPercent / ratePercentPerHour) * 3_600_000;
 		runsOutBeforeReset = predictedRunoutAt < current.resetAt * 1000;
 	}
 
