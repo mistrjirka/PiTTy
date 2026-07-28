@@ -1,3 +1,5 @@
+import type { PromptPasteBlock } from "./paste-blocks.ts";
+
 export type LocalQueuedMessage = {
   id: string;
   text: string;
@@ -58,6 +60,7 @@ export function reconcilePendingSteers(
 
 export type SessionDrafts = {
   main: string;
+  mainPastes: PromptPasteBlock[];
   subagents: Map<string, string>;
 };
 
@@ -90,7 +93,7 @@ export function settledDispatchDecision(gate: DispatchGate, hasItems: boolean, s
 }
 
 export function createSessionDrafts(): SessionDrafts {
-  return { main: "", subagents: new Map<string, string>() };
+  return { main: "", mainPastes: [], subagents: new Map<string, string>() };
 }
 
 export function clearTargetDraft(drafts: SessionDrafts, targetKey: string): void {

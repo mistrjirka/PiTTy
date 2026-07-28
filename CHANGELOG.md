@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.12
+
+### Collapsed Paste Blocks
+
+- Large multiline or long pastes in the main prompt collapse into a compact editable token while the full content is preserved for submission.
+- Paste insertion preserves the cursor/selection position and leaves the cursor after the collapsed token.
+- Backspace, Delete, and modified deletion remove a collapsed token as one unit instead of leaving a partially deleted placeholder behind.
+- Removed the duplicate external paste preview so the token is rendered only in the actual prompt editor and cannot overlap the prompt placeholder.
+
+### Regression Coverage
+
+- Added focused tests for paste thresholds, expansion, atomic deletion, and token cleanup.
+
 ## 0.5.11
 
 ### Codex Runout Projection

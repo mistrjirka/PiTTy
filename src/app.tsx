@@ -1,6 +1,7 @@
 import {
 	CliRenderEvents,
 	type KeyEvent,
+	type PasteEvent,
 	type ScrollBoxRenderable,
 	type TextareaRenderable,
 	type Renderable,
@@ -37,6 +38,14 @@ import {
 	PromptHistory,
 	shouldRecoverPromptDraft,
 } from "./state/prompt-history.ts";
+import {
+	createPromptPasteBlock,
+	expandPromptPasteTokens,
+	promptPasteDeletionRange,
+	prunePromptPasteBlocks,
+	shouldCollapsePromptPaste,
+	stripCollapsedPromptPasteFragments,
+} from "./state/paste-blocks.ts";
 import {
 	abortFailed,
 	clearTargetDraft,
@@ -656,6 +665,120 @@ export function App(props: AppOptions) {
 		revision();
 		return sessionDrafts(draftState, currentSessionKey());
 	};
+	const mainPromptPlaceholder = () =>
+		conversation.isStreaming
+			? "Enter sends steering immediately · Alt+Enter queues editable follow-up"
+			: "Ask Pi anything… (/help for commands)";
+	const syncPromptPlaceholder = (text: string) => {
+		if (prompt)
+			prompt.placeholder = text.length > 0 ? null : mainPromptPlaceholder();
+	};
+	const syncMainDraft = (text: string, preservePastes = false) => {
+		const drafts = currentDrafts();
+		drafts.main = text;
+		drafts.mainPastes = preservePastes
+			? prunePromptPasteBlocks(text, drafts.mainPastes)
+			: [];
+		if (prompt && prompt.plainText !== text) prompt.setText(text);
+		syncPromptPlaceholder(text);
+		setPromptText(text);
+	};
+	const clearMainDraft = () => {
+		const drafts = currentDrafts();
+		drafts.main = "";
+		drafts.mainPastes = [];
+		prompt?.clear();
+		syncPromptPlaceholder("");
+		setPromptText("");
+	};
+	const promptValue = () => prompt?.plainText ?? currentDrafts().main;
+	const expandedPromptText = () =>
+		expandPromptPasteTokens(promptValue(), currentDrafts().mainPastes);
+	const expandCollapsedPromptPaste = (blockId: string) => {
+		const drafts = currentDrafts();
+		const block = drafts.mainPastes.find((entry) => entry.id === blockId);
+		if (!block) return;
+		const tokenStart = drafts.main.indexOf(block.token);
+		const nextText = drafts.main.replace(block.token, block.text);
+		drafts.main = nextText;
+		drafts.mainPastes = drafts.mainPastes.filter(
+			(entry) => entry.id !== blockId,
+		);
+		if (prompt) {
+			prompt.placeholder = null;
+			prompt.replaceText(nextText);
+			prompt.cursorOffset = Math.max(0, tokenStart) + block.text.length;
+			prompt.focus();
+		}
+		setPromptText(nextText);
+		setCommandSuggestionIndex(0);
+	};
+	const handlePromptKeyDown = (event: KeyEvent) => {
+		if (!prompt || (event.name !== "backspace" && event.name !== "delete"))
+			return;
+		const direction = event.name === "backspace" ? "backward" : "forward";
+		const range = promptPasteDeletionRange(
+			prompt.plainText,
+			currentDrafts().mainPastes,
+			prompt.cursorOffset,
+			direction,
+			prompt.getSelection(),
+		);
+		if (!range) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const nextText = `${prompt.plainText.slice(0, range.start)}${prompt.plainText.slice(range.end)}`;
+		const nextCursor = Math.min(range.start, nextText.length);
+		prompt.replaceText(nextText);
+		prompt.cursorOffset = nextCursor;
+		const drafts = currentDrafts();
+		drafts.main = nextText;
+		drafts.mainPastes = prunePromptPasteBlocks(nextText, drafts.mainPastes);
+		syncPromptPlaceholder(nextText);
+		setPromptText(nextText);
+		setCommandSuggestionIndex(0);
+	};
+	const handlePromptPaste = (event: PasteEvent) => {
+		const text = new TextDecoder().decode(event.bytes);
+		if (!shouldCollapsePromptPaste(text)) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const drafts = currentDrafts();
+		const existing = drafts.mainPastes.find(
+			(block) => block.text === text && drafts.main.includes(block.token),
+		);
+		if (existing) {
+			expandCollapsedPromptPaste(existing.id);
+			toast("Pasted block expanded for editing.", "info");
+			return;
+		}
+		const block = createPromptPasteBlock(text, drafts.mainPastes);
+		const currentText = prompt?.plainText ?? drafts.main;
+		const selection = prompt?.getSelection();
+		const insertionStart =
+			selection?.start ?? prompt?.cursorOffset ?? currentText.length;
+		const insertionEnd = selection?.end ?? insertionStart;
+		const nextText = `${currentText.slice(0, insertionStart)}${block.token}${currentText.slice(insertionEnd)}`;
+		const nextBlocks = prunePromptPasteBlocks(nextText, [
+			...drafts.mainPastes,
+			block,
+		]);
+		drafts.main = nextText;
+		drafts.mainPastes = nextBlocks;
+		if (prompt) {
+			// OpenTUI stores placeholder rendering separately from editor text. Clear
+			// it synchronously before replacing an untouched editor's contents.
+			prompt.placeholder = null;
+			prompt.replaceText(nextText);
+			prompt.cursorOffset = insertionStart + block.token.length;
+		}
+		setPromptText(nextText);
+		setCommandSuggestionIndex(0);
+		toast(
+			`Pasted ${block.lineCount} line${block.lineCount === 1 ? "" : "s"}. Paste again or click to expand.`,
+			"info",
+		);
+	};
 	createEffect(() => {
 		if (inspectSubagent()) {
 			prompt = undefined;
@@ -967,9 +1090,7 @@ export function App(props: AppOptions) {
 
 	const insertSuggestedCommand = (command: CommandChoice) => {
 		const value = `/${command.name} `;
-		currentDrafts().main = value;
-		prompt?.setText(value);
-		setPromptText(value);
+		syncMainDraft(value);
 		setCommandSuggestionIndex(0);
 		queueMicrotask(() => prompt?.focus());
 	};
@@ -1311,20 +1432,16 @@ export function App(props: AppOptions) {
 
 	const submit = async () => {
 		if (dialog()) return;
-		const text = prompt?.plainText.trim() ?? "";
+		const text = expandedPromptText().trim();
 		if (!text) return;
 		promptHistory.recordSubmitted(text);
 		try {
 			if (await handleSlashCommand(text)) {
-				currentDrafts().main = "";
-				prompt?.clear();
-				setPromptText("");
+				clearMainDraft();
 				return;
 			}
 			await sendText(text);
-			currentDrafts().main = "";
-			prompt?.clear();
-			setPromptText("");
+			clearMainDraft();
 		} catch (error) {
 			props.logger.error("ui.submit_failed", error);
 			addSystem(
@@ -1336,7 +1453,7 @@ export function App(props: AppOptions) {
 
 	const queueFollowUp = () => {
 		if (dialog()) return;
-		const text = prompt?.plainText.trim() ?? "";
+		const text = expandedPromptText().trim();
 		if (!text) return;
 		if (!conversation.isStreaming) {
 			void submit();
@@ -1346,9 +1463,7 @@ export function App(props: AppOptions) {
 			toast("Command-like input must be submitted with Enter.", "warning");
 			return;
 		}
-		currentDrafts().main = "";
-		prompt?.clear();
-		setPromptText("");
+		clearMainDraft();
 		setQueuedFollowUps((current) => [
 			...current,
 			{ id: crypto.randomUUID(), text },
@@ -1362,9 +1477,7 @@ export function App(props: AppOptions) {
 		const selected = current.find((item) => item.id === messageId);
 		if (!selected) return;
 		setQueuedFollowUps(current.filter((item) => item.id !== messageId));
-		currentDrafts().main = selected.text;
-		prompt?.setText(selected.text);
-		setPromptText(selected.text);
+		syncMainDraft(selected.text);
 		prompt?.focus();
 		toast("Queued follow-up restored to editor.", "info");
 	};
@@ -2145,9 +2258,7 @@ export function App(props: AppOptions) {
 					return;
 				}
 				if (event.method === "set_editor_text") {
-					currentDrafts().main = event.text;
-					prompt?.setText(event.text);
-					setPromptText(event.text);
+					syncMainDraft(event.text);
 					return;
 				}
 				if (event.method === "setWidget") return;
@@ -2567,10 +2678,8 @@ export function App(props: AppOptions) {
 				prompt?.focused &&
 				shouldRecoverPromptDraft({ draft, hasCopyableSelection: false })
 			) {
-				promptHistory.recordDraft(draft);
-				currentDrafts().main = "";
-				prompt?.clear();
-				setPromptText("");
+				promptHistory.recordDraft(expandedPromptText());
+				clearMainDraft();
 				focusMainPrompt();
 				toast("Draft saved. Press Up to recover it.", "info");
 				return;
@@ -2609,9 +2718,7 @@ export function App(props: AppOptions) {
 			if (result.handled) {
 				event.preventDefault();
 				event.stopPropagation();
-				currentDrafts().main = result.text ?? "";
-				prompt?.setText(result.text ?? "");
-				setPromptText(result.text ?? "");
+				syncMainDraft(result.text ?? "");
 				prompt?.focus();
 				return;
 			}
@@ -3090,6 +3197,7 @@ export function App(props: AppOptions) {
 									prompt = value;
 									const valueText = currentDrafts().main;
 									if (value.plainText !== valueText) value.setText(valueText);
+									syncPromptPlaceholder(valueText);
 								}}
 								focused={
 									!dialog() &&
@@ -3101,9 +3209,11 @@ export function App(props: AppOptions) {
 									!todoDetailId()
 								}
 								placeholder={
-									streaming()
-										? "Enter sends steering immediately · Alt+Enter queues editable follow-up"
-										: "Ask Pi anything… (/help for commands)"
+									promptValue().length > 0
+										? null
+										: streaming()
+											? "Enter sends steering immediately · Alt+Enter queues editable follow-up"
+											: "Ask Pi anything… (/help for commands)"
 								}
 								wrapMode="word"
 								backgroundColor={colors.panel}
@@ -3128,9 +3238,29 @@ export function App(props: AppOptions) {
 								]}
 								minHeight={2}
 								maxHeight={10}
+								onPaste={handlePromptPaste}
+								onKeyDown={handlePromptKeyDown}
+								onMouseDown={(event) => {
+									const block = currentDrafts().mainPastes[0];
+									if (!block) return;
+									event.preventDefault();
+									event.stopPropagation();
+									expandCollapsedPromptPaste(block.id);
+								}}
 								onContentChange={() => {
-									const text = prompt?.plainText ?? "";
-									currentDrafts().main = text;
+									const drafts = currentDrafts();
+									const rawText = prompt?.plainText ?? "";
+									const text = stripCollapsedPromptPasteFragments(
+										rawText,
+										drafts.mainPastes,
+									);
+									if (prompt && text !== rawText) prompt.replaceText(text);
+									drafts.main = text;
+									syncPromptPlaceholder(text);
+									drafts.mainPastes = prunePromptPasteBlocks(
+										text,
+										drafts.mainPastes,
+									);
 									promptHistory.noteEditorChange(text);
 									setPromptText(text);
 									setCommandSuggestionIndex(0);
