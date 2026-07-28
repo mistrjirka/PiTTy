@@ -2082,6 +2082,10 @@ describe("OpenTUI components", () => {
 			),
 		).toHaveLength(7);
 		expect(filterCommandChoices(commands, "/thinking high")).toEqual([]);
+		expect(filterCommandChoices(commands, "/th", 7, 0)).toEqual([]);
+		expect(
+			filterCommandChoices(commands, "/th", 7, 3).map((item) => item.name),
+		).toEqual(["thinking", "thoughts"]);
 		const setup = await mount(
 			() => (
 				<CommandSuggestions

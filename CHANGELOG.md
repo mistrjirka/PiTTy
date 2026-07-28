@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.13
+
+### Prompt History vs Slash Suggestions
+
+- Slash-command suggestions now only appear when the caret is at the end of the prompt, so ArrowUp/Down can browse prompt history when the caret is elsewhere.
+- Restoring a history entry places the caret at the start (deferred past editor cursor callbacks) so further Up/Down presses keep browsing history instead of being stolen by autocomplete.
+- Moving the caret back to the end of a `/command` still brings slash autocomplete back.
+
+### Regression Coverage
+
+- Added tests that `filterCommandChoices` respects cursor offset (hidden mid-prompt, shown at end).
+
 ## 0.5.12
 
 ### Collapsed Paste Blocks

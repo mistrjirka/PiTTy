@@ -616,6 +616,7 @@ export function App(props: AppOptions) {
 	const [thinkingExpansionOverrides, setThinkingExpansionOverrides] =
 		createSignal<Map<string, boolean>>(new Map());
 	const [promptText, setPromptText] = createSignal("");
+	const [promptCursorOffset, setPromptCursorOffset] = createSignal(0);
 	const [commandChoices, setCommandChoices] =
 		createSignal<CommandChoice[]>(localCommandChoices);
 	const [commandSuggestionIndex, setCommandSuggestionIndex] = createSignal(0);
@@ -682,6 +683,7 @@ export function App(props: AppOptions) {
 		if (prompt && prompt.plainText !== text) prompt.setText(text);
 		syncPromptPlaceholder(text);
 		setPromptText(text);
+		setPromptCursorOffset(prompt?.cursorOffset ?? text.length);
 	};
 	const clearMainDraft = () => {
 		const drafts = currentDrafts();
@@ -690,6 +692,7 @@ export function App(props: AppOptions) {
 		prompt?.clear();
 		syncPromptPlaceholder("");
 		setPromptText("");
+		setPromptCursorOffset(0);
 	};
 	const promptValue = () => prompt?.plainText ?? currentDrafts().main;
 	const expandedPromptText = () =>
@@ -711,6 +714,9 @@ export function App(props: AppOptions) {
 			prompt.focus();
 		}
 		setPromptText(nextText);
+		setPromptCursorOffset(
+			prompt?.cursorOffset ?? Math.max(0, tokenStart) + block.text.length,
+		);
 		setCommandSuggestionIndex(0);
 	};
 	const handlePromptKeyDown = (event: KeyEvent) => {
@@ -736,6 +742,7 @@ export function App(props: AppOptions) {
 		drafts.mainPastes = prunePromptPasteBlocks(nextText, drafts.mainPastes);
 		syncPromptPlaceholder(nextText);
 		setPromptText(nextText);
+		setPromptCursorOffset(nextCursor);
 		setCommandSuggestionIndex(0);
 	};
 	const handlePromptPaste = (event: PasteEvent) => {
@@ -773,6 +780,7 @@ export function App(props: AppOptions) {
 			prompt.cursorOffset = insertionStart + block.token.length;
 		}
 		setPromptText(nextText);
+		setPromptCursorOffset(insertionStart + block.token.length);
 		setCommandSuggestionIndex(0);
 		toast(
 			`Pasted ${block.lineCount} line${block.lineCount === 1 ? "" : "s"}. Paste again or click to expand.`,
@@ -787,6 +795,7 @@ export function App(props: AppOptions) {
 		const value = currentDrafts().main;
 		if (prompt && prompt.plainText !== value) prompt.setText(value);
 		setPromptText(value);
+		setPromptCursorOffset(prompt?.cursorOffset ?? value.length);
 	});
 
 	const touch = () => setRevision((value) => value + 1);
@@ -827,7 +836,12 @@ export function App(props: AppOptions) {
 		() => props.integrations.todos.installed || todos().length > 0,
 	);
 	const commandSuggestions = createMemo(() =>
-		filterCommandChoices(commandChoices(), promptText(), 7),
+		filterCommandChoices(
+			commandChoices(),
+			promptText(),
+			7,
+			promptCursorOffset(),
+		),
 	);
 	const thinkingIsExpanded = (itemId: string): boolean =>
 		thinkingExpansionOverrides().get(itemId) ?? thinkingExpanded();
@@ -2719,6 +2733,13 @@ export function App(props: AppOptions) {
 				event.preventDefault();
 				event.stopPropagation();
 				syncMainDraft(result.text ?? "");
+				// Keep the caret at the start so slash autocomplete does not steal
+				// further ArrowUp/Down presses while browsing history. Defer past
+				// setText cursor/content callbacks that may briefly move the caret.
+				queueMicrotask(() => {
+					if (prompt) prompt.cursorOffset = 0;
+					setPromptCursorOffset(0);
+				});
 				prompt?.focus();
 				return;
 			}
@@ -3263,7 +3284,11 @@ export function App(props: AppOptions) {
 									);
 									promptHistory.noteEditorChange(text);
 									setPromptText(text);
+									setPromptCursorOffset(prompt?.cursorOffset ?? text.length);
 									setCommandSuggestionIndex(0);
+								}}
+								onCursorChange={() => {
+									setPromptCursorOffset(prompt?.cursorOffset ?? 0);
 								}}
 								onSubmit={() => void submit()}
 							/>
