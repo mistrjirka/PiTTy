@@ -50,6 +50,7 @@ import {
 	abortFailed,
 	clearTargetDraft,
 	markAbort,
+	queuedPromptMatchesDraft,
 	reconcilePendingSteers,
 	restoreQueue,
 	sessionDrafts,
@@ -60,7 +61,10 @@ import {
 	type PendingSteerEntry,
 } from "./state/input-continuity.ts";
 import { listSubagentRuns } from "./subagents/artifacts.ts";
-import { readSubagentConversation } from "./subagents/transcript.ts";
+import {
+	readSubagentConversation,
+	substantiveSubagentActivityAt,
+} from "./subagents/transcript.ts";
 import {
 	pauseSubagent,
 	steerSubagent,
@@ -453,7 +457,8 @@ function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
 		mode: run.mode,
 		state: run.state,
 		activityState: run.activityState,
-		lastActivityAt: run.lastActivityAt,
+		lastActivityAt:
+			run.currentToolStartedAt ?? substantiveSubagentActivityAt(run),
 		model: run.model,
 		thinking: run.thinking,
 		contextWindow: run.contextWindow,
@@ -470,7 +475,9 @@ function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
 			agent: step.agent,
 			status: step.status,
 			activityState: step.activityState,
-			lastActivityAt: step.lastActivityAt,
+			lastActivityAt:
+				step.currentToolStartedAt ??
+				substantiveSubagentActivityAt(run, step.index),
 			model: step.model,
 			thinking: step.thinking,
 			contextWindow: step.contextWindow,
@@ -1397,7 +1404,7 @@ export function App(props: AppOptions) {
 		}
 	};
 
-	const sendText = async (text: string) => {
+	const sendText = async (text: string): Promise<"sent" | "queued"> => {
 		const wasStreaming = conversation.isStreaming;
 		props.logger.info("ui.submit", {
 			chars: text.length,
@@ -1417,7 +1424,7 @@ export function App(props: AppOptions) {
 				chars: text.length,
 			});
 			toast("Compacting context… message queued until it finishes.", "info");
-			return;
+			return "queued";
 		}
 		if (!wasStreaming) {
 			const optimisticId = conversation.optimisticUser(text);
@@ -1434,7 +1441,7 @@ export function App(props: AppOptions) {
 				touch();
 				throw error;
 			}
-			return;
+			return "sent";
 		}
 		// Match Pi's native Enter behavior while a turn is running. prompt(...,
 		// {streamingBehavior:"steer"}) buffers or defers delivery, including
@@ -1442,6 +1449,7 @@ export function App(props: AppOptions) {
 		// the pending text through queue_update and emits the user message once it
 		// is actually consumed.
 		await client.prompt(text, "steer");
+		return "sent";
 	};
 
 	const submit = async () => {
@@ -1454,8 +1462,8 @@ export function App(props: AppOptions) {
 				clearMainDraft();
 				return;
 			}
-			await sendText(text);
-			clearMainDraft();
+			const result = await sendText(text);
+			if (result === "sent") clearMainDraft();
 		} catch (error) {
 			props.logger.error("ui.submit_failed", error);
 			addSystem(
@@ -1533,7 +1541,12 @@ export function App(props: AppOptions) {
 			),
 		);
 		try {
-			await sendText(snapshot.prompt);
+			const result = await sendText(snapshot.prompt);
+			if (
+				result === "sent" &&
+				queuedPromptMatchesDraft(expandedPromptText(), snapshot.prompt)
+			)
+				clearMainDraft();
 		} catch (error) {
 			setQueuedFollowUps((current) => restoreQueue(snapshot.items, current));
 			addSystem(

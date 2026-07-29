@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { abortFailed, clearTargetDraft, markAbort, reconcilePendingSteers, restoreQueue, sessionDrafts, settledDispatchDecision, snapshotQueue, type DraftState, type PendingSteerEntry } from "../src/state/input-continuity.ts";
+import { abortFailed, clearTargetDraft, markAbort, queuedPromptMatchesDraft, reconcilePendingSteers, restoreQueue, sessionDrafts, settledDispatchDecision, snapshotQueue, type DraftState, type PendingSteerEntry } from "../src/state/input-continuity.ts";
 import type { LocalQueuedMessage } from "../src/ui/pending-input-panel.tsx";
 
 describe("input continuity state", () => {
@@ -39,6 +39,11 @@ describe("input continuity state", () => {
     const entry: PendingSteerEntry = { requestId: "one", targetKey: "run:0", runId: "run", text: "first", submittedAt: 1, baselineSteerCount: 0 };
     expect(reconcilePendingSteers([entry], [{ runId: "run", targetKey: "run:0", steerCount: 0, active: false }])).toEqual([]);
     expect(reconcilePendingSteers([entry], [])).toEqual([]);
+  });
+
+  test("preserves a newer draft while flushing an older queued prompt", () => {
+    expect(queuedPromptMatchesDraft(" queued text ", "queued text")).toBe(true);
+    expect(queuedPromptMatchesDraft("new text", "queued text")).toBe(false);
   });
 
   test("snapshots a FIFO batch and restores it ahead of arrivals", () => {

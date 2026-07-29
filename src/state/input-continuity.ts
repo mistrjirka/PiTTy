@@ -149,3 +149,10 @@ export function restoreQueue(
 ): LocalQueuedMessage[] {
 	return [...snapshot, ...current];
 }
+
+export function queuedPromptMatchesDraft(
+	draft: string,
+	queuedPrompt: string,
+): boolean {
+	return draft.trim() === queuedPrompt.trim();
+}

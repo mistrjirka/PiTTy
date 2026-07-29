@@ -1,4 +1,5 @@
 import type { SubagentRun, SubagentStep, ToolItem } from "../types.ts";
+import { substantiveSubagentActivityAt } from "./transcript.ts";
 
 export type SubagentTarget = {
 	key: string;
@@ -394,9 +395,8 @@ export function subagentTargets(
 					sessionFile,
 					startedAt: step.startedAt ?? run.startedAt,
 					lastUpdate:
-						step.lastActivityAt ??
-						run.lastActivityAt ??
-						run.lastUpdate ??
+						step.currentToolStartedAt ??
+						substantiveSubagentActivityAt(run, step.index) ??
 						step.endedAt ??
 						run.endedAt,
 					model: step.model ?? run.model ?? requestedMetadata?.model,
@@ -426,7 +426,10 @@ export function subagentTargets(
 			transcriptPath: run.transcriptPath,
 			sessionFile: run.sessionFile,
 			startedAt: run.startedAt,
-			lastUpdate: run.lastActivityAt ?? run.lastUpdate ?? run.endedAt,
+			lastUpdate:
+				run.currentToolStartedAt ??
+				substantiveSubagentActivityAt(run) ??
+				run.endedAt,
 			model:
 				run.model ??
 				(requested?.length === 1 ? requested[0]?.model : undefined),

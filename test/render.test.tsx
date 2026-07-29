@@ -1844,7 +1844,7 @@ describe("OpenTUI components", () => {
 			42,
 			24,
 		);
-		expect(sidebar.captureCharFrame()).toContain("ago");
+		expect(sidebar.captureCharFrame()).toContain("unknown · working");
 		const tool = await mount(
 			() => (
 				<MessageView
@@ -1868,7 +1868,7 @@ describe("OpenTUI components", () => {
 			100,
 			24,
 		);
-		expect(tool.captureCharFrame()).toContain("ago");
+		expect(tool.captureCharFrame()).toContain("last activity unknown");
 		const activeInspector = await mount(
 			() => <SubagentInspector target={active} items={[]} now={2_000} />,
 			100,

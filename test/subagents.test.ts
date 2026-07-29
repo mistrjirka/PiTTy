@@ -16,6 +16,7 @@ import {
 import {
 	readSubagentConversation,
 	readSubagentTranscript,
+	substantiveSubagentActivityAt,
 } from "../src/subagents/transcript.ts";
 import {
 	ownedSubagentTargetsForItems,
@@ -963,6 +964,39 @@ describe("subagent controls", () => {
 				.map((item) => item.label)
 				.sort(),
 		).toEqual(["one #1", "two #2"]);
+	});
+
+	test("ignores streaming-only transcript updates for last activity", () => {
+		const target = run();
+		const transcriptPath = path.join(target.asyncDir!, "transcript.jsonl");
+		target.transcriptPath = transcriptPath;
+		fs.writeFileSync(
+			transcriptPath,
+			[
+				JSON.stringify({
+					recordType: "message",
+					role: "assistant",
+					text: "streaming",
+					ts: 100,
+				}),
+				JSON.stringify({
+					recordType: "message",
+					role: "assistant",
+					text: "reformatted",
+					ts: 200,
+				}),
+				JSON.stringify({ recordType: "tool_start", toolName: "bash", ts: 300 }),
+				JSON.stringify({
+					recordType: "message",
+					role: "assistant",
+					text: "more streaming",
+					ts: 400,
+				}),
+				JSON.stringify({ recordType: "tool_end", toolName: "bash", ts: 350 }),
+			].join("\n"),
+		);
+		expect(substantiveSubagentActivityAt(target)).toBe(350);
+		expect(subagentTargets([target])[0]?.lastUpdate).toBe(350);
 	});
 
 	test("reads the active subagent transcript", () => {

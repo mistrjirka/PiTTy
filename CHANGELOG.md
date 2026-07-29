@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.16
+
+### Compaction Drafts
+
+- Prompt text submitted while context compaction is running now remains in the editor until the queued message is delivered.
+- A newer draft typed while the queued message is waiting is preserved instead of being cleared after compaction.
+
+### Subagent Activity
+
+- Subagent last-activity timestamps and transcript refreshes now use substantive tool activity instead of streaming-only updates.
+
 ## 0.5.15
 
 ### Release Packaging

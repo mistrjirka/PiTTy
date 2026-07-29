@@ -131,6 +131,25 @@ function readRecords(run: SubagentRun, stepIndex?: number): Array<{ record: Reco
   return records;
 }
 
+function substantiveRecordTimestamp(record: Record<string, unknown>): number | undefined {
+  const recordType = text(record.recordType);
+  const role = text(record.role);
+  if (recordType !== "tool_start" && recordType !== "tool_end" && role !== "tool" && role !== "toolResult") {
+    return undefined;
+  }
+  return typeof record.ts === "number" ? record.ts : undefined;
+}
+
+/** Return the latest recorded tool activity, ignoring streaming/UI-only updates. */
+export function substantiveSubagentActivityAt(run: SubagentRun, stepIndex?: number): number | undefined {
+  let latest: number | undefined;
+  for (const { record } of readRecords(run, stepIndex)) {
+    const timestamp = substantiveRecordTimestamp(record);
+    if (timestamp !== undefined && (latest === undefined || timestamp > latest)) latest = timestamp;
+  }
+  return latest;
+}
+
 function findPendingTool(
   items: ConversationItem[],
   pendingByName: Map<string, number[]>,
