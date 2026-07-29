@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.15
+
+### Release Packaging
+
+- Republished the 0.5.14 diff-wrapping fix with fresh release archives after the v0.5.14 `pitty-0.5.14.tar.gz` / `SHA256SUMS` download assets were unusable for `pitty upgrade`.
+
 ## 0.5.14
 
 ### Diff Rendering
