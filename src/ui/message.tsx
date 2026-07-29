@@ -633,7 +633,7 @@ export function MessageView(props: {
 													<text
 														fg={diffLineColor(line)}
 														selectable
-														wrapMode="none"
+														wrapMode="char"
 													>
 														{line || " "}
 													</text>

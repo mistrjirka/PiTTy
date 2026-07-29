@@ -882,6 +882,48 @@ describe("OpenTUI components", () => {
 		expect(expandedFrame).toContain("new value");
 	});
 
+	test("wraps long expanded diff lines instead of clipping them", async () => {
+		const longToken =
+			"LONG_DIFF_TOKEN_" +
+			"abcdefghijklmnopqrstuvwxyz0123456789_".repeat(4);
+		const item: ConversationItem = {
+			kind: "tool",
+			id: "edit-diff-wrap",
+			toolCallId: "edit-diff-wrap",
+			name: "edit",
+			args: { path: "src/app.ts", edits: [] },
+			output: "Applied edit",
+			diff: `--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1 +1 @@\n-short\n+${longToken}\n`,
+			diffPath: "src/app.ts",
+			timestamp: 1,
+			status: "done",
+			isError: false,
+		};
+		const width = 48;
+		const setup = await mount(
+			() => (
+				<MessageView
+					item={item}
+					showThinking
+					toolExpanded={false}
+					diffExpanded
+				/>
+			),
+			width,
+			24,
+		);
+		const frame = setup.captureCharFrame();
+		const lines = frame.split("\n");
+		for (const line of lines) expect(line.length).toBeLessThanOrEqual(width);
+		expect(frame.replace(/\s+/g, "")).toContain("LONG_DIFF_TOKEN_");
+		// Contiguous long tokens must continue on a following row, not vanish past the edge.
+		const wrappedRows = lines.filter((line) =>
+			/LONG_DIFF_TOKEN_|[a-z0-9_]{12,}/i.test(line),
+		);
+		expect(wrappedRows.length).toBeGreaterThan(1);
+		expect(frame).not.toContain(longToken);
+	});
+
 	test("hides optional integration panels when packages are unavailable", async () => {
 		const setup = await mount(
 			() => (

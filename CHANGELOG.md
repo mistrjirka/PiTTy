@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.14
+
+### Diff Rendering
+
+- Long lines in expanded tool diffs now wrap onto the next row instead of being clipped at the diff window edge.
+
+### Regression Coverage
+
+- Added a narrow-viewport render test that a long expanded diff line continues across rows rather than overflowing.
+
 ## 0.5.13
 
 ### Prompt History vs Slash Suggestions
