@@ -37,6 +37,8 @@ import type {
 	SessionStats,
 	SubagentRun,
 } from "../src/types.ts";
+import type { CodexUsage } from "../src/integrations/codex-usage.ts";
+import type { CodexUsageStats } from "../src/integrations/codex-usage-history.ts";
 import { registerBundledParsers } from "../src/ui/parsers.ts";
 import {
 	CommandSuggestions,
@@ -884,8 +886,7 @@ describe("OpenTUI components", () => {
 
 	test("wraps long expanded diff lines instead of clipping them", async () => {
 		const longToken =
-			"LONG_DIFF_TOKEN_" +
-			"abcdefghijklmnopqrstuvwxyz0123456789_".repeat(4);
+			"LONG_DIFF_TOKEN_" + "abcdefghijklmnopqrstuvwxyz0123456789_".repeat(4);
 		const item: ConversationItem = {
 			kind: "tool",
 			id: "edit-diff-wrap",
@@ -1467,6 +1468,63 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("🟢 implementer");
 		expect(frame).toContain("bash");
 		expect(frame).not.toContain("Selected");
+	});
+
+	test("shows the average daily consumption line as soon as a rate exists", async () => {
+		const state = {
+			sessionId: "session-1",
+			sessionName: "Codex avg test",
+			thinkingLevel: "high",
+			isStreaming: false,
+			isCompacting: false,
+			steeringMode: "all",
+			followUpMode: "all",
+			autoCompactionEnabled: true,
+			messageCount: 0,
+			pendingMessageCount: 0,
+			model: { provider: "openai-codex", id: "gpt-5.6", contextWindow: 400000 },
+		} as RpcSessionState;
+		const stats = {
+			sessionFile: "/tmp/session.jsonl",
+			sessionId: "session-1",
+			userMessages: 0,
+			assistantMessages: 0,
+			toolCalls: 0,
+			toolResults: 0,
+			totalMessages: 0,
+			tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			cost: 0,
+		} as SessionStats;
+		const usage: CodexUsage = {
+			windows: [
+				{
+					usedPercent: 30,
+					windowSeconds: 604800,
+					resetAfterSeconds: 9_000,
+					resetAt: 1_000,
+				},
+			],
+		};
+		const codexUsageStats: Record<number, CodexUsageStats> = {
+			604800: { remainingPercent: 70, ratePercentPerHour: 2, rateSpanHours: 1 },
+		};
+		const setup = await mount(
+			() => (
+				<Sidebar
+					state={state}
+					stats={stats}
+					runs={[]}
+					codexUsage={usage}
+					codexUsageStats={codexUsageStats}
+					height={40}
+				/>
+			),
+			42,
+			40,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("avg");
+		expect(frame).toContain("%/day");
 	});
 
 	test("renders live assistant output as stable plain text and tool timing", async () => {

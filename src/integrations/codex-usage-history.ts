@@ -18,7 +18,7 @@ export type CodexUsageSample = {
 
 export type CodexUsageHistory = Record<number, CodexUsageSample[]>;
 
-const MAX_HISTORY_MS = 9 * 24 * 60 * 60 * 1000;
+const MAX_HISTORY_MS = 31 * 24 * 60 * 60 * 1000;
 const MIN_SAMPLE_INTERVAL_MS = 4 * 60 * 1000;
 
 export function defaultCodexUsageHistoryPath(): string {
@@ -62,8 +62,15 @@ export function saveCodexUsageHistory(
 	filePath: string = defaultCodexUsageHistoryPath(),
 ): void {
 	try {
-		fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-		fs.writeFileSync(filePath, JSON.stringify(history), { mode: 0o600 });
+		const dir = path.dirname(filePath);
+		fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+		// Write to a unique temp file, then rename. A bare writeFileSync can be
+		// read mid-write by another PiTTy instance, which then parses a truncated
+		// document, discards the real history, and overwrites it. rename is atomic
+		// on the same filesystem, so readers always see a complete document.
+		const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+		fs.writeFileSync(tmpPath, JSON.stringify(history), { mode: 0o600 });
+		fs.renameSync(tmpPath, filePath);
 	} catch {
 		// Local usage history is a best-effort convenience; never let it crash the UI.
 	}

@@ -2406,7 +2406,13 @@ export function App(props: AppOptions) {
 			setCodexUsage(usage);
 			if (!usage) return;
 			const now = Date.now();
-			codexUsageHistory = recordCodexUsageSample(codexUsageHistory, usage, now);
+			// Re-read the latest on-disk history before recording so multiple
+			// PiTTy instances append to (rather than overwrite) each other's samples.
+			codexUsageHistory = recordCodexUsageSample(
+				loadCodexUsageHistory(),
+				usage,
+				now,
+			);
 			saveCodexUsageHistory(codexUsageHistory);
 			const stats: Record<number, CodexUsageStats> = {};
 			for (const window of usage.windows) {

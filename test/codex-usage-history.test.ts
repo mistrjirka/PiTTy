@@ -96,8 +96,8 @@ describe("recordCodexUsageSample", () => {
 		});
 	});
 
-	test("prunes samples older than the retention window", () => {
-		const now = 20 * 24 * 60 * 60 * 1000;
+	test("prunes samples older than the 31-day retention window", () => {
+		const now = 32 * 24 * 60 * 60 * 1000;
 		const history = recordCodexUsageSample(
 			{ 18000: [{ t: 0, usedPercent: 1, resetAt: 1_000 }] },
 			usage,
@@ -105,6 +105,64 @@ describe("recordCodexUsageSample", () => {
 		);
 		expect(history[18_000]).toEqual([
 			{ t: now, usedPercent: 50, resetAt: 1_000 },
+		]);
+	});
+
+	test("retains samples within the 31-day window", () => {
+		const now = 20 * 24 * 60 * 60 * 1000;
+		const history = recordCodexUsageSample(
+			{ 18000: [{ t: 0, usedPercent: 1, resetAt: 1_000 }] },
+			usage,
+			now,
+		);
+		// A 20-day-old sample survives, so the average spans roughly the last month.
+		expect(history[18_000]).toHaveLength(2);
+	});
+});
+
+describe("persistence safety", () => {
+	const file = tempPath();
+	const usageA: CodexUsage = {
+		windows: [window({ usedPercent: 10, resetAt: 1 })],
+	};
+	const usageB: CodexUsage = {
+		windows: [window({ usedPercent: 20, resetAt: 1 })],
+	};
+
+	test("saves atomically and round-trips without leaving temp files", () => {
+		const history = { 18000: [{ t: 1, usedPercent: 10, resetAt: 1 }] };
+		saveCodexUsageHistory(history, file);
+		expect(loadCodexUsageHistory(file)).toEqual(history);
+		const leftovers = fs
+			.readdirSync(path.dirname(file))
+			.filter(
+				(name) => name.includes("codex-usage-history") && name.endsWith(".tmp"),
+			);
+		expect(leftovers).toEqual([]);
+	});
+
+	test("merges samples written by separate processes", () => {
+		// Samples are throttled to one per 4min, so space the writes like two
+		// instances polling every 5 minutes would.
+		const A1 = 1_000;
+		const B1 = A1 + 5 * 60_000;
+		const A2 = B1 + 5 * 60_000;
+		// Process A writes first.
+		saveCodexUsageHistory(recordCodexUsageSample({}, usageA, A1), file);
+		// Process B loads A's file, records its own sample, saves.
+		saveCodexUsageHistory(
+			recordCodexUsageSample(loadCodexUsageHistory(file), usageB, B1),
+			file,
+		);
+		// Process A (stale in-memory) reloads the merged file, records again, saves.
+		saveCodexUsageHistory(
+			recordCodexUsageSample(loadCodexUsageHistory(file), usageA, A2),
+			file,
+		);
+		const final = loadCodexUsageHistory(file)[18_000];
+		expect(final).toHaveLength(3);
+		expect(final?.map((sample) => sample.t).sort((x, y) => x - y)).toEqual([
+			A1, B1, A2,
 		]);
 	});
 });

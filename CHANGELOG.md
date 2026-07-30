@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.17
+
+### Codex Usage History
+
+- Retention extended to a 31-day moving window so the sidebar shows a stable last-month average instead of dropping to zero after a Codex reset or a short gap.
+- History is now written atomically (temp file + rename), so a concurrent PiTTy instance can no longer read a partial file, discard the real history, and blank the average.
+- Each poll re-reads the latest on-disk history before recording, so multiple running PiTTy instances append to (rather than overwrite) each other's samples.
+- The `avg %/day` line now appears as soon as any rate exists instead of being hidden until 20h of history accumulated.
+
 ## 0.5.16
 
 ### Compaction Drafts

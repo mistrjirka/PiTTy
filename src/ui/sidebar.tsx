@@ -126,7 +126,10 @@ function formatSignedPercent(value: number): string {
 	return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
-function codexWindowSummaryLine(usedPercent: number, stats: CodexUsageStats | undefined): string {
+function codexWindowSummaryLine(
+	usedPercent: number,
+	stats: CodexUsageStats | undefined,
+): string {
 	const remaining = stats?.remainingPercent ?? Math.max(0, 100 - usedPercent);
 	const delta =
 		stats?.lastHourDeltaPercent !== undefined
@@ -135,7 +138,10 @@ function codexWindowSummaryLine(usedPercent: number, stats: CodexUsageStats | un
 	return `${Math.round(usedPercent)}% used (${Math.round(remaining)}% left${delta})`;
 }
 
-function codexWindowResetLine(resetAfterSeconds: number, stats: CodexUsageStats | undefined): string {
+function codexWindowResetLine(
+	resetAfterSeconds: number,
+	stats: CodexUsageStats | undefined,
+): string {
 	const resetIn = formatResetIn(resetAfterSeconds);
 	if (!stats?.predictedRunoutAt) return `resets ${resetIn}`;
 	const runoutIn = formatRunoutIn(stats.predictedRunoutAt);
@@ -144,11 +150,19 @@ function codexWindowResetLine(resetAfterSeconds: number, stats: CodexUsageStats 
 		: `resets ${resetIn} · runs out ${runoutIn}`;
 }
 
-function codexWindowPaceLine(stats: CodexUsageStats | undefined): string | undefined {
-	if (stats?.ratePercentPerHour === undefined || stats.rateSpanHours === undefined) return undefined;
-	if (stats.rateSpanHours < 20) return undefined;
+function codexWindowPaceLine(
+	stats: CodexUsageStats | undefined,
+): string | undefined {
+	if (
+		stats?.ratePercentPerHour === undefined ||
+		stats.rateSpanHours === undefined
+	)
+		return undefined;
 	const perDay = stats.ratePercentPerHour * 24;
-	const spanLabel = stats.rateSpanHours >= 24 ? `${(stats.rateSpanHours / 24).toFixed(1)}d` : `${Math.round(stats.rateSpanHours)}h`;
+	const spanLabel =
+		stats.rateSpanHours >= 24
+			? `${(stats.rateSpanHours / 24).toFixed(1)}d`
+			: `${Math.round(stats.rateSpanHours)}h`;
 	return `avg ${perDay.toFixed(1)}%/day (last ${spanLabel})`;
 }
 function formatTokens(value: number | undefined): string {
@@ -260,9 +274,13 @@ export function Sidebar(props: {
 			? props.notifications()
 			: (props.notifications ?? []);
 	const codexUsage = () =>
-		typeof props.codexUsage === "function" ? props.codexUsage() : props.codexUsage;
+		typeof props.codexUsage === "function"
+			? props.codexUsage()
+			: props.codexUsage;
 	const codexUsageStats = () =>
-		typeof props.codexUsageStats === "function" ? props.codexUsageStats() : props.codexUsageStats;
+		typeof props.codexUsageStats === "function"
+			? props.codexUsageStats()
+			: props.codexUsageStats;
 	const orderedNotifications = createMemo(() =>
 		[...notifications()].sort((a, b) =>
 			a.read !== b.read ? (a.read ? 1 : -1) : b.createdAt - a.createdAt,
@@ -288,7 +306,8 @@ export function Sidebar(props: {
 		let rows = 2;
 		for (const window of usage.windows) {
 			rows += 2;
-			if (codexWindowPaceLine(codexUsageStats()?.[window.windowSeconds])) rows += 1;
+			if (codexWindowPaceLine(codexUsageStats()?.[window.windowSeconds]))
+				rows += 1;
 		}
 		return rows;
 	};
@@ -446,13 +465,22 @@ export function Sidebar(props: {
 								<text
 									width="100%"
 									height={1}
-									fg={stats()?.runsOutBeforeReset ? colors.yellow : colors.subtle}
+									fg={
+										stats()?.runsOutBeforeReset ? colors.yellow : colors.subtle
+									}
 									wrapMode="none"
 								>
-									{clip(`  ${codexWindowResetLine(window.resetAfterSeconds, stats())}`)}
+									{clip(
+										`  ${codexWindowResetLine(window.resetAfterSeconds, stats())}`,
+									)}
 								</text>
 								<Show when={pace()}>
-									<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
+									<text
+										width="100%"
+										height={1}
+										fg={colors.subtle}
+										wrapMode="none"
+									>
 										{clip(`  ${pace()}`)}
 									</text>
 								</Show>
@@ -535,7 +563,11 @@ export function Sidebar(props: {
 								minHeight={todoHeight()}
 								flexShrink={1}
 							>
-								<TodoPanel todos={todos()} height={todoHeight()} onOpenTodo={props.onOpenTodo} />
+								<TodoPanel
+									todos={todos()}
+									height={todoHeight()}
+									onOpenTodo={props.onOpenTodo}
+								/>
 							</box>
 						</Show>
 						<Show when={hasNotifications() && notificationHeight() > 0}>
@@ -580,7 +612,9 @@ export function Sidebar(props: {
 													attributes={record.read ? 0 : 1}
 													wrapMode="none"
 												>
-													{clip(`${notificationToneIcon(record.tone)} ${record.text}`)}
+													{clip(
+														`${notificationToneIcon(record.tone)} ${record.text}`,
+													)}
 												</text>
 											</box>
 										)}
