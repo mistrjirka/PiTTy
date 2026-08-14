@@ -53,6 +53,8 @@ function targetLabel(
 type ForegroundEntry = {
 	progress: Record<string, unknown>;
 	result?: Record<string, unknown> | undefined;
+	identity?: string | undefined;
+	workflow?: boolean | undefined;
 };
 
 type RequestedMetadata = {
@@ -142,42 +144,117 @@ function meaningfulResult(result: Record<string, unknown>): boolean {
 	);
 }
 
+function workflowIdentity(value: Record<string, unknown>): string | undefined {
+	for (const key of ["workflowKey", "childId", "runId", "key", "id"] as const) {
+		const candidate = value[key];
+		if (typeof candidate === "string" && candidate.trim())
+			return candidate.trim();
+	}
+	const index = value.index;
+	return typeof index === "number" && Number.isInteger(index)
+		? `index:${index}`
+		: undefined;
+}
+
+function workflowTrace(details: Record<string, unknown>): ForegroundEntry[] {
+	const workflow = record(details.workflow);
+	const trace = workflow?.trace;
+	if (!Array.isArray(trace)) return [];
+	const latest = new Map<string, ForegroundEntry>();
+	trace.forEach((value, index) => {
+		const entry = record(value);
+		if (!entry || entry.operation !== "run") return;
+		const run = record(entry.run) ?? entry;
+		if (Object.keys(run).length === 0) return;
+		const identity =
+			workflowIdentity(entry) ?? workflowIdentity(run) ?? `index:${index}`;
+		latest.set(identity, { progress: run, identity, workflow: true });
+	});
+	return [...latest.values()];
+}
+
+function foregroundProgressState(
+	progress: Record<string, unknown>,
+): string | undefined {
+	const state = typeof progress.state === "string" ? progress.state : undefined;
+	if (state) return state === "started" || state === "reused" ? "running" : state;
+	const status = typeof progress.status === "string" ? progress.status : undefined;
+	if (status) return status === "started" || status === "reused" ? "running" : status;
+	const event =
+		typeof progress.event === "string"
+			? progress.event
+			: typeof progress.type === "string"
+				? progress.type
+				: undefined;
+	return event === "started" || event === "reused" ? "running" : undefined;
+}
+
 function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
 	const details = record(item.details);
+	const traceEntries = details ? workflowTrace(details) : [];
 	const results = details?.results;
 	if (Array.isArray(results)) {
-		const entries = results.flatMap((value): ForegroundEntry[] => {
-			const result = record(value);
-			if (!result) return [];
-			const nested = result.progress;
-			const nestedRecord = record(nested);
-			const hasProgress = Array.isArray(nested)
-				? nested.some((value) => {
-						const progress = record(value);
-						return progress !== undefined && Object.keys(progress).length > 0;
-					})
-				: nestedRecord !== undefined && Object.keys(nestedRecord).length > 0;
-			if (!meaningfulResult(result) && !hasProgress) return [];
-			if (Array.isArray(nested)) {
-				const progress = nested.flatMap(
-					(progressValue): Record<string, unknown>[] => {
-						const entry = record(progressValue);
-						return entry ? [entry] : [];
-					},
-				);
-				return progress.length > 0
-					? progress.map((entry) => ({ progress: entry, result }))
-					: meaningfulResult(result)
-						? [{ progress: {}, result }]
-						: [];
+		const entries = results
+			.flatMap((value): ForegroundEntry[] => {
+				const result = record(value);
+				if (!result) return [];
+				const nested = result.progress;
+				const nestedRecord = record(nested);
+				const hasProgress = Array.isArray(nested)
+					? nested.some((value) => {
+							const progress = record(value);
+							return progress !== undefined && Object.keys(progress).length > 0;
+						})
+					: nestedRecord !== undefined && Object.keys(nestedRecord).length > 0;
+				if (!meaningfulResult(result) && !hasProgress) return [];
+				if (Array.isArray(nested)) {
+					const progress = nested.flatMap(
+						(progressValue): Record<string, unknown>[] => {
+							const entry = record(progressValue);
+							return entry ? [entry] : [];
+						},
+					);
+					return progress.length > 0
+						? progress.map((entry) => ({ progress: entry, result }))
+						: meaningfulResult(result)
+							? [{ progress: {}, result }]
+							: [];
+				}
+				const progressRecord = record(nested);
+				return progressRecord && Object.keys(progressRecord).length > 0
+					? [{ progress: progressRecord, result }]
+					: [{ progress: {}, result }];
+			})
+			.map((entry) => {
+				const identity =
+					entry.identity ?? workflowIdentity(entry.result ?? {});
+				return identity ? { ...entry, identity } : entry;
+			});
+		if (entries.length > 0) {
+			if (traceEntries.length === 0) return entries;
+			const byIdentity = new Map(
+				entries.map((entry, index) => [
+					entry.identity ?? `index:${index}`,
+					entry,
+				]),
+			);
+			const used = new Set<string>();
+			const merged = traceEntries.map((trace, index) => {
+				const identity = trace.identity ?? `index:${index}`;
+				const terminal =
+					byIdentity.get(identity) ?? byIdentity.get(`index:${index}`);
+				if (terminal) used.add(terminal.identity ?? `index:${index}`);
+				return terminal
+					? { ...trace, result: terminal.result, identity }
+					: trace;
+			});
+			for (const [key, terminal] of byIdentity) {
+				if (!used.has(key)) merged.push(terminal);
 			}
-			const progressRecord = record(nested);
-			return progressRecord && Object.keys(progressRecord).length > 0
-				? [{ progress: progressRecord, result }]
-				: [{ progress: {}, result }];
-		});
-		if (entries.length > 0) return entries;
+			return merged;
+		}
 	}
+	if (traceEntries.length > 0) return traceEntries;
 	const directProgress = details?.progress;
 	if (!Array.isArray(directProgress)) return [];
 	return directProgress.flatMap((value): ForegroundEntry[] => {
@@ -191,7 +268,7 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 	const entries = foregroundEntries(item);
 	const requested = requestedChildren(item.args);
 	if (entries.length === 0) return [];
-	return entries.map(({ progress, result }, index) => {
+	return entries.map(({ progress, result, identity, workflow }, index) => {
 		const requestedMetadata =
 			requested.length === entries.length
 				? requested[index]
@@ -200,14 +277,16 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 					: undefined;
 		const exitCode =
 			typeof result?.exitCode === "number" ? result.exitCode : undefined;
-		const state =
-			typeof progress.status === "string"
-				? progress.status
-				: item.status === "done" && exitCode !== undefined
-					? exitCode === 0
-						? "completed"
-						: "failed"
-					: item.status;
+		const terminalState =
+			item.status === "done" && exitCode !== undefined
+				? exitCode === 0
+					? "completed"
+					: "failed"
+				: undefined;
+		const progressStatus = foregroundProgressState(progress);
+		const state = workflow
+			? (terminalState ?? progressStatus ?? item.status)
+			: (progressStatus ?? terminalState ?? item.status);
 		const label =
 			typeof progress.label === "string"
 				? progress.label
@@ -220,7 +299,9 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 							: (requestedMetadata?.label ??
 								requestedMetadata?.agent ??
 								"foreground subagent");
-		const runId = `${item.toolCallId}:${index}`;
+		const runId = identity
+			? `${item.toolCallId}:${identity}`
+			: `${item.toolCallId}:${index}`;
 		const tokens = record(progress.tokens);
 		const transcriptPath =
 			typeof result?.transcriptPath === "string"

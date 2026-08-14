@@ -585,6 +585,169 @@ describe("subagent controls", () => {
 		).toEqual([tool.toolCallId]);
 	});
 
+	test("projects live workflow trace children with stable identities", () => {
+		const liveTool = {
+			kind: "tool" as const,
+			id: "workflow-live",
+			toolCallId: "workflow-call",
+			name: "subagent",
+			args: {},
+			output: "working",
+			details: {
+				workflow: {
+					trace: [
+						{
+							operation: "run",
+							key: "child-a",
+							agent: "worker-a",
+							state: "started",
+						},
+						{
+							operation: "run",
+							key: "child-b",
+							agent: "worker-b",
+							state: "started",
+						},
+					],
+				},
+			},
+			timestamp: 1,
+			status: "streaming" as const,
+			isError: false,
+		};
+		const first = subagentTargets([], [liveTool]);
+		expect(first.map((target) => target.key)).toEqual([
+			"workflow-call:child-a",
+			"workflow-call:child-b",
+		]);
+		expect(first.every((target) => target.active)).toBe(true);
+
+		const updated = subagentTargets(
+			[],
+			[
+				{
+					...liveTool,
+					details: {
+						workflow: {
+							trace: [
+								{
+									operation: "run",
+									key: "child-a",
+									agent: "worker-a",
+									state: "started",
+								},
+								{
+									operation: "run",
+									key: "child-a",
+									agent: "worker-a",
+									state: "completed",
+								},
+								{
+									operation: "run",
+									key: "child-b",
+									agent: "worker-b",
+									state: "started",
+								},
+							],
+						},
+					},
+				},
+			],
+		);
+		expect(updated.map((target) => target.key)).toEqual(
+			first.map((target) => target.key),
+		);
+	});
+
+	test("merges workflow terminal results into trace children without duplicates", () => {
+		const tool = {
+			kind: "tool" as const,
+			id: "workflow-terminal",
+			toolCallId: "workflow-terminal-call",
+			name: "subagent",
+			args: {},
+			output: "done",
+			details: {
+				workflow: {
+					trace: [
+						{
+							operation: "run",
+							key: "child",
+							agent: "worker",
+							state: "started",
+						},
+						{
+							operation: "note",
+							key: "ignored",
+							agent: "noise",
+							state: "started",
+						},
+					],
+				},
+				results: [{ key: "child", agent: "worker", exitCode: 0 }],
+			},
+			timestamp: 1,
+			status: "done" as const,
+			isError: false,
+		};
+		const targets = subagentTargets([], [tool]);
+		expect(targets).toHaveLength(1);
+		expect(targets[0]?.key).toBe("workflow-terminal-call:child");
+		expect(targets[0]?.state).toBe("completed");
+	});
+
+	test("preserves legacy foreground results and progress parsing", () => {
+		const results = subagentTargets(
+			[],
+			[
+				{
+					kind: "tool",
+					id: "legacy-results",
+					toolCallId: "legacy-results-call",
+					name: "subagent",
+					args: {},
+					output: "done",
+					details: {
+						results: [
+							{
+								agent: "result-child",
+								exitCode: 0,
+								progress: { status: "running" },
+							},
+						],
+					},
+					timestamp: 1,
+					status: "done",
+					isError: false,
+				},
+			],
+		);
+		const progress = subagentTargets(
+			[],
+			[
+				{
+					kind: "tool",
+					id: "legacy-progress",
+					toolCallId: "legacy-progress-call",
+					name: "subagent",
+					args: {},
+					output: "working",
+					details: {
+						progress: [{ agent: "progress-child", status: "running" }],
+					},
+					timestamp: 1,
+					status: "streaming",
+					isError: false,
+				},
+			],
+		);
+		expect(results[0]?.label).toBe("result-child");
+		expect(results[0]?.key).toBe("legacy-results-call:0");
+		expect(results[0]?.state).toBe("running");
+		expect(progress[0]?.label).toBe("progress-child");
+		expect(progress[0]?.key).toBe("legacy-progress-call:0");
+	});
+
 	test("preserves foreground transcript metadata from running result progress", () => {
 		const tool = {
 			kind: "tool" as const,

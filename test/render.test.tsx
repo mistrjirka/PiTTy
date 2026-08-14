@@ -36,6 +36,7 @@ import type {
 	RpcSessionState,
 	SessionStats,
 	SubagentRun,
+	ToolItem,
 } from "../src/types.ts";
 import type { CodexUsage } from "../src/integrations/codex-usage.ts";
 import type { CodexUsageStats } from "../src/integrations/codex-usage-history.ts";
@@ -1468,6 +1469,30 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("🟢 implementer");
 		expect(frame).toContain("bash");
 		expect(frame).not.toContain("Selected");
+	});
+
+	test("renders live workflow children in the subagent sidebar", async () => {
+		const tool: ToolItem = {
+			kind: "tool",
+			id: "workflow-sidebar",
+			toolCallId: "workflow-sidebar-call",
+			name: "subagent",
+			args: {},
+			output: "Workflow running.",
+			details: {
+				mode: "workflow",
+				workflow: {
+					trace: [
+						{ operation: "run", key: "worker", agent: "worker", state: "started" },
+					],
+				},
+			},
+			timestamp: 1,
+			status: "streaming",
+			isError: false,
+		};
+		const setup = await mount(() => <Sidebar runs={[]} tools={[tool]} />, 42, 24);
+		expect(setup.captureCharFrame()).toContain("worker");
 	});
 
 	test("shows the average daily consumption line as soon as a rate exists", async () => {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.18
+
+### Subagent Workflow Visibility
+
+- Workflow-backed foreground child runs now appear immediately from live workflow traces and remain visible on completion without duplicate rows.
+- Legacy foreground `results` and `progress` details remain supported.
+
 ## 0.5.17
 
 ### Codex Usage History
