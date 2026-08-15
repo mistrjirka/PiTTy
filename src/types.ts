@@ -72,6 +72,9 @@ export type ConversationItem = UserItem | AssistantItem | ToolItem | SystemItem;
 export type SubagentStep = {
 	index: number;
 	agent: string;
+	workflowKey?: string | undefined;
+	parentWorkflowRunId?: string | undefined;
+	runId?: string | undefined;
 	status: string;
 	phase?: string | undefined;
 	label?: string | undefined;
@@ -109,7 +112,9 @@ export type SubagentRun = {
 	runId: string;
 	asyncId?: string | undefined;
 	asyncDir?: string | undefined;
-	control?: "file" | "foreground" | undefined;
+	workflowKey?: string | undefined;
+	parentWorkflowRunId?: string | undefined;
+	control?: "file" | "foreground" | "mission" | undefined;
 	sessionId?: string | undefined;
 	sessionFile?: string | undefined;
 	mode: string;

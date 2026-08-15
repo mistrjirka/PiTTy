@@ -20,7 +20,9 @@ export function subagentTempRoot(): string {
   try {
     const username = os.userInfo().username;
     if (username) return path.join(os.tmpdir(), `pi-subagents-user-${sanitize(username)}`);
-  } catch {}
+  } catch {
+    // Some platforms do not expose userInfo; continue with environment fallbacks.
+  }
 
   const home = process.env.USERPROFILE ?? process.env.HOME ?? os.homedir();
   if (home) return path.join(os.tmpdir(), `pi-subagents-home-${sanitize(home)}`);
@@ -50,6 +52,8 @@ export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const record = raw as Record<string, unknown>;
   const runId = string(record.runId) ?? string(record.id) ?? path.basename(asyncDir);
+  const workflowKey = string(record.workflowKey);
+  const parentWorkflowRunId = string(record.parentWorkflowRunId);
   const stepsRaw = Array.isArray(record.steps) ? record.steps : [];
   const steps: SubagentStep[] = stepsRaw.flatMap((entry, index) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
@@ -69,6 +73,13 @@ export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
       index: number(step.index) ?? index,
       agent,
       status: string(step.status) ?? "unknown",
+      ...(string(step.workflowKey) ?? workflowKey
+        ? { workflowKey: string(step.workflowKey) ?? workflowKey }
+        : {}),
+      ...(string(step.parentWorkflowRunId) ?? parentWorkflowRunId
+        ? { parentWorkflowRunId: string(step.parentWorkflowRunId) ?? parentWorkflowRunId }
+        : {}),
+      ...(string(step.runId) ? { runId: string(step.runId) } : {}),
       ...(string(step.phase) ? { phase: string(step.phase) } : {}),
       ...(string(step.label) ? { label: string(step.label) } : {}),
       ...(string(step.model) ? { model: string(step.model) } : {}),
@@ -111,6 +122,8 @@ export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
     steps,
     ...(string(record.sessionId) ? { sessionId: string(record.sessionId) } : {}),
     ...(string(record.sessionFile) ? { sessionFile: string(record.sessionFile) } : {}),
+    ...(workflowKey ? { workflowKey } : {}),
+    ...(parentWorkflowRunId ? { parentWorkflowRunId } : {}),
     ...(number(record.startedAt) !== undefined ? { startedAt: number(record.startedAt) } : {}),
     ...(number(record.lastUpdate) !== undefined ? { lastUpdate: number(record.lastUpdate) } : {}),
     ...(number(record.endedAt) !== undefined ? { endedAt: number(record.endedAt) } : {}),
@@ -158,7 +171,9 @@ function identityVariants(value: string | undefined): string[] {
     variants.add(resolved);
     try {
       variants.add(fs.realpathSync.native(resolved));
-    } catch {}
+    } catch {
+      // The artifact may not exist yet; retain the normalized path variant.
+    }
   }
   return [...variants];
 }

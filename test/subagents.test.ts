@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -14,10 +15,15 @@ import {
 	subagentTempRoot,
 } from "../src/subagents/artifacts.ts";
 import {
+	listMissionRuns,
+	mergeMissionRuns,
+} from "../src/subagents/missions.ts";
+import {
 	readSubagentConversation,
 	readSubagentTranscript,
 	substantiveSubagentActivityAt,
 } from "../src/subagents/transcript.ts";
+import { createSubagentTranscriptCache } from "../src/subagents/transcript-cache.ts";
 import {
 	ownedSubagentTargetsForItems,
 	reconcileSubagentSelection,
@@ -45,7 +51,235 @@ function run(): SubagentRun {
 	};
 }
 
+const MISSION_CHILD_KEYS = [
+	"logic",
+	"types",
+	"smell",
+	"architecture",
+	"reuse",
+	"security",
+] as const;
+
+function capturedMission(
+	ownerSessionId: string,
+	workflowRunId: string,
+	status = "active",
+) {
+	return {
+		schemaVersion: 1,
+		id: "captured-mission",
+		title: "[prompt redacted]",
+		objective: "[prompt redacted]",
+		status,
+		createdAt: "2026-08-15T14:22:59.000Z",
+		updatedAt: "2026-08-15T14:23:00.000Z",
+		ownerSessionId,
+		runs: [],
+		workflowChildren: MISSION_CHILD_KEYS.map((key, index) => ({
+			workflowRunId,
+			key: `impl-check-${key}`,
+			status: "running",
+			agent: `impl-check-${key}`,
+			startedAt: "2026-08-15T14:22:59.000Z",
+			updatedAt: "2026-08-15T14:23:00.000Z",
+			runId: `child-${index}`,
+			artifactPaths: [],
+			sessionPath: `/tmp/child-${index}.jsonl`,
+			heartbeat: {
+				status: "running",
+				updatedAt: "2026-08-15T14:23:01.000Z",
+			},
+		})),
+		decisions: [],
+		artifacts: [],
+		receipts: [],
+	};
+}
+
+function writeMissionFixture(root: string, name: string, value: unknown): void {
+	fs.writeFileSync(path.join(root, `${name}.json`), JSON.stringify(value));
+}
+
 describe("subagent controls", () => {
+	test("projects the captured mission shape into six scoped read-only children", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-mission-test-"));
+		roots.push(root);
+		const workflowRunId = "workflow-captured";
+		const owner = path.join(root, "sessions", "current.jsonl");
+		const mission = capturedMission(owner, workflowRunId);
+		writeMissionFixture(root, "mission", mission);
+
+		const runs = listMissionRuns({ sessionFile: owner }, process.cwd(), root);
+		const targets = subagentTargets(runs);
+		expect(targets).toHaveLength(6);
+		expect(targets.map((target) => target.key).sort()).toEqual(
+			mission.workflowChildren
+				.map((child) => `${workflowRunId}:${child.key}`)
+				.sort(),
+		);
+		expect(
+			targets.every(
+				(target) =>
+					target.active &&
+					!target.canSteer &&
+					Boolean(target.sessionFile) &&
+					target.parentWorkflowRunId === workflowRunId,
+			),
+		).toBe(true);
+		expect(runs[0]?.startedAt).toBe(Date.parse("2026-08-15T14:22:59.000Z"));
+		expect(runs[0]?.lastUpdate).toBe(Date.parse("2026-08-15T14:23:01.000Z"));
+		expect(listMissionRuns({}, process.cwd(), root)).toEqual([]);
+		expect(
+			listMissionRuns(
+				{ sessionFile: path.join(root, "other.jsonl") },
+				process.cwd(),
+				root,
+			),
+		).toEqual([]);
+
+		const terminalTool: ToolItem = {
+			kind: "tool",
+			id: "captured-workflow",
+			toolCallId: workflowRunId,
+			name: "subagent",
+			args: {},
+			output: "stopped",
+			details: {
+				mode: "workflow",
+				runId: workflowRunId,
+				workflow: {
+					trace: mission.workflowChildren.map((child) => ({
+						operation: "run",
+						key: child.key,
+						agent: child.agent,
+						state: "stopped",
+					})),
+				},
+			},
+			timestamp: Date.parse("2026-08-15T14:23:02.000Z"),
+			status: "error",
+			isError: true,
+		};
+		const terminalTargets = subagentTargets(runs, [terminalTool]);
+		expect(terminalTargets).toHaveLength(6);
+		expect(terminalTargets.every((target) => target.state === "stopped")).toBe(
+			true,
+		);
+		expect(terminalTargets.every((target) => Boolean(target.sessionFile))).toBe(
+			true,
+		);
+		expect(terminalTargets.map((target) => target.key).sort()).toEqual(
+			targets.map((target) => target.key).sort(),
+		);
+
+		const persisted: SubagentRun = {
+			runId: workflowRunId,
+			mode: "workflow",
+			state: "completed",
+			steps: [],
+		};
+		expect(
+			mergeMissionRuns(
+				[persisted],
+				{ sessionFile: owner },
+				process.cwd(),
+				root,
+			),
+		).toEqual([persisted]);
+	});
+
+	test("projects paused and stopped children without dropping running siblings", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-mission-status-"));
+		roots.push(root);
+		const workflowRunId = "workflow-statuses";
+		const owner = path.join(root, "sessions", "current.jsonl");
+		const mission = capturedMission(owner, workflowRunId);
+		mission.workflowChildren[0]!.status = "paused";
+		mission.workflowChildren[0]!.heartbeat.status = "paused";
+		mission.workflowChildren[1]!.status = "stopped";
+		mission.workflowChildren[1]!.heartbeat.status = "stopped";
+		writeMissionFixture(root, "mission", mission);
+
+		const runs = listMissionRuns({ sessionFile: owner }, process.cwd(), root);
+		const targets = subagentTargets(runs);
+		expect(targets).toHaveLength(6);
+		expect(targets.map((target) => [target.key, target.state]).sort()).toEqual(
+			mission.workflowChildren
+				.map((child) => [
+					`${workflowRunId}:${child.key}`,
+					child.heartbeat.status,
+				])
+				.sort(),
+		);
+		expect(targets.slice(2).every((target) => target.active)).toBe(true);
+		expect(targets.slice(2).every((target) => target.canSteer === false)).toBe(
+			true,
+		);
+		expect(targets[0]?.active).toBe(false);
+		expect(targets[0]?.canSteer).toBe(false);
+		expect(targets[1]?.active).toBe(false);
+		expect(targets[1]?.canSteer).toBe(false);
+	});
+
+	test("derives the upstream project mission directory from the session path", () => {
+		const agentRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-agent-root-"));
+		roots.push(agentRoot);
+		const projectRoot = path.join(agentRoot, "project");
+		const owner = path.join(agentRoot, "sessions", "current.jsonl");
+		const workflowRunId = "workflow-derived-root";
+		const digest = createHash("sha256")
+			.update(path.resolve(projectRoot))
+			.digest("hex");
+		const missionRoot = path.join(agentRoot, "missions", "projects", digest);
+		fs.mkdirSync(missionRoot, { recursive: true });
+		writeMissionFixture(
+			missionRoot,
+			"mission",
+			capturedMission(owner, workflowRunId),
+		);
+		expect(
+			listMissionRuns({ sessionFile: owner }, projectRoot).map(
+				(run) => run.runId,
+			),
+		).toEqual([workflowRunId]);
+	});
+
+	test("fails closed for terminal, malformed, or ambiguous mission children", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-mission-invalid-"));
+		roots.push(root);
+		const owner = path.join(root, "sessions", "current.jsonl");
+		const workflowRunId = "workflow-ambiguous";
+		const mission = capturedMission(owner, workflowRunId);
+		writeMissionFixture(root, "first", mission);
+		writeMissionFixture(root, "second", {
+			...mission,
+			id: "duplicate-mission",
+		});
+		expect(
+			listMissionRuns({ sessionFile: owner }, process.cwd(), root),
+		).toEqual([]);
+
+		fs.rmSync(path.join(root, "second.json"));
+		writeMissionFixture(root, "first", { ...mission, status: "failed" });
+		expect(
+			listMissionRuns({ sessionFile: owner }, process.cwd(), root),
+		).toEqual([]);
+
+		const malformedHeartbeat = capturedMission(owner, workflowRunId);
+		malformedHeartbeat.workflowChildren[0]!.heartbeat.updatedAt = "not-a-date";
+		writeMissionFixture(root, "first", malformedHeartbeat);
+		expect(
+			listMissionRuns({ sessionFile: owner }, process.cwd(), root),
+		).toEqual([]);
+
+		const duplicateKey = capturedMission(owner, workflowRunId);
+		duplicateKey.workflowChildren[1]!.key =
+			duplicateKey.workflowChildren[0]!.key;
+		writeMissionFixture(root, "first", duplicateKey);
+		expect(
+			listMissionRuns({ sessionFile: owner }, process.cwd(), root),
+		).toEqual([]);
+	});
 	test("uses the same uid-scoped temp root as pi-subagents", () => {
 		if (process.getuid)
 			expect(subagentTempRoot()).toBe(
@@ -63,6 +297,8 @@ describe("subagent controls", () => {
 				sessionId: "session-1",
 				mode: "parallel",
 				state: "running",
+				workflowKey: "workflow-root-key",
+				parentWorkflowRunId: "workflow-parent-run",
 				startedAt: 1000,
 				lastUpdate: 2000,
 				currentStep: 1,
@@ -77,6 +313,9 @@ describe("subagent controls", () => {
 					{
 						agent: "worker",
 						status: "running",
+						workflowKey: "workflow-step",
+						parentWorkflowRunId: "parent-workflow-run",
+						runId: "workflow-child-run",
 						model: "provider/child",
 						thinking: "high",
 						contextWindow: 8192,
@@ -91,11 +330,16 @@ describe("subagent controls", () => {
 		const parsed = readSubagentRun(target.asyncDir!);
 		expect(parsed?.totalTokens).toBe(150);
 		expect(parsed?.totalCost).toBe(0.0123);
+		expect(parsed?.workflowKey).toBe("workflow-root-key");
+		expect(parsed?.parentWorkflowRunId).toBe("workflow-parent-run");
 		expect(parsed?.steps[0]?.currentTool).toBe("edit");
 		expect(parsed?.steps[0]?.model).toBe("provider/child");
 		expect(parsed?.steps[0]?.thinking).toBe("high");
 		expect(parsed?.steps[0]?.contextWindow).toBe(8192);
 		expect(parsed?.steps[0]?.tokens?.total).toBe(60);
+		expect(parsed?.steps[0]?.workflowKey).toBe("workflow-step");
+		expect(parsed?.steps[0]?.parentWorkflowRunId).toBe("parent-workflow-run");
+		expect(parsed?.steps[0]?.runId).toBe("workflow-child-run");
 	});
 
 	test("matches restored runs whose artifact sessionId is the session file path", () => {
@@ -659,6 +903,482 @@ describe("subagent controls", () => {
 		);
 	});
 
+	test("keeps live workflow children visible while persisted parent steps are empty", () => {
+		const tool: ToolItem = {
+			kind: "tool",
+			id: "workflow-race",
+			toolCallId: "workflow-race-call",
+			name: "subagent",
+			args: {},
+			output: "working",
+			details: {
+				runId: "workflow-parent",
+				workflow: {
+					trace: [
+						{
+							operation: "run",
+							key: "logic",
+							agent: "worker",
+							state: "started",
+						},
+					],
+				},
+			},
+			timestamp: 100,
+			status: "streaming",
+			isError: false,
+		};
+		const run: SubagentRun = {
+			runId: "workflow-parent",
+			asyncDir: "/tmp/workflow-parent",
+			control: "file",
+			mode: "workflow",
+			state: "running",
+			steps: [],
+		};
+
+		const targets = subagentTargets([run], [tool]);
+		expect(targets.map((target) => target.key)).toEqual([
+			"workflow-race-call:logic",
+		]);
+		expect(targets[0]?.label).toBe("worker");
+
+		run.steps = [
+			{
+				index: 0,
+				agent: "persisted-worker",
+				status: "running",
+				workflowKey: "logic",
+				parentWorkflowRunId: "workflow-parent",
+				runId: "workflow-child",
+				sessionFile: "/tmp/workflow-child.jsonl",
+			},
+		];
+		const reconciled = subagentTargets([run], [tool]);
+		expect(reconciled.map((target) => target.key)).toEqual([
+			"workflow-parent:0",
+		]);
+		expect(reconciled[0]?.sessionFile).toBe("/tmp/workflow-child.jsonl");
+	});
+
+	test("uses the stable workflow key when live trace metadata omits a name", () => {
+		const tool = {
+			kind: "tool" as const,
+			id: "workflow-key-only",
+			toolCallId: "workflow-key-only-call",
+			name: "subagent",
+			args: {},
+			output: "working",
+			details: {
+				workflow: {
+					trace: [{ operation: "run", key: "logic", state: "started" }],
+				},
+			},
+			timestamp: 1,
+			status: "streaming" as const,
+			isError: false,
+		};
+		const [target] = subagentTargets([], [tool]);
+		expect(target?.label).toBe("logic");
+		expect(target?.active).toBe(true);
+		expect(target?.sessionFile).toBeUndefined();
+		expect(target?.transcriptPath).toBeUndefined();
+	});
+
+	test("suppresses persisted child projections once the workflow parent owns steps", () => {
+		const parent: SubagentRun = {
+			runId: "parent",
+			mode: "workflow",
+			state: "running",
+			steps: [0, 1, 2].map((index) => ({
+				index,
+				agent: `agent-${index}`,
+				workflowKey: `k${index}`,
+				runId: `child-${index}`,
+				status: "running",
+				sessionFile: `/tmp/c${index}`,
+			})),
+		};
+		const children = [0, 1, 2].map(
+			(index): SubagentRun => ({
+				runId: `child-${index}`,
+				mode: "single",
+				state: "running",
+				parentWorkflowRunId: "parent",
+				workflowKey: `k${index}`,
+				steps: [
+					{
+						index: 0,
+						agent: `agent-${index}`,
+						status: "running",
+						sessionFile: `/tmp/c${index}`,
+					},
+				],
+			}),
+		);
+		expect(subagentTargets([parent, ...children])).toHaveLength(3);
+		expect(subagentTargets(children)).toHaveLength(3);
+	});
+
+	test("transfers suppressed child session metadata into the visible parent step", () => {
+		const sessionFile = path.join(os.tmpdir(), "workflow-child-session.jsonl");
+		fs.writeFileSync(
+			sessionFile,
+			JSON.stringify({
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "child transcript" }],
+				},
+			}),
+		);
+		const parent: SubagentRun = {
+			runId: "workflow-parent",
+			mode: "workflow",
+			state: "completed",
+			steps: [
+				{
+					index: 0,
+					agent: "worker",
+					workflowKey: "logic",
+					runId: "workflow-child",
+					status: "completed",
+				},
+			],
+		};
+		const child: SubagentRun = {
+			runId: "workflow-child",
+			mode: "single",
+			state: "completed",
+			parentWorkflowRunId: "workflow-parent",
+			workflowKey: "logic",
+			sessionFile,
+			steps: [],
+		};
+
+		const targets = subagentTargets([parent, child]);
+		expect(targets).toHaveLength(1);
+		const target = targets[0];
+		expect(target?.key).toBe("workflow-parent:0");
+		expect(target?.sessionFile).toBe(sessionFile);
+		expect(target?.run.steps[0]?.sessionFile).toBe(sessionFile);
+		expect(
+			readSubagentConversation(target!.run, 160, target!.stepIndex),
+		).toEqual([
+			expect.objectContaining({ kind: "assistant", text: "child transcript" }),
+		]);
+	});
+
+	test("pairs unambiguous index-only workflow results by trace position", () => {
+		const tool: ToolItem = {
+			kind: "tool",
+			id: "positional",
+			toolCallId: "positional-call",
+			name: "subagent",
+			args: {},
+			output: "done",
+			timestamp: 1,
+			status: "done",
+			isError: false,
+			details: {
+				workflow: {
+					trace: [
+						{ operation: "run", key: "a", agent: "one", state: "started" },
+						{ operation: "run", key: "b", agent: "two", state: "started" },
+					],
+				},
+				results: [
+					{ index: 0, agent: "one", sessionFile: "/tmp/one" },
+					{ index: 0, agent: "two", sessionFile: "/tmp/two" },
+				],
+			},
+		};
+		const targets = subagentTargets([], [tool]);
+		expect(
+			targets.find((target) => target.workflowKey === "a")?.sessionFile,
+		).toBe("/tmp/one");
+		expect(
+			targets.find((target) => target.workflowKey === "b")?.sessionFile,
+		).toBe("/tmp/two");
+	});
+
+	test("merges terminal runId results into the stable workflow key row", () => {
+		const tool = {
+			kind: "tool" as const,
+			id: "workflow-runid-terminal",
+			toolCallId: "workflow-runid-call",
+			name: "subagent",
+			args: {},
+			output: "done",
+			details: {
+				workflow: {
+					trace: [
+						{
+							operation: "run",
+							key: "logic",
+							agent: "impl-check-logic",
+							state: "started",
+						},
+						{
+							operation: "run",
+							key: "logic",
+							runId: "child-run",
+							state: "completed",
+						},
+					],
+				},
+				results: [
+					{
+						runId: "child-run",
+						agent: "impl-check-logic",
+						exitCode: 0,
+						sessionFile: "/tmp/child.jsonl",
+						progress: { currentTool: "bash" },
+					},
+				],
+			},
+			timestamp: 1,
+			status: "done" as const,
+			isError: false,
+		};
+		const targets = subagentTargets([], [tool]);
+		expect(targets).toHaveLength(1);
+		expect(targets[0]?.key).toBe("workflow-runid-call:logic");
+		expect(targets[0]?.state).toBe("completed");
+		expect(targets[0]?.sessionFile).toBe("/tmp/child.jsonl");
+		expect(targets[0]?.run.currentTool).toBe("bash");
+	});
+
+	test("does not merge an unowned trace with a parent-scoped persisted child", () => {
+		const makeRun = (
+			runId: string,
+			parentWorkflowRunId: string,
+		): SubagentRun => ({
+			runId,
+			asyncDir: `/tmp/${runId}`,
+			control: "file",
+			mode: "single",
+			state: "running",
+			steps: [
+				{
+					index: 0,
+					agent: runId,
+					status: "running",
+					workflowKey: "shared",
+					parentWorkflowRunId,
+					sessionFile: `/tmp/${runId}.jsonl`,
+				},
+			],
+		});
+		const tool: ToolItem = {
+			kind: "tool",
+			id: "unowned-trace",
+			toolCallId: "unowned-trace-call",
+			name: "subagent",
+			args: {},
+			output: "done",
+			details: {
+				workflow: {
+					trace: [{ operation: "run", key: "shared", state: "completed" }],
+				},
+			},
+			timestamp: 1,
+			status: "done",
+			isError: false,
+		};
+		const targets = subagentTargets(
+			[makeRun("child-one", "parent-one"), makeRun("child-two", "parent-two")],
+			[tool],
+		);
+		expect(
+			targets.find((target) => target.key === "unowned-trace-call:shared")
+				?.sessionFile,
+		).toBeUndefined();
+		expect(
+			targets
+				.filter((target) => target.sessionFile?.includes("child-"))
+				.map((target) => target.sessionFile),
+		).toEqual(["/tmp/child-one.jsonl", "/tmp/child-two.jsonl"]);
+	});
+
+	test("scopes workflow reconciliation and overlays terminal trace lifecycle", () => {
+		const tool: ToolItem = {
+			kind: "tool",
+			id: "workflow-scoped",
+			toolCallId: "workflow-scoped-call",
+			name: "subagent",
+			args: {},
+			output: "done",
+			details: {
+				runId: "parent-two",
+				workflow: {
+					trace: [{ operation: "run", key: "shared-key", state: "completed" }],
+				},
+			},
+			timestamp: 1_000,
+			status: "done",
+			isError: false,
+		};
+		const makeRun = (
+			runId: string,
+			parentWorkflowRunId: string,
+		): SubagentRun => ({
+			runId,
+			asyncDir: `/tmp/${runId}`,
+			control: "file",
+			mode: "single",
+			state: "running",
+			steps: [
+				{
+					index: 0,
+					agent: runId,
+					status: "running",
+					workflowKey: "shared-key",
+					parentWorkflowRunId,
+					sessionFile: `/tmp/${runId}.jsonl`,
+				},
+			],
+		});
+		const targets = subagentTargets(
+			[
+				makeRun("persisted-one", "parent-one"),
+				makeRun("persisted-two", "parent-two"),
+			],
+			[tool],
+		);
+		expect(targets).toHaveLength(2);
+		const selected = targets.find(
+			(target) => target.key === "workflow-scoped-call:shared-key",
+		);
+		expect(selected?.step?.agent).toBe("persisted-two");
+		expect(selected?.sessionFile).toBe("/tmp/persisted-two.jsonl");
+		expect(selected?.state).toBe("completed");
+		expect(selected?.active).toBe(false);
+		expect(selected?.canSteer).toBe(false);
+		expect(selected?.run.state).toBe("completed");
+	});
+
+	test("reconciles six live workflow traces with aliased persisted steps", () => {
+		const tool: ToolItem = {
+			kind: "tool",
+			id: "workflow-live",
+			toolCallId: "workflow-live-call",
+			name: "subagent",
+			args: {},
+			output: "done",
+			details: {
+				workflow: {
+					trace: Array.from({ length: 6 }, (_, index) => ({
+						operation: "run",
+						key: `step-${index}`,
+						...(index === 5
+							? { runId: `child-${index}`, state: "completed" }
+							: { state: "started" }),
+					})),
+				},
+				results: [{ runId: "child-5", exitCode: 0 }],
+			},
+			timestamp: 1_000,
+			startedAt: 1_000,
+			endedAt: 2_000,
+			status: "done",
+			isError: false,
+		};
+		const run: SubagentRun = {
+			runId: "persisted-workflow",
+			asyncDir: "/tmp/persisted-workflow",
+			control: "file",
+			mode: "parallel",
+			state: "running",
+			startedAt: 1_000,
+			steps: Array.from({ length: 6 }, (_, index) => ({
+				index,
+				agent: `impl-check-${index}`,
+				status: index === 5 ? "completed" : "running",
+				workflowKey: `step-${index}`,
+				runId: `child-${index}`,
+				sessionFile: `/tmp/child-${index}.jsonl`,
+			})),
+		};
+		const targets = subagentTargets([run], [tool]);
+		const owned =
+			ownedSubagentTargetsForItems([tool], targets).get(tool.id) ?? [];
+		expect(owned).toHaveLength(6);
+		expect(
+			owned.every((target) =>
+				target.label.startsWith(`impl-check-${target.stepIndex}`),
+			),
+		).toBe(true);
+		expect(owned.map((target) => target.sessionFile)).toEqual(
+			expect.arrayContaining(
+				Array.from({ length: 6 }, (_, index) => `/tmp/child-${index}.jsonl`),
+			),
+		);
+		expect(owned.some((target) => target.label === "foreground subagent")).toBe(
+			false,
+		);
+		expect(owned.find((target) => target.childRunId === "child-5")?.state).toBe(
+			"completed",
+		);
+	});
+
+	test("does not cross-assign ambiguous index-only workflow results", () => {
+		const tool = {
+			kind: "tool" as const,
+			id: "workflow-index-only",
+			toolCallId: "workflow-index-only-call",
+			name: "subagent",
+			args: {},
+			output: "done",
+			details: {
+				workflow: {
+					trace: [
+						{
+							operation: "run",
+							key: "alpha",
+							agent: "alpha",
+							state: "completed",
+						},
+						{ operation: "run", key: "beta", agent: "beta", state: "failed" },
+					],
+				},
+				results: [
+					{
+						index: 0,
+						agent: "terminal-alpha",
+						exitCode: 0,
+						sessionFile: "/tmp/alpha.jsonl",
+					},
+					{
+						index: 0,
+						agent: "terminal-beta",
+						exitCode: 1,
+						sessionFile: "/tmp/beta.jsonl",
+					},
+				],
+			},
+			timestamp: 1,
+			status: "done" as const,
+			isError: false,
+		};
+		const targets = subagentTargets([], [tool]);
+		expect(
+			targets.find((target) => target.key.endsWith(":alpha")),
+		).toMatchObject({
+			label: "alpha",
+			state: "completed",
+		});
+		expect(
+			targets.find((target) => target.key.endsWith(":beta")),
+		).toMatchObject({
+			label: "beta",
+			state: "failed",
+		});
+		expect(targets).toHaveLength(2);
+		expect(targets.every((target) => target.sessionFile === undefined)).toBe(
+			true,
+		);
+	});
+
 	test("merges workflow terminal results into trace children without duplicates", () => {
 		const tool = {
 			kind: "tool" as const,
@@ -780,9 +1500,21 @@ describe("subagent controls", () => {
 		const target = subagentTargets([], [tool])[0];
 		expect(target?.transcriptPath).toBe("/tmp/foreground.jsonl");
 		expect(target?.sessionFile).toBe("/tmp/foreground-session.jsonl");
+		expect(target?.run.totalTokens).toBe(99);
 		expect(target?.run.currentTool).toBe("bash");
 		expect(target?.run.turnCount).toBe(3);
-		expect(target?.run.totalTokens).toBe(99);
+		const numeric = subagentTargets(
+			[],
+			[
+				{
+					...tool,
+					id: "numeric-tokens",
+					toolCallId: "numeric-tokens-call",
+					details: { progress: [{ agent: "numeric", tokens: 123 }] },
+				},
+			],
+		);
+		expect(numeric[0]?.run.totalTokens).toBe(123);
 	});
 
 	test("reconstructs persisted calls through targets without creating args-only children", () => {
@@ -1129,6 +1861,25 @@ describe("subagent controls", () => {
 		).toEqual(["one #1", "two #2"]);
 	});
 
+	test("uses persisted activity timestamps when projecting targets", () => {
+		const stepRun = run();
+		stepRun.steps = [
+			{
+				index: 0,
+				agent: "one",
+				status: "running",
+				lastActivityAt: 123,
+				currentToolStartedAt: 99,
+			},
+		];
+		expect(subagentTargets([stepRun])[0]?.lastUpdate).toBe(123);
+
+		const runOnly = run();
+		runOnly.lastActivityAt = 456;
+		runOnly.currentToolStartedAt = 400;
+		expect(subagentTargets([runOnly])[0]?.lastUpdate).toBe(456);
+	});
+
 	test("ignores streaming-only transcript updates for last activity", () => {
 		const target = run();
 		const transcriptPath = path.join(target.asyncDir!, "transcript.jsonl");
@@ -1160,6 +1911,38 @@ describe("subagent controls", () => {
 		);
 		expect(substantiveSubagentActivityAt(target)).toBe(350);
 		expect(subagentTargets([target])[0]?.lastUpdate).toBe(350);
+	});
+
+	test("reuses selected transcript items for sibling updates", () => {
+		const first = run();
+		first.steps = [
+			{ index: 0, agent: "one", status: "running", lastActivityAt: 10 },
+		];
+		const second = run();
+		second.runId = "run-2";
+		second.steps = [
+			{ index: 0, agent: "two", status: "running", lastActivityAt: 20 },
+		];
+		let reads = 0;
+		const cache = createSubagentTranscriptCache(() => {
+			reads += 1;
+			return [];
+		});
+		const initial = subagentTargets([first, second]);
+		const items = cache(initial[0], true);
+		const siblingUpdate = subagentTargets([
+			first,
+			{ ...second, lastActivityAt: 30 },
+		]);
+		expect(cache(siblingUpdate[0], true)).toBe(items);
+		expect(reads).toBe(1);
+
+		const selectedUpdate = subagentTargets([
+			{ ...first, steps: [{ ...first.steps[0]!, lastActivityAt: 40 }] },
+			second,
+		]);
+		expect(cache(selectedUpdate[0], true)).not.toBe(items);
+		expect(reads).toBe(2);
 	});
 
 	test("reads the active subagent transcript", () => {

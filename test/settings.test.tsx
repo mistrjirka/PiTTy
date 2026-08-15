@@ -728,7 +728,8 @@ describe("Settings components", () => {
 		expect(globalFooterHint(80, false).length).toBeLessThan(60);
 		expect(globalFooterHint(104, true)).toContain("main chat");
 		expect(globalFooterHint(104, false, 2)).toContain("ctrl+down inspect");
-		expect(globalFooterHint(104, false, 1)).not.toContain("ctrl+←/→ cycle");
+		expect(globalFooterHint(104, false, 2)).not.toContain("ctrl+←/→ cycle");
+		expect(globalFooterHint(104, true, 2)).toContain("ctrl+←/→ switch");
 	});
 
 	test("maps OpenCode-style subagent navigation shortcuts", () => {
@@ -739,6 +740,12 @@ describe("Settings components", () => {
 		expect(subagentNavigationAction(true, "right", { ctrl: true })).toBe(
 			"next",
 		);
+		expect(
+			subagentNavigationAction(false, "left", { ctrl: true }),
+		).toBeUndefined();
+		expect(
+			subagentNavigationAction(false, "right", { ctrl: true }),
+		).toBeUndefined();
 		expect(subagentNavigationAction(true, "up")).toBe("main");
 		expect(subagentNavigationAction(true, "up", { ctrl: true })).toBe("main");
 		expect(subagentNavigationAction(false, "down")).toBeUndefined();

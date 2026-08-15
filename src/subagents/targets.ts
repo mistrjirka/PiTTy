@@ -18,6 +18,9 @@ export type SubagentTarget = {
 	thinking?: string | undefined;
 	contextWindow?: number | undefined;
 	toolCallId?: string | undefined;
+	workflowKey?: string | undefined;
+	parentWorkflowRunId?: string | undefined;
+	childRunId?: string | undefined;
 };
 
 function activeState(value: string | undefined): boolean {
@@ -145,15 +148,14 @@ function meaningfulResult(result: Record<string, unknown>): boolean {
 }
 
 function workflowIdentity(value: Record<string, unknown>): string | undefined {
-	for (const key of ["workflowKey", "childId", "runId", "key", "id"] as const) {
+	// Workflow keys are stable across the child lifecycle; runId is only added
+	// to terminal trace entries and therefore must not replace the key.
+	for (const key of ["workflowKey", "key", "childId", "runId", "id"] as const) {
 		const candidate = value[key];
 		if (typeof candidate === "string" && candidate.trim())
 			return candidate.trim();
 	}
-	const index = value.index;
-	return typeof index === "number" && Number.isInteger(index)
-		? `index:${index}`
-		: undefined;
+	return undefined;
 }
 
 function workflowTrace(details: Record<string, unknown>): ForegroundEntry[] {
@@ -168,7 +170,14 @@ function workflowTrace(details: Record<string, unknown>): ForegroundEntry[] {
 		if (Object.keys(run).length === 0) return;
 		const identity =
 			workflowIdentity(entry) ?? workflowIdentity(run) ?? `index:${index}`;
-		latest.set(identity, { progress: run, identity, workflow: true });
+		const previous = latest.get(identity);
+		// Trace updates can be sparse. Retain metadata from the first event while
+		// allowing later state/timing fields to advance the same logical row.
+		latest.set(identity, {
+			progress: { ...(previous?.progress ?? {}), ...run },
+			identity,
+			workflow: true,
+		});
 	});
 	return [...latest.values()];
 }
@@ -177,9 +186,12 @@ function foregroundProgressState(
 	progress: Record<string, unknown>,
 ): string | undefined {
 	const state = typeof progress.state === "string" ? progress.state : undefined;
-	if (state) return state === "started" || state === "reused" ? "running" : state;
-	const status = typeof progress.status === "string" ? progress.status : undefined;
-	if (status) return status === "started" || status === "reused" ? "running" : status;
+	if (state)
+		return state === "started" || state === "reused" ? "running" : state;
+	const status =
+		typeof progress.status === "string" ? progress.status : undefined;
+	if (status)
+		return status === "started" || status === "reused" ? "running" : status;
 	const event =
 		typeof progress.event === "string"
 			? progress.event
@@ -226,27 +238,59 @@ function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
 					: [{ progress: {}, result }];
 			})
 			.map((entry) => {
-				const identity =
-					entry.identity ?? workflowIdentity(entry.result ?? {});
+				const identity = entry.identity ?? workflowIdentity(entry.result ?? {});
 				return identity ? { ...entry, identity } : entry;
 			});
 		if (entries.length > 0) {
 			if (traceEntries.length === 0) return entries;
-			const byIdentity = new Map(
-				entries.map((entry, index) => [
-					entry.identity ?? `index:${index}`,
-					entry,
-				]),
-			);
+			const byIdentity = new Map<string, ForegroundEntry>();
+			for (const entry of entries) {
+				if (entry.identity !== undefined && !byIdentity.has(entry.identity))
+					byIdentity.set(entry.identity, entry);
+			}
+			const byRunId = new Map<string, ForegroundEntry>();
+			for (const entry of entries) {
+				const runId = entry.result?.runId;
+				if (typeof runId === "string" && runId.trim())
+					byRunId.set(runId.trim(), entry);
+			}
 			const used = new Set<string>();
+			const positional =
+				entries.length === traceEntries.length &&
+				entries.every(
+					(entry) =>
+						entry.result !== undefined &&
+						typeof entry.result.index === "number" &&
+						workflowIdentity(entry.result) === undefined,
+				) &&
+				traceEntries.every((trace, index) => {
+					const result = entries[index]?.result;
+					const traceAgent = trace.progress.agent;
+					const resultAgent = result?.agent;
+					return (
+						typeof traceAgent !== "string" ||
+						typeof resultAgent !== "string" ||
+						traceAgent === resultAgent
+					);
+				});
 			const merged = traceEntries.map((trace, index) => {
-				const identity = trace.identity ?? `index:${index}`;
+				const identity = trace.identity;
+				const traceRunId = trace.progress.runId;
 				const terminal =
-					byIdentity.get(identity) ?? byIdentity.get(`index:${index}`);
-				if (terminal) used.add(terminal.identity ?? `index:${index}`);
-				return terminal
-					? { ...trace, result: terminal.result, identity }
-					: trace;
+					(identity !== undefined ? byIdentity.get(identity) : undefined) ??
+					(typeof traceRunId === "string"
+						? byRunId.get(traceRunId.trim())
+						: undefined) ??
+					(positional ? entries[index] : undefined);
+				if (terminal && terminal.identity !== undefined)
+					used.add(terminal.identity);
+				if (!terminal) return trace;
+				return {
+					...trace,
+					progress: { ...trace.progress, ...terminal.progress },
+					result: terminal.result,
+					identity,
+				};
 			});
 			for (const [key, terminal] of byIdentity) {
 				if (!used.has(key)) merged.push(terminal);
@@ -265,6 +309,7 @@ function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
 
 function foregroundTargets(item: ToolItem): SubagentTarget[] {
 	if (!/subagent|delegate|agent/i.test(item.name)) return [];
+	const details = record(item.details);
 	const entries = foregroundEntries(item);
 	const requested = requestedChildren(item.args);
 	if (entries.length === 0) return [];
@@ -298,11 +343,31 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 							? result.agent
 							: (requestedMetadata?.label ??
 								requestedMetadata?.agent ??
+								(workflow ? workflowIdentity(progress) : undefined) ??
 								"foreground subagent");
 		const runId = identity
 			? `${item.toolCallId}:${identity}`
 			: `${item.toolCallId}:${index}`;
+		const workflowKey = workflow
+			? typeof progress.workflowKey === "string"
+				? progress.workflowKey
+				: typeof progress.key === "string"
+					? progress.key
+					: undefined
+			: undefined;
+		const parentWorkflowRunId =
+			workflow && typeof details?.runId === "string"
+				? details.runId
+				: undefined;
+		const childRunId =
+			workflow && typeof progress.runId === "string"
+				? progress.runId
+				: undefined;
 		const tokens = record(progress.tokens);
+		const numericTokens =
+			typeof progress.tokens === "number" && Number.isFinite(progress.tokens)
+				? progress.tokens
+				: undefined;
 		const transcriptPath =
 			typeof result?.transcriptPath === "string"
 				? result.transcriptPath
@@ -352,9 +417,8 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 			totalTokens:
 				typeof progress.totalTokens === "number"
 					? progress.totalTokens
-					: typeof tokens?.total === "number"
-						? tokens.total
-						: undefined,
+					: (numericTokens ??
+						(typeof tokens?.total === "number" ? tokens.total : undefined)),
 			...(typeof result?.model === "string"
 				? { model: result.model }
 				: typeof progress.model === "string"
@@ -393,6 +457,9 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 			model: run.model,
 			thinking: run.thinking,
 			contextWindow: run.contextWindow,
+			workflowKey,
+			parentWorkflowRunId,
+			childRunId,
 		};
 	});
 }
@@ -403,13 +470,88 @@ export function subagentTargets(
 ): SubagentTarget[] {
 	const result: SubagentTarget[] = [];
 	const requestedByArtifactId = new Map<string, RequestedMetadata[]>();
+	const emptyWorkflowIds = new Set<string>();
+	for (const run of runs) {
+		if (run.mode !== "workflow" || run.steps.length > 0) continue;
+		for (const identifier of [run.runId, run.asyncId, run.asyncDir]) {
+			if (identifier) emptyWorkflowIds.add(identifier);
+		}
+	}
+	const fallbackWorkflowIds = new Set<string>();
+	const workflowParents = runs.filter(
+		(run) => run.mode === "workflow" && run.steps.length > 0,
+	);
+	const suppressedChildRuns = new Set<string>();
+	const enrichedWorkflowParents = new Map<string, SubagentRun>();
+	for (const parent of workflowParents) {
+		const children = runs.filter(
+			(run) =>
+				run.parentWorkflowRunId === parent.runId &&
+				parent.steps.some((step) => {
+					const workflowKey = run.workflowKey ?? run.steps[0]?.workflowKey;
+					return (
+						(workflowKey !== undefined && step.workflowKey === workflowKey) ||
+						(step.runId !== undefined && step.runId === run.runId)
+					);
+				}),
+		);
+		const enrichedSteps = parent.steps.map((step) => {
+			const matches = children.filter((child) => {
+				const workflowKey = child.workflowKey ?? child.steps[0]?.workflowKey;
+				return (
+					(step.runId !== undefined && step.runId === child.runId) ||
+					(step.workflowKey !== undefined && step.workflowKey === workflowKey)
+				);
+			});
+			if (matches.length !== 1) return step;
+			const child = matches[0];
+			if (!child) return step;
+			const childStep = child.steps.length === 1 ? child.steps[0] : undefined;
+			const sessionFile =
+				step.sessionFile ?? child.sessionFile ?? childStep?.sessionFile;
+			const transcriptPath =
+				step.transcriptPath ??
+				child.transcriptPath ??
+				childStep?.transcriptPath;
+			if (
+				sessionFile === step.sessionFile &&
+				transcriptPath === step.transcriptPath
+			)
+				return step;
+			return { ...step, sessionFile, transcriptPath };
+		});
+		if (enrichedSteps.some((step, index) => step !== parent.steps[index])) {
+			enrichedWorkflowParents.set(parent.runId, {
+				...parent,
+				steps: enrichedSteps,
+			});
+		}
+	}
+	for (const run of runs) {
+		if (!run.parentWorkflowRunId) continue;
+		const parent = workflowParents.find(
+			(candidate) => candidate.runId === run.parentWorkflowRunId,
+		);
+		if (!parent) continue;
+		const workflowKey = run.workflowKey ?? run.steps[0]?.workflowKey;
+		if (
+			parent.steps.some(
+				(step) =>
+					(workflowKey !== undefined && step.workflowKey === workflowKey) ||
+					(step.runId !== undefined && step.runId === run.runId),
+			)
+		)
+			suppressedChildRuns.add(run.runId);
+	}
 	const asyncIds = new Set(
-		runs.flatMap((run) =>
-			[run.runId, run.asyncId, run.asyncDir].filter(
-				(value): value is string =>
-					typeof value === "string" && value.trim().length > 0,
+		runs
+			.filter((run) => run.control !== "mission")
+			.flatMap((run) =>
+				[run.runId, run.asyncId, run.asyncDir].filter(
+					(value): value is string =>
+						typeof value === "string" && value.trim().length > 0,
+				),
 			),
-		),
 	);
 	for (const item of tools) {
 		const details = record(item.details);
@@ -437,14 +579,29 @@ export function subagentTargets(
 			(value): value is string =>
 				typeof value === "string" && value.trim().length > 0,
 		);
-		if (!identifiers.some((identifier) => asyncIds.has(identifier)))
+		if (!identifiers.some((identifier) => asyncIds.has(identifier))) {
 			result.push(...foregroundTargets(item));
+		} else if (
+			identifiers.some((identifier) => emptyWorkflowIds.has(identifier))
+		) {
+			const fallback = foregroundTargets(item);
+			if (fallback.length > 0) {
+				result.push(...fallback);
+				for (const identifier of identifiers) {
+					if (emptyWorkflowIds.has(identifier))
+						fallbackWorkflowIds.add(identifier);
+				}
+			}
+		}
 	}
-	for (const run of runs) {
-		const requested = [run.runId, run.asyncId, run.asyncDir]
-			.map((identifier) =>
-				identifier ? requestedByArtifactId.get(identifier) : undefined,
-			)
+	for (const sourceRun of runs) {
+		if (suppressedChildRuns.has(sourceRun.runId)) continue;
+		const run = enrichedWorkflowParents.get(sourceRun.runId) ?? sourceRun;
+		const runIdentifiers = [run.runId, run.asyncId, run.asyncDir].filter(
+			(identifier): identifier is string => identifier !== undefined,
+		);
+		const requested = runIdentifiers
+			.map((identifier) => requestedByArtifactId.get(identifier))
 			.find(
 				(metadata): metadata is RequestedMetadata[] => metadata !== undefined,
 			);
@@ -461,7 +618,10 @@ export function subagentTargets(
 					activeState(step.activityState) || activeState(step.status);
 				const sessionFile = step.sessionFile ?? run.sessionFile;
 				result.push({
-					key: `${run.runId}:${step.index}`,
+					key:
+						run.control === "mission" && step.workflowKey
+							? `${run.runId}:${step.workflowKey}`
+							: `${run.runId}:${step.index}`,
 					run,
 					step,
 					stepIndex: step.index,
@@ -471,13 +631,15 @@ export function subagentTargets(
 					// pi-subagents accepts file-backed steering for running and queued
 					// indexed children. It does not require the child session file to
 					// exist yet, so queued parallel children remain steerable.
-					canSteer: active && Boolean(run.asyncDir),
+					canSteer:
+						run.control !== "mission" && active && Boolean(run.asyncDir),
 					transcriptPath: step.transcriptPath ?? run.transcriptPath,
 					sessionFile,
 					startedAt: step.startedAt ?? run.startedAt,
 					lastUpdate:
-						step.currentToolStartedAt ??
 						substantiveSubagentActivityAt(run, step.index) ??
+						step.lastActivityAt ??
+						step.currentToolStartedAt ??
 						step.endedAt ??
 						run.endedAt,
 					model: step.model ?? run.model ?? requestedMetadata?.model,
@@ -487,10 +649,19 @@ export function subagentTargets(
 						step.contextWindow ??
 						run.contextWindow ??
 						requestedMetadata?.contextWindow,
+					workflowKey: step.workflowKey ?? run.workflowKey,
+					parentWorkflowRunId:
+						step.parentWorkflowRunId ?? run.parentWorkflowRunId,
+					childRunId: step.runId,
 				});
 			}
 			continue;
 		}
+		if (
+			run.mode === "workflow" &&
+			runIdentifiers.some((identifier) => fallbackWorkflowIds.has(identifier))
+		)
+			continue;
 
 		const active = activeState(run.activityState) || activeState(run.state);
 		result.push({
@@ -506,10 +677,12 @@ export function subagentTargets(
 			canSteer: active && Boolean(run.asyncDir),
 			transcriptPath: run.transcriptPath,
 			sessionFile: run.sessionFile,
+			childRunId: run.runId,
 			startedAt: run.startedAt,
 			lastUpdate:
-				run.currentToolStartedAt ??
 				substantiveSubagentActivityAt(run) ??
+				run.lastActivityAt ??
+				run.currentToolStartedAt ??
 				run.endedAt,
 			model:
 				run.model ??
@@ -520,7 +693,68 @@ export function subagentTargets(
 			contextWindow:
 				run.contextWindow ??
 				(requested?.length === 1 ? requested[0]?.contextWindow : undefined),
+			workflowKey: run.workflowKey,
+			parentWorkflowRunId: run.parentWorkflowRunId,
 		});
+	}
+
+	// Foreground workflow traces contain lifecycle identity but often omit the
+	// child session metadata. Prefer an exact file-backed step when its stable
+	// workflow key or child runId is present, and make that richer target belong
+	// to the workflow tool so ownership does not render both rows.
+	const foreground = result.filter(
+		(target) =>
+			target.run.control === "foreground" &&
+			(target.workflowKey !== undefined || target.childRunId !== undefined),
+	);
+	const persisted = result.filter(
+		(target) =>
+			target.run.control !== "foreground" &&
+			(target.workflowKey !== undefined || target.childRunId !== undefined),
+	);
+	const matched = new Set<SubagentTarget>();
+	for (const trace of foreground) {
+		const available = (predicate: (target: SubagentTarget) => boolean) =>
+			persisted.filter((target) => !matched.has(target) && predicate(target));
+		let candidates =
+			trace.childRunId === undefined
+				? []
+				: available(
+						(target) =>
+							target.childRunId === trace.childRunId &&
+							target.parentWorkflowRunId === trace.parentWorkflowRunId,
+					);
+		let match = candidates.length === 1 ? candidates[0] : undefined;
+		if (!match && trace.workflowKey !== undefined) {
+			candidates = available(
+				(target) =>
+					target.workflowKey === trace.workflowKey &&
+					target.parentWorkflowRunId === trace.parentWorkflowRunId,
+			);
+			match = candidates.length === 1 ? candidates[0] : undefined;
+		}
+		if (!match) continue;
+		matched.add(match);
+		const merged: SubagentTarget = {
+			...match,
+			...(match.step ? { step: { ...match.step, status: trace.state } } : {}),
+			key: trace.key,
+			state: trace.state,
+			active: trace.active,
+			canSteer: trace.canSteer,
+			toolCallId: trace.toolCallId,
+			run: {
+				...match.run,
+				state: trace.run.state,
+				...(trace.run.activityState !== undefined
+					? { activityState: trace.run.activityState }
+					: {}),
+			},
+		};
+		const index = result.indexOf(match);
+		if (index >= 0) result[index] = merged;
+		const traceIndex = result.indexOf(trace);
+		if (traceIndex >= 0) result.splice(traceIndex, 1);
 	}
 
 	const deduped = new Map<string, SubagentTarget>();
@@ -540,8 +774,7 @@ export function subagentTargets(
 	return [...deduped.values()].sort((a, b) => {
 		// Most recently started subagent run first, so the latest activity
 		// surfaces at the top of the list rather than the bottom.
-		const runStart =
-			(b.run.startedAt ?? -1) - (a.run.startedAt ?? -1);
+		const runStart = (b.run.startedAt ?? -1) - (a.run.startedAt ?? -1);
 		if (runStart) return runStart;
 		const runIdentity = a.run.runId.localeCompare(b.run.runId);
 		if (runIdentity) return runIdentity;
@@ -636,8 +869,7 @@ export function ownedSubagentTargetsForItems(
 				ownedTargets?.findIndex(
 					(candidate) => subagentTargetIdentity(candidate) === identity,
 				) ?? -1;
-			if (ownedTargets && targetIndex >= 0)
-				ownedTargets[targetIndex] = target;
+			if (ownedTargets && targetIndex >= 0) ownedTargets[targetIndex] = target;
 			return;
 		}
 		owners.set(identity, ownerId);

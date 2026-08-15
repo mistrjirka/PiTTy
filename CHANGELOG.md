@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.19
+
+### Mission-Backed Workflow Visibility
+
+- Mission-backed foreground workflow children remain visible live even when chat progress is disabled, with exact session/workflow identities and terminal/persisted reconciliation that avoids duplicate rows.
+- Child session and transcript access is preserved, including stable selected-transcript behavior across updates.
+- Upstream-valid `paused` and `stopped` child rows remain visible but inactive and read-only.
+- Legacy `details.results` and `details.progress` foreground compatibility is preserved.
+
+### Inspector Navigation
+
+- `Ctrl+Arrow` cycles inspector selections without changing native word navigation in the main prompt.
+
+### Validation
+
+- Added regression coverage and completed a restarted production smoke test for the workflow projection and inspector behavior.
+
 ## 0.5.18
 
 ### Subagent Workflow Visibility

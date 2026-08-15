@@ -1471,28 +1471,31 @@ describe("OpenTUI components", () => {
 		expect(frame).not.toContain("Selected");
 	});
 
-	test("renders live workflow children in the subagent sidebar", async () => {
-		const tool: ToolItem = {
-			kind: "tool",
-			id: "workflow-sidebar",
-			toolCallId: "workflow-sidebar-call",
-			name: "subagent",
-			args: {},
-			output: "Workflow running.",
-			details: {
-				mode: "workflow",
-				workflow: {
-					trace: [
-						{ operation: "run", key: "worker", agent: "worker", state: "started" },
-					],
-				},
-			},
-			timestamp: 1,
-			status: "streaming",
-			isError: false,
+	test("renders all six mission-backed workflow children in the subagent sidebar", async () => {
+		const workflowRunId = "workflow-sidebar-call";
+		const run: SubagentRun = {
+			runId: workflowRunId,
+			control: "mission",
+			mode: "workflow",
+			state: "active",
+			startedAt: 1,
+			steps: Array.from({ length: 6 }, (_, index) => ({
+				index,
+				agent: `impl-check-${index}`,
+				workflowKey: `impl-check-${index}`,
+				parentWorkflowRunId: workflowRunId,
+				status: "running",
+				lastActivityAt: 1,
+			})),
 		};
-		const setup = await mount(() => <Sidebar runs={[]} tools={[tool]} />, 42, 24);
-		expect(setup.captureCharFrame()).toContain("worker");
+		const setup = await mount(
+			() => <Sidebar runs={[run]} tools={[]} />,
+			42,
+			63,
+		);
+		const frame = setup.captureCharFrame();
+		for (let index = 0; index < 6; index++)
+			expect(frame).toContain(`impl-check-${index}`);
 	});
 
 	test("shows the average daily consumption line as soon as a rate exists", async () => {
@@ -1927,7 +1930,7 @@ describe("OpenTUI components", () => {
 			42,
 			24,
 		);
-		expect(sidebar.captureCharFrame()).toContain("unknown · working");
+		expect(sidebar.captureCharFrame()).toContain("1s ago · working");
 		const tool = await mount(
 			() => (
 				<MessageView
@@ -1951,7 +1954,7 @@ describe("OpenTUI components", () => {
 			100,
 			24,
 		);
-		expect(tool.captureCharFrame()).toContain("last activity unknown");
+		expect(tool.captureCharFrame()).toContain("last activity 1s ago");
 		const activeInspector = await mount(
 			() => <SubagentInspector target={active} items={[]} now={2_000} />,
 			100,

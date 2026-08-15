@@ -519,7 +519,6 @@ export function Sidebar(props: {
 									<Show when={targets().length > 0}>
 										<text fg={colors.subtle}>
 											Ctrl+I · Ctrl+Down inspect
-											{targets().length > 1 ? " · Ctrl+←/→ cycle" : ""}
 										</text>
 									</Show>
 								</box>

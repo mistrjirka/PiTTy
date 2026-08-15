@@ -61,10 +61,9 @@ import {
 	type PendingSteerEntry,
 } from "./state/input-continuity.ts";
 import { listSubagentRuns } from "./subagents/artifacts.ts";
-import {
-	readSubagentConversation,
-	substantiveSubagentActivityAt,
-} from "./subagents/transcript.ts";
+import { mergeMissionRuns } from "./subagents/missions.ts";
+import { substantiveSubagentActivityAt } from "./subagents/transcript.ts";
+import { createSubagentTranscriptCache } from "./subagents/transcript-cache.ts";
 import {
 	pauseSubagent,
 	steerSubagent,
@@ -458,7 +457,9 @@ function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
 		state: run.state,
 		activityState: run.activityState,
 		lastActivityAt:
-			run.currentToolStartedAt ?? substantiveSubagentActivityAt(run),
+			substantiveSubagentActivityAt(run) ??
+			run.lastActivityAt ??
+			run.currentToolStartedAt,
 		model: run.model,
 		thinking: run.thinking,
 		contextWindow: run.contextWindow,
@@ -476,8 +477,9 @@ function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
 			status: step.status,
 			activityState: step.activityState,
 			lastActivityAt:
-				step.currentToolStartedAt ??
-				substantiveSubagentActivityAt(run, step.index),
+				substantiveSubagentActivityAt(run, step.index) ??
+				step.lastActivityAt ??
+				step.currentToolStartedAt,
 			model: step.model,
 			thinking: step.thinking,
 			contextWindow: step.contextWindow,
@@ -504,10 +506,7 @@ export function globalFooterHint(
 		const switchHint = targetCount > 1 ? "←/→ or ctrl+←/→ switch  " : "";
 		return `${switchHint}↑/ctrl+↑ main chat  esc/ctrl+i close`;
 	}
-	const targetHint =
-		targetCount > 0
-			? `  ctrl+down inspect${targetCount > 1 ? "  ctrl+←/→ cycle" : ""}`
-			: "";
+	const targetHint = targetCount > 0 ? "  ctrl+down inspect" : "";
 	const inspectHint = targetCount > 0 ? `  ctrl+i inspect${targetHint}` : "";
 	if (width < 110)
 		return `ctrl+x settings  ctrl+s sidebar  ctrl+p models${targetHint}`;
@@ -893,12 +892,10 @@ export function App(props: AppOptions) {
 				(target) => target.key === selectedTargetKey(),
 			) ?? availableSubagentTargets()[0],
 	);
-	const inspectedTranscript = createMemo(() => {
-		const target = selectedSubagentTarget();
-		return inspectSubagent() && target
-			? readSubagentConversation(target.run, 160, target.stepIndex)
-			: [];
-	});
+	const inspectedTranscriptCache = createSubagentTranscriptCache();
+	const inspectedTranscript = createMemo(() =>
+		inspectedTranscriptCache(selectedSubagentTarget(), inspectSubagent()),
+	);
 	const recentlyRenderedUserTexts = () => {
 		const cutoff = Date.now() - 120_000;
 		return new Set(
@@ -964,10 +961,17 @@ export function App(props: AppOptions) {
 			setSessionStats(stats);
 			setStatus(state.isStreaming ? "working" : "ready");
 			const nextRuns = props.integrations.subagents.installed
-				? listSubagentRuns({
-						sessionId: state.sessionId,
-						sessionFile: state.sessionFile,
-					})
+				? mergeMissionRuns(
+						listSubagentRuns({
+							sessionId: state.sessionId,
+							sessionFile: state.sessionFile,
+						}),
+						{
+							sessionId: state.sessionId,
+							...(state.sessionFile ? { sessionFile: state.sessionFile } : {}),
+						},
+						props.cwd,
+					)
 				: [];
 			reconcileSteers(nextRuns);
 			const summaries = nextRuns.map(subagentLogSummary);
@@ -2432,11 +2436,19 @@ export function App(props: AppOptions) {
 		subagentsTimer = setInterval(() => {
 			if (!props.integrations.subagents.installed) return;
 			const state = sessionState();
-			const next = listSubagentRuns(
-				state
-					? { sessionId: state.sessionId, sessionFile: state.sessionFile }
-					: undefined,
-			);
+			const next = state
+				? mergeMissionRuns(
+						listSubagentRuns({
+							sessionId: state.sessionId,
+							...(state.sessionFile ? { sessionFile: state.sessionFile } : {}),
+						}),
+						{
+							sessionId: state.sessionId,
+							...(state.sessionFile ? { sessionFile: state.sessionFile } : {}),
+						},
+						props.cwd,
+					)
+				: [];
 			reconcileSteers(next);
 			const summaries = next.map(subagentLogSummary);
 			const digest = JSON.stringify(summaries);
@@ -2972,18 +2984,6 @@ export function App(props: AppOptions) {
 			event.preventDefault();
 			event.stopPropagation();
 			cycleSubagent(event.shift ? -1 : 1);
-			return;
-		}
-		if (event.name === "left" && event.ctrl) {
-			event.preventDefault();
-			event.stopPropagation();
-			cycleSubagent(-1);
-			return;
-		}
-		if (event.name === "right" && event.ctrl) {
-			event.preventDefault();
-			event.stopPropagation();
-			cycleSubagent(1);
 			return;
 		}
 		if (event.name === "escape" && inspectSubagent()) {
