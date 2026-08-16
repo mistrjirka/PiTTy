@@ -1,5 +1,6 @@
 import type { SubagentRun, SubagentStep, ToolItem } from "../types.ts";
 import { substantiveSubagentActivityAt } from "./transcript.ts";
+import { childRunIdFromSessionFile } from "./artifacts.ts";
 
 export type SubagentTarget = {
 	key: string;
@@ -250,9 +251,23 @@ function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
 			}
 			const byRunId = new Map<string, ForegroundEntry>();
 			for (const entry of entries) {
-				const runId = entry.result?.runId;
-				if (typeof runId === "string" && runId.trim())
-					byRunId.set(runId.trim(), entry);
+				const runId =
+					(typeof entry.result?.runId === "string" && entry.result.runId.trim())
+						? entry.result.runId.trim()
+						: childRunIdFromSessionFile(entry.result?.sessionFile);
+				if (!runId) continue;
+				const existing = byRunId.get(runId);
+				if (!existing) {
+					byRunId.set(runId, entry);
+					continue;
+				}
+				// One child run can yield several result entries (e.g. resumed
+				// runs); keep the lowest-indexed one as the representative.
+				const entryIndex =
+					typeof entry.result?.index === "number" ? entry.result.index : Number.MAX_SAFE_INTEGER;
+				const existingIndex =
+					typeof existing.result?.index === "number" ? existing.result.index : Number.MAX_SAFE_INTEGER;
+				if (entryIndex < existingIndex) byRunId.set(runId, entry);
 			}
 			const used = new Set<string>();
 			const positional =
@@ -835,12 +850,15 @@ export type OwnedSubagentTargets = ReadonlyMap<string, SubagentTarget[]>;
 
 const NEAREST_RUN_WINDOW_MS = 30_000;
 
-function explicitTargetsForTool(
+function matchByRunIdOrToolCallId(
 	item: ToolItem,
 	targets: readonly SubagentTarget[],
 ): SubagentTarget[] {
 	const runId = subagentRunIdFromTool(item);
-	if (runId) return targets.filter((target) => target.run.runId === runId);
+	if (runId) {
+		const byRunId = targets.filter((target) => target.run.runId === runId);
+		if (byRunId.length > 0) return byRunId;
+	}
 	if (item.toolCallId) {
 		const direct = targets.filter(
 			(target) => target.toolCallId === item.toolCallId,
@@ -888,7 +906,7 @@ export function ownedSubagentTargetsForItems(
 	// Pass 1 — explicit ownership by runId / toolCallId. These keys reliably
 	// tie a run to the tool call that spawned it.
 	for (const item of items) {
-		for (const target of explicitTargetsForTool(item, targets)) {
+		for (const target of matchByRunIdOrToolCallId(item, targets)) {
 			assign(target, item.id);
 		}
 	}
@@ -933,14 +951,8 @@ export function targetsForTool(
 	item: ToolItem,
 	targets: readonly SubagentTarget[],
 ): SubagentTarget[] {
-	const runId = subagentRunIdFromTool(item);
-	if (runId) return targets.filter((target) => target.run.runId === runId);
-	if (item.toolCallId) {
-		const direct = targets.filter(
-			(target) => target.toolCallId === item.toolCallId,
-		);
-		if (direct.length > 0) return direct;
-	}
+	const matched = matchByRunIdOrToolCallId(item, targets);
+	if (matched.length > 0) return matched;
 
 	// Legacy timestamp fallback for older pi-subagents results that omitted
 	// runId. Kept for direct callers/tests; the owner pass in

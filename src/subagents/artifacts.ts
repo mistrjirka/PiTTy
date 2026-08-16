@@ -41,6 +41,98 @@ function string(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/**
+ * pi-subagents 0.50+ does not record the transcript path (or, for foreground
+ * children, the child run id) in workflow status steps. The child session file
+ * lives at `<sessionDir>/<parentSessionBase>/<childRunId>/run-<index>/session.jsonl`
+ * while the transcript is written incrementally to
+ * `<artifactsDir>/<childRunId>_<agent>_<index>_transcript.jsonl`, so both can be
+ * derived from the session file path. The transcript file is verified to exist
+ * before being reported; the child run id is returned even when the transcript
+ * has not been created yet.
+ */
+export type DerivedChildTranscript = {
+  transcriptPath?: string;
+  childRunId?: string;
+};
+
+type ChildSessionLayout = {
+  childRunId: string;
+  runIndex: string;
+  sessionDir: string;
+};
+
+/**
+ * Parses a child session file path of the form
+ * `<sessionDir>/<parentSessionBase>/<childRunId>/run-<index>/session.jsonl`.
+ * Returns undefined when the path does not follow that layout.
+ */
+function parseChildSessionLayout(
+  sessionFile: string,
+): ChildSessionLayout | undefined {
+  const runIndex = path.basename(path.dirname(sessionFile)).match(/^run-(\d+)$/)?.[1];
+  if (!runIndex) return undefined;
+  const childRunId = path.basename(path.dirname(path.dirname(sessionFile)));
+  const sessionDir = path.dirname(
+    path.dirname(path.dirname(path.dirname(sessionFile))),
+  );
+  return { childRunId, runIndex, sessionDir };
+}
+
+/**
+ * Extracts the subagent run id from a child session file path. Returns
+ * undefined when the path does not follow the child session layout.
+ */
+export function childRunIdFromSessionFile(
+  sessionFile: unknown,
+): string | undefined {
+  if (typeof sessionFile !== "string" || !sessionFile.trim()) return undefined;
+  return parseChildSessionLayout(sessionFile)?.childRunId;
+}
+
+export function deriveChildTranscript(
+  sessionFile: string,
+  agent: string,
+  cwd?: string,
+  parentSessionFile?: string,
+): DerivedChildTranscript {
+  const layout = parseChildSessionLayout(sessionFile);
+  if (!layout) return {};
+  const fileName = `${layout.childRunId}_${agent.replace(/[^\w.-]/g, "_")}_${layout.runIndex}_transcript.jsonl`;
+  // Session-mode artifacts live next to the PARENT session file (pi-subagents
+  // getArtifactsDir), so prefer it when known; the layout-derived dir covers
+  // records without a sessionId.
+  const sessionDirs =
+    parentSessionFile && path.isAbsolute(parentSessionFile)
+      ? [path.dirname(parentSessionFile), layout.sessionDir]
+      : [layout.sessionDir];
+  const candidates: string[] = sessionDirs.map((dir) => path.join(dir, "subagent-artifacts", fileName));
+  if (cwd) candidates.push(path.join(cwd, ".pi", "subagents", "artifacts", fileName));
+  candidates.push(path.join(subagentTempRoot(), "artifacts", fileName));
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate))
+      return { transcriptPath: candidate, childRunId: layout.childRunId };
+  }
+  return { childRunId: layout.childRunId };
+}
+
+/**
+ * Fills in a step's transcriptPath and runId from its child session file when
+ * pi-subagents 0.50+ omitted them. No-op for steps that already carry a
+ * transcript or whose session file does not follow the child layout.
+ */
+export function applyDerivedChildTranscript(
+  step: SubagentStep,
+  cwd?: string,
+  parentSessionFile?: string,
+): void {
+  const sessionFile = step.sessionFile;
+  if (!sessionFile || step.transcriptPath) return;
+  const derived = deriveChildTranscript(sessionFile, step.agent, cwd, parentSessionFile);
+  if (derived.transcriptPath) step.transcriptPath = derived.transcriptPath;
+  if (!step.runId && derived.childRunId) step.runId = derived.childRunId;
+}
+
 export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
   const statusPath = path.join(asyncDir, "status.json");
   let raw: unknown;
@@ -69,7 +161,7 @@ export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
           ...(number(tokenRecord.output) !== undefined ? { output: number(tokenRecord.output) } : {}),
         }
       : typeof step.tokens === "number" ? { total: number(step.tokens) } : undefined;
-    return [{
+    const built: SubagentStep = {
       index: number(step.index) ?? index,
       agent,
       status: string(step.status) ?? "unknown",
@@ -104,7 +196,9 @@ export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
       ...(tokens && Object.keys(tokens).length > 0 ? { tokens } : {}),
       ...(string(step.sessionFile) ? { sessionFile: string(step.sessionFile) } : {}),
       ...(string(step.error) ? { error: string(step.error) } : {}),
-    }];
+    };
+    applyDerivedChildTranscript(built, string(record.cwd), string(record.sessionId));
+    return [built];
   });
 
   const totalTokensRecord = record.totalTokens && typeof record.totalTokens === "object" && !Array.isArray(record.totalTokens)

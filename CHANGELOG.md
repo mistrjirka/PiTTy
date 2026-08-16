@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.20
+
+### pi-subagents 0.50.0 Workflow Compatibility
+
+- All children of a `workflowScript` run now appear in the tool call's subagents section instead of only one: foreground workflow children are matched by tool-call identity, and result entries are indexed by the child run id embedded in the child session file path.
+- Subagent entries resolve their transcripts when pi-subagents 0.50 omits `transcriptPath` from workflow steps: the transcript path (and child run id) is derived from the child session file layout and verified to exist before display. Applies to workflow steps and mission-backed children, including custom session directories (resolved from the parent session file).
+- Interrupted or partially recorded workflows no longer lose session/transcript data: result entries are matched by child run id instead of by position.
+- When one child run yields several result entries (e.g. resumed runs), the lowest-indexed entry is the representative.
+
+### Validation
+
+- Added 10 regression tests covering child ownership, transcript derivation, pending-transcript, custom-session-dir, project-scoped, and interrupted-workflow cases; full unit suite and typecheck pass.
+
 ## 0.5.19
 
 ### Mission-Backed Workflow Visibility

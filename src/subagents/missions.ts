@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { SubagentRun, SubagentStep } from "../types.ts";
+import { applyDerivedChildTranscript } from "./artifacts.ts";
 
 export type MissionIdentity = {
 	sessionId?: string;
@@ -248,6 +249,8 @@ function parseMissionChildLifecycle(
 function parseMissionChild(
 	value: unknown,
 	index: number,
+	projectRoot: string,
+	ownerSessionFile?: string,
 ): ParsedMissionChild | undefined {
 	const fields = parseMissionChildFields(value);
 	if (!fields) return undefined;
@@ -275,15 +278,18 @@ function parseMissionChild(
 			: {}),
 		lastActivityAt: lifecycle.lastActivityAt,
 	};
+	applyDerivedChildTranscript(step, projectRoot, ownerSessionFile);
 	return { workflowRunId: fields.workflowRunId, step };
 }
 
 function workflowSteps(
 	values: readonly unknown[],
+	projectRoot: string,
+	ownerSessionFile?: string,
 ): Map<string, SubagentStep[]> | undefined {
 	const byRun = new Map<string, SubagentStep[]>();
 	for (const [index, value] of values.entries()) {
-		const parsed = parseMissionChild(value, index);
+		const parsed = parseMissionChild(value, index, projectRoot, ownerSessionFile);
 		if (!parsed) return undefined;
 		const steps = byRun.get(parsed.workflowRunId) ?? [];
 		if (steps.some((step) => step.workflowKey === parsed.step.workflowKey))
@@ -327,7 +333,7 @@ export function listMissionRuns(
 	for (const file of missionFiles(root)) {
 		const mission = readActiveMission(file, identity);
 		if (!mission) continue;
-		const grouped = workflowSteps(mission.workflowChildren);
+		const grouped = workflowSteps(mission.workflowChildren, projectRoot, mission.ownerSessionId);
 		if (!grouped) continue;
 		for (const [runId, steps] of grouped) {
 			const candidate: MissionRunCandidate = {
