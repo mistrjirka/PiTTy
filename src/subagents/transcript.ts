@@ -16,7 +16,7 @@ function text(value: unknown): string {
 
 function objectRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : undefined;
 }
 
@@ -26,14 +26,25 @@ function messageBlocks(message: unknown): Array<Record<string, unknown>> {
   const content = record.content;
   if (typeof content === "string") return [{ type: "text", text: content }];
   return Array.isArray(content)
-    ? content.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry))
+    ? content.filter(
+        (entry): entry is Record<string, unknown> =>
+          Boolean(entry) && typeof entry === "object" && !Array.isArray(entry),
+      )
     : [];
 }
 
 function messageText(message: unknown, type: "text" | "thinking"): string {
   return messageBlocks(message)
-    .filter((block) => type === "text" ? block.type === "text" : block.type === "thinking" || block.type === "reasoning")
-    .map((block) => type === "thinking" ? text(block.thinking) || text(block.text) : text(block.text))
+    .filter((block) =>
+      type === "text"
+        ? block.type === "text"
+        : block.type === "thinking" || block.type === "reasoning",
+    )
+    .map((block) =>
+      type === "thinking"
+        ? text(block.thinking) || text(block.text)
+        : text(block.text),
+    )
     .filter(Boolean)
     .join("");
 }
@@ -58,7 +69,10 @@ function resultPath(detailsValue: unknown, tool: ToolItem): string | undefined {
   const details = objectRecord(detailsValue);
   const direct = details?.path ?? details?.filePath ?? details?.file_path;
   if (typeof direct === "string" && direct.trim()) return direct.trim();
-  if (/write|edit|patch|replace/i.test(tool.name) && typeof tool.args === "string") {
+  if (
+    /write|edit|patch|replace/i.test(tool.name) &&
+    typeof tool.args === "string"
+  ) {
     const firstLine = tool.args.split(/\r?\n/, 1)[0]?.trim();
     if (firstLine && !firstLine.includes(" ")) return firstLine;
   }
@@ -66,13 +80,27 @@ function resultPath(detailsValue: unknown, tool: ToolItem): string | undefined {
 }
 
 export function activeSubagentStep(run: SubagentRun): SubagentStep | undefined {
-  const indexed = run.currentStep !== undefined ? run.steps[run.currentStep] : undefined;
-  return indexed ?? run.steps.find((step) => step.status === "running") ?? run.steps.at(-1);
+  const indexed =
+    run.currentStep === undefined ? undefined : run.steps[run.currentStep];
+  return (
+    indexed ??
+    run.steps.find((step) => step.status === "running") ??
+    run.steps.at(-1)
+  );
 }
 
-export function subagentTranscriptPath(run: SubagentRun, stepIndex?: number): string | undefined {
-  const selected = stepIndex !== undefined ? run.steps.find((step) => step.index === stepIndex) : undefined;
-  const active = selected?.transcriptPath ?? activeSubagentStep(run)?.transcriptPath ?? run.transcriptPath;
+export function subagentTranscriptPath(
+  run: SubagentRun,
+  stepIndex?: number,
+): string | undefined {
+  const selected =
+    stepIndex === undefined
+      ? undefined
+      : run.steps.find((step) => step.index === stepIndex);
+  const active =
+    selected?.transcriptPath ??
+    activeSubagentStep(run)?.transcriptPath ??
+    run.transcriptPath;
   if (active) return active;
   for (let index = run.steps.length - 1; index >= 0; index--) {
     const transcriptPath = run.steps[index]?.transcriptPath;
@@ -82,7 +110,10 @@ export function subagentTranscriptPath(run: SubagentRun, stepIndex?: number): st
 }
 
 function readSessionMessages(run: SubagentRun, stepIndex?: number): unknown[] {
-  const selected = stepIndex !== undefined ? run.steps.find((step) => step.index === stepIndex)?.sessionFile : undefined;
+  const selected =
+    stepIndex === undefined
+      ? undefined
+      : run.steps.find((step) => step.index === stepIndex)?.sessionFile;
   const sessionFile = selected ?? run.sessionFile;
   if (!sessionFile) return [];
   let content: string;
@@ -93,12 +124,17 @@ function readSessionMessages(run: SubagentRun, stepIndex?: number): unknown[] {
   }
   const lines = content.split("\n").filter((line) => line.trim().length > 0);
   const messages: unknown[] = [];
-  for (let index = Math.max(0, lines.length - MAX_SUBAGENT_SESSION_LINES); index < lines.length; index++) {
+  for (
+    let index = Math.max(0, lines.length - MAX_SUBAGENT_SESSION_LINES);
+    index < lines.length;
+    index++
+  ) {
     const line = lines[index];
     if (line === undefined) continue;
     try {
       const record = objectRecord(JSON.parse(line));
-      if (record?.message && objectRecord(record.message)) messages.push(record.message);
+      if (record?.message && objectRecord(record.message))
+        messages.push(record.message);
     } catch {
       // Ignore malformed JSONL records at this trust boundary.
     }
@@ -106,7 +142,10 @@ function readSessionMessages(run: SubagentRun, stepIndex?: number): unknown[] {
   return messages;
 }
 
-function readRecords(run: SubagentRun, stepIndex?: number): Array<{ record: Record<string, unknown>; index: number }> {
+function readRecords(
+  run: SubagentRun,
+  stepIndex?: number,
+): Array<{ record: Record<string, unknown>; index: number }> {
   const transcriptPath = subagentTranscriptPath(run, stepIndex);
   if (!transcriptPath) return [];
   let content: string;
@@ -117,7 +156,11 @@ function readRecords(run: SubagentRun, stepIndex?: number): Array<{ record: Reco
   }
   const lines = content.split("\n").filter((line) => line.trim().length > 0);
   const records: Array<{ record: Record<string, unknown>; index: number }> = [];
-  for (let index = Math.max(0, lines.length - MAX_SUBAGENT_SESSION_LINES); index < lines.length; index++) {
+  for (
+    let index = Math.max(0, lines.length - MAX_SUBAGENT_SESSION_LINES);
+    index < lines.length;
+    index++
+  ) {
     const line = lines[index];
     if (line === undefined) continue;
     try {
@@ -131,21 +174,32 @@ function readRecords(run: SubagentRun, stepIndex?: number): Array<{ record: Reco
   return records;
 }
 
-function substantiveRecordTimestamp(record: Record<string, unknown>): number | undefined {
+function substantiveRecordTimestamp(
+  record: Record<string, unknown>,
+): number | undefined {
   const recordType = text(record.recordType);
   const role = text(record.role);
-  if (recordType !== "tool_start" && recordType !== "tool_end" && role !== "tool" && role !== "toolResult") {
+  if (
+    recordType !== "tool_start" &&
+    recordType !== "tool_end" &&
+    role !== "tool" &&
+    role !== "toolResult"
+  ) {
     return undefined;
   }
   return typeof record.ts === "number" ? record.ts : undefined;
 }
 
 /** Return the latest recorded tool activity, ignoring streaming/UI-only updates. */
-export function substantiveSubagentActivityAt(run: SubagentRun, stepIndex?: number): number | undefined {
+export function substantiveSubagentActivityAt(
+  run: SubagentRun,
+  stepIndex?: number,
+): number | undefined {
   let latest: number | undefined;
   for (const { record } of readRecords(run, stepIndex)) {
     const timestamp = substantiveRecordTimestamp(record);
-    if (timestamp !== undefined && (latest === undefined || timestamp > latest)) latest = timestamp;
+    if (timestamp !== undefined && (latest === undefined || timestamp > latest))
+      latest = timestamp;
   }
   return latest;
 }
@@ -169,7 +223,11 @@ function findPendingTool(
  * used by the main chat. This lets the inspector reuse MessageView rather than
  * maintaining a second, visually inconsistent transcript renderer.
  */
-export function readSubagentConversation(run: SubagentRun, maxItems = 160, stepIndex?: number): ConversationItem[] {
+export function readSubagentConversation(
+  run: SubagentRun,
+  maxItems = 160,
+  stepIndex?: number,
+): ConversationItem[] {
   const items: ConversationItem[] = [];
   const artifactRecords = readRecords(run, stepIndex);
   if (artifactRecords.length === 0) {
@@ -209,7 +267,12 @@ export function readSubagentConversation(run: SubagentRun, maxItems = 160, stepI
 
     if (recordType === "tool_end") {
       const name = text(record.toolName) || "tool";
-      const targetIndex = findPendingTool(items, pendingByName, name, (tool) => tool.endedAt === undefined);
+      const targetIndex = findPendingTool(
+        items,
+        pendingByName,
+        name,
+        (tool) => tool.endedAt === undefined,
+      );
       if (targetIndex !== undefined) {
         const tool = items[targetIndex] as ToolItem;
         items[targetIndex] = { ...tool, endedAt: timestamp, status: "pending" };
@@ -218,9 +281,17 @@ export function readSubagentConversation(run: SubagentRun, maxItems = 160, stepI
     }
 
     if (recordType === "stderr") {
-      const value = text(record.text).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim();
+      const value = text(record.text)
+        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+        .trim();
       if (value) {
-        items.push({ kind: "system", id: `${base}-stderr`, text: value, timestamp, tone: "error" });
+        items.push({
+          kind: "system",
+          id: `${base}-stderr`,
+          text: value,
+          timestamp,
+          tone: "error",
+        });
       }
       continue;
     }
@@ -233,8 +304,21 @@ export function readSubagentConversation(run: SubagentRun, maxItems = 160, stepI
     if (role === "assistant") {
       const thinking = messageText(rawMessage, "thinking");
       const assistant = direct || messageText(rawMessage, "text");
-      if (!thinking && !assistant) continue;
       const stopReason = text(rawMessage?.stopReason);
+      const errorMessage =
+        text(rawMessage?.errorMessage) || text(record.errorMessage);
+      if (!thinking && !assistant) {
+        if (stopReason === "error" || errorMessage) {
+          items.push({
+            kind: "system",
+            id: `${base}-error`,
+            text: errorMessage || "Subagent assistant failed.",
+            timestamp,
+            tone: "error",
+          });
+        }
+        continue;
+      }
       items.push({
         kind: "assistant",
         id: `${base}-assistant`,
@@ -249,26 +333,15 @@ export function readSubagentConversation(run: SubagentRun, maxItems = 160, stepI
 
     if (role === "toolResult" || role === "tool") {
       const output = direct || messageText(rawMessage, "text");
-      const name = text(rawMessage?.toolName) || text(record.toolName) || "tool";
+      const name =
+        text(rawMessage?.toolName) || text(record.toolName) || "tool";
       const toolCallId = text(rawMessage?.toolCallId) || `${base}-call`;
       const isError = Boolean(rawMessage?.isError ?? record.isError);
       const details = rawMessage?.details ?? record.details;
-      const matchedIndex = pendingByName.get(name)?.find((index) => !resolvedTools.has(index));
-      if (matchedIndex !== undefined) {
-        const tool = items[matchedIndex] as ToolItem;
-        items[matchedIndex] = {
-          ...tool,
-          toolCallId,
-          output,
-          details,
-          diff: resultDiff(details),
-          diffPath: resultPath(details, tool),
-          endedAt: tool.endedAt ?? timestamp,
-          status: isError ? "error" : "done",
-          isError,
-        };
-        resolvedTools.add(matchedIndex);
-      } else {
+      const matchedIndex = pendingByName
+        .get(name)
+        ?.find((index) => !resolvedTools.has(index));
+      if (matchedIndex === undefined) {
         const fallback: ToolItem = {
           kind: "tool",
           id: `${base}-tool-result`,
@@ -286,6 +359,20 @@ export function readSubagentConversation(run: SubagentRun, maxItems = 160, stepI
         };
         fallback.diffPath = resultPath(details, fallback);
         items.push(fallback);
+      } else {
+        const tool = items[matchedIndex] as ToolItem;
+        items[matchedIndex] = {
+          ...tool,
+          toolCallId,
+          output,
+          details,
+          diff: resultDiff(details),
+          diffPath: resultPath(details, tool),
+          endedAt: tool.endedAt ?? timestamp,
+          status: isError ? "error" : "done",
+          isError,
+        };
+        resolvedTools.add(matchedIndex);
       }
       continue;
     }
@@ -293,6 +380,7 @@ export function readSubagentConversation(run: SubagentRun, maxItems = 160, stepI
     if (role === "user") {
       const userText = direct || messageText(rawMessage, "text");
       if (!userText) continue;
+      if (userText === "[prompt redacted]; live Prompt Audit only.") continue;
       const key = normalized(userText);
       // pi-subagents commonly writes the same task once as initial_prompt and
       // again as message_end. Keep the first copy only.
@@ -312,19 +400,61 @@ export function readSubagentConversation(run: SubagentRun, maxItems = 160, stepI
 }
 
 /** Legacy entry view retained for callers/tests that only need plain records. */
-export function readSubagentTranscript(run: SubagentRun, maxEntries = 120): SubagentTranscriptEntry[] {
+export function readSubagentTranscript(
+  run: SubagentRun,
+  maxEntries = 120,
+): SubagentTranscriptEntry[] {
   const entries: SubagentTranscriptEntry[] = [];
   for (const item of readSubagentConversation(run, maxEntries)) {
     if (item.kind === "user") {
-      entries.push({ id: item.id, timestamp: item.timestamp, kind: "user", label: "task", text: item.text });
+      entries.push({
+        id: item.id,
+        timestamp: item.timestamp,
+        kind: "user",
+        label: "task",
+        text: item.text,
+      });
     } else if (item.kind === "assistant") {
-      if (item.thinking) entries.push({ id: `${item.id}-thinking`, timestamp: item.timestamp, kind: "thinking", label: "thinking", text: item.thinking });
-      if (item.text) entries.push({ id: `${item.id}-answer`, timestamp: item.timestamp, kind: "assistant", label: "assistant", text: item.text });
+      if (item.thinking)
+        entries.push({
+          id: `${item.id}-thinking`,
+          timestamp: item.timestamp,
+          kind: "thinking",
+          label: "thinking",
+          text: item.thinking,
+        });
+      if (item.text)
+        entries.push({
+          id: `${item.id}-answer`,
+          timestamp: item.timestamp,
+          kind: "assistant",
+          label: "assistant",
+          text: item.text,
+        });
     } else if (item.kind === "tool") {
-      const args = typeof item.args === "string" ? item.args : item.args === undefined ? "" : JSON.stringify(item.args);
-      entries.push({ id: item.id, timestamp: item.timestamp, kind: "tool", label: item.name, text: item.output || args, isError: item.isError });
+      const args =
+        typeof item.args === "string"
+          ? item.args
+          : item.args === undefined
+            ? ""
+            : JSON.stringify(item.args);
+      entries.push({
+        id: item.id,
+        timestamp: item.timestamp,
+        kind: "tool",
+        label: item.name,
+        text: item.output || args,
+        isError: item.isError,
+      });
     } else if (item.kind === "system") {
-      entries.push({ id: item.id, timestamp: item.timestamp, kind: "system", label: item.tone, text: item.text, isError: item.tone === "error" });
+      entries.push({
+        id: item.id,
+        timestamp: item.timestamp,
+        kind: "system",
+        label: item.tone,
+        text: item.text,
+        isError: item.tone === "error",
+      });
     }
   }
   return entries.slice(-maxEntries);

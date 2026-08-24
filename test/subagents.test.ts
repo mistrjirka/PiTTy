@@ -2611,6 +2611,37 @@ describe("subagent controls", () => {
 		expect(owned.get("far-item") ?? []).toHaveLength(0);
 	});
 
+	test("filters only the synthetic prompt marker and preserves error-only assistant records", () => {
+		const target = run();
+		const transcriptPath = path.join(target.asyncDir!, "transcript.jsonl");
+		fs.writeFileSync(transcriptPath, [
+			JSON.stringify({ recordType: "message", role: "user", text: "[prompt redacted]; live Prompt Audit only. extra", ts: 1 }),
+			JSON.stringify({ recordType: "message", role: "user", text: "[prompt redacted]; live Prompt Audit only.", ts: 2 }),
+			JSON.stringify({ recordType: "message", role: "assistant", message: { role: "assistant", stopReason: "error", errorMessage: "Provider finish_reason: network_error" }, ts: 3 }),
+		].join("\n"));
+		target.transcriptPath = transcriptPath;
+		const items = readSubagentConversation(target);
+		expect(items).toEqual([
+			expect.objectContaining({ kind: "user", text: "[prompt redacted]; live Prompt Audit only. extra" }),
+			expect.objectContaining({ kind: "system", tone: "error", text: "Provider finish_reason: network_error" }),
+		]);
+	});
+
+	test("enriches workflow steps from exactly matched child metadata and fails closed", () => {
+		const target = run();
+		target.mode = "workflow";
+		const sessionFile = path.join(target.asyncDir!, "sessions", "base", "child-0", "run-0", "session.jsonl");
+		fs.mkdirSync(path.dirname(sessionFile), { recursive: true });
+		target.steps = [{ index: 0, agent: "worker", workflowKey: "alpha", runId: "child-0", status: "failed", sessionFile }];
+		const artifacts = path.join(target.asyncDir!, "sessions", "subagent-artifacts");
+		fs.mkdirSync(artifacts, { recursive: true });
+		fs.writeFileSync(path.join(artifacts, "child-0_worker_0_meta.json"), JSON.stringify({ workflowKey: "alpha", agent: "worker", index: 0, model: "provider/model", thinking: "high", contextWindow: 8192, error: "network_error" }));
+		const enriched = subagentTargets([target])[0];
+		expect(enriched).toMatchObject({ model: "provider/model", thinking: "high", contextWindow: 8192, error: "network_error" });
+		fs.writeFileSync(path.join(artifacts, "child-0_worker_0_meta.json"), JSON.stringify({ workflowKey: "other", agent: "worker", index: 0, model: "wrong" }));
+		expect(subagentTargets([target])[0]?.model).toBeUndefined();
+	});
+
 	test("nearest-match fallback does not attach a run to a non-subagent tool call", () => {
 		const tool: ToolItem = {
 			kind: "tool",

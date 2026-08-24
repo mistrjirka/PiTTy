@@ -33,8 +33,7 @@ export function SubagentInspector(props: {
 	onToggleDiff?: (toolId: string) => void;
 }) {
 	const target = () =>
-		(props.target ??
-			(props.run ? subagentTargets([props.run])[0] : undefined))!;
+		(props.target ?? (props.run ? subagentTargets([props.run])[0] : undefined))!;
 	const run = () => target().run;
 	const step = () => target().step;
 	const elapsed = () =>
@@ -49,8 +48,7 @@ export function SubagentInspector(props: {
 	const currentPath = () => step()?.currentPath ?? run().currentPath;
 	const timeoutMs = () => step()?.timeoutMs ?? run().timeoutMs;
 	const deadlineAt = () => step()?.deadlineAt ?? run().deadlineAt;
-	const remaining = () =>
-		deadlineAt() ? deadlineAt()! - props.now : undefined;
+	const remaining = () => (deadlineAt() ? deadlineAt()! - props.now : undefined);
 	let closePending = false;
 	let steerEditor: TextareaRenderable | undefined;
 
@@ -101,12 +99,7 @@ export function SubagentInspector(props: {
 					flexDirection="row"
 					zIndex={10}
 				>
-					<text
-						height={1}
-						wrapMode="none"
-						fg={colors.textBright}
-						attributes={1}
-					>
+					<text height={1} wrapMode="none" fg={colors.textBright} attributes={1}>
 						Subagent detail
 					</text>
 					<box flexGrow={1} height={1} />
@@ -197,17 +190,40 @@ export function SubagentInspector(props: {
 					);
 				})()}
 				<Show when={currentTool() || currentPath()}>
-					<text height={1} minHeight={1} flexShrink={0} wrapMode="none" fg={colors.cyan}>
+					<text
+						height={1}
+						minHeight={1}
+						flexShrink={0}
+						wrapMode="none"
+						fg={colors.cyan}
+					>
 						⚙{currentTool() ?? "working"}
-						{toolElapsed() !== undefined
-							? ` ${formatDuration(toolElapsed())}`
-							: ""}
+						{toolElapsed() !== undefined ? ` ${formatDuration(toolElapsed())}` : ""}
 						{currentPath() ? ` · ${currentPath()}` : ""}
 					</text>
 				</Show>
-				<text height={1} minHeight={1} flexShrink={0} wrapMode="none" fg={colors.subtle}>
-					▤{target().model ?? "unknown"} · {formatContextWindow(target().contextWindow) || "ctx?"} · ◆{target().thinking ?? "unknown"}
+				<text
+					height={1}
+					minHeight={1}
+					flexShrink={0}
+					wrapMode="none"
+					fg={colors.subtle}
+				>
+					▤{target().model ?? "unknown"} ·{" "}
+					{formatContextWindow(target().contextWindow) || "ctx?"} · ◆
+					{target().thinking ?? "unknown"}
 				</text>
+				<Show when={target().error}>
+					<text
+						height={1}
+						minHeight={1}
+						flexShrink={0}
+						wrapMode="none"
+						fg={colors.red}
+					>
+						✖ {target().error}
+					</text>
+				</Show>
 			</box>
 			<scrollbox
 				id="subagent-inspector-transcript"
@@ -234,21 +250,13 @@ export function SubagentInspector(props: {
 							thinkingExpanded={() => props.thinkingExpanded?.(item.id) ?? true}
 							onToggleThinking={() => props.onToggleThinking?.(item.id)}
 							toolExpanded={
-								item.kind === "tool"
-									? (props.toolExpanded?.(item.id) ?? false)
-									: false
+								item.kind === "tool" ? (props.toolExpanded?.(item.id) ?? false) : false
 							}
-							{...(props.onToggleTool
-								? { onToggleTool: props.onToggleTool }
-								: {})}
+							{...(props.onToggleTool ? { onToggleTool: props.onToggleTool } : {})}
 							diffExpanded={
-								item.kind === "tool"
-									? (props.diffExpanded?.(item.id) ?? false)
-									: false
+								item.kind === "tool" ? (props.diffExpanded?.(item.id) ?? false) : false
 							}
-							{...(props.onToggleDiff
-								? { onToggleDiff: props.onToggleDiff }
-								: {})}
+							{...(props.onToggleDiff ? { onToggleDiff: props.onToggleDiff } : {})}
 							now={
 								item.kind === "tool" &&
 								(item.status === "streaming" || item.status === "pending")
@@ -274,10 +282,8 @@ export function SubagentInspector(props: {
 							const age = () => props.now - entry.submittedAt;
 							return (
 								<text fg={colors.yellow} wrapMode="word">
-									{age() >= 120_000
-										? "Waiting (over 120s)"
-										: "Queued for delivery"}{" "}
-									· {entry.text} · Waiting for pi-subagents to pick this up
+									{age() >= 120_000 ? "Waiting (over 120s)" : "Queued for delivery"} ·{" "}
+									{entry.text} · Waiting for pi-subagents to pick this up
 								</text>
 							);
 						}}
@@ -343,8 +349,8 @@ export function SubagentInspector(props: {
 					paddingLeft={1}
 				>
 					<text fg={colors.subtle} wrapMode="none">
-						Steering input hidden: this child is finished or has no live
-						steerable Pi session.
+						Steering input hidden: this child is finished or has no live steerable Pi
+						session.
 					</text>
 				</box>
 			</Show>

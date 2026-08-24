@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { SubagentRun, SubagentStep, ToolItem } from "../types.ts";
 import { substantiveSubagentActivityAt } from "./transcript.ts";
 import { childRunIdFromSessionFile } from "./artifacts.ts";
@@ -22,7 +24,86 @@ export type SubagentTarget = {
 	workflowKey?: string | undefined;
 	parentWorkflowRunId?: string | undefined;
 	childRunId?: string | undefined;
+	error?: string | undefined;
 };
+
+type ChildArtifactMetadata = {
+	model?: string;
+	thinking?: string;
+	contextWindow?: number;
+	error?: string;
+};
+
+function childArtifactMetadata(
+	run: SubagentRun,
+	step: SubagentStep,
+): ChildArtifactMetadata {
+	const childRunId = step.runId;
+	const agent = step.agent.trim();
+	if (!childRunId || !agent || step.workflowKey === undefined) return {};
+	const fileName = `${childRunId}_${agent.replace(/[^\w.-]/g, "_")}_${step.index}_meta.json`;
+	const candidates = new Set<string>();
+	if (step.transcriptPath?.endsWith("_transcript.jsonl")) {
+		candidates.add(
+			step.transcriptPath.slice(0, -"_transcript.jsonl".length) + "_meta.json",
+		);
+	}
+	if (step.sessionFile) {
+		const sessionDir = path.dirname(
+			path.dirname(path.dirname(path.dirname(step.sessionFile))),
+		);
+		candidates.add(path.join(sessionDir, "subagent-artifacts", fileName));
+	}
+	if (run.cwd)
+		candidates.add(path.join(run.cwd, ".pi", "subagents", "artifacts", fileName));
+	for (const candidate of candidates) {
+		let raw: unknown;
+		try {
+			raw = JSON.parse(fs.readFileSync(candidate, "utf8"));
+		} catch {
+			continue;
+		}
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+		const meta = raw as Record<string, unknown>;
+		const metaWorkflowKey =
+			typeof meta.workflowKey === "string"
+				? meta.workflowKey
+				: typeof meta.key === "string"
+					? meta.key
+					: undefined;
+		const metaAgent = typeof meta.agent === "string" ? meta.agent : undefined;
+		const metaIndex =
+			typeof meta.index === "number"
+				? meta.index
+				: typeof meta.childIndex === "number"
+					? meta.childIndex
+					: undefined;
+		if (
+			metaWorkflowKey !== step.workflowKey ||
+			metaAgent !== agent ||
+			metaIndex !== step.index
+		)
+			continue;
+		return {
+			...(typeof meta.model === "string" && meta.model.trim()
+				? { model: meta.model.trim() }
+				: {}),
+			...(typeof meta.thinking === "string" && meta.thinking.trim()
+				? { thinking: meta.thinking.trim() }
+				: {}),
+			...(typeof meta.contextWindow === "number" &&
+			Number.isFinite(meta.contextWindow)
+				? { contextWindow: meta.contextWindow }
+				: {}),
+			...(typeof meta.error === "string" && meta.error.trim()
+				? { error: meta.error.trim() }
+				: typeof meta.errorMessage === "string" && meta.errorMessage.trim()
+					? { error: meta.errorMessage.trim() }
+					: {}),
+		};
+	}
+	return {};
+}
 
 function activeState(value: string | undefined): boolean {
 	return (
@@ -252,7 +333,7 @@ function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
 			const byRunId = new Map<string, ForegroundEntry>();
 			for (const entry of entries) {
 				const runId =
-					(typeof entry.result?.runId === "string" && entry.result.runId.trim())
+					typeof entry.result?.runId === "string" && entry.result.runId.trim()
 						? entry.result.runId.trim()
 						: childRunIdFromSessionFile(entry.result?.sessionFile);
 				if (!runId) continue;
@@ -264,9 +345,13 @@ function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
 				// One child run can yield several result entries (e.g. resumed
 				// runs); keep the lowest-indexed one as the representative.
 				const entryIndex =
-					typeof entry.result?.index === "number" ? entry.result.index : Number.MAX_SAFE_INTEGER;
+					typeof entry.result?.index === "number"
+						? entry.result.index
+						: Number.MAX_SAFE_INTEGER;
 				const existingIndex =
-					typeof existing.result?.index === "number" ? existing.result.index : Number.MAX_SAFE_INTEGER;
+					typeof existing.result?.index === "number"
+						? existing.result.index
+						: Number.MAX_SAFE_INTEGER;
 				if (entryIndex < existingIndex) byRunId.set(runId, entry);
 			}
 			const used = new Set<string>();
@@ -371,13 +456,9 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 					: undefined
 			: undefined;
 		const parentWorkflowRunId =
-			workflow && typeof details?.runId === "string"
-				? details.runId
-				: undefined;
+			workflow && typeof details?.runId === "string" ? details.runId : undefined;
 		const childRunId =
-			workflow && typeof progress.runId === "string"
-				? progress.runId
-				: undefined;
+			workflow && typeof progress.runId === "string" ? progress.runId : undefined;
 		const tokens = record(progress.tokens);
 		const numericTokens =
 			typeof progress.tokens === "number" && Number.isFinite(progress.tokens)
@@ -412,17 +493,11 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 					? progress.lastActivityAt
 					: undefined,
 			currentTool:
-				typeof progress.currentTool === "string"
-					? progress.currentTool
-					: undefined,
+				typeof progress.currentTool === "string" ? progress.currentTool : undefined,
 			activityState:
-				typeof progress.activityState === "string"
-					? progress.activityState
-					: state,
+				typeof progress.activityState === "string" ? progress.activityState : state,
 			currentPath:
-				typeof progress.currentPath === "string"
-					? progress.currentPath
-					: undefined,
+				typeof progress.currentPath === "string" ? progress.currentPath : undefined,
 			transcriptPath,
 			sessionFile,
 			turnCount:
@@ -525,9 +600,7 @@ export function subagentTargets(
 			const sessionFile =
 				step.sessionFile ?? child.sessionFile ?? childStep?.sessionFile;
 			const transcriptPath =
-				step.transcriptPath ??
-				child.transcriptPath ??
-				childStep?.transcriptPath;
+				step.transcriptPath ?? child.transcriptPath ?? childStep?.transcriptPath;
 			if (
 				sessionFile === step.sessionFile &&
 				transcriptPath === step.transcriptPath
@@ -580,8 +653,7 @@ export function subagentTargets(
 		);
 		const requested = requestedChildren(item.args);
 		for (const identifier of identifiers) {
-			if (requested.length > 0)
-				requestedByArtifactId.set(identifier, requested);
+			if (requested.length > 0) requestedByArtifactId.set(identifier, requested);
 		}
 	}
 	for (const item of tools) {
@@ -603,8 +675,7 @@ export function subagentTargets(
 			if (fallback.length > 0) {
 				result.push(...fallback);
 				for (const identifier of identifiers) {
-					if (emptyWorkflowIds.has(identifier))
-						fallbackWorkflowIds.add(identifier);
+					if (emptyWorkflowIds.has(identifier)) fallbackWorkflowIds.add(identifier);
 				}
 			}
 		}
@@ -617,11 +688,10 @@ export function subagentTargets(
 		);
 		const requested = runIdentifiers
 			.map((identifier) => requestedByArtifactId.get(identifier))
-			.find(
-				(metadata): metadata is RequestedMetadata[] => metadata !== undefined,
-			);
+			.find((metadata): metadata is RequestedMetadata[] => metadata !== undefined);
 		if (run.steps.length > 0) {
 			for (const step of run.steps) {
+				const artifactMetadata = childArtifactMetadata(run, step);
 				const requestedMetadata =
 					requested &&
 					(requested.length === run.steps.length
@@ -629,8 +699,7 @@ export function subagentTargets(
 						: requested.length === 1
 							? requested[0]
 							: undefined);
-				const active =
-					activeState(step.activityState) || activeState(step.status);
+				const active = activeState(step.activityState) || activeState(step.status);
 				const sessionFile = step.sessionFile ?? run.sessionFile;
 				result.push({
 					key:
@@ -646,8 +715,7 @@ export function subagentTargets(
 					// pi-subagents accepts file-backed steering for running and queued
 					// indexed children. It does not require the child session file to
 					// exist yet, so queued parallel children remain steerable.
-					canSteer:
-						run.control !== "mission" && active && Boolean(run.asyncDir),
+					canSteer: run.control !== "mission" && active && Boolean(run.asyncDir),
 					transcriptPath: step.transcriptPath ?? run.transcriptPath,
 					sessionFile,
 					startedAt: step.startedAt ?? run.startedAt,
@@ -657,16 +725,24 @@ export function subagentTargets(
 						step.currentToolStartedAt ??
 						step.endedAt ??
 						run.endedAt,
-					model: step.model ?? run.model ?? requestedMetadata?.model,
+					model:
+						step.model ??
+						run.model ??
+						requestedMetadata?.model ??
+						artifactMetadata.model,
 					thinking:
-						step.thinking ?? run.thinking ?? requestedMetadata?.thinking,
+						step.thinking ??
+						run.thinking ??
+						requestedMetadata?.thinking ??
+						artifactMetadata.thinking,
 					contextWindow:
 						step.contextWindow ??
 						run.contextWindow ??
-						requestedMetadata?.contextWindow,
+						requestedMetadata?.contextWindow ??
+						artifactMetadata.contextWindow,
+					error: step.error ?? run.error ?? artifactMetadata.error,
 					workflowKey: step.workflowKey ?? run.workflowKey,
-					parentWorkflowRunId:
-						step.parentWorkflowRunId ?? run.parentWorkflowRunId,
+					parentWorkflowRunId: step.parentWorkflowRunId ?? run.parentWorkflowRunId,
 					childRunId: step.runId,
 				});
 			}
@@ -700,8 +776,7 @@ export function subagentTargets(
 				run.currentToolStartedAt ??
 				run.endedAt,
 			model:
-				run.model ??
-				(requested?.length === 1 ? requested[0]?.model : undefined),
+				run.model ?? (requested?.length === 1 ? requested[0]?.model : undefined),
 			thinking:
 				run.thinking ??
 				(requested?.length === 1 ? requested[0]?.thinking : undefined),
