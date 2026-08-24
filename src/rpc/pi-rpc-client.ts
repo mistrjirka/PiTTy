@@ -31,10 +31,25 @@ export type PiRpcClientOptions = {
 	logger?: DiagnosticLogger;
 };
 
+export class PiRpcTimeoutError extends Error {
+	readonly command: string;
+	readonly timeoutMs: number;
+
+	constructor(command: string, timeoutMs: number) {
+		super(`Timed out waiting for Pi response to ${command}.`);
+		this.name = "PiRpcTimeoutError";
+		this.command = command;
+		this.timeoutMs = timeoutMs;
+	}
+}
+
 type PendingRequest = {
 	resolve: (response: RpcResponse) => void;
 	reject: (error: Error) => void;
-	timer: ReturnType<typeof setTimeout>;
+	timer: ReturnType<typeof setTimeout> | undefined;
+	commandType: string;
+	timeoutMs: number;
+	timeoutPaused: boolean;
 };
 
 export class PiRpcClient extends EventEmitter {
@@ -200,10 +215,7 @@ export class PiRpcClient extends EventEmitter {
 			// Pi can finish aborting the active provider/tool before its RPC handler
 			// gets a chance to acknowledge the command. Treat an acknowledgement
 			// timeout as a successful best-effort abort instead of crashing the UI.
-			if (
-				error instanceof Error &&
-				error.message === "Timed out waiting for Pi response to abort."
-			) {
+			if (error instanceof PiRpcTimeoutError && error.command === "abort") {
 				this.options.logger?.warn("rpc.abort_ack_timeout");
 				return;
 			}
@@ -211,13 +223,15 @@ export class PiRpcClient extends EventEmitter {
 		}
 	}
 
-	async getState(): Promise<RpcSessionState> {
-		return this.data(await this.request({ type: "get_state" }));
+	async getState(timeoutMsOverride?: number): Promise<RpcSessionState> {
+		return this.data(
+			await this.request({ type: "get_state" }, timeoutMsOverride),
+		);
 	}
 
-	async getMessages(): Promise<unknown[]> {
+	async getMessages(timeoutMsOverride?: number): Promise<unknown[]> {
 		const data = this.data<{ messages: unknown[] }>(
-			await this.request({ type: "get_messages" }),
+			await this.request({ type: "get_messages" }, timeoutMsOverride),
 		);
 		return data.messages;
 	}
@@ -301,10 +315,7 @@ export class PiRpcClient extends EventEmitter {
 				),
 			);
 		} catch (error) {
-			if (
-				error instanceof Error &&
-				error.message === "Timed out waiting for Pi response to compact."
-			) {
+			if (error instanceof PiRpcTimeoutError && error.command === "compact") {
 				this.options.logger?.warn("rpc.compact_ack_timeout");
 				return undefined;
 			}
@@ -341,18 +352,7 @@ export class PiRpcClient extends EventEmitter {
 		return new Promise<RpcResponse>((resolve, reject) => {
 			const timeoutMs =
 				timeoutMsOverride ?? this.options.requestTimeoutMs ?? 30_000;
-			const timer = setTimeout(() => {
-				this.pending.delete(id);
-				this.options.logger?.error("rpc.timeout", {
-					id,
-					command: command.type,
-					timeoutMs,
-				});
-				reject(
-					new Error(`Timed out waiting for Pi response to ${command.type}.`),
-				);
-			}, timeoutMs);
-			this.pending.set(id, {
+			const pending: PendingRequest = {
 				resolve: (response) => {
 					this.options.logger?.rpc("rx", response, {
 						durationMs: Math.round(performance.now() - startedAt),
@@ -369,19 +369,60 @@ export class PiRpcClient extends EventEmitter {
 					});
 					reject(error);
 				},
-				timer,
-			});
+				timer: undefined,
+				commandType: command.type,
+				timeoutMs,
+				timeoutPaused: false,
+			};
+			this.pending.set(id, pending);
+			pending.timer = this.startTimeout(id, pending);
 			try {
 				this.write(request);
 			} catch (error) {
-				clearTimeout(timer);
+				if (pending.timer !== undefined) clearTimeout(pending.timer);
 				this.pending.delete(id);
 				reject(error instanceof Error ? error : new Error(String(error)));
 			}
 		});
 	}
 
-	private write(value: object): void {
+	private startTimeout(
+		id: string,
+		pending: PendingRequest,
+	): ReturnType<typeof setTimeout> {
+		return setTimeout(() => {
+			if (this.pending.get(id) !== pending) return;
+			this.pending.delete(id);
+			pending.timer = undefined;
+			this.options.logger?.error("rpc.timeout", {
+				id,
+				command: pending.commandType,
+				timeoutMs: pending.timeoutMs,
+			});
+			pending.reject(
+				new PiRpcTimeoutError(pending.commandType, pending.timeoutMs),
+			);
+		}, pending.timeoutMs);
+	}
+
+	private pausePromptTimeouts(): void {
+		for (const pending of this.pending.values()) {
+			if (pending.commandType !== "prompt" || pending.timeoutPaused) continue;
+			if (pending.timer !== undefined) clearTimeout(pending.timer);
+			pending.timer = undefined;
+			pending.timeoutPaused = true;
+		}
+	}
+
+	private resumePromptTimeouts(): void {
+		for (const [id, pending] of this.pending) {
+			if (pending.commandType !== "prompt" || !pending.timeoutPaused) continue;
+			pending.timeoutPaused = false;
+			pending.timer = this.startTimeout(id, pending);
+		}
+	}
+
+	private write(value: Record<string, unknown>): void {
 		const stdin = this.child?.stdin;
 		if (!stdin?.writable) throw new Error("Pi RPC stdin is unavailable.");
 		stdin.write(`${JSON.stringify(value)}\n`);
@@ -425,6 +466,8 @@ export class PiRpcClient extends EventEmitter {
 				}
 				continue;
 			}
+			if (record.type === "compaction_start") this.pausePromptTimeouts();
+			if (record.type === "compaction_end") this.resumePromptTimeouts();
 			this.options.logger?.rpc("event", value);
 			this.emit("event", value as PiEvent);
 		}
@@ -437,7 +480,7 @@ export class PiRpcClient extends EventEmitter {
 
 	private failAll(error: Error): void {
 		for (const pending of this.pending.values()) {
-			clearTimeout(pending.timer);
+			if (pending.timer !== undefined) clearTimeout(pending.timer);
 			pending.reject(error);
 		}
 		this.pending.clear();

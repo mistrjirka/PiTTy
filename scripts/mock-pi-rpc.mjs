@@ -43,10 +43,18 @@ const stats = {
   contextUsage: { tokens: 33000, contextWindow: 400000, percent: 8.25 },
 };
 
+const startupDelayMs = Number(process.env.MOCK_STARTUP_DELAY_MS ?? 0);
+const startupReadyAt = Date.now() + startupDelayMs;
+const promptCompactionDelayMs = Number(process.env.MOCK_PROMPT_COMPACTION_DELAY_MS ?? 0);
+const dropPromptAfterCompaction = process.env.MOCK_DROP_PROMPT_AFTER_COMPACTION === "1";
+
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
-rl.on("line", (line) => {
+rl.on("line", async (line) => {
   let command;
   try { command = JSON.parse(line); } catch { return; }
+  const startupWaitMs = startupReadyAt - Date.now();
+  if (startupWaitMs > 0 && (command.type === "get_state" || command.type === "get_messages"))
+    await new Promise((resolve) => setTimeout(resolve, startupWaitMs));
   if (command.type === "extension_ui_response") return;
   const response = (data) => send({ type: "response", id: command.id, command: command.type, success: true, ...(data === undefined ? {} : { data }) });
   switch (command.type) {
@@ -80,6 +88,12 @@ rl.on("line", (line) => {
     case "prompt":
     case "steer":
     case "follow_up": {
+      if (command.type === "prompt" && promptCompactionDelayMs > 0) {
+        send({ type: "compaction_start" });
+        await new Promise((resolve) => setTimeout(resolve, promptCompactionDelayMs));
+        send({ type: "compaction_end" });
+      }
+      if (command.type === "prompt" && dropPromptAfterCompaction) break;
       response();
       const text = typeof command.message === "string" ? command.message : "";
       send({ type: "agent_start" });

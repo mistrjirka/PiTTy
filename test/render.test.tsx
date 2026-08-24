@@ -48,6 +48,7 @@ import {
 } from "../src/ui/command-suggestions.tsx";
 import { SessionSelector } from "../src/ui/session-selector.tsx";
 import { EmptyDashboard } from "../src/ui/empty-dashboard.tsx";
+import { StartupPanel } from "../src/ui/startup-panel.tsx";
 import { Logo } from "../src/ui/logo.tsx";
 import {
 	appendNotificationHistory,
@@ -65,7 +66,16 @@ import { nextDetailToggle } from "../src/app.tsx";
 import { PendingInputPanel } from "../src/ui/pending-input-panel.tsx";
 import { appVersion } from "../src/version.ts";
 import { ConversationModel } from "../src/state/conversation.ts";
+import { PiRpcTimeoutError } from "../src/rpc/pi-rpc-client.ts";
 import type { PendingSteerEntry } from "../src/state/input-continuity.ts";
+import {
+	createSingleFlight,
+	StartupDeadlineError,
+	startupExplanation,
+	startupFailureReason,
+	startupHeading,
+	withStartupDeadline,
+} from "../src/state/startup.ts";
 import type { PiEvent } from "../src/types.ts";
 import {
 	colors,
@@ -98,6 +108,69 @@ async function mount(
 }
 
 describe("OpenTUI components", () => {
+	test("renders truthful startup progress", async () => {
+		const setup = await mount(
+			() => (
+				<StartupPanel
+					phase={{ kind: "starting" }}
+					elapsedMs={42_000}
+					spinner="◐"
+				/>
+			),
+			52,
+			12,
+		);
+		const starting = setup.captureCharFrame();
+		expect(starting).toContain("Starting Pi runtime");
+		expect(starting).toContain("Large histories can take a");
+		expect(starting).toContain("42s");
+		expect(startupHeading({ kind: "history" })).toBe("Loading conversation");
+		expect(startupExplanation({ kind: "history" })).toContain(
+			"Restoring the conversation",
+		);
+		expect(startupHeading({ kind: "failed", reason: "timeout" })).toBe(
+			"Pi startup timed out",
+		);
+		expect(startupExplanation({ kind: "failed", reason: "timeout" })).toContain(
+			"clean up old sessions",
+		);
+	});
+
+	test("bounds startup waits and joins overlapping refreshes", async () => {
+		let calls = 0;
+		let release: ((value: string) => void) | undefined;
+		const coordinator = createSingleFlight(() => {
+			calls += 1;
+			if (calls > 1) return Promise.resolve("next");
+			return new Promise<string>((resolve) => {
+				release = resolve;
+			});
+		});
+		const first = coordinator.run();
+		const second = coordinator.run();
+		expect(second).toBe(first);
+		await Promise.resolve();
+		expect(calls).toBe(1);
+		release?.("done");
+		await expect(first).resolves.toBe("done");
+		await expect(coordinator.run()).resolves.toBe("next");
+		expect(calls).toBe(2);
+
+		await expect(
+			withStartupDeadline(new Promise<never>(() => {}), 20),
+		).rejects.toBeInstanceOf(StartupDeadlineError);
+		expect(
+			startupFailureReason(new PiRpcTimeoutError("get_state", 20), {
+				kind: "starting",
+			}),
+		).toBe("timeout");
+		expect(
+			startupFailureReason(new Error("unexpected"), {
+				kind: "failed",
+				reason: "exit",
+			}),
+		).toBe("exit");
+	});
 	test("renders every session picker state and selects the first search result", async () => {
 		const choice: SessionChoice = {
 			path: "/tmp/target.jsonl",

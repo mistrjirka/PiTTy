@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.21
+
+### Slow Startup Resilience
+
+- Slow Pi extension and session initialization now uses explicit session-load timeouts under a separate bounded startup deadline instead of failing at the ordinary 30-second RPC timeout.
+- A qualitative startup panel reports the current phase and elapsed time without exposing extension notifications or status content.
+- Periodic refreshes are single-flight, delayed refresh responses no longer mark a live Pi process disconnected, and prompt input stays disabled until conversation restoration completes.
+
+### Automatic Compaction
+
+- Prompt acknowledgement timers pause while an automatic compaction is active and resume with the ordinary timeout after `compaction_end`, preventing false timeout errors while compaction continues.
+
+### Validation
+
+- Added deterministic delayed-startup, startup UI, refresh single-flight, and automatic-compaction regressions.
+- Full validation passes with 306 tests passed and 1 platform-specific test skipped; a restarted TUI smoke reached ready after a 45-second simulated Pi initialization delay.
+
 ## 0.5.20
 
 ### pi-subagents 0.50.0 Workflow Compatibility

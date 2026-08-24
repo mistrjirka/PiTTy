@@ -32,7 +32,7 @@ import type {
 } from "./types.ts";
 import type { DiagnosticLogger } from "./diagnostics/logger.ts";
 import { createDiagnosticBundle } from "./diagnostics/bundle.ts";
-import { PiRpcClient } from "./rpc/pi-rpc-client.ts";
+import { PiRpcClient, PiRpcTimeoutError } from "./rpc/pi-rpc-client.ts";
 import { ConversationModel, initialItems } from "./state/conversation.ts";
 import {
 	PromptHistory,
@@ -60,6 +60,12 @@ import {
 	type DraftState,
 	type PendingSteerEntry,
 } from "./state/input-continuity.ts";
+import {
+	createSingleFlight,
+	startupFailureReason,
+	type StartupPhase,
+	withStartupDeadline,
+} from "./state/startup.ts";
 import { listSubagentRuns } from "./subagents/artifacts.ts";
 import { mergeMissionRuns } from "./subagents/missions.ts";
 import { substantiveSubagentActivityAt } from "./subagents/transcript.ts";
@@ -122,6 +128,7 @@ import {
 import { SessionSettings, SessionRename } from "./ui/session-settings.tsx";
 import type { ThinkingLevel } from "./rpc/pi-rpc-client.ts";
 import { EmptyDashboard } from "./ui/empty-dashboard.tsx";
+import { StartupPanel } from "./ui/startup-panel.tsx";
 import {
 	discoverSessions,
 	type SessionChoice,
@@ -206,6 +213,8 @@ export type AppOptions = {
 
 const spinnerFrames = ["◐", "◓", "◑", "◒"] as const;
 const NOTIFICATION_HISTORY_CAP = 100;
+const SESSION_LOAD_REQUEST_TIMEOUT_MS = 120_000;
+const STARTUP_DEADLINE_MS = 180_000;
 
 const LOGIN_GUIDANCE =
 	"Sorry, login is not supported in PiTTy yet. Run `pi` and use /login there; your credentials will then be available to PiTTy.";
@@ -634,6 +643,10 @@ export function App(props: AppOptions) {
 		createSignal<string>();
 	const [todoDetailId, setTodoDetailId] = createSignal<string>();
 	const [status, setStatus] = createSignal("starting Pi…");
+	const startupStartedAt = Date.now();
+	const [startupPhase, setStartupPhase] = createSignal<StartupPhase>({
+		kind: "starting",
+	});
 	let prompt: TextareaRenderable | undefined;
 	let scroll: ScrollBoxRenderable | undefined;
 	let subagentScroll: ScrollBoxRenderable | undefined;
@@ -951,7 +964,8 @@ export function App(props: AppOptions) {
 		).unref?.();
 	};
 
-	const refreshState = async (): Promise<boolean> => {
+	let lastRefreshTimeoutNotice = 0;
+	const refreshOperation = async (): Promise<boolean> => {
 		try {
 			const [state, stats] = await Promise.all([
 				client.getState(),
@@ -993,15 +1007,26 @@ export function App(props: AppOptions) {
 			return true;
 		} catch (error) {
 			props.logger.error("ui.refresh_state_failed", error);
+			const message = error instanceof Error ? error.message : String(error);
+			if (error instanceof PiRpcTimeoutError) {
+				setStatus("Pi busy; state refresh delayed");
+				const now = Date.now();
+				if (now - lastRefreshTimeoutNotice >= 60_000) {
+					lastRefreshTimeoutNotice = now;
+					toast("Pi is still running, but its state response is delayed.", "warning", 5000);
+				}
+				return false;
+			}
 			setStatus("Pi disconnected");
 			setRpcAvailable(false);
-			toast(
-				error instanceof Error ? error.message : String(error),
-				"error",
-				5000,
-			);
+			toast(message, "error", 5000);
 			return false;
 		}
+	};
+	const refreshCoordinator = createSingleFlight(refreshOperation);
+	const refreshState = (): Promise<boolean> => {
+		if (startupPhase().kind !== "ready") return Promise.resolve(false);
+		return refreshCoordinator.run();
 	};
 
 	const updateScrollPosition = () => {
@@ -1133,8 +1158,8 @@ export function App(props: AppOptions) {
 
 	const loadCurrentSession = async () => {
 		const [state, messages] = await Promise.all([
-			client.getState(),
-			client.getMessages(),
+			client.getState(SESSION_LOAD_REQUEST_TIMEOUT_MS),
+			client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS),
 		]);
 		const historyItems = initialItems(messages);
 		conversation.items.splice(0, conversation.items.length, ...historyItems);
@@ -1457,6 +1482,15 @@ export function App(props: AppOptions) {
 	};
 
 	const submit = async () => {
+		if (startupPhase().kind !== "ready") {
+			toast(
+				startupPhase().kind === "failed"
+					? "Pi is unavailable. Restart PiTTy to retry."
+					: "Pi is still starting. Wait for the conversation to load.",
+				"warning",
+			);
+			return;
+		}
 		if (dialog()) return;
 		const text = expandedPromptText().trim();
 		if (!text) return;
@@ -1592,6 +1626,7 @@ export function App(props: AppOptions) {
 
 	const focusMainPrompt = () => {
 		if (
+			startupPhase().kind !== "ready" ||
 			dialog() ||
 			notificationDetailId() ||
 			todoDetailId() ||
@@ -2263,6 +2298,7 @@ export function App(props: AppOptions) {
 				),
 			);
 		}
+		let startupFailure: Error | undefined;
 		const unsubscribe = client.onEvent((event) => {
 			if (isExtensionUiRequest(event)) {
 				props.logger.debug("ui.extension_request", {
@@ -2270,6 +2306,10 @@ export function App(props: AppOptions) {
 					id: event.id,
 				});
 				if (event.method === "notify") {
+					if (startupPhase().kind !== "ready") {
+						setStatus("loading extensions/session…");
+						return;
+					}
 					toast(
 						event.message,
 						event.notifyType === "error"
@@ -2281,7 +2321,9 @@ export function App(props: AppOptions) {
 					return;
 				}
 				if (event.method === "setStatus") {
-					if (event.statusText) setStatus(event.statusText);
+					if (startupPhase().kind !== "ready")
+						setStatus("loading extensions/session…");
+					else if (event.statusText) setStatus(event.statusText);
 					return;
 				}
 				if (event.method === "setTitle") {
@@ -2332,15 +2374,25 @@ export function App(props: AppOptions) {
 			if (event.type === "compaction_end") void flushQueuedFollowUp();
 		});
 		client.on("protocol-error", (error: Error) => {
+			if (startupPhase().kind !== "ready") {
+				startupFailure = error;
+				setStartupPhase({ kind: "failed", reason: "protocol" });
+			}
 			props.logger.error("ui.protocol_error", error);
 			conversation.system(error.message, "error");
 			touch();
 		});
 		client.on("stderr", (chunk: string) => {
 			const line = chunk.trim().split("\n").at(-1);
-			if (line) setStatus(line.slice(0, 120));
+			if (!line) return;
+			if (startupPhase().kind === "ready") setStatus(line.slice(0, 120));
+			else setStatus("loading extensions/session…");
 		});
 		client.on("exit", (error: Error) => {
+			if (startupPhase().kind !== "ready") {
+				startupFailure = error;
+				setStartupPhase({ kind: "failed", reason: "exit" });
+			}
 			props.logger.error("ui.pi_exit", error);
 			setRpcAvailable(false);
 			conversation.system(error.message, "error");
@@ -2350,14 +2402,27 @@ export function App(props: AppOptions) {
 			try {
 				await client.start();
 				props.logger.info("ui.pi_started");
-				const [state, messages, remoteCommands] = await Promise.all([
-					client.getState(),
-					client.getMessages(),
-					client.getCommands().catch((error) => {
-						props.logger.warn("ui.commands_load_failed", error);
-						return [];
-					}),
-				]);
+				const startupDeadlineAt = Date.now() + STARTUP_DEADLINE_MS;
+				const remainingStartupMs = () =>
+					Math.max(1, startupDeadlineAt - Date.now());
+				const state = await withStartupDeadline(
+					client.getState(SESSION_LOAD_REQUEST_TIMEOUT_MS),
+					remainingStartupMs(),
+				);
+				if (startupFailure) throw startupFailure;
+				setStartupPhase({ kind: "history" });
+				setStatus("loading conversation…");
+				const [messages, remoteCommands] = await withStartupDeadline(
+					Promise.all([
+						client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS),
+						client.getCommands().catch((error) => {
+							props.logger.warn("ui.commands_load_failed", error);
+							return [];
+						}),
+					]),
+					remainingStartupMs(),
+				);
+				if (startupFailure) throw startupFailure;
 				setCommandChoices(mergeCommandChoices(remoteCommands));
 				const historyItems = initialItems(messages);
 				conversation.items.splice(
@@ -2387,6 +2452,7 @@ export function App(props: AppOptions) {
 				});
 				setSessionState(state);
 				conversation.isStreaming = state.isStreaming;
+				setStartupPhase({ kind: "ready" });
 				touch();
 				queueMicrotask(() =>
 					scroll?.scrollTo({ x: 0, y: Number.MAX_SAFE_INTEGER }),
@@ -2397,13 +2463,17 @@ export function App(props: AppOptions) {
 				await refreshState();
 			} catch (error) {
 				setRpcAvailable(false);
+				const previousPhase = startupPhase();
+				const reason = startupFailureReason(error, previousPhase);
+				setStartupPhase({ kind: "failed", reason });
+				const message = error instanceof Error ? error.message : String(error);
 				props.logger.error("ui.start_failed", error);
-				conversation.system(
-					error instanceof Error ? error.message : String(error),
-					"error",
-				);
+				if (previousPhase.kind !== "failed")
+					conversation.system(message, "error");
 				touch();
-				setStatus("failed to start Pi");
+				setStatus(
+					reason === "timeout" ? "startup timed out" : "failed to start Pi",
+				);
 			}
 		})();
 		const updateCodexUsage = (usage: CodexUsage | undefined) => {
@@ -3069,7 +3139,19 @@ export function App(props: AppOptions) {
 							onMouseScroll={() => queueMicrotask(updateScrollPosition)}
 							onMouseDown={() => focusMainPrompt()}
 						>
-							<Show when={shouldShowEmptyDashboard(items().length)}>
+							<Show when={startupPhase().kind !== "ready"}>
+								<StartupPanel
+									phase={startupPhase()}
+									elapsedMs={clockNow() - startupStartedAt}
+									spinner={spinnerFrames[spinnerIndex()] ?? "◐"}
+								/>
+							</Show>
+							<Show
+								when={
+									startupPhase().kind === "ready" &&
+									shouldShowEmptyDashboard(items().length)
+								}
+							>
 								<EmptyDashboard
 									sessionState={sessionDiscovery()}
 									width={dimensions().width}
@@ -3240,6 +3322,7 @@ export function App(props: AppOptions) {
 									syncPromptPlaceholder(valueText);
 								}}
 								focused={
+									startupPhase().kind === "ready" &&
 									!dialog() &&
 									!modelSelectorOpen() &&
 									!sessionSelectorOpen() &&

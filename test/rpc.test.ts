@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
-import { PiRpcClient } from "../src/rpc/pi-rpc-client.ts";
+import { PiRpcClient, PiRpcTimeoutError } from "../src/rpc/pi-rpc-client.ts";
 import type { PiEvent } from "../src/types.ts";
 
 const clients: PiRpcClient[] = [];
@@ -45,6 +45,50 @@ describe("PiRpcClient", () => {
     expect(events.some((event) => event.type === "agent_start")).toBe(true);
     expect(events.some((event) => event.type === "message_end")).toBe(true);
     expect(events.some((event) => event.type === "agent_settled")).toBe(true);
+  });
+
+  test("pauses a pending prompt timeout during automatic compaction", async () => {
+    const client = new PiRpcClient({
+      cwd: process.cwd(),
+      executable: path.resolve("scripts/mock-pi-rpc.mjs"),
+      requestTimeoutMs: 20,
+      env: { MOCK_PROMPT_COMPACTION_DELAY_MS: "60" },
+    });
+    clients.push(client);
+    await client.start();
+    await expect(client.prompt("compacting prompt")).resolves.toBeUndefined();
+  });
+
+  test("restores the prompt timeout after automatic compaction", async () => {
+    const client = new PiRpcClient({
+      cwd: process.cwd(),
+      executable: path.resolve("scripts/mock-pi-rpc.mjs"),
+      requestTimeoutMs: 20,
+      env: {
+        MOCK_PROMPT_COMPACTION_DELAY_MS: "40",
+        MOCK_DROP_PROMPT_AFTER_COMPACTION: "1",
+      },
+    });
+    clients.push(client);
+    await client.start();
+    await expect(client.prompt("missing acknowledgement")).rejects.toThrow(
+      "Timed out waiting for Pi response to prompt.",
+    );
+  });
+
+  test("uses a startup-only timeout without changing ordinary requests", async () => {
+    const client = new PiRpcClient({
+      cwd: process.cwd(),
+      executable: path.resolve("scripts/mock-pi-rpc.mjs"),
+      requestTimeoutMs: 20,
+      env: { MOCK_STARTUP_DELAY_MS: "220" },
+    });
+    clients.push(client);
+    await client.start();
+    await expect(client.getState()).rejects.toBeInstanceOf(PiRpcTimeoutError);
+    await expect(client.getState(120)).resolves.toMatchObject({
+      sessionName: "Mock Pi Session",
+    });
   });
 
   test("applies model, thinking, and session name mutations immediately", async () => {
