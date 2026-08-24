@@ -1,6 +1,17 @@
 # Changelog
 
 
+## 0.5.23
+
+### Bordered Answer Tables
+
+- Answer markdown tables now use bordered grid styling with content-width columns, padded cells, word wrapping, and selectable cells.
+- Thinking markdown tables retain their existing columns styling.
+
+### Validation
+
+- Focused render tests and the full `npm run check` validation pass.
+
 ## 0.5.22
 
 ### Subagent Inspector Failure Transparency

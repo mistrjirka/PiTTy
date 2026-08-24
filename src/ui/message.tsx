@@ -407,9 +407,12 @@ export function MessageView(props: {
 							streaming
 							renderAfter={finalizeMarkdownAfterRender}
 							tableOptions={{
-								style: "columns",
+								style: "grid",
+								widthMode: "content",
+								cellPaddingX: 1,
 								wrapMode: "word",
 								selectable: true,
+								borderColor: colors.borderStrong,
 							}}
 						/>
 					</box>

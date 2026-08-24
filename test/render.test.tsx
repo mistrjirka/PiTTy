@@ -669,6 +669,21 @@ describe("OpenTUI components", () => {
 		);
 	});
 
+	test("renders fenced code with default Markdown rendering when copy is absent", async () => {
+		const assistant: ConversationItem = {
+			kind: "assistant",
+			id: "markdown-code",
+			text: "```ts\nconst x = 1;\n```",
+			thinking: "",
+			timestamp: 1,
+			status: "done",
+		};
+		const setup = await mount(() => (
+			<MessageView item={assistant} showThinking toolExpanded={false} />
+		));
+		expect(setup.captureCharFrame()).toContain("const x = 1;");
+	});
+
 	test("renders main and subagent thinking as sanitized Markdown", async () => {
 		const assistant: ConversationItem = {
 			kind: "assistant",
