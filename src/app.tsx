@@ -43,7 +43,9 @@ import {
 import {
 	createPromptPasteBlock,
 	expandPromptPasteTokens,
+	insertPromptPasteBlock,
 	promptPasteDeletionRange,
+	promptPasteRange,
 	prunePromptPasteBlocks,
 	shouldCollapsePromptPaste,
 	stripCollapsedPromptPasteFragments,
@@ -716,8 +718,9 @@ export function App(props: AppOptions) {
 		const drafts = currentDrafts();
 		const block = drafts.mainPastes.find((entry) => entry.id === blockId);
 		if (!block) return;
-		const tokenStart = drafts.main.indexOf(block.token);
-		const nextText = drafts.main.replace(block.token, block.text);
+		const range = promptPasteRange(drafts.main, block);
+		if (!range) return;
+		const nextText = `${drafts.main.slice(0, range.start)}${block.text}${drafts.main.slice(range.end)}`;
 		drafts.main = nextText;
 		drafts.mainPastes = drafts.mainPastes.filter(
 			(entry) => entry.id !== blockId,
@@ -725,12 +728,12 @@ export function App(props: AppOptions) {
 		if (prompt) {
 			prompt.placeholder = null;
 			prompt.replaceText(nextText);
-			prompt.cursorOffset = Math.max(0, tokenStart) + block.text.length;
+			prompt.cursorOffset = range.start + block.text.length;
 			prompt.focus();
 		}
 		setPromptText(nextText);
 		setPromptCursorOffset(
-			prompt?.cursorOffset ?? Math.max(0, tokenStart) + block.text.length,
+			prompt?.cursorOffset ?? range.start + block.text.length,
 		);
 		setCommandSuggestionIndex(0);
 	};
@@ -780,10 +783,11 @@ export function App(props: AppOptions) {
 		const insertionStart =
 			selection?.start ?? prompt?.cursorOffset ?? currentText.length;
 		const insertionEnd = selection?.end ?? insertionStart;
-		const nextText = `${currentText.slice(0, insertionStart)}${block.token}${currentText.slice(insertionEnd)}`;
+		const insertion = insertPromptPasteBlock(currentText, block, insertionStart, insertionEnd);
+		const nextText = insertion.text;
 		const nextBlocks = prunePromptPasteBlocks(nextText, [
 			...drafts.mainPastes,
-			block,
+			insertion.block,
 		]);
 		drafts.main = nextText;
 		drafts.mainPastes = nextBlocks;
@@ -792,10 +796,10 @@ export function App(props: AppOptions) {
 			// it synchronously before replacing an untouched editor's contents.
 			prompt.placeholder = null;
 			prompt.replaceText(nextText);
-			prompt.cursorOffset = insertionStart + block.token.length;
+			prompt.cursorOffset = insertion.end + insertion.block.trailingSeparator!.length;
 		}
 		setPromptText(nextText);
-		setPromptCursorOffset(insertionStart + block.token.length);
+		setPromptCursorOffset(insertion.end + insertion.block.trailingSeparator!.length);
 		setCommandSuggestionIndex(0);
 		toast(
 			`Pasted ${block.lineCount} line${block.lineCount === 1 ? "" : "s"}. Paste again or click to expand.`,
@@ -3342,7 +3346,41 @@ export function App(props: AppOptions) {
 								onPaste={handlePromptPaste}
 								onKeyDown={handlePromptKeyDown}
 								onMouseDown={(event) => {
-									const block = currentDrafts().mainPastes[0];
+									const blocks = currentDrafts().mainPastes;
+									if (!blocks.length || !prompt) return;
+									const localX = Math.floor(event.x - prompt.x);
+									const localY = Math.floor(event.y - prompt.y);
+									const viewport = prompt.editorView.getViewport();
+									if (
+										localX < 0 ||
+										localY < 0 ||
+										localX >= prompt.width ||
+										localY >= prompt.height
+									)
+										return;
+									// Mouse events report visual rows; getTextRangeByCoords expects logical
+									// rows. Map through the editor view's per-visual-line source line and
+									// wrap-start columns so clicks on wrapped lines resolve to the text
+									// actually under the cursor (or fail closed).
+									const visualRow = localY + Math.floor(viewport.offsetY);
+									const lineInfo = prompt.editorView.getLineInfo();
+									const logicalRow = lineInfo.lineSources[visualRow];
+									if (logicalRow === undefined || logicalRow < 0) return;
+									const column =
+										localX +
+										Math.floor(viewport.offsetX) +
+										Math.floor(lineInfo.lineStartCols[visualRow] ?? 0);
+									const line = prompt.getTextRangeByCoords(
+										logicalRow,
+										0,
+										logicalRow,
+										8192,
+									);
+									if (!line) return;
+									const block = blocks.find((entry) => {
+										const start = line.indexOf(entry.token);
+										return start >= 0 && column >= start && column < start + entry.token.length;
+									});
 									if (!block) return;
 									event.preventDefault();
 									event.stopPropagation();

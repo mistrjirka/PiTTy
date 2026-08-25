@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	createPromptPasteBlock,
 	expandPromptPasteTokens,
+	insertPromptPasteBlock,
 	promptPasteDeletionRange,
 	prunePromptPasteBlocks,
 	shouldCollapsePromptPaste,
@@ -39,6 +40,17 @@ describe("paste blocks", () => {
 		expect(stripCollapsedPromptPasteFragments(partiallyDeleted, [block])).toBe(
 			"before  after",
 		);
+	});
+
+	test("adds and removes only PiTTy-owned boundary separators", () => {
+		const block = createPromptPasteBlock("alpha\nbeta\ngamma", []);
+		const insertion = insertPromptPasteBlock("beforeafter", block, 6, 6);
+		expect(insertion.text).toBe(`before ${block.token} after`);
+		expect(expandPromptPasteTokens(insertion.text, [insertion.block])).toBe("beforealpha\nbeta\ngammaafter");
+		expect(promptPasteDeletionRange(insertion.text, [insertion.block], insertion.start + 2, "backward")).toEqual({
+			start: 6,
+			end: insertion.end + 1,
+		});
 	});
 
 	test("treats backspace and delete inside a token as deleting the whole token", () => {

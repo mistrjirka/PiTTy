@@ -5,7 +5,7 @@ import type {
 	TextRenderable,
 } from "@opentui/core";
 import stripAnsi from "strip-ansi";
-import type { ConversationItem, ToolItem } from "../types.ts";
+import type { ConversationItem, CustomItem, ToolItem } from "../types.ts";
 import type { SubagentTarget } from "../subagents/targets.ts";
 import {
 	colors,
@@ -26,6 +26,8 @@ function toolVisual(
 		return { accent: colors.green, background: colors.toolWriteBg, icon: "◆" };
 	if (/bash|shell|exec|command|terminal/.test(normalized))
 		return { accent: colors.orange, background: colors.toolShellBg, icon: "▣" };
+	if (normalized === "subagent_supervisor")
+		return { accent: colors.purple, background: colors.toolAgentBg, icon: "◇" };
 	if (/subagent|task|agent|delegate/.test(normalized))
 		return { accent: colors.purple, background: colors.toolAgentBg, icon: "◇" };
 	if (/read|grep|find|search|list|glob|web|fetch/.test(normalized))
@@ -101,7 +103,7 @@ export function toolOutputExpandable(output: string): boolean {
 function collapsedPreview(output: string): string {
 	const normalized = cleanTerminalText(output).replace(/\s+/g, " ").trim();
 	if (!normalized) return "";
-	return normalized.length > 220 ? `${normalized.slice(0, 217)}…` : normalized;
+	return normalized.length > 100 ? `${normalized.slice(0, 97)}…` : normalized;
 }
 
 export function cleanThinkingText(value: string): string {
@@ -135,6 +137,55 @@ function collapsedThinkingPreview(value: string): string {
 	const clean = value.replace(/\s+/g, " ").trim();
 	if (!clean) return "";
 	return clean.length > 180 ? `${clean.slice(0, 177)}…` : clean;
+}
+
+function supervisorArgs(args: unknown): Record<string, unknown> | undefined {
+	return args && typeof args === "object" && !Array.isArray(args)
+		? (args as Record<string, unknown>)
+		: undefined;
+}
+
+function supervisorToolLabel(args: unknown): string | undefined {
+	const record = supervisorArgs(args);
+	const action = typeof record?.action === "string" ? record.action.toLowerCase() : "";
+	if (action === "reply") {
+		const recipient =
+			typeof record?.agent === "string" && record.agent.trim()
+				? record.agent
+				: typeof record?.replyTo === "string" && record.replyTo.trim()
+					? record.replyTo
+					: "";
+		return `→ reply ${recipient}`.trim();
+	}
+	if (action === "status") return "supervisor status";
+	if (action === "pending" || action === "list") return "pending supervisor requests";
+	return undefined;
+}
+
+function supervisorMessage(args: unknown): string {
+	const message = supervisorArgs(args)?.message;
+	return typeof message === "string" ? message : "";
+}
+
+function customQuestionParts(item: CustomItem): { body: string; hint: string } {
+	const lines = cleanTerminalText(item.text).split(/\r?\n/);
+	let hintIndex = -1;
+	for (let index = lines.length - 1; index >= 0; index--) {
+		if (/^\s*Reply with:\s*subagent_supervisor\(/.test(lines[index] ?? "")) {
+			hintIndex = index;
+			break;
+		}
+	}
+	if (hintIndex < 0 || lines.slice(hintIndex + 1).some((line: string) => line.trim()))
+		return { body: lines.join("\n"), hint: "" };
+	return { body: lines.slice(0, hintIndex).join("\n").trimEnd(), hint: lines[hintIndex]!.trim() };
+}
+
+function customDetail(item: CustomItem, key: string): string {
+	const details = item.details;
+	if (!details || typeof details !== "object" || Array.isArray(details)) return "";
+	const value = (details as Record<string, unknown>)[key];
+	return typeof value === "string" && value.trim() ? value : "";
 }
 
 function toolTiming(item: ToolItem, now: number): string {
@@ -431,6 +482,10 @@ export function MessageView(props: {
 							? toolVisual(item.name, item.isError)
 							: toolVisual("tool", false);
 					const stats = () => diffStats(diff());
+					const supervisor = () =>
+						item.kind === "tool" && item.name.toLowerCase() === "subagent_supervisor";
+					const supervisorLabel = () =>
+						supervisor() && item.kind === "tool" ? supervisorToolLabel(item.args) : undefined;
 					return (
 						<box
 							id={item.id}
@@ -455,16 +510,18 @@ export function MessageView(props: {
 							>
 								<text fg={visual().accent} attributes={1}>
 									{item.kind === "tool"
-										? `${expandable() ? (expanded() ? "▼ " : "▶ ") : ""}${item.status === "streaming" ? "◉" : visual().icon} TOOL · ${item.name}`
+										? `${expandable() ? (expanded() ? "▼ " : "▶ ") : ""}${item.status === "streaming" ? "◉" : visual().icon} TOOL · ${supervisorLabel() ?? item.name}`
 										: ""}
 								</text>
-								<Show when={item.kind === "tool" && item.args !== undefined}>
-									<text fg={colors.muted} selectable wrapMode="word">
-										{item.kind === "tool"
-											? `  ${prettyArgs(item.args).replace(/\s+/g, " ").slice(0, 150)}`
-											: ""}
-									</text>
-								</Show>
+									<Show when={item.kind === "tool" && item.args !== undefined}>
+										<text fg={colors.muted} selectable wrapMode="word">
+											{item.kind === "tool"
+												? supervisorLabel()
+													? `  ${supervisorMessage(item.args)}`
+													: `  ${prettyArgs(item.args).replace(/\s+/g, " ").slice(0, 150)}`
+												: ""}
+										</text>
+									</Show>
 								<box flexGrow={1} />
 								<Show
 									when={
@@ -553,12 +610,19 @@ export function MessageView(props: {
 									<Show
 										when={expanded()}
 										fallback={
-											<box flexDirection="row">
+											<box
+												flexDirection="row"
+												onMouseDown={(event) => {
+													event.preventDefault();
+													event.stopPropagation();
+													if (item.kind === "tool") props.onToggleTool?.(item.id);
+												}}
+											>
 												<text fg={colors.subtle} wrapMode="none">
 													{collapsedPreview(output())}
 												</text>
 												<box flexGrow={1} />
-												<text fg={colors.subtle}>click to expand</text>
+												<text fg={colors.cyan}>click to expand</text>
 											</box>
 										}
 									>
@@ -593,7 +657,7 @@ export function MessageView(props: {
 								>
 									<box
 										flexDirection="row"
-										onMouseUp={(event) => {
+										onMouseDown={(event) => {
 											event.preventDefault();
 											event.stopPropagation();
 											if (item.kind === "tool") props.onToggleDiff?.(item.id);
@@ -611,7 +675,7 @@ export function MessageView(props: {
 											</text>
 										</Show>
 										<box flexGrow={1} />
-										<text fg={colors.subtle}>
+										<text fg={colors.cyan}>
 											{props.diffExpanded
 												? "click to collapse"
 												: "click to view diff"}
@@ -646,6 +710,42 @@ export function MessageView(props: {
 									</Show>
 								</box>
 							</Show>
+						</box>
+					);
+				})()}
+			</Show>
+
+			<Show when={item.kind === "custom"}>
+				{(() => {
+					if (item.kind !== "custom") return null;
+					const question = item.customType === "subagent_supervisor_request";
+					const parts = customQuestionParts(item);
+					const agent = customDetail(item, "agent") || "subagent";
+					const reason = customDetail(item, "reason") || "question";
+					return question ? (
+						<box
+							id={item.id}
+							flexDirection="column"
+							backgroundColor={colors.toolAgentBg}
+							paddingLeft={1}
+							paddingRight={1}
+							marginBottom={1}
+							border={["left"]}
+							borderColor={colors.purple}
+						>
+							<text fg={colors.purple} attributes={1}>
+								◇ Child question · {agent} · {reason}
+							</text>
+							<text fg={colors.textBright} selectable wrapMode="word">{parts.body}</text>
+							<Show when={parts.hint}>
+								<text fg={colors.muted} selectable wrapMode="word">{parts.hint}</text>
+							</Show>
+						</box>
+					) : (
+						<box id={item.id} paddingLeft={1} marginBottom={1}>
+							<text fg={colors.muted} selectable wrapMode="word">
+								· {item.customType}: {item.text}
+							</text>
 						</box>
 					);
 				})()}

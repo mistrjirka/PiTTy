@@ -67,7 +67,16 @@ export type SystemItem = {
 	tone: "muted" | "info" | "warning" | "error" | "success";
 };
 
-export type ConversationItem = UserItem | AssistantItem | ToolItem | SystemItem;
+export type CustomItem = {
+	kind: "custom";
+	id: string;
+	customType: string;
+	text: string;
+	details?: unknown;
+	timestamp: number;
+};
+
+export type ConversationItem = UserItem | AssistantItem | ToolItem | SystemItem | CustomItem;
 
 export type SubagentStep = {
 	index: number;

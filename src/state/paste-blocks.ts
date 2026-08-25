@@ -7,6 +7,20 @@ export type PromptPasteBlock = {
 	text: string;
 	lineCount: number;
 	charCount: number;
+	leadingSeparator?: string;
+	trailingSeparator?: string;
+};
+
+export type PromptPasteInsertion = {
+	text: string;
+	block: PromptPasteBlock;
+	start: number;
+	end: number;
+};
+
+export type PromptPasteRange = {
+	start: number;
+	end: number;
 };
 
 export function countLines(value: string): number {
@@ -35,6 +49,43 @@ export function createPromptPasteBlock(
 
 export type PromptPasteDeletionDirection = "backward" | "forward";
 
+export function insertPromptPasteBlock(
+	visibleText: string,
+	block: PromptPasteBlock,
+	start: number,
+	end: number,
+): PromptPasteInsertion {
+	const leadingSeparator = start > 0 && !/\s/.test(visibleText[start - 1] ?? "") ? " " : "";
+	const trailingSeparator =
+		end < visibleText.length && !/[\s\n]/.test(visibleText[end] ?? "") ? " " : "";
+	const inserted = `${leadingSeparator}${block.token}${trailingSeparator}`;
+	return {
+		text: `${visibleText.slice(0, start)}${inserted}${visibleText.slice(end)}`,
+		block: { ...block, leadingSeparator, trailingSeparator },
+		start: start + leadingSeparator.length,
+		end: start + inserted.length - trailingSeparator.length,
+	};
+}
+
+export function promptPasteRange(
+	visibleText: string,
+	block: PromptPasteBlock,
+): PromptPasteRange | undefined {
+	const tokenStart = visibleText.indexOf(block.token);
+	if (tokenStart < 0) return undefined;
+	const start =
+		block.leadingSeparator && tokenStart >= block.leadingSeparator.length &&
+		visibleText.slice(tokenStart - block.leadingSeparator.length, tokenStart) === block.leadingSeparator
+			? tokenStart - block.leadingSeparator.length
+			: tokenStart;
+	const tokenEnd = tokenStart + block.token.length;
+	const end =
+		block.trailingSeparator && visibleText.slice(tokenEnd, tokenEnd + block.trailingSeparator.length) === block.trailingSeparator
+			? tokenEnd + block.trailingSeparator.length
+			: tokenEnd;
+	return { start, end };
+}
+
 export function promptPasteDeletionRange(
 	visibleText: string,
 	blocks: readonly PromptPasteBlock[],
@@ -43,9 +94,9 @@ export function promptPasteDeletionRange(
 	selection: { start: number; end: number } | null = null,
 ): { start: number; end: number } | undefined {
 	for (const block of blocks) {
-		const start = visibleText.indexOf(block.token);
-		if (start < 0) continue;
-		const end = start + block.token.length;
+		const range = promptPasteRange(visibleText, block);
+		if (!range) continue;
+		const { start, end } = range;
 		if (selection && selection.start < end && selection.end > start)
 			return { start, end };
 		if (direction === "backward" && cursorOffset > start && cursorOffset <= end)
@@ -83,8 +134,19 @@ export function stripCollapsedPromptPasteFragments(
 				}
 				end = start + matchingLength;
 			}
-			sanitized = `${sanitized.slice(0, start)}${sanitized.slice(end)}`;
-			searchFrom = start;
+			const removalStart =
+				block.leadingSeparator &&
+					start >= block.leadingSeparator.length &&
+					sanitized.slice(start - block.leadingSeparator.length, start) === block.leadingSeparator
+					? start - block.leadingSeparator.length
+					: start;
+			const removalEnd =
+				block.trailingSeparator &&
+					sanitized.slice(end, end + block.trailingSeparator.length) === block.trailingSeparator
+					? end + block.trailingSeparator.length
+					: end;
+			sanitized = `${sanitized.slice(0, removalStart)}${sanitized.slice(removalEnd)}`;
+			searchFrom = removalStart;
 		}
 	}
 	return sanitized;
@@ -102,7 +164,10 @@ export function expandPromptPasteTokens(
 	blocks: readonly PromptPasteBlock[],
 ): string {
 	let expanded = visibleText;
-	for (const block of blocks)
-		expanded = expanded.replace(block.token, block.text);
+	for (const block of blocks) {
+		const range = promptPasteRange(expanded, block);
+		if (!range) continue;
+		expanded = `${expanded.slice(0, range.start)}${block.text}${expanded.slice(range.end)}`;
+	}
 	return expanded;
 }

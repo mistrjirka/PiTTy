@@ -4,6 +4,7 @@ import { createTwoFilesPatch } from "diff";
 import type {
 	AssistantItem,
 	ConversationItem,
+	CustomItem,
 	PiEvent,
 	SystemItem,
 	ToolItem,
@@ -57,6 +58,26 @@ function messageTimestamp(message: unknown): number {
 
 function normalizedText(value: string): string {
 	return value.trim().replace(/\s+/g, " ");
+}
+
+function customItemFromMessage(message: unknown, prefix: string): CustomItem | undefined {
+	const record = objectRecord(message);
+	if (!record || record.display === false) return undefined;
+	const customType =
+		typeof record.customType === "string" && record.customType.trim()
+			? record.customType
+			: typeof record.type === "string" && record.type.trim()
+				? record.type
+				: "custom";
+	const text = extractText(message);
+	return {
+		kind: "custom",
+		id: typeof record.id === "string" && record.id.trim() ? record.id : id(prefix),
+		customType,
+		text,
+		...(record.details !== undefined ? { details: record.details } : {}),
+		timestamp: messageTimestamp(message),
+	};
 }
 
 function toolOutput(result: unknown): string {
@@ -279,6 +300,9 @@ export function initialItems(messages: unknown[]): ConversationItem[] {
 					timestamp: messageTimestamp(message),
 					optimistic: false,
 				});
+		} else if (role === "custom") {
+			const custom = customItemFromMessage(message, "history-custom");
+			if (custom) items.push(custom);
 		} else if (role === "assistant") {
 			const text = extractText(message);
 			const thinking = extractThinking(message);
@@ -449,6 +473,19 @@ export class ConversationModel {
 	private applyMessageEvent(event: Record<string, unknown>): void {
 		const message = event.message;
 		const role = messageRole(message);
+		if (role === "custom") {
+			const custom = customItemFromMessage(message, "custom-event");
+			if (!custom) return;
+			const duplicate = this.items.some(
+				(item) =>
+					item.kind === "custom" &&
+					item.customType === custom.customType &&
+					item.text === custom.text &&
+					Math.abs(item.timestamp - custom.timestamp) <= 5_000,
+			);
+			if (!duplicate) this.items.push(custom);
+			return;
+		}
 		if (role === "user") {
 			const text = extractText(message);
 			if (!text) return;

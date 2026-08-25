@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.26
+
+### Supervisor Dialogues Are Now Visible
+
+- Child subagent questions arrive as custom messages that PiTTy previously dropped silently; they now render as a distinct question card showing the asking agent, the reason, and the full wrapped question text, with the reply hint separated as muted footer text.
+- `subagent_supervisor` tool calls render with action-derived labels (for example `→ reply <agent>`, pending supervisor requests, supervisor status) and show the full reply message instead of a truncated JSON argument slice.
+- Other extension custom messages render as muted typed notices instead of disappearing; `display: false` messages remain hidden.
+
+### Reliable Expand/Collapse
+
+- Clicking a collapsed tool output row or its hint now toggles expansion the same as the header row; expanded output remains click-to-select and does not collapse on click.
+- Collapsed previews are bounded so the right-aligned hint never touches the output text; expand/collapse hints are styled as actions.
+- Toggle handlers are unified on mouse-down.
+
+### Prompt Paste Tokens
+
+- Clicking a pasted-text token expands exactly that block; multiple paste blocks are supported and clicks elsewhere in the input keep normal cursor behavior instead of expanding the first block.
+- Tokens gain boundary whitespace when inserted next to text, which disappears again when the block expands or is deleted.
+- Wrapped-line clicks resolve through the editor's visual-to-logical line mapping, so clicks always act on the token actually under the cursor or fail closed.
+
+### Validation
+
+- Typecheck clean; full suite passes with 327 tests passed, 1 platform-specific test skipped, and one pre-existing environment-dependent launcher fixture failure unrelated to this release.
 ## 0.5.25
 
 ### UI Responsiveness Under High-Volume Tool Output

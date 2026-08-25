@@ -36,7 +36,6 @@ import type {
 	RpcSessionState,
 	SessionStats,
 	SubagentRun,
-	ToolItem,
 } from "../src/types.ts";
 import type { CodexUsage } from "../src/integrations/codex-usage.ts";
 import type { CodexUsageStats } from "../src/integrations/codex-usage-history.ts";
@@ -971,6 +970,54 @@ describe("OpenTUI components", () => {
 		const expandedFrame = expanded.captureCharFrame();
 		expect(expandedFrame).toContain("old value");
 		expect(expandedFrame).toContain("new value");
+	});
+
+	test("renders supervisor questions, custom notices, and supervisor tool labels", async () => {
+		const items: ConversationItem[] = [
+			{
+				kind: "custom",
+				id: "question",
+				customType: "subagent_supervisor_request",
+				text: "Choose the safer approach.\nReply with: subagent_supervisor({ action: \\\"reply\\\" })",
+				details: { agent: "worker", reason: "need decision" },
+				timestamp: 1,
+			},
+			{
+				kind: "custom",
+				id: "notice",
+				customType: "other_event",
+				text: "visible notice",
+				timestamp: 2,
+			},
+			{
+				kind: "tool",
+				id: "supervisor-tool",
+				toolCallId: "supervisor-tool",
+				name: "subagent_supervisor",
+				args: { action: "reply", agent: "worker", message: "Full supervisor reply body" },
+				output: "",
+				timestamp: 3,
+				status: "done",
+				isError: false,
+			},
+		];
+		const setup = await mount(
+			() => (
+				<box flexDirection="column">
+					{items.map((item) => <MessageView item={item} showThinking toolExpanded={false} />)}
+				</box>
+			),
+			120,
+			20,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("◇ Child question · worker · need decision");
+		expect(frame).toContain("Choose the safer approach.");
+		expect(frame).toContain("Reply with: subagent_supervisor");
+		expect(frame).toContain("other_event: visible notice");
+		expect(frame).toContain("TOOL · → reply worker");
+		expect(frame).toContain("Full supervisor reply body");
+		for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(120);
 	});
 
 	test("wraps long expanded diff lines instead of clipping them", async () => {

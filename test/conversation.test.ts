@@ -45,6 +45,34 @@ describe("conversation content boundaries", () => {
 		});
 	});
 
+	test("parses visible custom messages and skips display:false history entries", () => {
+		const items = initialItems([
+			{
+				role: "custom",
+				customType: "subagent_supervisor_request",
+				content: [{ type: "text", text: "Need a decision" }],
+				details: { agent: "worker", reason: "blocked" },
+				timestamp: 10,
+			},
+			{ role: "custom", customType: "hidden", content: "do not show", display: false },
+		]);
+		expect(items).toHaveLength(1);
+		expect(items[0]).toMatchObject({ kind: "custom", customType: "subagent_supervisor_request", text: "Need a decision" });
+	});
+
+	test("deduplicates immediate live custom messages by type and text", () => {
+		const model = new ConversationModel();
+		const message = {
+			role: "custom",
+			customType: "subagent_supervisor_request",
+			content: "same question",
+			timestamp: 100,
+		};
+		model.apply(event({ type: "message_end", message }));
+		model.apply(event({ type: "message_end", message: { ...message, timestamp: 102 } }));
+		expect(model.items.filter((item) => item.kind === "custom")).toHaveLength(1);
+	});
+
 	test("correlates persisted tool results by exact tool-call id", () => {
 		const items = initialItems([
 			{
