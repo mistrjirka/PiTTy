@@ -29,11 +29,13 @@ import type {
 	ToolItem,
 	Toast,
 	NotificationRecord,
+	PiEvent,
 } from "./types.ts";
 import type { DiagnosticLogger } from "./diagnostics/logger.ts";
 import { createDiagnosticBundle } from "./diagnostics/bundle.ts";
 import { PiRpcClient, PiRpcTimeoutError } from "./rpc/pi-rpc-client.ts";
 import { ConversationModel, initialItems } from "./state/conversation.ts";
+import { ToolEventCoalescer } from "./state/tool-event-coalescer.ts";
 import {
 	PromptHistory,
 	shouldRecoverPromptDraft,
@@ -68,7 +70,7 @@ import {
 } from "./state/startup.ts";
 import { listSubagentRuns } from "./subagents/artifacts.ts";
 import { mergeMissionRuns } from "./subagents/missions.ts";
-import { substantiveSubagentActivityAt } from "./subagents/transcript.ts";
+import { subagentActivityAt } from "./subagents/transcript.ts";
 import { createSubagentTranscriptCache } from "./subagents/transcript-cache.ts";
 import {
 	pauseSubagent,
@@ -465,10 +467,7 @@ function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
 		mode: run.mode,
 		state: run.state,
 		activityState: run.activityState,
-		lastActivityAt:
-			substantiveSubagentActivityAt(run) ??
-			run.lastActivityAt ??
-			run.currentToolStartedAt,
+		lastActivityAt: subagentActivityAt(run),
 		model: run.model,
 		thinking: run.thinking,
 		contextWindow: run.contextWindow,
@@ -485,10 +484,7 @@ function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
 			agent: step.agent,
 			status: step.status,
 			activityState: step.activityState,
-			lastActivityAt:
-				substantiveSubagentActivityAt(run, step.index) ??
-				step.lastActivityAt ??
-				step.currentToolStartedAt,
+			lastActivityAt: subagentActivityAt(run, step.index),
 			model: step.model,
 			thinking: step.thinking,
 			contextWindow: step.contextWindow,
@@ -965,6 +961,35 @@ export function App(props: AppOptions) {
 	};
 
 	let lastRefreshTimeoutNotice = 0;
+	const refreshSubagentRuns = (state: RpcSessionState): void => {
+		const identity = {
+			sessionId: state.sessionId,
+			...(state.sessionFile ? { sessionFile: state.sessionFile } : {}),
+		};
+		const nextRuns = props.integrations.subagents.installed
+			? mergeMissionRuns(
+					listSubagentRuns(identity),
+					identity,
+					props.cwd,
+				)
+			: [];
+		reconcileSteers(nextRuns);
+		const summaries = nextRuns.map(subagentLogSummary);
+		const digest = JSON.stringify(summaries);
+		if (digest !== lastRunsDigest) {
+			lastRunsDigest = digest;
+			setRuns(nextRuns);
+			const nextTargets = subagentTargets(nextRuns, subagentTools());
+			setSelectedTargetKey(
+				reconcileSubagentSelection(
+					selectedTargetKey(),
+					availableSubagentTargets(),
+					nextTargets,
+				),
+			);
+			props.logger.info("subagents.changed", { runs: summaries });
+		}
+	};
 	const refreshOperation = async (): Promise<boolean> => {
 		try {
 			const [state, stats] = await Promise.all([
@@ -974,35 +999,7 @@ export function App(props: AppOptions) {
 			setSessionState(state);
 			setSessionStats(stats);
 			setStatus(state.isStreaming ? "working" : "ready");
-			const nextRuns = props.integrations.subagents.installed
-				? mergeMissionRuns(
-						listSubagentRuns({
-							sessionId: state.sessionId,
-							sessionFile: state.sessionFile,
-						}),
-						{
-							sessionId: state.sessionId,
-							...(state.sessionFile ? { sessionFile: state.sessionFile } : {}),
-						},
-						props.cwd,
-					)
-				: [];
-			reconcileSteers(nextRuns);
-			const summaries = nextRuns.map(subagentLogSummary);
-			const digest = JSON.stringify(summaries);
-			if (digest !== lastRunsDigest) {
-				lastRunsDigest = digest;
-				setRuns(nextRuns);
-				const nextTargets = subagentTargets(nextRuns, subagentTools());
-				setSelectedTargetKey(
-					reconcileSubagentSelection(
-						selectedTargetKey(),
-						availableSubagentTargets(),
-						nextTargets,
-					),
-				);
-				props.logger.info("subagents.changed", { runs: summaries });
-			}
+			refreshSubagentRuns(state);
 			setRpcAvailable(true);
 			return true;
 		} catch (error) {
@@ -2299,8 +2296,46 @@ export function App(props: AppOptions) {
 			);
 		}
 		let startupFailure: Error | undefined;
+		const applyConversationEvent = (event: PiEvent): void => {
+			const previousItemCount = conversation.items.length;
+			conversation.apply(event);
+			if (conversation.items.length > previousItemCount)
+				trimMessageWindowIfFollowingLatest();
+			touch();
+			if (
+				event.type === "agent_start" ||
+				event.type === "agent_settled" ||
+				event.type === "agent_end" ||
+				event.type === "thinking_level_changed" ||
+				event.type === "session_info_changed" ||
+				event.type === "compaction_start" ||
+				event.type === "compaction_end"
+			) {
+				void refreshState();
+			}
+			if (event.type === "agent_settled") {
+				void (async () => {
+					if (mcpActivationPending()) await activateMcp();
+					await refreshState();
+					if (
+						!mcpActivationPending() &&
+						mcpConfigState() !== "saved-inactive-retry"
+					)
+						await flushQueuedFollowUp();
+				})();
+			}
+			// Messages typed while Pi is compacting are queued locally (see sendText)
+			// instead of sent over RPC, since the agent connection is torn down for the
+			// duration of compaction and a concurrent prompt can hang indefinitely
+			// instead of ever getting a response. Flush them now that it's safe.
+			if (event.type === "compaction_end") void flushQueuedFollowUp();
+		};
+		const toolEventCoalescer = new ToolEventCoalescer({
+			applyEvent: applyConversationEvent,
+		});
 		const unsubscribe = client.onEvent((event) => {
 			if (isExtensionUiRequest(event)) {
+				toolEventCoalescer.flush();
 				props.logger.debug("ui.extension_request", {
 					method: event.method,
 					id: event.id,
@@ -2340,38 +2375,7 @@ export function App(props: AppOptions) {
 				setDialog(event);
 				return;
 			}
-			const previousItemCount = conversation.items.length;
-			conversation.apply(event);
-			if (conversation.items.length > previousItemCount)
-				trimMessageWindowIfFollowingLatest();
-			touch();
-			if (
-				event.type === "agent_start" ||
-				event.type === "agent_settled" ||
-				event.type === "agent_end" ||
-				event.type === "thinking_level_changed" ||
-				event.type === "session_info_changed" ||
-				event.type === "compaction_start" ||
-				event.type === "compaction_end"
-			) {
-				void refreshState();
-			}
-			if (event.type === "agent_settled") {
-				void (async () => {
-					if (mcpActivationPending()) await activateMcp();
-					await refreshState();
-					if (
-						!mcpActivationPending() &&
-						mcpConfigState() !== "saved-inactive-retry"
-					)
-						await flushQueuedFollowUp();
-				})();
-			}
-			// Messages typed while Pi is compacting are queued locally (see sendText)
-			// instead of sent over RPC, since the agent connection is torn down for the
-			// duration of compaction and a concurrent prompt can hang indefinitely
-			// instead of ever getting a response. Flush them now that it's safe.
-			if (event.type === "compaction_end") void flushQueuedFollowUp();
+			toolEventCoalescer.handle(event);
 		});
 		client.on("protocol-error", (error: Error) => {
 			if (startupPhase().kind !== "ready") {
@@ -2453,6 +2457,7 @@ export function App(props: AppOptions) {
 				setSessionState(state);
 				conversation.isStreaming = state.isStreaming;
 				setStartupPhase({ kind: "ready" });
+				setStatus(state.isStreaming ? "working" : "ready");
 				touch();
 				queueMicrotask(() =>
 					scroll?.scrollTo({ x: 0, y: Number.MAX_SAFE_INTEGER }),
@@ -2506,35 +2511,7 @@ export function App(props: AppOptions) {
 		subagentsTimer = setInterval(() => {
 			if (!props.integrations.subagents.installed) return;
 			const state = sessionState();
-			const next = state
-				? mergeMissionRuns(
-						listSubagentRuns({
-							sessionId: state.sessionId,
-							...(state.sessionFile ? { sessionFile: state.sessionFile } : {}),
-						}),
-						{
-							sessionId: state.sessionId,
-							...(state.sessionFile ? { sessionFile: state.sessionFile } : {}),
-						},
-						props.cwd,
-					)
-				: [];
-			reconcileSteers(next);
-			const summaries = next.map(subagentLogSummary);
-			const digest = JSON.stringify(summaries);
-			if (digest !== lastRunsDigest) {
-				lastRunsDigest = digest;
-				setRuns(next);
-				props.logger.info("subagents.changed", { runs: summaries });
-				const nextTargets = subagentTargets(next, subagentTools());
-				setSelectedTargetKey(
-					reconcileSubagentSelection(
-						selectedTargetKey(),
-						availableSubagentTargets(),
-						nextTargets,
-					),
-				);
-			}
+			if (state) refreshSubagentRuns(state);
 		}, 750);
 		spinnerTimer = setInterval(() => {
 			setSpinnerIndex((value) => (value + 1) % spinnerFrames.length);
@@ -2550,6 +2527,7 @@ export function App(props: AppOptions) {
 			});
 		}, 30_000);
 		onCleanup(() => {
+			toolEventCoalescer.flush();
 			unsubscribe();
 			if (statsTimer) clearInterval(statsTimer);
 			if (subagentsTimer) clearInterval(subagentsTimer);

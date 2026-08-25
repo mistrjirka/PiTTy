@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { SubagentRun, SubagentStep, ToolItem } from "../types.ts";
-import { substantiveSubagentActivityAt } from "./transcript.ts";
+import { subagentActivityAt } from "./transcript.ts";
 import { childRunIdFromSessionFile } from "./artifacts.ts";
 
 export type SubagentTarget = {
@@ -719,12 +719,7 @@ export function subagentTargets(
 					transcriptPath: step.transcriptPath ?? run.transcriptPath,
 					sessionFile,
 					startedAt: step.startedAt ?? run.startedAt,
-					lastUpdate:
-						substantiveSubagentActivityAt(run, step.index) ??
-						step.lastActivityAt ??
-						step.currentToolStartedAt ??
-						step.endedAt ??
-						run.endedAt,
+					lastUpdate: subagentActivityAt(run, step.index),
 					model:
 						step.model ??
 						run.model ??
@@ -770,11 +765,7 @@ export function subagentTargets(
 			sessionFile: run.sessionFile,
 			childRunId: run.runId,
 			startedAt: run.startedAt,
-			lastUpdate:
-				substantiveSubagentActivityAt(run) ??
-				run.lastActivityAt ??
-				run.currentToolStartedAt ??
-				run.endedAt,
+			lastUpdate: subagentActivityAt(run),
 			model:
 				run.model ?? (requested?.length === 1 ? requested[0]?.model : undefined),
 			thinking:

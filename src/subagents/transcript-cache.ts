@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import type { ConversationItem, SubagentRun } from "../types.ts";
 import type { SubagentTarget } from "./targets.ts";
 import { readSubagentConversation } from "./transcript.ts";
@@ -38,6 +39,15 @@ function reuseStableItems(items: ConversationItem[], previous: ConversationItem[
 	});
 }
 
+function transcriptFileSignature(filePath: string | undefined): string {
+	if (!filePath) return "";
+	try {
+		const stat = fs.statSync(filePath);
+		return `${stat.mtimeMs}:${stat.size}`;
+	} catch {
+		return "missing";
+	}
+}
 function transcriptSignature(target: SubagentTarget): string {
 	const step = target.step;
 	const values = [
@@ -48,6 +58,7 @@ function transcriptSignature(target: SubagentTarget): string {
 		target.stepIndex,
 		target.sessionFile,
 		target.transcriptPath,
+		transcriptFileSignature(target.transcriptPath ?? target.sessionFile),
 		target.lastUpdate,
 		step?.status,
 		step?.activityState,

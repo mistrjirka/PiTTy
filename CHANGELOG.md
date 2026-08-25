@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.25
+
+### UI Responsiveness Under High-Volume Tool Output
+
+- Intermediate `tool_execution_update` events are coalesced per tool call with a 50 ms flush window, so long-running commands streaming hundreds of cumulative-output updates no longer saturate the UI thread, delay the heartbeat, or block typing and scrolling.
+- Final tool results apply immediately; pending updates flush before lifecycle events, extension dialogs, and cleanup so event ordering and output content are preserved.
+- Updates without a tool call id bypass coalescing; the pending map is bounded to 512 distinct tool calls and flushes before exceeding the bound.
+- The footer reports truthful `ready`/`working` status at the readiness boundary instead of a stale status until the next refresh.
+
+### Live Subagent Polling Efficiency
+
+- Subagent refresh, activity precedence, and JSONL tail parsing are consolidated into shared helpers, removing duplicated polling logic.
+- Parsed transcript records are cached by file mtime and size in a bounded LRU cache; the 750 ms poller no longer re-reads megabytes of unchanged transcripts every tick, and the inspector invalidates on file or step activity changes.
+- Live transcript discovery for running children without status/session paths is preserved.
+
+### Validation
+
+- Full suite passes with 324 tests passed and 1 platform-specific test skipped; typecheck clean.
 
 ## 0.5.24
 

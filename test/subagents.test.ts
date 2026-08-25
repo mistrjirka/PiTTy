@@ -23,6 +23,7 @@ import {
 import {
 	readSubagentConversation,
 	readSubagentTranscript,
+	subagentActivityAt,
 	substantiveSubagentActivityAt,
 } from "../src/subagents/transcript.ts";
 import { createSubagentTranscriptCache } from "../src/subagents/transcript-cache.ts";
@@ -717,6 +718,35 @@ describe("subagent controls", () => {
 		} catch (error) {
 			throw new Error("steer request artifact is malformed", { cause: error });
 		}
+	});
+
+	test("keeps live transcript discovery in refreshed run listings", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-oc-refresh-"));
+		roots.push(root);
+		const cwd = path.join(root, "project");
+		const asyncDir = path.join(root, "run");
+		const artifacts = path.join(cwd, ".pi", "subagents", "artifacts");
+		fs.mkdirSync(artifacts, { recursive: true });
+		fs.mkdirSync(asyncDir, { recursive: true });
+		const transcriptPath = path.join(artifacts, "uuid_worker_transcript.jsonl");
+		fs.writeFileSync(transcriptPath, "");
+		fs.writeFileSync(
+			transcriptPath.replace("_transcript.jsonl", "_meta.json"),
+			JSON.stringify({ agent: "worker", runId: "child", timestamp: Date.now() }),
+		);
+		fs.writeFileSync(
+			path.join(asyncDir, "status.json"),
+			JSON.stringify({
+				runId: "run-refresh",
+				mode: "single",
+				state: "running",
+				cwd,
+				steps: [{ index: 0, agent: "worker", status: "running", startedAt: Date.now() }],
+			}),
+		);
+
+		const listed = listSubagentRuns(undefined, root);
+		expect(listed[0]?.steps[0]?.transcriptPath).toBe(transcriptPath);
 	});
 
 	test("sorts restored runs by launch order, not activity", () => {
@@ -2152,6 +2182,38 @@ describe("subagent controls", () => {
 		expect(subagentTargets([runOnly])[0]?.lastUpdate).toBe(456);
 	});
 
+	test("uses persisted activity precedence before transcript fallback", () => {
+		const stepRun = run();
+		stepRun.endedAt = 400;
+		const step: SubagentStep = {
+			index: 0,
+			agent: "one",
+			status: "running",
+			lastActivityAt: 100,
+			currentToolStartedAt: 200,
+			endedAt: 300,
+		};
+		stepRun.steps = [step];
+
+		expect(subagentActivityAt(stepRun, 0)).toBe(100);
+		delete step.lastActivityAt;
+		expect(subagentActivityAt(stepRun, 0)).toBe(200);
+		delete step.currentToolStartedAt;
+		expect(subagentActivityAt(stepRun, 0)).toBe(300);
+		delete step.endedAt;
+		expect(subagentActivityAt(stepRun, 0)).toBe(400);
+
+		const runOnly = run();
+		runOnly.endedAt = 700;
+		runOnly.currentToolStartedAt = 600;
+		runOnly.lastActivityAt = 500;
+		expect(subagentActivityAt(runOnly)).toBe(500);
+		delete runOnly.lastActivityAt;
+		expect(subagentActivityAt(runOnly)).toBe(600);
+		delete runOnly.currentToolStartedAt;
+		expect(subagentActivityAt(runOnly)).toBe(700);
+	});
+
 	test("ignores streaming-only transcript updates for last activity", () => {
 		const target = run();
 		const transcriptPath = path.join(target.asyncDir!, "transcript.jsonl");
@@ -2182,6 +2244,7 @@ describe("subagent controls", () => {
 			].join("\n"),
 		);
 		expect(substantiveSubagentActivityAt(target)).toBe(350);
+		expect(subagentActivityAt(target)).toBe(350);
 		expect(subagentTargets([target])[0]?.lastUpdate).toBe(350);
 	});
 
@@ -2239,6 +2302,28 @@ describe("subagent controls", () => {
 		expect(changed[1]).not.toBe(first[1]);
 		const callsBefore = changed;
 		expect(cache(subagentTargets([targetRun])[0], true)).toBe(callsBefore);
+	});
+
+	test("refreshes inspected transcript when the file changes without an activity update", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-transcript-cache-"));
+		roots.push(root);
+		const transcriptPath = path.join(root, "transcript.jsonl");
+		fs.writeFileSync(transcriptPath, "first\n");
+		const targetRun = run();
+		targetRun.transcriptPath = transcriptPath;
+		targetRun.lastActivityAt = 1;
+		let reads = 0;
+		const cache = createSubagentTranscriptCache(() => {
+			reads += 1;
+			return [];
+		});
+		const target = subagentTargets([targetRun])[0]!;
+
+		cache(target, true);
+		fs.appendFileSync(transcriptPath, "second\n");
+		cache(target, true);
+
+		expect(reads).toBe(2);
 	});
 
 	test("discovers live transcripts using real metadata and verified names", () => {

@@ -10,6 +10,20 @@ import type {
 
 export const MAX_SUBAGENT_SESSION_LINES = 700;
 
+type ParsedTranscriptRecord = {
+  record: Record<string, unknown>;
+  index: number;
+};
+
+type TranscriptRecordCacheEntry = {
+  mtimeMs: number;
+  size: number;
+  records: ParsedTranscriptRecord[];
+};
+
+const transcriptRecordCache = new Map<string, TranscriptRecordCacheEntry>();
+const MAX_TRANSCRIPT_RECORD_CACHE_ENTRIES = 128;
+
 function text(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -109,6 +123,26 @@ export function subagentTranscriptPath(
   return undefined;
 }
 
+function parseJsonlTail(content: string): ParsedTranscriptRecord[] {
+  const lines = content.split("\n").filter((line) => line.trim().length > 0);
+  const records: ParsedTranscriptRecord[] = [];
+  for (
+    let index = Math.max(0, lines.length - MAX_SUBAGENT_SESSION_LINES);
+    index < lines.length;
+    index++
+  ) {
+    const line = lines[index];
+    if (line === undefined) continue;
+    try {
+      const record = objectRecord(JSON.parse(line));
+      if (record) records.push({ record, index });
+    } catch {
+      // The writer may leave the final JSONL line incomplete briefly.
+    }
+  }
+  return records;
+}
+
 function readSessionMessages(run: SubagentRun, stepIndex?: number): unknown[] {
   const selected =
     stepIndex === undefined
@@ -122,22 +156,10 @@ function readSessionMessages(run: SubagentRun, stepIndex?: number): unknown[] {
   } catch {
     return [];
   }
-  const lines = content.split("\n").filter((line) => line.trim().length > 0);
   const messages: unknown[] = [];
-  for (
-    let index = Math.max(0, lines.length - MAX_SUBAGENT_SESSION_LINES);
-    index < lines.length;
-    index++
-  ) {
-    const line = lines[index];
-    if (line === undefined) continue;
-    try {
-      const record = objectRecord(JSON.parse(line));
-      if (record?.message && objectRecord(record.message))
-        messages.push(record.message);
-    } catch {
-      // Ignore malformed JSONL records at this trust boundary.
-    }
+  for (const { record } of parseJsonlTail(content)) {
+    const message = record.message;
+    if (message && objectRecord(message)) messages.push(message);
   }
   return messages;
 }
@@ -145,31 +167,35 @@ function readSessionMessages(run: SubagentRun, stepIndex?: number): unknown[] {
 function readRecords(
   run: SubagentRun,
   stepIndex?: number,
-): Array<{ record: Record<string, unknown>; index: number }> {
+): ParsedTranscriptRecord[] {
   const transcriptPath = subagentTranscriptPath(run, stepIndex);
   if (!transcriptPath) return [];
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(transcriptPath);
+  } catch {
+    return [];
+  }
+  const cached = transcriptRecordCache.get(transcriptPath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size)
+    return cached.records;
   let content: string;
   try {
     content = fs.readFileSync(transcriptPath, "utf8");
   } catch {
     return [];
   }
-  const lines = content.split("\n").filter((line) => line.trim().length > 0);
-  const records: Array<{ record: Record<string, unknown>; index: number }> = [];
-  for (
-    let index = Math.max(0, lines.length - MAX_SUBAGENT_SESSION_LINES);
-    index < lines.length;
-    index++
-  ) {
-    const line = lines[index];
-    if (line === undefined) continue;
-    try {
-      const parsed = JSON.parse(line) as unknown;
-      const record = objectRecord(parsed);
-      if (record) records.push({ record, index });
-    } catch {
-      // The writer may leave the final JSONL line incomplete briefly.
-    }
+  const records = parseJsonlTail(content);
+  transcriptRecordCache.delete(transcriptPath);
+  transcriptRecordCache.set(transcriptPath, {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+    records,
+  });
+  while (transcriptRecordCache.size > MAX_TRANSCRIPT_RECORD_CACHE_ENTRIES) {
+    const oldest = transcriptRecordCache.keys().next().value;
+    if (typeof oldest !== "string") break;
+    transcriptRecordCache.delete(oldest);
   }
   return records;
 }
@@ -188,6 +214,25 @@ function substantiveRecordTimestamp(
     return undefined;
   }
   return typeof record.ts === "number" ? record.ts : undefined;
+}
+
+export function subagentActivityAt(
+  run: SubagentRun,
+  stepIndex?: number,
+): number | undefined {
+  const step =
+    stepIndex === undefined
+      ? undefined
+      : run.steps.find((candidate) => candidate.index === stepIndex);
+  const persisted = step
+    ? (step.lastActivityAt ??
+      step.currentToolStartedAt ??
+      step.endedAt ??
+      run.endedAt)
+    : stepIndex === undefined
+      ? (run.lastActivityAt ?? run.currentToolStartedAt ?? run.endedAt)
+      : undefined;
+  return persisted ?? substantiveSubagentActivityAt(run, stepIndex);
 }
 
 /** Return the latest recorded tool activity, ignoring streaming/UI-only updates. */
