@@ -118,19 +118,87 @@ export function deriveChildTranscript(
 
 /**
  * Fills in a step's transcriptPath and runId from its child session file when
- * pi-subagents 0.50+ omitted them. No-op for steps that already carry a
- * transcript or whose session file does not follow the child layout.
+ * pi-subagents 0.50+ omitted them. Running steps without a session file are
+ * resolved from uniquely matching artifact metadata when available.
  */
+function liveArtifactDirectories(cwd?: string, parentSessionFile?: string): string[] {
+  const directories = new Set<string>();
+  if (cwd) directories.add(path.join(cwd, ".pi", "subagents", "artifacts"));
+  if (parentSessionFile && (parentSessionFile.includes("/") || parentSessionFile.includes("\\"))) {
+    directories.add(path.join(path.dirname(parentSessionFile), "subagent-artifacts"));
+  }
+  return [...directories];
+}
+
+function liveTranscriptForStep(
+  step: SubagentStep,
+  cwd?: string,
+  parentSessionFile?: string,
+  runStartedAt?: number,
+  runEndedAt?: number,
+): string | undefined {
+  const agent = step.agent.trim();
+  if (!agent || step.status !== "running") return undefined;
+  const sanitizedAgent = agent.replace(/[^\w.-]/g, "_");
+  const indexedSuffix = `_${sanitizedAgent}_${step.index}_transcript.jsonl`;
+  const flatSuffix = `_${sanitizedAgent}_transcript.jsonl`;
+  const lowerBound = (runStartedAt ?? step.startedAt ?? 0) - 5_000;
+  const upperBound = runEndedAt !== undefined ? runEndedAt + 60_000 : undefined;
+
+  const matches: string[] = [];
+  for (const directory of liveArtifactDirectories(cwd, parentSessionFile)) {
+    let names: string[];
+    try {
+      names = fs.readdirSync(directory);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const indexedName = step.index > 0 && name.endsWith(indexedSuffix);
+      const flatName = step.index <= 0 && name.endsWith(flatSuffix) && !/_\d+_transcript\.jsonl$/.test(name);
+      if (!name.includes(`_${sanitizedAgent}_`) || (!indexedName && !flatName)) continue;
+      const transcriptPath = path.join(directory, name);
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(transcriptPath);
+      } catch {
+        continue;
+      }
+      if (stat.mtimeMs < lowerBound || (upperBound !== undefined && stat.mtimeMs > upperBound)) continue;
+      const metaPath = transcriptPath.slice(0, -"_transcript.jsonl".length) + "_meta.json";
+      try {
+        const raw: unknown = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+          const meta = raw as Record<string, unknown>;
+          if (meta.agent !== agent) continue;
+        }
+      } catch {
+        // Metadata is optional; filename and time-window identity remain usable.
+      }
+      matches.push(transcriptPath);
+    }
+  }
+  const match = matches[0];
+  return matches.length === 1 && match ? match : undefined;
+}
+
 export function applyDerivedChildTranscript(
   step: SubagentStep,
   cwd?: string,
   parentSessionFile?: string,
+  runStartedAt?: number,
+  runEndedAt?: number,
 ): void {
+  if (step.transcriptPath) return;
   const sessionFile = step.sessionFile;
-  if (!sessionFile || step.transcriptPath) return;
-  const derived = deriveChildTranscript(sessionFile, step.agent, cwd, parentSessionFile);
-  if (derived.transcriptPath) step.transcriptPath = derived.transcriptPath;
-  if (!step.runId && derived.childRunId) step.runId = derived.childRunId;
+  if (sessionFile) {
+    const derived = deriveChildTranscript(sessionFile, step.agent, cwd, parentSessionFile);
+    if (derived.transcriptPath) step.transcriptPath = derived.transcriptPath;
+    if (!step.runId && derived.childRunId) step.runId = derived.childRunId;
+    return;
+  }
+  const livePath = liveTranscriptForStep(step, cwd, parentSessionFile, runStartedAt, runEndedAt);
+  if (livePath) step.transcriptPath = livePath;
 }
 
 export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
@@ -197,7 +265,13 @@ export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
       ...(string(step.sessionFile) ? { sessionFile: string(step.sessionFile) } : {}),
       ...(string(step.error) ? { error: string(step.error) } : {}),
     };
-    applyDerivedChildTranscript(built, string(record.cwd), string(record.sessionId));
+    applyDerivedChildTranscript(
+      built,
+      string(record.cwd),
+      string(record.sessionId),
+      number(record.startedAt),
+      number(record.endedAt),
+    );
     return [built];
   });
 

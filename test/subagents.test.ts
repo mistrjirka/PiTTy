@@ -9,6 +9,7 @@ import {
 	stopSubagent,
 } from "../src/subagents/control.ts";
 import {
+	applyDerivedChildTranscript,
 	childRunIdFromSessionFile,
 	listSubagentRuns,
 	matchesSubagentSession,
@@ -33,7 +34,7 @@ import {
 	type SubagentTarget,
 } from "../src/subagents/targets.ts";
 import { initialItems } from "../src/state/conversation.ts";
-import type { SubagentRun, ToolItem } from "../src/types.ts";
+import type { ConversationItem, SubagentRun, SubagentStep, ToolItem } from "../src/types.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -2214,6 +2215,135 @@ describe("subagent controls", () => {
 		]);
 		expect(cache(selectedUpdate[0], true)).not.toBe(items);
 		expect(reads).toBe(2);
+	});
+
+	test("keeps transcript item references stable across fresh reads", () => {
+		const targetRun = run();
+		targetRun.steps = [{ index: 0, agent: "worker", status: "running", lastActivityAt: 1 }];
+		let output: ConversationItem[] = [
+			{ kind: "user", id: "user-1", text: "task", timestamp: 1, optimistic: false },
+			{ kind: "tool", id: "tool-1", toolCallId: "call-1", name: "bash", args: "pwd", output: "", timestamp: 2, startedAt: 2, status: "streaming", isError: false },
+		];
+		const cache = createSubagentTranscriptCache(() => output.map((item) => ({ ...item })));
+		const target = subagentTargets([targetRun])[0]!;
+		const first = cache(target, true);
+		targetRun.steps[0]!.lastActivityAt = 2;
+		const unchanged = cache(subagentTargets([targetRun])[0], true);
+		expect(unchanged).not.toBe(first);
+		expect(unchanged[0]).toBe(first[0]);
+		expect(unchanged[1]).toBe(first[1]);
+		output = output.map((item) => item.kind === "tool" ? { ...item, output: "done", status: "done" } : item);
+		targetRun.steps[0]!.lastActivityAt = 3;
+		const changed = cache(subagentTargets([targetRun])[0], true);
+		expect(changed[0]).toBe(first[0]);
+		expect(changed[1]).not.toBe(first[1]);
+		const callsBefore = changed;
+		expect(cache(subagentTargets([targetRun])[0], true)).toBe(callsBefore);
+	});
+
+	test("discovers live transcripts using real metadata and verified names", () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-live-artifacts-"));
+		roots.push(cwd);
+		const artifacts = path.join(cwd, ".pi", "subagents", "artifacts");
+		fs.mkdirSync(artifacts, { recursive: true });
+		const now = Date.now();
+		const transcriptPath = path.join(artifacts, "uuid_worker_transcript.jsonl");
+		fs.writeFileSync(transcriptPath, "");
+		fs.writeFileSync(transcriptPath.replace("_transcript.jsonl", "_meta.json"), JSON.stringify({ agent: "worker", runId: "child", timestamp: now }));
+		const targetRun = run();
+		targetRun.cwd = cwd;
+		targetRun.startedAt = now;
+		const step: SubagentStep = { index: 0, agent: "worker", workflowKey: "k-live", status: "running", startedAt: now };
+		applyDerivedChildTranscript(step, cwd);
+		expect(step.transcriptPath).toBe(transcriptPath);
+
+		const indexedPath = path.join(artifacts, "uuid_worker_2_transcript.jsonl");
+		fs.writeFileSync(indexedPath, "");
+		fs.writeFileSync(indexedPath.replace("_transcript.jsonl", "_meta.json"), JSON.stringify({ agent: "worker", runId: "child-2", timestamp: now }));
+		const indexedStep: SubagentStep = { index: 2, agent: "worker", workflowKey: "k-indexed", status: "running", startedAt: now };
+		applyDerivedChildTranscript(indexedStep, cwd);
+		expect(indexedStep.transcriptPath).toBe(indexedPath);
+		const wrongIndexStep: SubagentStep = { index: 1, agent: "worker", workflowKey: "k-wrong", status: "running", startedAt: now };
+		applyDerivedChildTranscript(wrongIndexStep, cwd);
+		expect(wrongIndexStep.transcriptPath).toBeUndefined();
+	});
+
+	test("fails closed for stale, ambiguous, or mismatched live artifacts", () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-live-artifacts-"));
+		roots.push(cwd);
+		const artifacts = path.join(cwd, ".pi", "subagents", "artifacts");
+		fs.mkdirSync(artifacts, { recursive: true });
+		const now = Date.now();
+		const writeArtifact = (name: string, agent: string): string => {
+			const transcriptPath = path.join(artifacts, name);
+			fs.writeFileSync(transcriptPath, "");
+			fs.writeFileSync(transcriptPath.replace("_transcript.jsonl", "_meta.json"), JSON.stringify({ agent, runId: name, timestamp: now }));
+			return transcriptPath;
+		};
+		const oldPath = writeArtifact("old_worker_transcript.jsonl", "worker");
+		fs.utimesSync(oldPath, new Date(now - 10_000), new Date(now - 10_000));
+		const oldRun = run();
+		oldRun.cwd = cwd;
+		oldRun.startedAt = now;
+		const oldStep: SubagentStep = { index: 0, agent: "worker", workflowKey: "k-old", status: "running", startedAt: now };
+		applyDerivedChildTranscript(oldStep, cwd);
+		expect(oldStep.transcriptPath).toBeUndefined();
+
+		writeArtifact("one_worker_transcript.jsonl", "worker");
+		writeArtifact("two_worker_transcript.jsonl", "worker");
+		const ambiguousStep: SubagentStep = { index: 0, agent: "worker", workflowKey: "k-ambiguous", status: "running", startedAt: now };
+		applyDerivedChildTranscript(ambiguousStep, cwd);
+		expect(ambiguousStep.transcriptPath).toBeUndefined();
+		const mismatchPath = writeArtifact("mismatch_worker_transcript.jsonl", "other");
+		const mismatchStep: SubagentStep = { index: 0, agent: "worker", workflowKey: "k-mismatch", status: "running", startedAt: now };
+		applyDerivedChildTranscript(mismatchStep, cwd);
+		expect(mismatchStep.transcriptPath).toBeUndefined();
+		expect(fs.existsSync(mismatchPath)).toBe(true);
+	});
+
+	test("scopes live discovery to a real parent session path", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-parent-artifacts-"));
+		roots.push(root);
+		const parentSessionFile = path.join(root, "session.jsonl");
+		const artifacts = path.join(root, "subagent-artifacts");
+		fs.mkdirSync(artifacts, { recursive: true });
+		const transcriptPath = path.join(artifacts, "uuid_worker_transcript.jsonl");
+		fs.writeFileSync(transcriptPath, "");
+		fs.writeFileSync(transcriptPath.replace("_transcript.jsonl", "_meta.json"), JSON.stringify({ agent: "worker", runId: "child", timestamp: Date.now() }));
+		const pathStep: SubagentStep = { index: 0, agent: "worker", workflowKey: "k-parent", status: "running", startedAt: Date.now() };
+		applyDerivedChildTranscript(pathStep, undefined, parentSessionFile);
+		expect(pathStep.transcriptPath).toBe(transcriptPath);
+		const idStep: SubagentStep = { index: 0, agent: "worker", workflowKey: "k-id", status: "running", startedAt: Date.now() };
+		applyDerivedChildTranscript(idStep, undefined, "session-id");
+		expect(idStep.transcriptPath).toBeUndefined();
+	});
+
+	test("live discovery ignores non-running steps and never leaks across scopes", () => {
+		const cwdA = fs.mkdtempSync(path.join(os.tmpdir(), "pi-live-scope-a-"));
+		roots.push(cwdA);
+		const artifactsA = path.join(cwdA, ".pi", "subagents", "artifacts");
+		fs.mkdirSync(artifactsA, { recursive: true });
+		const now = Date.now();
+		const transcriptPath = path.join(artifactsA, "uuid_worker_transcript.jsonl");
+		fs.writeFileSync(transcriptPath, "");
+		fs.writeFileSync(
+			transcriptPath.replace("_transcript.jsonl", "_meta.json"),
+			JSON.stringify({ agent: "worker", runId: "child", timestamp: now }),
+		);
+
+		const completedStep: SubagentStep = { index: 0, agent: "worker", workflowKey: "k-done", status: "completed" };
+		applyDerivedChildTranscript(completedStep, cwdA);
+		expect(completedStep.transcriptPath).toBeUndefined();
+
+		const cwdB = fs.mkdtempSync(path.join(os.tmpdir(), "pi-live-scope-b-"));
+		roots.push(cwdB);
+		const scopedStep: SubagentStep = { index: 0, agent: "worker", workflowKey: "k-scope", status: "running", startedAt: now };
+		applyDerivedChildTranscript(scopedStep, cwdB);
+		expect(scopedStep.transcriptPath).toBeUndefined();
+
+		const runningStep: SubagentStep = { index: 0, agent: "worker", workflowKey: "k-live", status: "running", startedAt: now };
+		applyDerivedChildTranscript(runningStep, cwdA);
+		expect(runningStep.transcriptPath).toBe(transcriptPath);
 	});
 
 	test("reads the active subagent transcript", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolvePiCommand } from "../src/pi-command.ts";
+import { resolveDefaultPiExecutable, resolvePiCommand } from "../src/pi-command.ts";
 
 describe("Pi command resolution", () => {
   test("runs JavaScript entries with the selected Node executable", () => {
@@ -12,6 +12,11 @@ describe("Pi command resolution", () => {
   test("defaults JavaScript entries to Node rather than Bun", () => {
     const command = resolvePiCommand("/tmp/pi-entry.mjs");
     expect(command.executable).toBe(process.env.PITTY_NODE_EXECUTABLE ?? "node");
+  });
+
+  test("preserves an explicit Pi executable override", () => {
+    expect(resolveDefaultPiExecutable({ PI_BIN: "/custom/pi" })).toBe("/custom/pi");
+    expect(resolveDefaultPiExecutable({})).toBe("pi");
   });
 
   test("preserves native Pi commands", () => {
