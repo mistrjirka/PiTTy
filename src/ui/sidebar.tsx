@@ -9,6 +9,7 @@ import type {
 } from "../types.ts";
 import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
 import { formatDuration } from "./duration.ts";
+import type { RequestPerformance } from "../tabs/request-metrics.ts";
 import { colors } from "./theme.ts";
 import { TodoPanel, type TodoViewItem } from "./todos.tsx";
 import { appVersion } from "../version.ts";
@@ -246,6 +247,7 @@ function targetToolUsage(target: SubagentTarget): string {
 export function Sidebar(props: {
 	state?: RpcSessionState | undefined;
 	stats?: SessionStats | undefined;
+	lastRequestPerformance?: RequestPerformance | undefined;
 	runs: SubagentRun[] | Accessor<SubagentRun[]>;
 	tools?: ToolItem[] | Accessor<ToolItem[]> | undefined;
 	selectedTargetKey?: string | undefined;
@@ -455,6 +457,13 @@ export function Sidebar(props: {
 			<text width="100%" height={1} fg={colors.muted}>
 				Thinking: {clip(props.state?.thinkingLevel ?? "—")}
 			</text>
+			<Show when={props.lastRequestPerformance}>
+				{(performance) => (
+					<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
+						TTFT {(performance().ttftMs / 1000).toFixed(1)}s · {Math.round(performance().outputTokens / (performance().generationMs / 1000))} tok/s
+					</text>
+				)}
+			</Show>
 			<Show when={codexUsage()?.windows.length}>
 				<box height={1} />
 				<text width="100%" height={1} fg={colors.textBright} attributes={1}>

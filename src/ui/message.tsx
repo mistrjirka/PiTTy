@@ -560,22 +560,20 @@ export function MessageView(props: {
 										? `${expandable() ? (expanded() ? "▼ " : "▶ ") : ""}${item.status === "streaming" ? "◉" : visual().icon} TOOL · ${supervisorLabel() ?? subagentLabel() ?? item.name}${children() ? ` ${children()}` : ""}${terminal() ? ` · ${terminal()}` : ""}`
 										: ""}
 								</text>
-									<Show when={item.kind === "tool" && item.args !== undefined}>
-										<text fg={colors.muted} selectable wrapMode="word">
-											{item.kind === "tool"
-												? supervisorLabel()
-													? `  ${supervisorMessage(item.args)}`
-													: subagentGist()
-														? `  ${subagentGist()}`
-														: `  ${prettyArgs(item.args).replace(/\s+/g, " ").slice(0, 150)}`
-												: ""}
-										</text>
-									</Show>
+								<Show when={item.kind === "tool" && item.args !== undefined && !subagentGist()}>
+									<text fg={colors.muted} selectable wrapMode="word">
+										{item.kind === "tool"
+											? supervisorLabel()
+												? `  ${supervisorMessage(item.args)}`
+												: `  ${prettyArgs(item.args).replace(/\s+/g, " ").slice(0, 150)}`
+											: ""}
+									</text>
+								</Show>
 								<box flexGrow={1} />
 								<Show
 									when={
 										item.kind === "tool" &&
-										toolTiming(item, props.now ?? Date.now())
+										toolTiming(item, props.now ?? Date.now()) && !subagentFamily()
 									}
 								>
 									<text fg={colors.subtle}>
@@ -585,6 +583,11 @@ export function MessageView(props: {
 									</text>
 								</Show>
 							</box>
+							<Show when={subagentGist()}>
+								<text fg={colors.muted} selectable wrapMode="word">
+									{subagentGist()}
+								</text>
+							</Show>
 							<Show when={(props.subagentTargets?.length ?? 0) > 0}>
 								<box
 									flexDirection="column"

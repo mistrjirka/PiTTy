@@ -4,11 +4,10 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const outputDir = join(import.meta.dir, "..", "docs", "screenshots");
-const states: Record<string, string> = {
-	conversation: "\x1b[1;36mPiTTy\x1b[0m  conversation\n\n\x1b[32mYou\x1b[0m  Review the latest changes\n\x1b[37mAssistant\x1b[0m  I checked the implementation and found no blockers.\n\x1b[2m  thinking (collapsed)\x1b[0m\n\n\x1b[33m▣ TOOL · bash\x1b[0m  echo ready\n  ready\n\x1b[35m◇ TOOL · reviewer · gpt-5.6-luna · background · ✓ completed · took 2s\x1b[0m\n  Check the tabs and workflow wiring\n\n\x1b[35mSupervisor\x1b[0m  Should I continue with the next task?",
-	tabs: "\x1b[1;36m[ main ]  [\x1b[1;33m● review\x1b[0m\x1b[1;36m ]  [ logs ]\x1b[0m\n\nTranscript\n  The review tab is active.\n  Changes are ready for inspection.",
-	"fork-picker": "\x1b[1;36mFork conversation\x1b[0m\n\n  ▸ Continue from latest answer\n    Fork from user prompt\n    Fork from tool result\n    Start a fresh branch\n\n  Enter select   Esc cancel",
-};
+const states = [
+	{ name: "conversation", expected: "Supervisor: release review complete" },
+	{ name: "model-selector", expected: "Select model", keys: ["C-p"] },
+] as const;
 
 function escapeHtml(value: string): string {
 	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -86,19 +85,41 @@ if (tmuxCheck.error || tmuxCheck.status !== 0) {
 	process.exit(1);
 }
 
-for (const [name, fixture] of Object.entries(states)) {
+const executable = join(import.meta.dir, "mock-pi-rpc.mjs");
+for (const state of states) {
+	const { name } = state;
 	const session = `pitty-screenshots-${process.pid}-${name}`;
 	const socket = `pitty-shot-${process.pid}-${name}`;
-	const encoded = Buffer.from(fixture).toString("base64");
-	const started = spawnSync("tmux", ["-L", socket, "new-session", "-d", "-x", "100", "-y", "30", "-s", session, "sh", "-c", `printf %s ${encoded} | base64 -d; sleep 1`], { encoding: "utf8" });
-	if (started.status !== 0) throw new Error(`unable to start tmux fixture for ${name}: ${started.stderr}`);
-	spawnSync("sleep", ["0.1"]);
-	const captured = spawnSync("tmux", ["-L", socket, "capture-pane", "-e", "-p", "-S", "-30", "-t", session], { encoding: "utf8" });
-	spawnSync("tmux", ["-L", socket, "kill-session", "-t", session]);
-	if (captured.status !== 0) throw new Error(`unable to capture ${name}: ${captured.stderr}`);
-	const ansi = captured.stdout.trimEnd() + "\n";
-	writeFileSync(join(outputDir, `${name}.ansi`), ansi);
-	writeFileSync(join(outputDir, `${name}.html`), `<!doctype html><meta charset="utf-8"><title>PiTTy ${name}</title><style>body{background:#10131a;color:#d8dee9}pre{font:14px monospace;line-height:1.35}.red{color:#ff6b6b}.green{color:#8bd49c}.yellow{color:#f2c879}.magenta{color:#d7a5ff}.cyan{color:#7bdff2}.white{color:#fff}.dim{color:#748096}</style><pre>${ansiToHtml(ansi)}</pre>`);
-	writeFileSync(join(outputDir, `${name}.svg`), ansiToSvg(ansi));
+	const started = spawnSync("tmux", ["-L", socket, "new-session", "-d", "-x", "120", "-y", "36", "-s", session, "env", "MOCK_SCREENSHOT_RICH=1", `MOCK_SCREENSHOT_SCENARIO=${name}`, "bun", "run", "src/index.tsx", "--pi", executable], { encoding: "utf8" });
+	if (started.status !== 0) throw new Error(`unable to start production PiTTy for ${name}: ${started.stderr}`);
+	try {
+		let captured = spawnSync("tmux", ["-L", socket, "capture-pane", "-e", "-p", "-t", session], { encoding: "utf8" });
+		for (let attempt = 0; attempt < 40; attempt++) {
+			spawnSync("sleep", ["0.25"]);
+			captured = spawnSync("tmux", ["-L", socket, "capture-pane", "-e", "-p", "-t", session], { encoding: "utf8" });
+			if (captured.stdout.includes("Mock Pi Session") && captured.stdout.includes("Supervisor: release review complete")) break;
+		}
+		if ("keys" in state) {
+			const sent = spawnSync("tmux", ["-L", socket, "send-keys", "-t", session, ...state.keys], { encoding: "utf8" });
+			if (sent.status !== 0) throw new Error(`unable to prepare ${name}: ${sent.stderr}`);
+			for (let attempt = 0; attempt < 20; attempt++) {
+				spawnSync("sleep", ["0.1"]);
+				captured = spawnSync("tmux", ["-L", socket, "capture-pane", "-e", "-p", "-t", session], { encoding: "utf8" });
+				if (captured.stdout.includes(state.expected)) break;
+			}
+		}
+		if (captured.status !== 0) throw new Error(`unable to capture ${name}: ${captured.stderr}`);
+		const hasWholeApp = captured.stdout.includes("Session") && captured.stdout.includes("ctrl+p models");
+		const hasStateDetails = name === "conversation"
+			? captured.stdout.includes("Context") && captured.stdout.includes("Model") && captured.stdout.includes("Thinking")
+			: captured.stdout.includes("Search provider, model id, or name");
+		if (!captured.stdout.includes(state.expected) || !hasWholeApp || !hasStateDetails) throw new Error(`capture ${name} did not reach its expected production state (${state.expected})`);
+		const ansi = captured.stdout.trimEnd() + "\n";
+		writeFileSync(join(outputDir, `${name}.ansi`), ansi);
+		writeFileSync(join(outputDir, `${name}.html`), `<!doctype html><meta charset="utf-8"><title>PiTTy ${name}</title><style>body{background:#10131a;color:#d8dee9}pre{font:14px monospace;line-height:1.35}</style><pre>${ansiToHtml(ansi)}</pre>`);
+		writeFileSync(join(outputDir, `${name}.svg`), ansiToSvg(ansi));
+	} finally {
+		spawnSync("tmux", ["-L", socket, "kill-session", "-t", session], { encoding: "utf8" });
+	}
 }
-console.log(`Generated ${Object.keys(states).length} deterministic previews in ${outputDir}`);
+console.log(`Generated ${states.length} production previews in ${outputDir}`);

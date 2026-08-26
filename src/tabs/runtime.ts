@@ -5,7 +5,8 @@ import { EntryIndex } from "./entry-index.ts";
 import { ToolEventCoalescer } from "../state/tool-event-coalescer.ts";
 import { PromptHistory } from "../state/prompt-history.ts";
 import type { DraftState } from "../state/input-continuity.ts";
-import type { RpcExtensionUIRequest, RpcSessionState, SessionStats, SubagentRun, PiEvent } from "../types.ts";
+import { RequestPerformanceTracker, type RequestPerformance } from "./request-metrics.ts";
+import type { RpcSessionState, SessionStats, SubagentRun, PiEvent } from "../types.ts";
 
 export type TabRuntimeOptions = {
 	id: string;
@@ -25,7 +26,6 @@ export type ConversationTabRuntime = {
 	coalescer: ToolEventCoalescer;
 	conversation: ConversationModel;
 	entryIndex: EntryIndex;
-	pendingExtensionRequests: RpcExtensionUIRequest[];
 	promptHistory: PromptHistory;
 	drafts: DraftState;
 	expandedToolIds: Set<string>;
@@ -36,6 +36,8 @@ export type ConversationTabRuntime = {
 	runs: SubagentRun[];
 	startupResolved: boolean;
 	lastError?: Error;
+	requestPerformance: RequestPerformanceTracker;
+	lastRequestPerformance?: RequestPerformance;
 };
 
 export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRuntime {
@@ -63,7 +65,6 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		coalescer,
 		conversation,
 		entryIndex: new EntryIndex(),
-		pendingExtensionRequests: [],
 		promptHistory: new PromptHistory(),
 		drafts: new Map(),
 		expandedToolIds: new Set(),
@@ -71,10 +72,17 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		thinkingExpansionOverrides: new Map(),
 		runs: [],
 		startupResolved: false,
+		requestPerformance: new RequestPerformanceTracker(),
 	};
 	runtime.client.onEvent((event) => {
+		const performance = runtime.requestPerformance.handle(event, Date.now());
+		if (event.type === "message_end" && performance) runtime.lastRequestPerformance = performance;
 		runtime.coalescer.handle(event);
-		if (event.type === "agent_settled") void refreshRuntimeEntries(runtime);
+		if (event.type === "agent_settled") {
+			void refreshRuntimeEntries(runtime).catch((error) =>
+				options.logger?.warn("tabs.entry_refresh_failed", error),
+			);
+		}
 	});
 	runtime.client.on("protocol-error", (error: Error) => {
 		runtime.lastError = error;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, cp, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, realpath, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -51,9 +51,9 @@ describe("launcher pending activation fixture", () => {
     const base = await mkdtemp(path.join(os.tmpdir(), "pitty-launcher-")); temporary.push(base);
     const root = await installRoot(base, "app", "old", true, true);
     const marker = path.join(base, "pi-bin");
-    const result = await runNode(path.join(root, "bin", "pitty.mjs"), [], { ...process.env, PITTY_FIXTURE_MARKER: path.join(base, "ran"), PITTY_PI_BIN_MARKER: marker });
+    const result = await runNode(path.join(root, "bin", "pitty.mjs"), [], { ...process.env, PI_BIN: undefined, PITTY_FIXTURE_MARKER: path.join(base, "ran"), PITTY_PI_BIN_MARKER: marker });
     expect(result.code).toBe(0);
-    expect(await readFile(marker, "utf8")).toBe(path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
+    expect(await realpath(await readFile(marker, "utf8"))).toBe(await realpath(path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js")));
 
     const override = path.join(base, "override");
     const overrideResult = await runNode(path.join(root, "bin", "pitty.mjs"), [], { ...process.env, PI_BIN: override, PITTY_FIXTURE_MARKER: path.join(base, "ran-override"), PITTY_PI_BIN_MARKER: marker });

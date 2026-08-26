@@ -1,13 +1,37 @@
-<!doctype html><meta charset="utf-8"><title>PiTTy conversation</title><style>body{background:#10131a;color:#d8dee9}pre{font:14px monospace;line-height:1.35}.red{color:#ff6b6b}.green{color:#8bd49c}.yellow{color:#f2c879}.magenta{color:#d7a5ff}.cyan{color:#7bdff2}.white{color:#fff}.dim{color:#748096}</style><pre><span class="cyan">PiTTy</span>  conversation
+<!doctype html><meta charset="utf-8"><title>PiTTy conversation</title><style>body{background:#10131a;color:#d8dee9}pre{font:14px monospace;line-height:1.35}</style><pre><span class="dim"></span><span class="dim">▸ New conversation</span><span class="dim"> ⑂  + </span><span class="dim">
+</span><span class="dim">▄</span><span class="dim">                                                                               </span><span class="dim"></span><span class="dim">Session</span><span class="dim"></span><span class="dim">
+  </span><span class="dim"></span><span class="dim">│</span><span class="dim">                                                                         </span><span class="dim">    </span><span class="dim">Mock Pi Session</span><span class="dim">
+  </span><span class="dim"></span><span class="dim">│</span><span class="dim">  </span><span class="dim">Review the release workflow and summarize the risks.</span><span class="dim">                   </span><span class="dim">    </span><span class="dim">PiTTy v0.6.1</span><span class="dim">
+  </span><span class="dim"></span><span class="dim">│</span><span class="dim">                                                                         </span><span class="dim">
+                                                                                </span><span class="dim"></span><span class="dim">Context</span><span class="dim"></span><span class="dim">
+  </span><span class="dim">│</span><span class="dim"></span><span class="dim"> </span><span class="dim"></span><span class="dim">▼ Thinking</span><span class="dim"></span><span class="dim">                                               </span><span class="dim">1 line · click</span><span class="dim"> </span><span class="dim">    </span><span class="dim">— / 400K</span><span class="dim">
+  </span><span class="dim">│</span><span class="dim"></span><span class="dim"> </span><span class="dim">I will inspect the workflow and verify the release path.</span><span class="dim">                </span><span class="dim">
+  </span><span class="dim">│</span><span class="dim">                                                                             </span><span class="dim"></span><span class="dim">Model</span><span class="dim"></span><span class="dim">
+  </span><span class="dim">│</span><span class="dim"> </span><span class="dim">The workflow is ready. I found one portability edge case and corrected </span><span class="dim">     </span><span class="dim">openai-codex/gpt-5.6-sol</span><span class="dim">
+  </span><span class="dim">│</span><span class="dim"> </span><span class="dim">it.</span><span class="dim">                                                                         </span><span class="dim">Thinking: high</span><span class="dim">
 
-<span class="green">You</span><span class="green">  Review the latest changes
-</span><span class="white">Assistant</span><span class="white">  I checked the implementation and found no blockers.
-</span><span class="dim">  thinking (collapsed)</span>
+  </span><span class="dim"></span><span class="green">│</span><span class="dim"> </span><span class="dim"></span><span class="dim">▣ TOOL · bash</span><span class="dim"></span><span class="green">  { "command": "bun run typecheck" }</span><span class="dim">              </span><span class="dim">took 0ms</span><span class="dim"> </span><span class="dim">    </span><span class="dim"></span><span class="dim">Subagents (0 active)</span><span class="dim"></span><span class="dim">
+  </span><span class="dim"></span><span class="green">│</span><span class="dim"> </span><span class="dim">typecheck passed</span><span class="dim">                                                        </span><span class="dim">    </span><span class="dim">No async subagents for this session</span><span class="dim">
 
-<span class="yellow">▣ TOOL · bash</span><span class="yellow">  echo ready
-  ready
-</span><span class="magenta">◇ TOOL · reviewer · gpt-5.6-luna · background · ✓ completed · took 2s</span><span class="magenta">
-  Check the tabs and workflow wiring
+  </span><span class="dim">│</span><span class="dim"> </span><span class="dim">I also checked the sidebar state and tab ownership.</span><span class="dim">
 
-</span><span class="magenta">Supervisor</span><span class="magenta">  Should I continue with the next task?
+  </span><span class="dim"></span><span class="dim">│</span><span class="dim"> </span><span class="dim"></span><span class="dim">◆ TOOL · edit</span><span class="dim"></span><span class="dim">  { "path": "src/app.tsx" }</span><span class="dim">                       </span><span class="dim">took 0ms</span><span class="dim"> </span><span class="dim">
+  </span><span class="dim"></span><span class="dim">│</span><span class="dim"> </span><span class="dim">Updated src/app.tsx</span><span class="dim">                                                     </span><span class="dim">
+  </span><span class="dim"></span><span class="dim">│</span><span class="dim"> </span><span class="dim">@@ -1 +1 @@</span><span class="dim">                                                             </span><span class="dim">
+  </span><span class="dim"></span><span class="dim">│</span><span class="dim"> </span><span class="dim">- stale</span><span class="dim">                                                                 </span><span class="dim">
+  </span><span class="dim"></span><span class="dim">│</span><span class="dim"> </span><span class="dim">+ reactive</span><span class="dim">                                                              </span><span class="dim">
+
+  </span><span class="dim"></span><span class="magenta">│</span><span class="dim"> </span><span class="dim"></span><span class="dim">◇ TOOL · reviewer · gpt-5.6 · background · ✓ completed · took 0ms</span><span class="dim"></span><span class="magenta">       </span><span class="dim">
+  </span><span class="dim"></span><span class="magenta">│</span><span class="dim"> </span><span class="dim">Check tab state.</span><span class="dim">                                                        </span><span class="dim">
+  </span><span class="dim"></span><span class="magenta">│</span><span class="dim"> </span><span class="dim">Review complete: tab state remains isolated and reactive.</span><span class="dim">               </span><span class="dim">
+
+   </span><span class="dim">· supervisor: Supervisor: release review complete; no blockers. </span><span class="dim">
+   </span><span class="dim">SCREENSHOT-conversation</span><span class="dim">
+
+
+</span><span class="dim"></span><span class="dim">──────────────────────────────────────────────────────────────────────────────</span><span class="dim"></span><span class="dim">
+</span><span class="dim">                                                                              </span><span class="dim">
+</span><span class="dim">  </span><span class="dim">Ask Pi anything… (/help for commands)</span><span class="dim">                                       </span><span class="dim">
+</span><span class="dim">                                                                              </span><span class="dim">
+ </span><span class="dim">● ready</span><span class="dim">                </span><span class="dim">ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort  alt+enter queue  ctrl+o details</span><span class="dim">
 </span></pre>

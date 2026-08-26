@@ -30,14 +30,27 @@ const history = [
   { role: "assistant", content: [{ type: "text", text: "Existing assistant answer" }], timestamp: 2 },
 ];
 
+if (process.env.MOCK_SCREENSHOT_RICH === "1") {
+  history.push(
+    { role: "user", content: [{ type: "text", text: "Review the release workflow and summarize the risks." }], timestamp: 3 },
+    { role: "assistant", content: [{ type: "thinking", thinking: "I will inspect the workflow and verify the release path." }, { type: "text", text: "The workflow is ready. I found one portability edge case and corrected it." }, { type: "toolCall", id: "bash-1", toolCallId: "bash-1", name: "bash", arguments: { command: "bun run typecheck" } }], timestamp: 4, stopReason: "toolUse", usage: { input: 1200, output: 240, cacheRead: 0, cacheWrite: 0, totalTokens: 1440, cost: 0 } },
+    { role: "toolResult", toolCallId: "bash-1", content: [{ type: "text", text: "typecheck passed" }], timestamp: 5 },
+    { role: "assistant", content: [{ type: "toolCall", id: "edit-1", toolCallId: "edit-1", name: "edit", arguments: { path: "src/app.tsx" } }, { type: "text", text: "I also checked the sidebar state and tab ownership." }], timestamp: 6, stopReason: "toolUse", usage: { input: 1400, output: 180, cacheRead: 0, cacheWrite: 0, totalTokens: 1580, cost: 0 } },
+    { role: "toolResult", toolCallId: "edit-1", content: [{ type: "text", text: "Updated src/app.tsx\n@@ -1 +1 @@\n- stale\n+ reactive" }], timestamp: 7 },
+    { role: "assistant", content: [{ type: "toolCall", id: "subagent-1", toolCallId: "subagent-1", name: "subagent", arguments: { agent: "reviewer", model: "gpt-5.6", mode: "background", task: "Check tab state." } }], timestamp: 8, stopReason: "toolUse", usage: { input: 900, output: 120, cacheRead: 0, cacheWrite: 0, totalTokens: 1020, cost: 0 } },
+    { role: "toolResult", toolCallId: "subagent-1", content: [{ type: "text", text: "Review complete: tab state remains isolated and reactive." }], timestamp: 9 },
+    { role: "custom", customType: "supervisor", content: [{ type: "text", text: `Supervisor: release review complete; no blockers. SCREENSHOT-${process.env.MOCK_SCREENSHOT_SCENARIO ?? "rich"}` }], timestamp: 10 }
+  );
+}
+
 const stats = {
   sessionFile: initialSessionFile,
   sessionId: "mock-session",
-  userMessages: 1,
-  assistantMessages: 1,
-  toolCalls: 0,
-  toolResults: 0,
-  totalMessages: 2,
+  userMessages: process.env.MOCK_SCREENSHOT_RICH === "1" ? 2 : 1,
+  assistantMessages: process.env.MOCK_SCREENSHOT_RICH === "1" ? 4 : 1,
+  toolCalls: process.env.MOCK_SCREENSHOT_RICH === "1" ? 3 : 0,
+  toolResults: process.env.MOCK_SCREENSHOT_RICH === "1" ? 3 : 0,
+  totalMessages: process.env.MOCK_SCREENSHOT_RICH === "1" ? 10 : 2,
   tokens: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, total: 150 },
   cost: 0,
   contextUsage: { tokens: 33000, contextWindow: 400000, percent: 8.25 },
@@ -60,6 +73,7 @@ rl.on("line", async (line) => {
   switch (command.type) {
     case "get_state": response(state); break;
     case "get_messages": response({ messages: history }); break;
+    case "get_fork_messages": response({ messages: [] }); break;
     case "get_session_stats": response(stats); break;
     case "cycle_model": response({ model: state.model, thinkingLevel: state.thinkingLevel, isScoped: false }); break;
     case "get_available_models": response({ models: [state.model] }); break;

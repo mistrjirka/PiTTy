@@ -1,19 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="604" height="252" viewBox="0 0 604 252" role="img" aria-label="PiTTy terminal preview" xml:space="preserve">
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="708" viewBox="0 0 1024 708" role="img" aria-label="PiTTy terminal preview" xml:space="preserve">
 <rect width="100%" height="100%" fill="#10131a"/>
 <metadata>PiTTy terminal preview rendered from an ANSI capture using the SGR palette. This image is self-contained for README embedding.</metadata>
 <desc>Deterministic terminal UI preview with monospace text and ANSI colors.</desc>
 <style>text{font-family:monospace;font-size:14px;white-space:pre;fill:#d8dee9}.red{fill:#ff6b6b}.green{fill:#8bd49c}.yellow{fill:#f2c879}.magenta{fill:#d7a5ff}.cyan{fill:#7bdff2}.white{fill:#fff}.dim{fill:#748096}</style>
-<text x="12" y="26"><tspan class="cyan">PiTTy</tspan><tspan>  conversation</tspan></text>
-<text x="12" y="45"></text>
-<text x="12" y="64"><tspan class="green">You</tspan><tspan class="green">  Review the latest changes</tspan></text>
-<text x="12" y="83"><tspan class="white">Assistant</tspan><tspan class="white">  I checked the implementation and found no blockers.</tspan></text>
-<text x="12" y="102"><tspan class="dim">  thinking (collapsed)</tspan></text>
-<text x="12" y="121"></text>
-<text x="12" y="140"><tspan class="yellow">▣ TOOL · bash</tspan><tspan class="yellow">  echo ready</tspan></text>
-<text x="12" y="159"><tspan>  ready</tspan></text>
-<text x="12" y="178"><tspan class="magenta">◇ TOOL · reviewer · gpt-5.6-luna · background · ✓ completed · took 2s</tspan></text>
-<text x="12" y="197"><tspan>  Check the tabs and workflow wiring</tspan></text>
-<text x="12" y="216"></text>
-<text x="12" y="235"><tspan class="magenta">Supervisor</tspan><tspan class="magenta">  Should I continue with the next task?</tspan></text>
+<text x="12" y="26"><tspan class="dim">▸ New conversation</tspan><tspan class="dim"> ⑂  + </tspan></text>
+<text x="12" y="45"><tspan class="dim">▄</tspan><tspan class="dim">                                                                               </tspan><tspan class="dim">Session</tspan></text>
+<text x="12" y="64"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim">                                                                         </tspan><tspan class="dim">    </tspan><tspan class="dim">Mock Pi Session</tspan></text>
+<text x="12" y="83"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim">  </tspan><tspan class="dim">Review the release workflow and summarize the risks.</tspan><tspan class="dim">                   </tspan><tspan class="dim">    </tspan><tspan class="dim">PiTTy v0.6.1</tspan></text>
+<text x="12" y="102"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim">                                                                         </tspan></text>
+<text x="12" y="121"><tspan>                                                                                </tspan><tspan class="dim">Context</tspan></text>
+<text x="12" y="140"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim"> </tspan><tspan class="dim">▼ Thinking</tspan><tspan class="dim">                                               </tspan><tspan class="dim">1 line · click</tspan><tspan class="dim"> </tspan><tspan class="dim">    </tspan><tspan class="dim">— / 400K</tspan></text>
+<text x="12" y="159"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim"> </tspan><tspan class="dim">I will inspect the workflow and verify the release path.</tspan><tspan class="dim">                </tspan></text>
+<text x="12" y="178"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim">                                                                             </tspan><tspan class="dim">Model</tspan></text>
+<text x="12" y="197"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim"> </tspan><tspan class="dim">The workflow is ready. I found one portability edge case and corrected </tspan><tspan class="dim">     </tspan><tspan class="dim">openai-codex/gpt-5.6-sol</tspan></text>
+<text x="12" y="216"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim"> </tspan><tspan class="dim">it.</tspan><tspan class="dim">                                                                         </tspan><tspan class="dim">Thinking: high</tspan></text>
+<text x="12" y="235"></text>
+<text x="12" y="254"><tspan>  </tspan><tspan class="green">│</tspan><tspan class="dim"> </tspan><tspan class="dim">▣ TOOL · bash</tspan><tspan class="green">  { &quot;command&quot;: &quot;bun run typecheck&quot; }</tspan><tspan class="dim">              </tspan><tspan class="dim">took 0ms</tspan><tspan class="dim"> </tspan><tspan class="dim">    </tspan><tspan class="dim">Subagents (0 active)</tspan></text>
+<text x="12" y="273"><tspan>  </tspan><tspan class="green">│</tspan><tspan class="dim"> </tspan><tspan class="dim">typecheck passed</tspan><tspan class="dim">                                                        </tspan><tspan class="dim">    </tspan><tspan class="dim">No async subagents for this session</tspan></text>
+<text x="12" y="292"></text>
+<text x="12" y="311"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim"> </tspan><tspan class="dim">I also checked the sidebar state and tab ownership.</tspan></text>
+<text x="12" y="330"></text>
+<text x="12" y="349"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim"> </tspan><tspan class="dim">◆ TOOL · edit</tspan><tspan class="dim">  { &quot;path&quot;: &quot;src/app.tsx&quot; }</tspan><tspan class="dim">                       </tspan><tspan class="dim">took 0ms</tspan><tspan class="dim"> </tspan></text>
+<text x="12" y="368"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim"> </tspan><tspan class="dim">Updated src/app.tsx</tspan><tspan class="dim">                                                     </tspan></text>
+<text x="12" y="387"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim"> </tspan><tspan class="dim">@@ -1 +1 @@</tspan><tspan class="dim">                                                             </tspan></text>
+<text x="12" y="406"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim"> </tspan><tspan class="dim">- stale</tspan><tspan class="dim">                                                                 </tspan></text>
+<text x="12" y="425"><tspan>  </tspan><tspan class="dim">│</tspan><tspan class="dim"> </tspan><tspan class="dim">+ reactive</tspan><tspan class="dim">                                                              </tspan></text>
+<text x="12" y="444"></text>
+<text x="12" y="463"><tspan>  </tspan><tspan class="magenta">│</tspan><tspan class="dim"> </tspan><tspan class="dim">◇ TOOL · reviewer · gpt-5.6 · background · ✓ completed · took 0ms</tspan><tspan class="magenta">       </tspan></text>
+<text x="12" y="482"><tspan>  </tspan><tspan class="magenta">│</tspan><tspan class="dim"> </tspan><tspan class="dim">Check tab state.</tspan><tspan class="dim">                                                        </tspan></text>
+<text x="12" y="501"><tspan>  </tspan><tspan class="magenta">│</tspan><tspan class="dim"> </tspan><tspan class="dim">Review complete: tab state remains isolated and reactive.</tspan><tspan class="dim">               </tspan></text>
+<text x="12" y="520"></text>
+<text x="12" y="539"><tspan>   </tspan><tspan class="dim">· supervisor: Supervisor: release review complete; no blockers. </tspan></text>
+<text x="12" y="558"><tspan>   </tspan><tspan class="dim">SCREENSHOT-conversation</tspan></text>
+<text x="12" y="577"></text>
+<text x="12" y="596"></text>
+<text x="12" y="615"><tspan class="dim">──────────────────────────────────────────────────────────────────────────────</tspan></text>
+<text x="12" y="634"><tspan class="dim">                                                                              </tspan></text>
+<text x="12" y="653"><tspan class="dim">  </tspan><tspan class="dim">Ask Pi anything… (/help for commands)</tspan><tspan class="dim">                                       </tspan></text>
+<text x="12" y="672"><tspan class="dim">                                                                              </tspan></text>
+<text x="12" y="691"><tspan> </tspan><tspan class="dim">● ready</tspan><tspan class="dim">                </tspan><tspan class="dim">ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort  alt+enter queue  ctrl+o details</tspan></text>
 </svg>

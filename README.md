@@ -21,23 +21,23 @@
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p>
 
-## Screenshots
+## PiTTy on screen
 
-Deterministic terminal previews of the conversation, tab strip, and fork picker:
+These are captures of the production application running against a deterministic mock Pi RPC session. The transcript, tool cards, dialogs, prompt, footer, and sidebar are rendered by the same components used in normal sessions.
 
-### Conversation
+### Conversation, tools, and sidebar
 
-![Conversation](docs/screenshots/conversation.svg)
+The full chat view with thinking, Bash and edit results, a subagent review, supervisor notice, context usage, and the active model:
 
-### Tabs
+![PiTTy conversation with tools and sidebar](docs/screenshots/conversation.svg)
 
-![Tabs](docs/screenshots/tabs.svg)
+### Model picker
 
-### Fork picker
+Ctrl+P opens the searchable model picker over the live conversation without hiding session context:
 
-![Fork picker](docs/screenshots/fork-picker.svg)
+![PiTTy model picker over a live conversation](docs/screenshots/model-selector.svg)
 
-Regenerate them with `bun run screenshots` (requires `tmux`). The `.ansi` and `.html` artifacts are also available alongside the SVGs in `docs/screenshots/`.
+Regenerate both captures with `bun run screenshots` (requires `tmux`). Their ANSI and self-contained HTML versions live beside the SVG files.
 
 ## Install
 
@@ -146,9 +146,6 @@ PiTTy is an independent frontend for the [Pi coding agent](https://github.com/ea
 
 It starts directly in the normal chat. An empty conversation shows a passive dashboard with common commands and recent sessions while the prompt remains focused and writable.
 
-<p align="center">
-  <img src="docs/images/pitty-dashboard.png" width="1000" alt="PiTTy empty-chat dashboard with the bracket-pi logo and writable prompt">
-</p>
 
 ## Why use PiTTy instead of Pi's built-in TUI?
 
@@ -170,11 +167,6 @@ It starts directly in the normal chat. An empty conversation shows a passive das
 | Settings | Pi-authoritative model, thinking, and session controls; process-local presentation preferences; ten live theme presets and complete color editing |
 | Optional views | Parallel subagent inspection/control, active/completed Todo panels, and safe MCP server management when their Pi packages are installed |
 
-## Interface preview
-
-<p align="center">
-  <img src="docs/images/pitty-conversation.png" width="1000" alt="PiTTy showing a code conversation, tool activity, active-first subagents, and the Todo sidebar">
-</p>
 
 ## Quick usage
 
