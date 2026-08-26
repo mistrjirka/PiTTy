@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="604" height="252" viewBox="0 0 604 252" role="img" aria-label="PiTTy terminal preview" xml:space="preserve">
+<rect width="100%" height="100%" fill="#10131a"/>
+<metadata>PiTTy terminal preview rendered from an ANSI capture using the SGR palette. This image is self-contained for README embedding.</metadata>
+<desc>Deterministic terminal UI preview with monospace text and ANSI colors.</desc>
+<style>text{font-family:monospace;font-size:14px;white-space:pre;fill:#d8dee9}.red{fill:#ff6b6b}.green{fill:#8bd49c}.yellow{fill:#f2c879}.magenta{fill:#d7a5ff}.cyan{fill:#7bdff2}.white{fill:#fff}.dim{fill:#748096}</style>
+<text x="12" y="26"><tspan class="cyan">PiTTy</tspan><tspan>  conversation</tspan></text>
+<text x="12" y="45"></text>
+<text x="12" y="64"><tspan class="green">You</tspan><tspan class="green">  Review the latest changes</tspan></text>
+<text x="12" y="83"><tspan class="white">Assistant</tspan><tspan class="white">  I checked the implementation and found no blockers.</tspan></text>
+<text x="12" y="102"><tspan class="dim">  thinking (collapsed)</tspan></text>
+<text x="12" y="121"></text>
+<text x="12" y="140"><tspan class="yellow">▣ TOOL · bash</tspan><tspan class="yellow">  echo ready</tspan></text>
+<text x="12" y="159"><tspan>  ready</tspan></text>
+<text x="12" y="178"><tspan class="magenta">◇ TOOL · reviewer · gpt-5.6-luna · background · ✓ completed · took 2s</tspan></text>
+<text x="12" y="197"><tspan>  Check the tabs and workflow wiring</tspan></text>
+<text x="12" y="216"></text>
+<text x="12" y="235"><tspan class="magenta">Supervisor</tspan><tspan class="magenta">  Should I continue with the next task?</tspan></text>
+</svg>

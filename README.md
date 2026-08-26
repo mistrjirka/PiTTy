@@ -21,6 +21,24 @@
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </p>
 
+## Screenshots
+
+Deterministic terminal previews of the conversation, tab strip, and fork picker:
+
+### Conversation
+
+![Conversation](docs/screenshots/conversation.svg)
+
+### Tabs
+
+![Tabs](docs/screenshots/tabs.svg)
+
+### Fork picker
+
+![Fork picker](docs/screenshots/fork-picker.svg)
+
+Regenerate them with `bun run screenshots` (requires `tmux`). The `.ansi` and `.html` artifacts are also available alongside the SVGs in `docs/screenshots/`.
+
 ## Install
 
 ### Linux, macOS, and WSL

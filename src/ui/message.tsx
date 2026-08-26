@@ -14,6 +14,12 @@ import {
 	getThemeRevision,
 } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
+import {
+	summarizeSubagentArgs,
+	taskGist,
+	terminalBadge,
+	workflowChildrenSummary,
+} from "./subagent-format.ts";
 
 function toolVisual(
 	name: string,
@@ -93,11 +99,16 @@ export function toolOutputExpandable(output: string): boolean {
 	const clean = cleanTerminalText(output).trimEnd();
 	if (!clean) return false;
 	const lines = clean.split("\n");
-	return (
-		lines.length > 4 ||
-		clean.length > 320 ||
-		lines.some((line) => line.length > 180)
-	);
+	// The collapsed preview shows the whitespace-collapsed text on one line
+	// (capped at 100 chars) and the expanded view caps at 18 rows, so offer the
+	// toggle only when expanding reveals something the preview cannot:
+	// - more lines than the expanded viewport can show (scrolling reveals rest)
+	// - a single line longer than the preview cap (wrapping reveals the tail)
+	// - multi-line output whose normalized content exceeds the preview cap
+	if (lines.length > 18) return true;
+	const normalized = clean.replace(/\s+/g, " ").trim();
+	if (normalized.length > 120) return true;
+	return lines.some((line) => line.length > 180);
 }
 
 function collapsedPreview(output: string): string {
@@ -223,7 +234,10 @@ export function MessageView(props: {
 	diffExpanded?: boolean;
 	onToggleDiff?: (toolId: string) => void;
 	subagentTargets?: SubagentTarget[] | undefined;
-	onInspectSubagentTarget?: ((targetKey: string) => void) | undefined;
+	 onInspectSubagentTarget?: ((targetKey: string) => void) | undefined;
+	onFork?: ((entryId: string) => void) | undefined;
+	canFork?: boolean;
+
 	now?: number;
 }) {
 	const currentItem = createMemo(() => currentMessageItem(props.item));
@@ -339,6 +353,20 @@ export function MessageView(props: {
 						{(item.kind === "user" ? item.text : "") +
 							(item.kind === "user" && item.optimistic ? "  …" : "")}
 					</text>
+					<Show when={props.canFork && item.kind === "user" && item.entryId && props.onFork}>
+						<box flexDirection="row" justifyContent="flex-end" width="100%">
+							<text
+								fg={colors.cyan}
+								onMouseDown={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									if (item.kind === "user" && item.entryId) props.onFork?.(item.entryId);
+								}}
+							>
+									⑂ fork
+								</text>
+						</box>
+					</Show>
 				</box>
 			</Show>
 
@@ -486,6 +514,25 @@ export function MessageView(props: {
 						item.kind === "tool" && item.name.toLowerCase() === "subagent_supervisor";
 					const supervisorLabel = () =>
 						supervisor() && item.kind === "tool" ? supervisorToolLabel(item.args) : undefined;
+					const subagentFamily = () => {
+						if (item.kind !== "tool") return false;
+						const name = item.name.toLowerCase();
+						return name === "subagent" || name === "workflow" || name.endsWith("_subagent");
+					};
+					const terminal = () =>
+						item.kind === "tool" && subagentFamily()
+							? terminalBadge(item.status, item.isError, toolTiming(item, props.now ?? Date.now()))
+							: undefined;
+					const subagentLabel = () =>
+						item.kind === "tool" && subagentFamily()
+							? summarizeSubagentArgs(item.args)
+							: undefined;
+					const subagentGist = () =>
+						item.kind === "tool" && subagentFamily() ? taskGist(item.args) : undefined;
+					const children = () =>
+						item.kind === "tool" && subagentFamily()
+							? workflowChildrenSummary(item.args, item.output)
+							: undefined;
 					return (
 						<box
 							id={item.id}
@@ -510,7 +557,7 @@ export function MessageView(props: {
 							>
 								<text fg={visual().accent} attributes={1}>
 									{item.kind === "tool"
-										? `${expandable() ? (expanded() ? "▼ " : "▶ ") : ""}${item.status === "streaming" ? "◉" : visual().icon} TOOL · ${supervisorLabel() ?? item.name}`
+										? `${expandable() ? (expanded() ? "▼ " : "▶ ") : ""}${item.status === "streaming" ? "◉" : visual().icon} TOOL · ${supervisorLabel() ?? subagentLabel() ?? item.name}${children() ? ` ${children()}` : ""}${terminal() ? ` · ${terminal()}` : ""}`
 										: ""}
 								</text>
 									<Show when={item.kind === "tool" && item.args !== undefined}>
@@ -518,7 +565,9 @@ export function MessageView(props: {
 											{item.kind === "tool"
 												? supervisorLabel()
 													? `  ${supervisorMessage(item.args)}`
-													: `  ${prettyArgs(item.args).replace(/\s+/g, " ").slice(0, 150)}`
+													: subagentGist()
+														? `  ${subagentGist()}`
+														: `  ${prettyArgs(item.args).replace(/\s+/g, " ").slice(0, 150)}`
 												: ""}
 										</text>
 									</Show>

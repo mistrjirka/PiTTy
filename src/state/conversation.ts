@@ -373,6 +373,17 @@ export class ConversationModel {
 		return itemId;
 	}
 
+	assignEntryIds(entryIds: readonly (string | undefined)[]): void {
+		let userIndex = 0;
+		for (const item of this.items) {
+			if (item.kind !== "user") continue;
+			const entryId = entryIds[userIndex];
+			if (entryId) item.entryId = entryId;
+			else delete item.entryId;
+			userIndex += 1;
+		}
+	}
+
 	system(text: string, tone: SystemItem["tone"] = "muted"): void {
 		this.items.push({
 			kind: "system",
@@ -406,6 +417,7 @@ export class ConversationModel {
 				return;
 			}
 			case "queue_update": {
+				// SAFETY: event.type is validated above; queue fields are optional protocol data.
 				const queue = event as unknown as {
 					steering?: readonly string[];
 					followUp?: readonly string[];
@@ -417,11 +429,13 @@ export class ConversationModel {
 			case "message_start":
 			case "message_end":
 			case "message_update":
+				// SAFETY: message event payload is normalized by applyMessageEvent.
 				this.applyMessageEvent(event as unknown as Record<string, unknown>);
 				return;
 			case "tool_execution_start":
 			case "tool_execution_update":
 			case "tool_execution_end":
+				// SAFETY: tool event payload is normalized by applyToolEvent.
 				this.applyToolEvent(event as unknown as Record<string, unknown>);
 				return;
 			case "compaction_start":
@@ -430,6 +444,7 @@ export class ConversationModel {
 				return;
 			case "compaction_end": {
 				this.isCompacting = false;
+				// SAFETY: compaction event fields are optional protocol data.
 				const compact = event as unknown as {
 					aborted?: boolean;
 					errorMessage?: string;
@@ -445,6 +460,7 @@ export class ConversationModel {
 				return;
 			}
 			case "auto_retry_start": {
+				// SAFETY: retry event fields are optional protocol data.
 				const retry = event as unknown as {
 					attempt?: number;
 					maxAttempts?: number;
@@ -457,6 +473,7 @@ export class ConversationModel {
 				return;
 			}
 			case "extension_error": {
+				// SAFETY: extension error fields are optional protocol data.
 				const ext = event as unknown as {
 					error?: string;
 					extensionPath?: string;

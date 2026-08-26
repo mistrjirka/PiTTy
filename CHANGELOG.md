@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.0
+
+### Independent Conversation Tabs
+
+- New tab strip above the transcript: open multiple conversations side by side, each backed by its own live Pi process that keeps streaming in the background; `+` opens a fresh session tab, `×` closes a tab (stopping only its process), Ctrl+Tab / Ctrl+Shift+Tab cycle, cap of 8 tabs with an actionable toast.
+- Switching tabs rebinds the UI instantly without restarting anything; only the active tab drives status, polling, dialogs, and keyboard flows; extension prompts arriving on background tabs queue behind a badge and surface on activation.
+- Prompt drafts, expansion state, and prompt history are private to each tab; switching never deletes the text you were typing.
+
+### Fork Conversations From Any Message
+
+- Cyan `⑂ fork` affordance on user messages, plus a fork symbol in the tab strip opening a searchable picker of fork points; forking branches before the selected message into a new active tab while the original conversation is preserved as a background tab.
+- Streaming tabs ask for confirmation first; the tab cap is checked before forking so the original conversation can never be stranded.
+
+### Reliability Fixes From Real Multi-Tab Use
+
+- Ctrl+P and model selection now work reliably on freshly opened tabs: readiness gating, a global model cache that opens the dialog instantly, silent refresh, and single-flight fetching.
+- Expand/collapse toggles (including "see diff") respond on first click again — per-tab state changes now trigger UI updates.
+- App exit stops every tab's Pi process; closing a tab disposes its runtime completely.
+
+### Subagent Tool Clarity
+
+- Subagent launch blocks render `agent · model · mode` plus a task gist instead of raw JSON, show outcome-first terminal states (`✓ completed · took 2m 10s`, `✗ failed`), and summarize workflow child counts.
+- The expand hint appears only when expanding genuinely reveals more content.
+- Sidebar rows show `starting…` instead of a fabricated `0 tools` until counts exist.
+
+### Generated Screenshots In The README
+
+- Deterministic fixture-based screenshots (conversation, tabs, fork picker) generated via `bun run screenshots` into embedded SVGs committed under `docs/screenshots/`, displayed directly in README.md.
+
+### Validation
+
+- Typecheck clean; full suite green: 349 tests passed, 1 platform-specific skipped, 0 failures.
 ## 0.5.26
 
 ### Supervisor Dialogues Are Now Visible

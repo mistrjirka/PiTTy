@@ -28,6 +28,8 @@ import type { MemorySnapshot } from "../src/integrations/memory-store.ts";
 import { allocateSidebarPanels, Sidebar } from "../src/ui/sidebar.tsx";
 import { NotificationDialog } from "../src/ui/notification-dialog.tsx";
 import { SubagentInspector } from "../src/ui/subagent-inspector.tsx";
+import { ForkPicker } from "../src/ui/fork-picker.tsx";
+import { forkPickerOptions } from "../src/tabs/entry-index.ts";
 import { SubagentSelectorDialog } from "../src/ui/subagent-selector.tsx";
 import { subagentTargets } from "../src/subagents/targets.ts";
 import type {
@@ -886,7 +888,10 @@ describe("OpenTUI components", () => {
 
 	test("only makes tool output expandable when it actually needs more space", () => {
 		expect(toolOutputExpandable("5 pass\n0 fail")).toBe(false);
-		expect(toolOutputExpandable("one\ntwo\nthree\nfour\nfive")).toBe(true);
+		expect(toolOutputExpandable("one\ntwo\nthree\nfour\nfive")).toBe(false);
+		expect(toolOutputExpandable(Array.from({ length: 25 }, (_, i) => `line ${i + 1}`).join("\n"))).toBe(true);
+		expect(toolOutputExpandable("x".repeat(200))).toBe(true);
+		expect(toolOutputExpandable(`${"alpha ".repeat(30)}\nshort`)).toBe(true);
 		expect(toolOutputExpandable("x".repeat(321))).toBe(true);
 	});
 
@@ -1018,6 +1023,35 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("TOOL · → reply worker");
 		expect(frame).toContain("Full supervisor reply body");
 		for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(120);
+	});
+
+	test("renders fork picker options and empty state", async () => {
+		const setup = await mount(
+			() => (
+				<ForkPicker
+					options={forkPickerOptions([
+						{ entryId: "entry-1", text: "First message" },
+						{ entryId: "entry-2", text: "Second message" },
+					])}
+					onSelect={() => {}}
+					onCancel={() => {}}
+				/>
+			),
+			80,
+			18,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("Search messages…");
+		expect(frame).toContain("1. First message");
+		expect(frame).toContain("2. Second message");
+		expect(frame).toContain("Enter select");
+
+		const empty = await mount(
+			() => <ForkPicker options={[]} onSelect={() => {}} onCancel={() => {}} />,
+			60,
+			12,
+		);
+		expect(empty.captureCharFrame()).toContain("fork points");
 	});
 
 	test("wraps long expanded diff lines instead of clipping them", async () => {

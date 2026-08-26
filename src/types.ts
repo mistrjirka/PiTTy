@@ -26,6 +26,8 @@ export type MessageStatus = "pending" | "streaming" | "done" | "error";
 export type UserItem = {
 	kind: "user";
 	id: string;
+	/** Persisted Pi session entry used when forking this message. */
+	entryId?: string;
 	text: string;
 	timestamp: number;
 	optimistic: boolean;
@@ -174,6 +176,39 @@ export type SubagentTranscriptEntry = {
 	label?: string | undefined;
 	text: string;
 	isError?: boolean | undefined;
+};
+
+export type ForkMessage = {
+	entryId: string;
+	text: string;
+};
+
+export type ForkResult = {
+	text: string;
+	cancelled: boolean;
+};
+
+export type CloneResult = {
+	cancelled: boolean;
+};
+
+export type SessionSwitchResult = {
+	cancelled: boolean;
+};
+
+export type SessionEntry = {
+	id: string;
+	type: string;
+	[key: string]: unknown;
+};
+
+export type SessionEntries = {
+	entries: SessionEntry[];
+	leafId: string | null;
+};
+
+export type RpcEntriesOptions = {
+	since?: string;
 };
 
 export type Toast = {

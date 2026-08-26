@@ -234,6 +234,15 @@ function targetFreshness(target: SubagentTarget, now: number): string {
 	return `${formatDuration(Math.max(0, now - lastUpdate))} ago`;
 }
 
+function targetToolUsage(target: SubagentTarget): string {
+	const parts: string[] = [];
+	const toolCount = target.step?.toolCount ?? target.run.toolCount;
+	if (toolCount !== undefined) parts.push(`${toolCount} tools`);
+	const tokens = targetTokens(target);
+	if (tokens !== undefined) parts.push(`${formatTokens(tokens)} tok`);
+	return parts.length > 0 ? parts.join(" · ") : "starting…";
+}
+
 export function Sidebar(props: {
 	state?: RpcSessionState | undefined;
 	stats?: SessionStats | undefined;
@@ -384,7 +393,7 @@ export function Sidebar(props: {
 					</text>
 					<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
 						{clip(
-							`${target.step?.toolCount ?? target.run.toolCount ?? 0} tools · ${formatTokens(targetTokens(target))} tok`,
+							targetToolUsage(target),
 							31,
 						)}
 					</text>

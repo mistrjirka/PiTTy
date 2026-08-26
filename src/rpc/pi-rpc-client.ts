@@ -12,6 +12,12 @@ import type {
 	RpcResponse,
 	RpcSessionState,
 	SessionStats,
+	RpcEntriesOptions,
+	SessionEntries,
+	ForkMessage,
+	ForkResult,
+	CloneResult,
+	SessionSwitchResult,
 } from "../types.ts";
 
 export type ThinkingLevel =
@@ -323,14 +329,56 @@ export class PiRpcClient extends EventEmitter {
 		}
 	}
 
-	async newSession(): Promise<unknown> {
-		return this.data(await this.request({ type: "new_session" }));
+	async newSession(timeoutMsOverride = 240_000): Promise<unknown> {
+		return this.data(await this.request({ type: "new_session" }, timeoutMsOverride));
 	}
 
-	async switchSession(sessionPath: string): Promise<{ cancelled: boolean }> {
-		return this.data<{ cancelled: boolean }>(
-			await this.request({ type: "switch_session", sessionPath }),
+	async switchSession(
+		sessionPath: string,
+		timeoutMsOverride = 240_000,
+	): Promise<SessionSwitchResult> {
+		return this.data<SessionSwitchResult>(
+			await this.request({ type: "switch_session", sessionPath }, timeoutMsOverride),
 		);
+	}
+
+	/** Fork the current session at a user message and rebind this client to it. */
+	async fork(
+		entryId: string,
+		timeoutMsOverride = 240_000,
+	): Promise<ForkResult> {
+		return this.data<ForkResult>(
+			await this.request({ type: "fork", entryId }, timeoutMsOverride),
+		);
+	}
+
+	/** Clone the current session and rebind this client to the clone. */
+	async clone(timeoutMsOverride = 240_000): Promise<CloneResult> {
+		return this.data<CloneResult>(
+			await this.request({ type: "clone" }, timeoutMsOverride),
+		);
+	}
+
+	async getForkMessages(
+		timeoutMsOverride?: number,
+	): Promise<ForkMessage[]> {
+		const data = this.data<{ messages: ForkMessage[] }>(
+			await this.request({ type: "get_fork_messages" }, timeoutMsOverride),
+		);
+		return data.messages;
+	}
+
+	async getEntries(
+		options?: RpcEntriesOptions,
+		timeoutMsOverride?: number,
+	): Promise<SessionEntries> {
+		const data = this.data<SessionEntries>(
+			await this.request(
+				{ type: "get_entries", ...(options?.since ? { since: options.since } : {}) },
+				timeoutMsOverride,
+			),
+		);
+		return data;
 	}
 
 	async sendExtensionUiResponse(

@@ -29,15 +29,12 @@ import type {
 	ToolItem,
 	Toast,
 	NotificationRecord,
-	PiEvent,
 } from "./types.ts";
 import type { DiagnosticLogger } from "./diagnostics/logger.ts";
 import { createDiagnosticBundle } from "./diagnostics/bundle.ts";
 import { PiRpcClient, PiRpcTimeoutError } from "./rpc/pi-rpc-client.ts";
 import { ConversationModel, initialItems } from "./state/conversation.ts";
-import { ToolEventCoalescer } from "./state/tool-event-coalescer.ts";
 import {
-	PromptHistory,
 	shouldRecoverPromptDraft,
 } from "./state/prompt-history.ts";
 import {
@@ -61,7 +58,6 @@ import {
 	settledDispatchDecision,
 	snapshotQueue,
 	type DispatchGate,
-	type DraftState,
 	type PendingSteerEntry,
 } from "./state/input-continuity.ts";
 import {
@@ -81,6 +77,11 @@ import {
 } from "./subagents/control.ts";
 import { ExtensionDialog } from "./ui/dialog.tsx";
 import { MessageView } from "./ui/message.tsx";
+import { TabManager, type ConversationTab } from "./tabs/manager.ts";
+import { createTabRuntime, planForkTab, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
+import { TabStrip } from "./ui/tab-strip.tsx";
+import { ForkPicker } from "./ui/fork-picker.tsx";
+import { forkPickerOptions, type ForkPickerOption } from "./tabs/entry-index.ts";
 import {
 	PendingInputPanel,
 	type LocalQueuedMessage,
@@ -91,6 +92,9 @@ import {
 	type ModelChoice,
 } from "./ui/model-selector.tsx";
 import { SessionSelector } from "./ui/session-selector.tsx";
+
+let availableModelsCache: ModelChoice[] | undefined;
+let availableModelsFetch: Promise<ModelChoice[]> | undefined;
 import {
 	SettingsHub,
 	type SettingsSectionDescriptor,
@@ -549,19 +553,18 @@ export function App(props: AppOptions) {
 		logger: props.logger,
 	});
 	const conversation = new ConversationModel([], props.cwd);
-	const promptHistory = new PromptHistory();
 	const [revision, setRevision] = createSignal(0);
 	const [messageWindowStart, setMessageWindowStart] = createSignal(0);
-	const [sessionState, setSessionState] = createSignal<RpcSessionState>();
-	const [sessionStats, setSessionStats] = createSignal<SessionStats>();
-	const [runs, setRuns] = createSignal<SubagentRun[]>([]);
+	const [sessionStateSignal, setSessionStateSignal] = createSignal<RpcSessionState>();
+	const [sessionStatsSignal, setSessionStatsSignal] = createSignal<SessionStats>();
+	const [runsSignal, setRunsSignal] = createSignal<SubagentRun[]>([]);
 	const [selectedTargetKey, setSelectedTargetKey] = createSignal<string>();
 	const [sidebarEnabled, setSidebarEnabled] = createSignal(props.sidebar);
 	const [expandedTools, setExpandedTools] = createSignal(false);
-	const [expandedToolIds, setExpandedToolIds] = createSignal<Set<string>>(
+	const [_expandedToolIds, _setExpandedToolIds] = createSignal<Set<string>>(
 		new Set(),
 	);
-	const [expandedDiffIds, setExpandedDiffIds] = createSignal<Set<string>>(
+	const [_expandedDiffIds, _setExpandedDiffIds] = createSignal<Set<string>>(
 		new Set(),
 	);
 	const [showJumpLatest, setShowJumpLatest] = createSignal(false);
@@ -571,7 +574,6 @@ export function App(props: AppOptions) {
 	const [pendingSteers, setPendingSteers] = createSignal<PendingSteerEntry[]>(
 		[],
 	);
-	const draftState: DraftState = new Map();
 	const [autoRetryEnabled, setAutoRetryEnabled] = createSignal(true);
 	const [spinnerIndex, setSpinnerIndex] = createSignal(0);
 	const [clockNow, setClockNow] = createSignal(Date.now());
@@ -586,6 +588,9 @@ export function App(props: AppOptions) {
 	const [modelOptions, setModelOptions] = createSignal<ModelChoice[]>([]);
 	const [modelSelectorLoading, setModelSelectorLoading] = createSignal(false);
 	const [sessionSelectorOpen, setSessionSelectorOpen] = createSignal(false);
+	const [forkPickerOpen, setForkPickerOpen] = createSignal(false);
+	const [forkPickerOptionsSignal, setForkPickerOptions] = createSignal<ForkPickerOption[]>([]);
+	let draftSwitchGuard = false;
 	const [settingsRoute, setSettingsRoute] =
 		createSignal<SettingsRoute>("closed");
 	const [mcpScope, setMcpScope] = createSignal<McpScope>("global");
@@ -598,7 +603,7 @@ export function App(props: AppOptions) {
 	);
 	const [mcpConfigState, setMcpConfigState] =
 		createSignal<McpConfigState>("empty");
-	const [mcpActivationPending, setMcpActivationPending] = createSignal(false);
+	const [_mcpActivationPending, setMcpActivationPending] = createSignal(false);
 	const [settingsSelectedId, setSettingsSelectedId] = createSignal("model");
 	const [rpcAvailable, setRpcAvailable] = createSignal(false);
 	const [settingsBusy, setSettingsBusy] = createSignal<
@@ -626,7 +631,7 @@ export function App(props: AppOptions) {
 	const [memoryBrowserOpen, setMemoryBrowserOpen] = createSignal(false);
 	const [memorySnapshot, setMemorySnapshot] = createSignal<MemorySnapshot>();
 	const [thinkingExpanded, setThinkingExpanded] = createSignal(true);
-	const [thinkingExpansionOverrides, setThinkingExpansionOverrides] =
+	const [_thinkingExpansionOverrides, _setThinkingExpansionOverrides] =
 		createSignal<Map<string, boolean>>(new Map());
 	const [promptText, setPromptText] = createSignal("");
 	const [promptCursorOffset, setPromptCursorOffset] = createSignal(0);
@@ -634,6 +639,105 @@ export function App(props: AppOptions) {
 		createSignal<CommandChoice[]>(localCommandChoices);
 	const [commandSuggestionIndex, setCommandSuggestionIndex] = createSignal(0);
 	const [toasts, setToasts] = createSignal<Toast[]>([]);
+	const initialTab: ConversationTab = { id: "main", badges: 0 };
+	const tabManager = new TabManager(initialTab);
+	const [tabState, setTabState] = createSignal(tabManager.snapshot);
+	const [runtimeMap, setRuntimeMap] = createSignal<Map<string, ConversationTabRuntime>>(new Map());
+	const activeRuntime = () => runtimeMap().get(tabState().activeId) ?? bootRuntime;
+	const refreshTabs = () => setTabState(tabManager.snapshot);
+	const activateTab = (id: string) => {
+		const targetRuntime = runtimeMap().get(id);
+		if (!targetRuntime) return;
+		const targetText = sessionDrafts(targetRuntime.drafts, targetRuntime.sessionState?.sessionId ?? props.cwd).main;
+		tabManager.activate(id);
+		tabManager.clearBadges(id);
+		refreshTabs();
+		resetMessageWindow(activeRuntime().conversation.items.length);
+		queueMicrotask(scrollToBottom);
+		draftSwitchGuard = true;
+		const draft = resolveTabDraftSwitch(prompt?.plainText ?? "", targetText);
+		if (prompt) {
+			prompt.setText(draft.editorText);
+			prompt.cursorOffset = draft.editorText.length;
+		}
+		syncMainDraft(draft.editorText);
+		queueMicrotask(() => { draftSwitchGuard = false; });
+		if (activeRuntime().startupResolved && activeRuntime().conversation.items.length === 0) {
+			void loadRuntimeHistory(activeRuntime());
+		}
+	};
+	const closeTab = (id: string) => {
+		const runtime = runtimeMap().get(id);
+		if (!runtime || id === "main") return;
+		runtime.coalescer.flush();
+		void runtime.client.stop();
+		setRuntimeMap((current) => { const next = new Map(current); next.delete(id); return next; });
+		tabManager.close(id);
+		refreshTabs();
+	};
+	const createTab = (sessionFile?: string): string | undefined => {
+		const id = `tab-${++tabCounter}`;
+		if (!tabManager.create({ id, badges: 0 })) { toast("Maximum of 8 conversation tabs.", "warning"); return undefined; }
+		const runtime = createTabRuntime({ id, cwd: props.cwd, args: props.piArgs, ...(props.piExecutable ? { executable: props.piExecutable } : {}), ...(sessionFile ? { sessionFile } : {}), logger: props.logger,
+			onEvent: (_event, tabRuntime) => { if (isExtensionUiRequest(_event) && tabRuntime.id !== tabState().activeId) { tabRuntime.pendingExtensionRequests.push(_event); tabManager.incrementBadge(tabRuntime.id, "extension"); refreshTabs(); return; } if (tabRuntime.id === tabState().activeId) { setRevision((value) => value + 1); if (_event.type === "agent_settled" || _event.type === "compaction_end") void flushQueuedFollowUp(); } },
+		});
+		setRuntimeMap((current) => new Map(current).set(id, runtime));
+		refreshTabs();
+		void startTabRuntime(runtime).then(() => { if (tabRuntimeIsActive(id)) void loadRuntimeHistory(runtime); }).catch((error) => toast(error instanceof Error ? error.message : String(error), "error", 5000));
+		return id;
+	};
+	const forkAt = async (entryId: string) => {
+		const originalSessionFile = activeRuntime().sessionState?.sessionFile;
+		if (!originalSessionFile) { toast("The current session file is not available yet.", "warning"); return; }
+		toast("Forking conversation…", "info", 5000);
+		try {
+			await activeRuntime().client.fork(entryId, 240_000);
+			await loadCurrentSession();
+			const forkedId = tabState().activeId;
+			const plan = planForkTab(originalSessionFile, activeRuntime().sessionState?.sessionFile ?? "", tabState().tabs.length);
+			if (!plan.canCreate) { toast("Maximum of 8 conversation tabs.", "warning"); return; }
+			const originalId = createTab(plan.originalSessionFile);
+			if (originalId) activateTab(forkedId);
+		} catch (error) { toast(error instanceof Error ? error.message : String(error), "error", 5000); }
+	};
+	const openForkPicker = async () => {
+		const runtime = activeRuntime();
+		if (!runtime.startupResolved) { toast("This tab is still starting…", "info"); return; }
+		try {
+			const messages = await runtime.client.getForkMessages();
+			setForkPickerOptions(forkPickerOptions(messages));
+			setForkPickerOpen(true);
+		} catch (error) {
+			toast(`Failed to load fork points: ${error instanceof Error ? error.message : String(error)}`, "error");
+		}
+	};
+	const tabRuntimeIsActive = (id: string) => tabState().activeId === id;
+	const loadRuntimeHistory = async (runtime: ConversationTabRuntime) => {
+		const messages = await runtime.client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS);
+		runtime.conversation.items.splice(0, runtime.conversation.items.length, ...initialItems(messages));
+		await refreshRuntimeEntries(runtime);
+		if (tabRuntimeIsActive(runtime.id)) { resetMessageWindow(runtime.conversation.items.length); setRevision((value) => value + 1); }
+	};
+	const bootRuntime = createTabRuntime({ id: "main", cwd: props.cwd, client, conversation,
+		onEvent: (_event, tabRuntime) => { if (isExtensionUiRequest(_event) && tabRuntime.id !== tabState().activeId) { tabRuntime.pendingExtensionRequests.push(_event); tabManager.incrementBadge(tabRuntime.id, "extension"); refreshTabs(); return; } if (tabRuntime.id === tabState().activeId) { setRevision((value) => value + 1); if (_event.type === "agent_settled" || _event.type === "compaction_end") void flushQueuedFollowUp(); } },
+	});
+	setRuntimeMap(new Map([["main", bootRuntime]]));
+	type SetUpdater<T> = T | ((current: T) => T);
+	const setExpandedToolIds = (update: SetUpdater<Set<string>>) => {
+		const current = activeRuntime().expandedToolIds;
+		activeRuntime().expandedToolIds = typeof update === "function" ? update(current) : update;
+		touch();
+	};
+	const setExpandedDiffIds = (update: SetUpdater<Set<string>>) => {
+		const current = activeRuntime().expandedDiffIds;
+		activeRuntime().expandedDiffIds = typeof update === "function" ? update(current) : update;
+		touch();
+	};
+	const setThinkingExpansionOverrides = (update: SetUpdater<Map<string, boolean>>) => {
+		const current = activeRuntime().thinkingExpansionOverrides;
+		activeRuntime().thinkingExpansionOverrides = typeof update === "function" ? update(current) : update;
+		touch();
+	};
 	const [notificationHistory, setNotificationHistory] = createSignal<
 		NotificationRecord[]
 	>([]);
@@ -656,6 +760,7 @@ export function App(props: AppOptions) {
 	let codexUsageHistory: CodexUsageHistory = loadCodexUsageHistory();
 	let lastRunsDigest = "";
 	let sessionDiscoveryGeneration = 0;
+	let tabCounter = 0;
 	let lastCtrlC = 0;
 	let abortInFlight: Promise<void> | undefined;
 	let dispatchGate: DispatchGate = {
@@ -678,13 +783,19 @@ export function App(props: AppOptions) {
 		);
 	};
 
+	const sessionState = () => activeRuntime().sessionState ?? sessionStateSignal();
+	const sessionStats = () => activeRuntime().sessionStats ?? sessionStatsSignal();
+	const runs = () => activeRuntime().runs.length ? activeRuntime().runs : runsSignal();
+	const setSessionState = (state: RpcSessionState) => { activeRuntime().sessionState = state; setSessionStateSignal(state); };
+	const setSessionStats = (stats: SessionStats) => { activeRuntime().sessionStats = stats; setSessionStatsSignal(stats); };
+	const setRuns = (nextRuns: SubagentRun[]) => { activeRuntime().runs = nextRuns; setRunsSignal(nextRuns); };
 	const currentSessionKey = () => sessionState()?.sessionId ?? props.cwd;
 	const currentDrafts = () => {
 		revision();
-		return sessionDrafts(draftState, currentSessionKey());
+		return sessionDrafts(activeRuntime().drafts, currentSessionKey());
 	};
 	const mainPromptPlaceholder = () =>
-		conversation.isStreaming
+		activeRuntime().conversation.isStreaming
 			? "Enter sends steering immediately · Alt+Enter queues editable follow-up"
 			: "Ask Pi anything… (/help for commands)";
 	const syncPromptPlaceholder = (text: string) => {
@@ -825,7 +936,7 @@ export function App(props: AppOptions) {
 		revision();
 		// ConversationModel mutates its array in place. Return a new reference so
 		// Solid propagates updates to <For>; otherwise resumed messages stay blank.
-		return [...conversation.items];
+		return [...activeRuntime().conversation.items];
 	});
 	const visibleItems = createMemo(() => {
 		const all = items();
@@ -863,7 +974,7 @@ export function App(props: AppOptions) {
 		),
 	);
 	const thinkingIsExpanded = (itemId: string): boolean =>
-		thinkingExpansionOverrides().get(itemId) ?? thinkingExpanded();
+		activeRuntime().thinkingExpansionOverrides.get(itemId) ?? thinkingExpanded();
 	const setAllThinkingExpanded = (expanded: boolean) => {
 		setThinkingExpanded(expanded);
 		setThinkingExpansionOverrides(new Map());
@@ -878,7 +989,7 @@ export function App(props: AppOptions) {
 	};
 	const streaming = createMemo(() => {
 		revision();
-		return conversation.isStreaming;
+		return activeRuntime().conversation.isStreaming;
 	});
 	// Show for the whole agent turn — including thinking streams and tool
 	// calls. Hiding while the latest item is "active" made Working disappear
@@ -912,7 +1023,7 @@ export function App(props: AppOptions) {
 	const recentlyRenderedUserTexts = () => {
 		const cutoff = Date.now() - 120_000;
 		return new Set(
-			conversation.items
+			activeRuntime().conversation.items
 				.filter((item) => item.kind === "user" && item.timestamp >= cutoff)
 				.map((item) =>
 					item.kind === "user" ? normalizedQueueText(item.text) : "",
@@ -922,14 +1033,14 @@ export function App(props: AppOptions) {
 	const steeringQueue = createMemo(() => {
 		revision();
 		const rendered = recentlyRenderedUserTexts();
-		return [...conversation.steering].filter(
+		return [...activeRuntime().conversation.steering].filter(
 			(text) => !rendered.has(normalizedQueueText(text)),
 		);
 	});
 	const followUpQueue = createMemo(() => {
 		revision();
 		const rendered = recentlyRenderedUserTexts();
-		return [...conversation.followUp].filter(
+		return [...activeRuntime().conversation.followUp].filter(
 			(text) => !rendered.has(normalizedQueueText(text)),
 		);
 	});
@@ -997,8 +1108,8 @@ export function App(props: AppOptions) {
 	const refreshOperation = async (): Promise<boolean> => {
 		try {
 			const [state, stats] = await Promise.all([
-				client.getState(),
-				client.getSessionStats(),
+				activeRuntime().client.getState(),
+				activeRuntime().client.getSessionStats(),
 			]);
 			setSessionState(state);
 			setSessionStats(stats);
@@ -1070,7 +1181,7 @@ export function App(props: AppOptions) {
 		setShowJumpLatest(false);
 	};
 
-	const resetMessageWindow = (totalItems = conversation.items.length) => {
+	const resetMessageWindow = (totalItems = activeRuntime().conversation.items.length) => {
 		setMessageWindowStart(
 			initialMessageWindowStart(totalItems, INITIAL_MESSAGE_WINDOW),
 		);
@@ -1080,7 +1191,7 @@ export function App(props: AppOptions) {
 		if (showJumpLatest() || inspectSubagent()) return;
 		setMessageWindowStart((current) =>
 			trimMessageWindowStart(
-				conversation.items.length,
+				activeRuntime().conversation.items.length,
 				current,
 				MAX_LIVE_MESSAGE_WINDOW,
 			),
@@ -1108,7 +1219,7 @@ export function App(props: AppOptions) {
 	};
 
 	const toolExpanded = (toolId: string): boolean =>
-		expandedTools() || expandedToolIds().has(toolId);
+		expandedTools() || activeRuntime().expandedToolIds.has(toolId);
 	const toggleTool = (toolId: string) => {
 		setExpandedToolIds((current) => {
 			const next = new Set(current);
@@ -1119,7 +1230,7 @@ export function App(props: AppOptions) {
 	};
 
 	const diffExpanded = (toolId: string): boolean =>
-		expandedDiffIds().has(toolId);
+		activeRuntime().expandedDiffIds.has(toolId);
 	const toggleDiff = (toolId: string) => {
 		setExpandedDiffIds((current) => {
 			const next = new Set(current);
@@ -1133,7 +1244,7 @@ export function App(props: AppOptions) {
 		text: string,
 		tone: "muted" | "info" | "warning" | "error" | "success" = "info",
 	) => {
-		conversation.system(text, tone);
+		activeRuntime().conversation.system(text, tone);
 		trimMessageWindowIfFollowingLatest();
 		touch();
 		queueMicrotask(scrollToBottom);
@@ -1148,7 +1259,7 @@ export function App(props: AppOptions) {
 
 	const cycleThinkingEffort = async () => {
 		try {
-			const result = await client.cycleThinkingLevel();
+			const result = await activeRuntime().client.cycleThinkingLevel();
 			await refreshState();
 			const level = result?.level ?? sessionState()?.thinkingLevel ?? "unknown";
 			toast(`Thinking effort: ${level}`, "success", 1600);
@@ -1159,14 +1270,14 @@ export function App(props: AppOptions) {
 
 	const loadCurrentSession = async () => {
 		const [state, messages] = await Promise.all([
-			client.getState(SESSION_LOAD_REQUEST_TIMEOUT_MS),
-			client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS),
+			activeRuntime().client.getState(SESSION_LOAD_REQUEST_TIMEOUT_MS),
+			activeRuntime().client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS),
 		]);
 		const historyItems = initialItems(messages);
-		conversation.items.splice(0, conversation.items.length, ...historyItems);
-		conversation.isStreaming = state.isStreaming;
-		conversation.steering = [];
-		conversation.followUp = [];
+		activeRuntime().conversation.items.splice(0, activeRuntime().conversation.items.length, ...historyItems);
+		activeRuntime().conversation.isStreaming = state.isStreaming;
+		activeRuntime().conversation.steering = [];
+		activeRuntime().conversation.followUp = [];
 		setSessionState(state);
 		setQueuedFollowUps([]);
 		resetMessageWindow(historyItems.length);
@@ -1258,7 +1369,7 @@ export function App(props: AppOptions) {
 					addSystem("Usage: /autocompact on|off", "warning");
 					return true;
 				}
-				await client.setAutoCompaction(value);
+				await activeRuntime().client.setAutoCompaction(value);
 				await refreshState();
 				addSystem(
 					`Automatic compaction ${value ? "enabled" : "disabled"}.`,
@@ -1272,7 +1383,7 @@ export function App(props: AppOptions) {
 					addSystem("Usage: /retry on|off", "warning");
 					return true;
 				}
-				await client.setAutoRetry(value);
+				await activeRuntime().client.setAutoRetry(value);
 				setAutoRetryEnabled(value);
 				addSystem(
 					`Automatic retry ${value ? "enabled" : "disabled"}.`,
@@ -1286,7 +1397,7 @@ export function App(props: AppOptions) {
 					addSystem("Usage: /steering-mode all|one-at-a-time", "warning");
 					return true;
 				}
-				await client.setSteeringMode(mode);
+				await activeRuntime().client.setSteeringMode(mode);
 				await refreshState();
 				addSystem(`Steering mode set to ${mode}.`, "success");
 				return true;
@@ -1298,7 +1409,7 @@ export function App(props: AppOptions) {
 					addSystem("Usage: /followup-mode all|one-at-a-time", "warning");
 					return true;
 				}
-				await client.setFollowUpMode(mode);
+				await activeRuntime().client.setFollowUpMode(mode);
 				await refreshState();
 				addSystem(`Follow-up mode set to ${mode}.`, "success");
 				return true;
@@ -1317,7 +1428,7 @@ export function App(props: AppOptions) {
 					);
 					return true;
 				}
-				await client.setThinkingLevel(argument);
+				await activeRuntime().client.setThinkingLevel(argument);
 				await refreshState();
 				addSystem(`Thinking level set to ${argument}.`, "success");
 				return true;
@@ -1335,7 +1446,7 @@ export function App(props: AppOptions) {
 					addSystem("Usage: /model provider/model-id", "warning");
 					return true;
 				}
-				await client.setModel(
+				await activeRuntime().client.setModel(
 					argument.slice(0, slash),
 					argument.slice(slash + 1),
 				);
@@ -1344,7 +1455,7 @@ export function App(props: AppOptions) {
 				return true;
 			}
 			case "models": {
-				const models = await client.getAvailableModels();
+				const models = await fetchAvailableModels();
 				const labels = models.flatMap((value) => {
 					if (!value || typeof value !== "object") return [];
 					const record = value as Record<string, unknown>;
@@ -1359,16 +1470,16 @@ export function App(props: AppOptions) {
 				return true;
 			}
 			case "compact":
-				if (conversation.isCompacting) {
+				if (activeRuntime().conversation.isCompacting) {
 					addSystem("Compaction is already running.", "warning");
 					return true;
 				}
 				addSystem("Starting compaction…");
-				await client.compact(argument || undefined);
+				await activeRuntime().client.compact(argument || undefined);
 				await refreshState();
 				return true;
 			case "new":
-				await client.newSession();
+				await activeRuntime().client.newSession();
 				await loadCurrentSession();
 				addSystem("Started a new session.", "success");
 				return true;
@@ -1377,12 +1488,12 @@ export function App(props: AppOptions) {
 					addSystem("Usage: /name <session name>", "warning");
 					return true;
 				}
-				await client.setSessionName(argument);
+				await activeRuntime().client.setSessionName(argument);
 				await refreshState();
 				addSystem(`Session named “${argument}”.`, "success");
 				return true;
 			case "commands": {
-				const commands = await client.getCommands();
+				const commands = await activeRuntime().client.getCommands();
 				const rows = commands.map(
 					(command) =>
 						`/${command.name}${command.description ? ` — ${command.description}` : ""}`,
@@ -1435,13 +1546,13 @@ export function App(props: AppOptions) {
 	};
 
 	const sendText = async (text: string): Promise<"sent" | "queued"> => {
-		const wasStreaming = conversation.isStreaming;
+		const wasStreaming = activeRuntime().conversation.isStreaming;
 		props.logger.info("ui.submit", {
 			chars: text.length,
 			streaming: wasStreaming,
-			compacting: conversation.isCompacting,
+			compacting: activeRuntime().conversation.isCompacting,
 		});
-		if (conversation.isCompacting) {
+		if (activeRuntime().conversation.isCompacting) {
 			// Pi tears down its agent connection for the duration of compaction, so a
 			// prompt sent right now can wait on a response that never arrives (the
 			// client-side RPC timeout fires, and the message never reaches the model).
@@ -1457,17 +1568,17 @@ export function App(props: AppOptions) {
 			return "queued";
 		}
 		if (!wasStreaming) {
-			const optimisticId = conversation.optimisticUser(text);
+			const optimisticId = activeRuntime().conversation.optimisticUser(text);
 			trimMessageWindowIfFollowingLatest();
 			touch();
 			scrollToBottom();
 			try {
-				await client.prompt(text);
+				await activeRuntime().client.prompt(text);
 			} catch (error) {
-				const index = conversation.items.findIndex(
+				const index = activeRuntime().conversation.items.findIndex(
 					(item) => item.id === optimisticId,
 				);
-				if (index >= 0) conversation.items.splice(index, 1);
+				if (index >= 0) activeRuntime().conversation.items.splice(index, 1);
 				touch();
 				throw error;
 			}
@@ -1478,7 +1589,7 @@ export function App(props: AppOptions) {
 		// extension commands and prompt templates. Do not add an optimistic transcript item: Pi exposes
 		// the pending text through queue_update and emits the user message once it
 		// is actually consumed.
-		await client.prompt(text, "steer");
+		await activeRuntime().client.prompt(text, "steer");
 		return "sent";
 	};
 
@@ -1495,7 +1606,7 @@ export function App(props: AppOptions) {
 		if (dialog()) return;
 		const text = expandedPromptText().trim();
 		if (!text) return;
-		promptHistory.recordSubmitted(text);
+		activeRuntime().promptHistory.recordSubmitted(text);
 		try {
 			if (await handleSlashCommand(text)) {
 				clearMainDraft();
@@ -1516,7 +1627,7 @@ export function App(props: AppOptions) {
 		if (dialog()) return;
 		const text = expandedPromptText().trim();
 		if (!text) return;
-		if (!conversation.isStreaming) {
+		if (!activeRuntime().conversation.isStreaming) {
 			void submit();
 			return;
 		}
@@ -1548,7 +1659,7 @@ export function App(props: AppOptions) {
 		const last = current.at(-1);
 		if (!last) {
 			const sentCount =
-				conversation.steering.length + conversation.followUp.length;
+				activeRuntime().conversation.steering.length + activeRuntime().conversation.followUp.length;
 			toast(
 				sentCount > 0
 					? "Those messages were already sent to Pi. Pi RPC cannot dequeue them; use Alt+Enter for an editable local follow-up."
@@ -1565,7 +1676,7 @@ export function App(props: AppOptions) {
 		const decision = settledDispatchDecision(
 			dispatchGate,
 			queuedFollowUps().length > 0,
-			conversation.isStreaming,
+			activeRuntime().conversation.isStreaming,
 		);
 		if (decision === "busy" || decision === "empty") return;
 		if (decision === "suppressed") {
@@ -1600,7 +1711,7 @@ export function App(props: AppOptions) {
 	const abortActiveWork = () => {
 		if (abortInFlight) return;
 		dispatchGate = markAbort(dispatchGate);
-		abortInFlight = client
+		abortInFlight = activeRuntime().client
 			.abort()
 			.then(() => toast("Aborting current Pi turn", "warning"))
 			.catch((error) => {
@@ -1690,8 +1801,25 @@ export function App(props: AppOptions) {
 		setSettingsSelectedId("model");
 		setSettingsRoute("root");
 	};
+	const fetchAvailableModels = (): Promise<ModelChoice[]> => {
+		if (availableModelsFetch) return availableModelsFetch;
+		availableModelsFetch = (async () => {
+			const models = normalizeModelChoices(await activeRuntime().client.getAvailableModels());
+			if (!models.length) throw new Error("Pi returned no available models");
+			availableModelsCache = models;
+			return models;
+		})().finally(() => { availableModelsFetch = undefined; });
+		return availableModelsFetch;
+	};
 	const loadModels = async (fromSettings: boolean): Promise<boolean> => {
+		if (!activeRuntime().startupResolved) { toast("This tab is still starting…", "info"); return false; }
 		if (modelSelectorLoading()) return false;
+		if (!fromSettings && availableModelsCache) {
+			setModelOptions(availableModelsCache);
+			setModelSelectorOpen(true);
+			void fetchAvailableModels().then((models) => setModelOptions(models)).catch(() => undefined);
+			return true;
+		}
 		if (fromSettings) {
 			setSettingsBusy("model");
 			setSettingsErrors((errors) => {
@@ -1702,8 +1830,7 @@ export function App(props: AppOptions) {
 		}
 		setModelSelectorLoading(true);
 		try {
-			const models = normalizeModelChoices(await client.getAvailableModels());
-			if (!models.length) throw new Error("Pi returned no available models");
+			const models = await fetchAvailableModels();
 			setModelOptions(models);
 			if (fromSettings) setSettingsRoute("model");
 			else setModelSelectorOpen(true);
@@ -1736,7 +1863,7 @@ export function App(props: AppOptions) {
 			return next;
 		});
 		try {
-			await client.setModel(model.provider, model.id);
+			await activeRuntime().client.setModel(model.provider, model.id);
 			if (!(await refreshState()))
 				throw new Error(
 					"Pi accepted the model change but state refresh failed.",
@@ -1762,7 +1889,7 @@ export function App(props: AppOptions) {
 			return next;
 		});
 		try {
-			await client.setThinkingLevel(level);
+			await activeRuntime().client.setThinkingLevel(level);
 			if (!(await refreshState()))
 				throw new Error(
 					"Pi accepted the effort change but state refresh failed.",
@@ -1831,7 +1958,7 @@ export function App(props: AppOptions) {
 			return next;
 		});
 		try {
-			await client.setSessionName(name);
+			await activeRuntime().client.setSessionName(name);
 			if (!(await refreshState()))
 				throw new Error("Rename accepted but session refresh failed.");
 			setSettingsRoute("session");
@@ -1864,7 +1991,7 @@ export function App(props: AppOptions) {
 			const sessionFile = sessionState()?.sessionFile;
 			if (!sessionFile)
 				throw new Error("Pi did not report a current session file.");
-			await client.restart(sessionFile);
+			await activeRuntime().client.restart(sessionFile);
 			const integrations = detectOptionalIntegrations({
 				...(props.piExecutable ? { piExecutable: props.piExecutable } : {}),
 				cwd: props.cwd,
@@ -1873,7 +2000,7 @@ export function App(props: AppOptions) {
 				integrations.mcpAdapter.installed ? "ready" : "missing",
 			);
 			await loadCurrentSession();
-			const refreshedCommands = await client.getCommands();
+			const refreshedCommands = await activeRuntime().client.getCommands();
 			setCommandChoices(mergeCommandChoices(refreshedCommands));
 			setMcpConfigState("saved-active");
 			setMcpActivationPending(false);
@@ -2095,7 +2222,7 @@ export function App(props: AppOptions) {
 		if (pendingSessionReason() === "queued") setQueuedFollowUps([]);
 		setSessionSwitching(true);
 		try {
-			const result = await client.switchSession(choice.path);
+			const result = await activeRuntime().client.switchSession(choice.path);
 			if (result.cancelled) {
 				setPendingSession(undefined);
 				setPendingSessionReason(undefined);
@@ -2137,7 +2264,7 @@ export function App(props: AppOptions) {
 		setModelSelectorOpen(false);
 		setStatus(`switching to ${model.provider}/${model.id}…`);
 		try {
-			await client.setModel(model.provider, model.id);
+			await activeRuntime().client.setModel(model.provider, model.id);
 			await refreshState();
 			toast(`Model set to ${model.provider}/${model.id}`, "success");
 		} catch (error) {
@@ -2241,19 +2368,19 @@ export function App(props: AppOptions) {
 		});
 		setDialog(undefined);
 		if (response.cancelled)
-			await client.sendExtensionUiResponse({
+			await activeRuntime().client.sendExtensionUiResponse({
 				type: "extension_ui_response",
 				id: request.id,
 				cancelled: true,
 			});
 		else if (typeof response.confirmed === "boolean")
-			await client.sendExtensionUiResponse({
+			await activeRuntime().client.sendExtensionUiResponse({
 				type: "extension_ui_response",
 				id: request.id,
 				confirmed: response.confirmed,
 			});
 		else
-			await client.sendExtensionUiResponse({
+			await activeRuntime().client.sendExtensionUiResponse({
 				type: "extension_ui_response",
 				id: request.id,
 				value: response.value ?? "",
@@ -2300,46 +2427,9 @@ export function App(props: AppOptions) {
 			);
 		}
 		let startupFailure: Error | undefined;
-		const applyConversationEvent = (event: PiEvent): void => {
-			const previousItemCount = conversation.items.length;
-			conversation.apply(event);
-			if (conversation.items.length > previousItemCount)
-				trimMessageWindowIfFollowingLatest();
-			touch();
-			if (
-				event.type === "agent_start" ||
-				event.type === "agent_settled" ||
-				event.type === "agent_end" ||
-				event.type === "thinking_level_changed" ||
-				event.type === "session_info_changed" ||
-				event.type === "compaction_start" ||
-				event.type === "compaction_end"
-			) {
-				void refreshState();
-			}
-			if (event.type === "agent_settled") {
-				void (async () => {
-					if (mcpActivationPending()) await activateMcp();
-					await refreshState();
-					if (
-						!mcpActivationPending() &&
-						mcpConfigState() !== "saved-inactive-retry"
-					)
-						await flushQueuedFollowUp();
-				})();
-			}
-			// Messages typed while Pi is compacting are queued locally (see sendText)
-			// instead of sent over RPC, since the agent connection is torn down for the
-			// duration of compaction and a concurrent prompt can hang indefinitely
-			// instead of ever getting a response. Flush them now that it's safe.
-			if (event.type === "compaction_end") void flushQueuedFollowUp();
-		};
-		const toolEventCoalescer = new ToolEventCoalescer({
-			applyEvent: applyConversationEvent,
-		});
-		const unsubscribe = client.onEvent((event) => {
+		const unsubscribe = activeRuntime().client.onEvent((event) => {
 			if (isExtensionUiRequest(event)) {
-				toolEventCoalescer.flush();
+				activeRuntime().coalescer.flush();
 				props.logger.debug("ui.extension_request", {
 					method: event.method,
 					id: event.id,
@@ -2379,42 +2469,41 @@ export function App(props: AppOptions) {
 				setDialog(event);
 				return;
 			}
-			toolEventCoalescer.handle(event);
 		});
-		client.on("protocol-error", (error: Error) => {
+		activeRuntime().client.on("protocol-error", (error: Error) => {
 			if (startupPhase().kind !== "ready") {
 				startupFailure = error;
 				setStartupPhase({ kind: "failed", reason: "protocol" });
 			}
 			props.logger.error("ui.protocol_error", error);
-			conversation.system(error.message, "error");
+			activeRuntime().conversation.system(error.message, "error");
 			touch();
 		});
-		client.on("stderr", (chunk: string) => {
+		activeRuntime().client.on("stderr", (chunk: string) => {
 			const line = chunk.trim().split("\n").at(-1);
 			if (!line) return;
 			if (startupPhase().kind === "ready") setStatus(line.slice(0, 120));
 			else setStatus("loading extensions/session…");
 		});
-		client.on("exit", (error: Error) => {
+		activeRuntime().client.on("exit", (error: Error) => {
 			if (startupPhase().kind !== "ready") {
 				startupFailure = error;
 				setStartupPhase({ kind: "failed", reason: "exit" });
 			}
 			props.logger.error("ui.pi_exit", error);
 			setRpcAvailable(false);
-			conversation.system(error.message, "error");
+			activeRuntime().conversation.system(error.message, "error");
 			touch();
 		});
 		void (async () => {
 			try {
-				await client.start();
+				await activeRuntime().client.start();
 				props.logger.info("ui.pi_started");
 				const startupDeadlineAt = Date.now() + STARTUP_DEADLINE_MS;
 				const remainingStartupMs = () =>
 					Math.max(1, startupDeadlineAt - Date.now());
 				const state = await withStartupDeadline(
-					client.getState(SESSION_LOAD_REQUEST_TIMEOUT_MS),
+					activeRuntime().client.getState(SESSION_LOAD_REQUEST_TIMEOUT_MS),
 					remainingStartupMs(),
 				);
 				if (startupFailure) throw startupFailure;
@@ -2422,8 +2511,8 @@ export function App(props: AppOptions) {
 				setStatus("loading conversation…");
 				const [messages, remoteCommands] = await withStartupDeadline(
 					Promise.all([
-						client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS),
-						client.getCommands().catch((error) => {
+						activeRuntime().client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS),
+						activeRuntime().client.getCommands().catch((error) => {
 							props.logger.warn("ui.commands_load_failed", error);
 							return [];
 						}),
@@ -2433,9 +2522,9 @@ export function App(props: AppOptions) {
 				if (startupFailure) throw startupFailure;
 				setCommandChoices(mergeCommandChoices(remoteCommands));
 				const historyItems = initialItems(messages);
-				conversation.items.splice(
+				activeRuntime().conversation.items.splice(
 					0,
-					conversation.items.length,
+					activeRuntime().conversation.items.length,
 					...historyItems,
 				);
 				resetMessageWindow(historyItems.length);
@@ -2459,7 +2548,7 @@ export function App(props: AppOptions) {
 					),
 				});
 				setSessionState(state);
-				conversation.isStreaming = state.isStreaming;
+				activeRuntime().conversation.isStreaming = state.isStreaming;
 				setStartupPhase({ kind: "ready" });
 				setStatus(state.isStreaming ? "working" : "ready");
 				touch();
@@ -2478,7 +2567,7 @@ export function App(props: AppOptions) {
 				const message = error instanceof Error ? error.message : String(error);
 				props.logger.error("ui.start_failed", error);
 				if (previousPhase.kind !== "failed")
-					conversation.system(message, "error");
+					activeRuntime().conversation.system(message, "error");
 				touch();
 				setStatus(
 					reason === "timeout" ? "startup timed out" : "failed to start Pi",
@@ -2525,13 +2614,13 @@ export function App(props: AppOptions) {
 			props.logger.debug("ui.heartbeat", {
 				status: status(),
 				streaming: streaming(),
-				messages: conversation.items.length,
+				messages: activeRuntime().conversation.items.length,
 				subagents: runs().length,
 				memoryUsage: process.memoryUsage(),
 			});
 		}, 30_000);
 		onCleanup(() => {
-			toolEventCoalescer.flush();
+			for (const runtime of runtimeMap().values()) runtime.coalescer.flush();
 			unsubscribe();
 			if (statsTimer) clearInterval(statsTimer);
 			if (subagentsTimer) clearInterval(subagentsTimer);
@@ -2539,7 +2628,7 @@ export function App(props: AppOptions) {
 			if (spinnerTimer) clearInterval(spinnerTimer);
 			if (codexUsageTimer) clearInterval(codexUsageTimer);
 			props.logger.info("ui.cleanup");
-			void client.stop();
+			void activeRuntime().client.stop();
 		});
 	});
 
@@ -2609,6 +2698,13 @@ export function App(props: AppOptions) {
 
 	useKeyboard((event) => {
 		if (event.eventType === "release") return;
+		if (event.ctrl && event.name === "tab") {
+			event.preventDefault();
+			event.stopPropagation();
+			tabManager.cycle(event.shift ? -1 : 1);
+			refreshTabs();
+			return;
+		}
 		if (settingsRoute() !== "closed") {
 			if (event.name === "escape") {
 				event.preventDefault();
@@ -2775,7 +2871,7 @@ export function App(props: AppOptions) {
 				prompt?.focused &&
 				shouldRecoverPromptDraft({ draft, hasCopyableSelection: false })
 			) {
-				promptHistory.recordDraft(expandedPromptText());
+				activeRuntime().promptHistory.recordDraft(expandedPromptText());
 				clearMainDraft();
 				focusMainPrompt();
 				toast("Draft saved. Press Up to recover it.", "info");
@@ -2808,7 +2904,7 @@ export function App(props: AppOptions) {
 			(event.name === "up" || event.name === "down") &&
 			(prompt?.lineCount ?? 1) === 1
 		) {
-			const result = promptHistory.browse(
+			const result = activeRuntime().promptHistory.browse(
 				prompt?.plainText ?? "",
 				event.name === "up" ? "older" : "newer",
 			);
@@ -2898,9 +2994,9 @@ export function App(props: AppOptions) {
 			const next = nextDetailToggle({
 				toolsExpanded: expandedTools(),
 				thinkingExpanded: thinkingExpanded(),
-				hasExpandedToolOverride: expandedToolIds().size > 0,
+				hasExpandedToolOverride: activeRuntime().expandedToolIds.size > 0,
 				hasExpandedThinkingOverride: [
-					...thinkingExpansionOverrides().values(),
+					...activeRuntime().thinkingExpansionOverrides.values(),
 				].some(Boolean),
 			});
 			setExpandedTools(next);
@@ -3062,6 +3158,7 @@ export function App(props: AppOptions) {
 			flexDirection="column"
 			backgroundColor={colors.background}
 		>
+			<TabStrip tabs={tabState().tabs} activeId={tabState().activeId} onActivate={activateTab} onClose={closeTab} onCreate={createTab} onOpenForkPicker={() => void openForkPicker()} />
 			<box flexGrow={1} minHeight={1} flexDirection="row">
 				<box flexGrow={1} minWidth={0} flexDirection="column">
 					<Show
@@ -3139,7 +3236,7 @@ export function App(props: AppOptions) {
 									width={dimensions().width}
 									height={dimensions().height}
 									onSelectSession={(choice) => {
-										if (conversation.isStreaming) setSessionSelectorOpen(true);
+										if (activeRuntime().conversation.isStreaming) setSessionSelectorOpen(true);
 										void switchToSession(choice);
 									}}
 								/>
@@ -3196,6 +3293,8 @@ export function App(props: AppOptions) {
 												tool() !== undefined && diffExpanded(itemId)
 											}
 											onToggleDiff={toggleDiff}
+											canFork={!streaming()}
+											onFork={(entryId) => void forkAt(entryId)}
 											subagentTargets={subagentTargetsForItem()}
 											onInspectSubagentTarget={(targetKey) => {
 												setSelectedTargetKey(targetKey);
@@ -3387,6 +3486,7 @@ export function App(props: AppOptions) {
 									expandCollapsedPromptPaste(block.id);
 								}}
 								onContentChange={() => {
+									if (draftSwitchGuard) return;
 									const drafts = currentDrafts();
 									const rawText = prompt?.plainText ?? "";
 									const text = stripCollapsedPromptPasteFragments(
@@ -3400,7 +3500,7 @@ export function App(props: AppOptions) {
 										text,
 										drafts.mainPastes,
 									);
-									promptHistory.noteEditorChange(text);
+									activeRuntime().promptHistory.noteEditorChange(text);
 									setPromptText(text);
 									setPromptCursorOffset(prompt?.cursorOffset ?? text.length);
 									setCommandSuggestionIndex(0);
@@ -3625,6 +3725,9 @@ export function App(props: AppOptions) {
 					onCancel={closeSessionSelector}
 					onRetry={() => void discoverCurrentSessions()}
 				/>
+			</Show>
+			<Show when={forkPickerOpen()}>
+				<ForkPicker options={forkPickerOptionsSignal()} onCancel={() => setForkPickerOpen(false)} onSelect={(entryId) => { setForkPickerOpen(false); void forkAt(entryId); }} />
 			</Show>
 			<Show when={modelSelectorOpen()}>
 				<ModelSelectorDialog
