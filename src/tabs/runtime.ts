@@ -27,6 +27,36 @@ export type TabRuntimeOptions = {
 	onConversationChange?: (runtime: ConversationTabRuntime) => void;
 };
 
+export function blankTabPiArgs(args: readonly string[]): string[] {
+	const result: string[] = [];
+	let parseOptions = true;
+	for (let index = 0; index < args.length; index += 1) {
+		const arg = args[index];
+		if (arg === undefined) continue;
+		if (parseOptions && arg === "--") {
+			parseOptions = false;
+			result.push(arg);
+			continue;
+		}
+		if (parseOptions && (arg === "--continue" || arg === "-c")) continue;
+		if (parseOptions && (arg === "--session" || arg === "-s")) {
+			const value = args[index + 1];
+			if (value !== undefined && value !== "--") index += 1;
+			continue;
+		}
+		if (parseOptions && (arg.startsWith("--session=") || arg.startsWith("-s="))) continue;
+		result.push(arg);
+	}
+	return result;
+}
+
+export function sessionFilePiArgs(args: readonly string[], sessionFile: string): string[] {
+	const result = [...args];
+	const separatorIndex = result.indexOf("--");
+	result.splice(separatorIndex === -1 ? result.length : separatorIndex, 0, "--session", sessionFile);
+	return result;
+}
+
 export type ForkedTabSessionState = RpcSessionState & { sessionFile: string };
 
 export type ConversationTabRuntime = {
@@ -64,16 +94,16 @@ export type ConversationTabRuntime = {
 };
 
 export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRuntime {
+	const clientArgs = options.sessionFile
+		? sessionFilePiArgs(options.args ?? [], options.sessionFile)
+		: [...(options.args ?? [])];
 	const clientOptions: PiRpcClientOptions = {
 		cwd: options.cwd,
 		...(options.executable ? { executable: options.executable } : {}),
-		...(options.args ? { args: [...options.args] } : {}),
+		...(clientArgs.length > 0 ? { args: clientArgs } : {}),
 		...(options.logger ? { logger: options.logger } : {}),
 	};
-	const client = options.client ?? new PiRpcClient({
-		...clientOptions,
-		...(options.sessionFile ? { args: [...(options.args ?? []), "--session", options.sessionFile] } : {}),
-	});
+	const client = options.client ?? new PiRpcClient(clientOptions);
 	const conversation = options.conversation ?? new ConversationModel([], options.cwd);
 	let runtime: ConversationTabRuntime;
 	const applyConversationEvent = (event: PiEvent): void => {

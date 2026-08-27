@@ -88,7 +88,7 @@ import { ExtensionDialog } from "./ui/dialog.tsx";
 import { MessageView } from "./ui/message.tsx";
 import { CompactionPanel } from "./ui/compaction-panel.tsx";
 import { TabManager, type ConversationTab } from "./tabs/manager.ts";
-import { createTabRuntime, planForkTab, prepareForkedTabRuntime, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
+import { blankTabPiArgs, createTabRuntime, planForkTab, prepareForkedTabRuntime, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
 import { ExtensionRequestRouter, type ExtensionRequestEnvelope } from "./tabs/extension-router.ts";
 import { TabStrip } from "./ui/tab-strip.tsx";
 import { ForkPicker } from "./ui/fork-picker.tsx";
@@ -913,7 +913,7 @@ export function App(props: AppOptions) {
 	const createTab = (sessionFile?: string): string | undefined => {
 		const id = `tab-${++tabCounter}`;
 		if (!tabManager.create({ id, badges: 0 })) { toast("Maximum of 8 conversation tabs.", "warning"); return undefined; }
-		const runtime = createTabRuntime({ id, cwd: props.cwd, args: props.piArgs, ...(props.piExecutable ? { executable: props.piExecutable } : {}), ...(sessionFile ? { sessionFile } : {}), logger: props.logger,
+		const runtime = createTabRuntime({ id, cwd: props.cwd, args: sessionFile ? props.piArgs : blankTabPiArgs(props.piArgs), ...(props.piExecutable ? { executable: props.piExecutable } : {}), ...(sessionFile ? { sessionFile } : {}), logger: props.logger,
 			onEvent: routeRuntimeEvent,
 			onConversationChange: (tabRuntime) => { if (tabRuntime.id === activeTabId()) conversationTouch(); },
 		});
@@ -2141,6 +2141,7 @@ export function App(props: AppOptions) {
 			promptMapOpen() ||
 			memoryBrowserOpen() ||
 			subagentSelectorOpen() ||
+			forkPickerOpen() ||
 			inspectSubagent() ||
 			settingsRoute() !== "closed"
 		)
@@ -2150,6 +2151,7 @@ export function App(props: AppOptions) {
 				!dialog() &&
 				!modelSelectorOpen() &&
 				!sessionSelectorOpen() &&
+				!forkPickerOpen() &&
 				!promptMapOpen() &&
 				!memoryBrowserOpen() &&
 				!subagentSelectorOpen() &&
@@ -3080,7 +3082,7 @@ export function App(props: AppOptions) {
 
 	useKeyboard((event) => {
 		if (event.eventType === "release") return;
-		if (event.ctrl && event.name === "tab") {
+		if (event.ctrl && event.name === "tab" && !forkPickerOpen()) {
 			event.preventDefault();
 			event.stopPropagation();
 			const nextId = tabManager.cycle(event.shift ? -1 : 1);
@@ -3127,7 +3129,7 @@ export function App(props: AppOptions) {
 			}
 			return;
 		}
-		if (sessionSelectorOpen() || modelSelectorOpen() || memoryBrowserOpen())
+		if (sessionSelectorOpen() || modelSelectorOpen() || memoryBrowserOpen() || forkPickerOpen())
 			return;
 		if (promptMapOpen()) {
 			if (event.name === "escape") {
@@ -3804,6 +3806,7 @@ export function App(props: AppOptions) {
 									!dialog() &&
 									!modelSelectorOpen() &&
 									!sessionSelectorOpen() &&
+									!forkPickerOpen() &&
 									!promptMapOpen() &&
 									!subagentSelectorOpen() &&
 									!notificationDetailId() &&

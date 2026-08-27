@@ -15,9 +15,9 @@ export type TabStripProps = {
 
 export function TabStrip(props: TabStripProps) {
 	return (
-		<box id="tab-strip" flexDirection="row" height={2} width="100%">
+		<box id="tab-strip" flexDirection="row" alignItems="center" height={2} width="100%" paddingTop={1}>
 			<For each={props.tabs}>{(tab) => (
-				<box flexDirection="row" paddingLeft={1} paddingRight={1} backgroundColor={tab.id === props.activeId ? colors.panelRaised : colors.background} onMouseDown={(event) => { event.preventDefault(); props.onActivate(tab.id); }}>
+				<box flexDirection="row" alignItems="center" height={2} paddingLeft={1} paddingRight={1} backgroundColor={tab.id === props.activeId ? colors.panelRaised : colors.background} onMouseDown={(event) => { event.preventDefault(); props.onActivate(tab.id); }}>
 					<text fg={tab.id === props.activeId ? colors.textBright : colors.muted} attributes={tab.id === props.activeId ? 1 : 0}>
 						{tab.id === props.activeId ? "▸ " : "  "}{resolveTabTitle(tab)}{tab.badges > 0 ? ` •${tab.badges}` : ""}
 					</text>

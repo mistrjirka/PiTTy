@@ -11,6 +11,7 @@ export type SearchableDialogFocusOptions = {
 	getSearch: () => TextareaRenderable | undefined;
 	getList: () => SelectRenderable | undefined;
 	getListLength: () => number;
+	moveSelectionOnArrow?: boolean;
 };
 
 export type SearchableDialogFocusController = {
@@ -72,10 +73,15 @@ export function createSearchableDialogFocus(
 				event.preventDefault();
 				event.stopPropagation();
 				focusList();
-				if (event.name === "up")
+				if (event.name === "up") {
 					options
 						.getList()
 						?.setSelectedIndex(Math.max(0, options.getListLength() - 1));
+				} else if (options.moveSelectionOnArrow) {
+					options
+						.getList()
+						?.setSelectedIndex(Math.min(1, options.getListLength() - 1));
+				}
 				return true;
 			}
 			return false;

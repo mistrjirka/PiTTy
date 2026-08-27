@@ -29,7 +29,7 @@ export function ForkPicker(props: ForkPickerProps) {
 		return value ? props.options.filter((option) => option.label.toLowerCase().includes(value)) : [...props.options];
 	});
 	const options = createMemo(() => choices().map((option) => ({ name: option.label, description: "", value: option })));
-	const focus = createSearchableDialogFocus({ getSearch: () => search, getList: () => select, getListLength: () => choices().length });
+	const focus = createSearchableDialogFocus({ getSearch: () => search, getList: () => select, getListLength: () => choices().length, moveSelectionOnArrow: true });
 	const cancel = (event: KeyEvent) => { handleSearchableDialogCancel(event, props.onCancel); };
 	useKeyboard((event) => {
 		if (event.eventType === "release") return;

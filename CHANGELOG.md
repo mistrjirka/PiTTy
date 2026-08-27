@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.4
+
+### Tabs and Fork
+
+- `+` now opens a blank session reliably (strips inherited `--continue`/`--session` without touching fork session handling) and preserves `--` delimiter semantics.
+- Fork picker now lists all forkable user messages and allows selecting any entry; keyboard and mouse selection work for any row, not just the first.
+- Tab strip is height 2 with centered labels/icons, padded, and with active/inactive background differentiation.
+- Fixed tab forking to use a provisional runtime so the original tab keeps its subagents alive and the new tab hydrates correctly.
+- Fixed black chat on tab switch with per-tab inspector state, scroll and draft isolation, and correct active-tab activation.
+
+### Validation
+
+- Typecheck clean; full suite: 386 passed, 1 skipped; focused fork/tab tests passing.
+
 ## 0.6.3
 
 ### Truthful compaction telemetry

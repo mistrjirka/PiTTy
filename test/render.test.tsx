@@ -1257,6 +1257,23 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("1. First message");
 		expect(frame).toContain("2. Second message");
 		expect(frame).toContain("Enter select");
+
+		let firstArrowSelected: string | undefined;
+		const firstArrow = await mount(
+			() => (
+				<ForkPicker
+					options={choices}
+					onSelect={(entryId) => { firstArrowSelected = entryId; }}
+					onCancel={() => {}}
+				/>
+			),
+			80,
+			18,
+		);
+		firstArrow.mockInput.pressArrow("down");
+		firstArrow.mockInput.pressEnter();
+		await firstArrow.flush();
+		expect(firstArrowSelected).toBe("entry-2");
 		await setup.mockInput.typeText("Second");
 		await setup.flush();
 		setup.mockInput.pressEnter();
@@ -1349,6 +1366,11 @@ describe("OpenTUI components", () => {
 		if (!strip) throw new Error("tab strip missing");
 		expect(strip.height).toBe(2);
 		const frame = setup.captureCharFrame();
+		const tabLines = frame.split("\n");
+		expect(tabLines[0]).not.toContain("Primary");
+		expect(tabLines[1]).toContain("Primary");
+		expect(tabLines[1]).toContain("⑂");
+		expect(tabLines[1]).toContain("+");
 		expect(frame).toContain("Primary");
 		expect(frame).toContain("Forked •2");
 		for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(42);

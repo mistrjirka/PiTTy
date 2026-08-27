@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createTabRuntime, planForkTab, prepareForkedTabRuntime, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime } from "../src/tabs/runtime.ts";
+import { blankTabPiArgs, createTabRuntime, planForkTab, prepareForkedTabRuntime, refreshRuntimeEntries, resolveTabDraftSwitch, sessionFilePiArgs, startTabRuntime } from "../src/tabs/runtime.ts";
 import { PiRpcClient } from "../src/rpc/pi-rpc-client.ts";
 import type { RpcSessionState } from "../src/types.ts";
 
@@ -69,6 +69,13 @@ class ForkStubClient extends PiRpcClient {
 }
 
 describe("tab runtime factory", () => {
+	test("removes startup session selectors for blank tabs while preserving other Pi args", () => {
+		expect(blankTabPiArgs(["--extension", "observer", "--continue", "--session", "/tmp/source.jsonl", "--model", "gpt", "--", "-c", "--session=keep"])).toEqual(["--extension", "observer", "--model", "gpt", "--", "-c", "--session=keep"]);
+		expect(blankTabPiArgs(["-c", "-s", "/tmp/source.jsonl", "-m", "gpt"])).toEqual(["-m", "gpt"]);
+		expect(blankTabPiArgs(["--session", "--", "--session=after"])).toEqual(["--", "--session=after"]);
+		expect(sessionFilePiArgs(["--extension", "observer", "--", "custom-arg"], "/tmp/fork.jsonl")).toEqual(["--extension", "observer", "--session", "/tmp/fork.jsonl", "--", "custom-arg"]);
+	});
+
 	test("creates isolated clients, models, drafts, and expansion state", () => {
 		const first = createTabRuntime({ id: "one", cwd: process.cwd() });
 		const second = createTabRuntime({ id: "two", cwd: process.cwd() });
