@@ -39,7 +39,10 @@ if (parsed.values.help) {
   process.exit(0);
 }
 
-const piArgs: string[] = [];
+const piArgs: string[] = [
+  "--extension",
+  `${import.meta.dir}/pi-extensions/compaction-observer.mjs`,
+];
 if (parsed.values.continue) piArgs.push("--continue");
 if (typeof parsed.values.session === "string") piArgs.push("--session", parsed.values.session);
 if (typeof parsed.values.model === "string") piArgs.push("--model", parsed.values.model);

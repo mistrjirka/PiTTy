@@ -17,6 +17,12 @@ import {
 	toolOutputExpandable,
 } from "../src/ui/message.tsx";
 import {
+	CompactionPanel,
+	compactionContextPercent,
+	determinateContextBar,
+	indeterminateCompactionBar,
+} from "../src/ui/compaction-panel.tsx";
+import {
 	filterModelChoices,
 	formatContextWindow,
 	ModelSelectorDialog,
@@ -894,6 +900,190 @@ describe("OpenTUI components", () => {
 		expect(toolOutputExpandable("x".repeat(200))).toBe(true);
 		expect(toolOutputExpandable(`${"alpha ".repeat(30)}\nshort`)).toBe(true);
 		expect(toolOutputExpandable("x".repeat(321))).toBe(true);
+	});
+
+	test("renders truthful compaction activity and context-size gauges", async () => {
+		expect(compactionContextPercent({ version: 1, phase: "preparing", tokensBefore: 150_000, contextWindow: 200_000 })).toBe(75);
+		expect(determinateContextBar(50, 8)).toBe("████░░░░");
+		expect(indeterminateCompactionBar(2, 8)).toHaveLength(8);
+		const setup = await mount(
+			() => (
+				<CompactionPanel
+					telemetry={{
+						version: 1,
+						phase: "preparing",
+						reason: "threshold",
+						tokensBefore: 150_000,
+						contextWindow: 200_000,
+						summarizingContextMessages: 186,
+						plannedRetainedContextMessages: 23,
+						startedAt: 1_000,
+					}}
+					now={13_000}
+					spinner="◐"
+					frame={2}
+				/>
+			),
+			100,
+			8,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("Compacting · threshold · 12s elapsed");
+		expect(frame).toContain("Activity [");
+		expect(frame).toContain("indeterminate");
+		expect(frame).toContain("Context size [");
+		expect(frame).toContain("150K / 200K · 75% full");
+		expect(frame).toContain("Plan: summarize 186 context messages");
+		expect(frame).toContain("keep 23 recent context messages");
+	});
+
+	test("keeps wheel scrolling transcript-first until output scrolling is explicit", async () => {
+		const item: ConversationItem = {
+			kind: "tool",
+			id: "scroll-owner-tool",
+			toolCallId: "scroll-owner-tool",
+			name: "bash",
+			args: {},
+			output: Array.from({ length: 40 }, (_, index) => `OUTPUT_ROW_${index + 1}`).join("\n"),
+			timestamp: 1,
+			status: "done",
+			isError: false,
+		};
+		const [expanded, setExpanded] = createSignal(true);
+		let transcript!: ScrollBoxRenderable;
+		const setup = await mount(
+			() => (
+				<scrollbox
+					id="scroll-owner-transcript"
+					ref={(value) => {
+						transcript = value;
+					}}
+					height={12}
+					scrollY
+					scrollX={false}
+				>
+					<MessageView
+						item={item}
+						showThinking
+						toolExpanded={expanded}
+						onToggleTool={() => setExpanded((value) => !value)}
+					/>
+				</scrollbox>
+			),
+			90,
+			16,
+		);
+		let frame = setup.captureCharFrame();
+		expect(frame).toContain("scroll output · collapse");
+		const initiallyHiddenInner = setup.renderer.root.findDescendantById(
+			"scroll-owner-tool-output-scroll",
+		) as ScrollBoxRenderable | undefined;
+		expect(initiallyHiddenInner).toBeDefined();
+		expect(initiallyHiddenInner?.visible).toBe(false);
+		const previewRow = frame
+			.split("\n")
+			.findIndex((line) => line.includes("OUTPUT_ROW_2"));
+		expect(previewRow).toBeGreaterThanOrEqual(0);
+		await setup.mockMouse.scroll(4, previewRow, "down");
+		await setup.flush();
+		expect(transcript.scrollTop).toBeGreaterThan(0);
+
+		transcript.scrollTo(0);
+		await setup.flush();
+		frame = setup.captureCharFrame();
+		const outputScrollToggle = setup.renderer.root.findDescendantById(
+			"scroll-owner-tool-output-scroll-toggle",
+		) as Renderable | undefined;
+		expect(outputScrollToggle).toBeDefined();
+		if (!outputScrollToggle) throw new Error("output scroll toggle missing");
+		await setup.mockMouse.click(outputScrollToggle.x, outputScrollToggle.y);
+		await setup.flush();
+		const inner = setup.renderer.root.findDescendantById(
+			"scroll-owner-tool-output-scroll",
+		) as ScrollBoxRenderable | undefined;
+		expect(inner).toBeDefined();
+		if (!inner) throw new Error("inner output scrollbox missing");
+		frame = setup.captureCharFrame();
+		expect(frame).toContain("chat scroll · collapse");
+		inner.scrollTo(10);
+		await setup.flush();
+		const innerBefore = inner.scrollTop;
+		await setup.mockMouse.scroll(4, inner.y + 1, "up");
+		await setup.flush();
+		expect(inner.scrollTop).toBeLessThan(innerBefore);
+		expect(transcript.scrollTop).toBe(0);
+
+		frame = setup.captureCharFrame();
+		const toolToggle = setup.renderer.root.findDescendantById(
+			"scroll-owner-tool-tool-toggle",
+		) as Renderable | undefined;
+		expect(toolToggle).toBeDefined();
+		if (!toolToggle) throw new Error("tool collapse toggle missing");
+		await setup.mockMouse.click(toolToggle.x, toolToggle.y);
+		await setup.flush();
+		expect(expanded()).toBe(false);
+		expect(setup.captureCharFrame()).toContain("expand");
+		expect(inner.visible).toBe(false);
+	});
+
+	test("keeps diff path and resets explicit diff scroll ownership on collapse", async () => {
+		const item: ConversationItem = {
+			kind: "tool",
+			id: "scroll-owner-diff",
+			toolCallId: "scroll-owner-diff",
+			name: "edit",
+			args: {},
+			output: "Applied edit",
+			diff: Array.from({ length: 30 }, (_, index) => `${index % 2 ? "+" : "-"}DIFF_ROW_${index + 1}`).join("\n"),
+			diffPath: "src/example.ts",
+			timestamp: 1,
+			status: "done",
+			isError: false,
+		};
+		const [diffExpanded, setDiffExpanded] = createSignal(true);
+		const setup = await mount(
+			() => (
+				<MessageView
+					item={item}
+					showThinking
+					toolExpanded={false}
+					diffExpanded={diffExpanded}
+					onToggleDiff={() => setDiffExpanded((value) => !value)}
+				/>
+			),
+			100,
+			30,
+		);
+		let frame = setup.captureCharFrame();
+		expect(frame).toContain("src/example.ts");
+		expect(frame).toContain("scroll diff · collapse");
+		const diffScrollToggle = setup.renderer.root.findDescendantById(
+			"scroll-owner-diff-diff-scroll-toggle",
+		) as Renderable | undefined;
+		expect(diffScrollToggle).toBeDefined();
+		if (!diffScrollToggle) throw new Error("diff scroll toggle missing");
+		await setup.mockMouse.click(diffScrollToggle.x, diffScrollToggle.y);
+		await setup.flush();
+		const diffInner = setup.renderer.root.findDescendantById(
+			"scroll-owner-diff-diff-scroll",
+		) as ScrollBoxRenderable | undefined;
+		expect(diffInner).toBeDefined();
+		if (!diffInner) throw new Error("diff scrollbox missing");
+		expect(diffInner.visible).toBe(true);
+		frame = setup.captureCharFrame();
+		const diffToggle = setup.renderer.root.findDescendantById(
+			"scroll-owner-diff-diff-toggle",
+		) as Renderable | undefined;
+		expect(diffToggle).toBeDefined();
+		if (!diffToggle) throw new Error("diff collapse toggle missing");
+		await setup.mockMouse.click(diffToggle.x, diffToggle.y);
+		await setup.flush();
+		expect(diffExpanded()).toBe(false);
+		expect(setup.captureCharFrame()).toContain("view diff");
+		setDiffExpanded(true);
+		await setup.flush();
+		expect(diffInner.visible).toBe(false);
+		expect(setup.captureCharFrame()).toContain("scroll diff · collapse");
 	});
 
 	test("renders distinct user, assistant, and tool messages", async () => {
@@ -2409,6 +2599,7 @@ describe("OpenTUI components", () => {
 		const collapsedFrame = collapsed.captureCharFrame();
 		expect(collapsedFrame).toContain("▶ Thinking");
 		expect(collapsedFrame).toContain("Inspect the files carefully");
+		expect(collapsedFrame).toContain("expand");
 		expect(collapsedFrame).not.toContain("UNIQUE_EXPANDED_DETAIL");
 
 		const expanded = await mount(() => (
@@ -2421,6 +2612,7 @@ describe("OpenTUI components", () => {
 		));
 		const expandedFrame = expanded.captureCharFrame();
 		expect(expandedFrame).toContain("▼ Thinking");
+		expect(expandedFrame).toContain("collapse");
 		expect(expandedFrame).toContain("UNIQUE_EXPANDED_DETAIL");
 	});
 

@@ -2485,6 +2485,7 @@ describe("subagent controls", () => {
 				JSON.stringify({
 					recordType: "tool_start",
 					toolName: "bash",
+					toolCallId: "call-1",
 					argsPreview: "bun test",
 					ts: 20,
 				}),
@@ -2879,5 +2880,60 @@ describe("subagent controls", () => {
 			subagentTargets([nearbyRun]),
 		);
 		expect(owned.get("other-item") ?? []).toHaveLength(0);
+	});
+
+	test("matches same-name concurrent tool results by call id in completion order", () => {
+		const target = run();
+		const transcriptPath = path.join(target.asyncDir!, "call-ids.jsonl");
+		fs.writeFileSync(transcriptPath, [
+			JSON.stringify({ recordType: "tool_start", toolName: "bash", toolCallId: "call-a", argsPreview: "first", ts: 1 }),
+			JSON.stringify({ recordType: "tool_start", toolName: "bash", toolCallId: "call-b", argsPreview: "second", ts: 2 }),
+			JSON.stringify({ recordType: "message", role: "toolResult", toolCallId: "call-b", text: "second result", ts: 3 }),
+			JSON.stringify({ recordType: "message", role: "toolResult", toolCallId: "call-a", text: "first result", ts: 4 }),
+		].join("\n"));
+		target.transcriptPath = transcriptPath;
+		const tools = readSubagentConversation(target).filter((item): item is ToolItem => item.kind === "tool");
+		expect(tools).toHaveLength(2);
+		expect(tools.map((tool) => [tool.toolCallId, tool.output])).toEqual([
+			["call-a", "first result"],
+			["call-b", "second result"],
+		]);
+	});
+
+	test("does not attach ID-bearing unknown tool records by same-name fallback", () => {
+		const target = run();
+		const transcriptPath = path.join(target.asyncDir!, "unknown-call-id.jsonl");
+		fs.writeFileSync(transcriptPath, [
+			JSON.stringify({ recordType: "tool_start", toolName: "bash", toolCallId: "call-known", argsPreview: "known", ts: 1 }),
+			JSON.stringify({ recordType: "tool_start", toolName: "bash", argsPreview: "legacy", ts: 2 }),
+			JSON.stringify({ recordType: "message", role: "toolResult", toolName: "bash", toolCallId: "call-unknown", text: "unknown result", ts: 3 }),
+			JSON.stringify({ recordType: "tool_end", toolName: "bash", toolCallId: "call-unknown", ts: 4 }),
+		].join("\n"));
+		target.transcriptPath = transcriptPath;
+
+		const tools = readSubagentConversation(target).filter((item): item is ToolItem => item.kind === "tool");
+		expect(tools).toHaveLength(3);
+		expect(tools[0]).toEqual(expect.objectContaining({ toolCallId: "call-known", output: "" }));
+		expect(tools[1]).toEqual(expect.objectContaining({ args: "legacy", output: "" }));
+		expect(tools[0]?.endedAt).toBeUndefined();
+		expect(tools[1]?.endedAt).toBeUndefined();
+		expect(tools[2]).toEqual(expect.objectContaining({ toolCallId: "call-unknown", output: "unknown result" }));
+	});
+
+	test("preserves repeated user prompts unless records identify a known duplicate", () => {
+		const target = run();
+		const transcriptPath = path.join(target.asyncDir!, "users.jsonl");
+		fs.writeFileSync(transcriptPath, [
+			JSON.stringify({ recordType: "message", role: "user", text: "repeat", ts: 1 }),
+			JSON.stringify({ recordType: "message", role: "user", text: "repeat", ts: 2 }),
+			JSON.stringify({ recordType: "message", role: "user", subtype: "initial_prompt", text: "duplicate", ts: 3 }),
+			JSON.stringify({ recordType: "message", role: "user", subtype: "message_end", text: "duplicate", ts: 4 }),
+		].join("\n"));
+		target.transcriptPath = transcriptPath;
+		expect(readSubagentConversation(target).filter((item) => item.kind === "user").map((item) => item.text)).toEqual([
+			"repeat",
+			"repeat",
+			"duplicate",
+		]);
 	});
 });

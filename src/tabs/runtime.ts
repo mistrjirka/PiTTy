@@ -3,6 +3,10 @@ import { PiRpcClient, type PiRpcClientOptions } from "../rpc/pi-rpc-client.ts";
 import { ConversationModel, initialItems, isConversationEvent } from "../state/conversation.ts";
 import { EntryIndex } from "./entry-index.ts";
 import { ToolEventCoalescer } from "../state/tool-event-coalescer.ts";
+import type {
+	CompactionCompletion,
+	CompactionTelemetry,
+} from "../state/compaction-telemetry.ts";
 import { MessageUpdateBatcher } from "../state/message-update-batcher.ts";
 import { PromptHistory } from "../state/prompt-history.ts";
 import type { DraftState } from "../state/input-continuity.ts";
@@ -47,6 +51,9 @@ export type ConversationTabRuntime = {
 	lastError?: Error;
 	requestPerformance: RequestPerformanceTracker;
 	lastRequestPerformance?: RequestPerformance;
+	compactionTelemetry?: CompactionTelemetry;
+	compactionAttempt: number;
+	lastCompactionCompletion?: CompactionCompletion;
 };
 
 export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRuntime {
@@ -92,6 +99,7 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		thinkingExpansionOverrides: new Map(),
 		runs: [],
 		inspectSubagent: false,
+	compactionAttempt: 0,
 		forkInProgress: false,
 		startupResolved: false,
 		requestPerformance: new RequestPerformanceTracker(),

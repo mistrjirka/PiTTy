@@ -251,16 +251,35 @@ export function substantiveSubagentActivityAt(
 
 function findPendingTool(
   items: ConversationItem[],
-  pendingByName: Map<string, number[]>,
-  toolName: string,
+  pending: Map<string, number[]>,
+  key: string,
   predicate: (tool: ToolItem) => boolean,
 ): number | undefined {
-  const queue = pendingByName.get(toolName) ?? [];
+  const queue = pending.get(key) ?? [];
   for (const index of queue) {
     const item = items[index];
     if (item?.kind === "tool" && predicate(item)) return index;
   }
   return undefined;
+}
+
+function userRecordSubtype(record: Record<string, unknown>): string {
+  return text(record.subtype) || text(record.messageType);
+}
+
+function isKnownDuplicateUserRecord(
+  previous: { text: string; record: Record<string, unknown>; index: number } | undefined,
+  current: { text: string; record: Record<string, unknown>; index: number },
+): boolean {
+  if (!previous || normalized(previous.text) !== normalized(current.text)) return false;
+  const previousId = text(previous.record.id);
+  const currentId = text(current.record.id);
+  if (previousId && currentId && previousId === currentId) return true;
+  const previousSubtype = userRecordSubtype(previous.record);
+  const currentSubtype = userRecordSubtype(current.record);
+  return previous.index + 1 === current.index &&
+    ((previousSubtype === "initial_prompt" && currentSubtype === "message_end") ||
+      (previousSubtype === "message_end" && currentSubtype === "initial_prompt"));
 }
 
 /**
@@ -280,8 +299,9 @@ export function readSubagentConversation(
     if (sessionItems.length > 0) return sessionItems.slice(-maxItems);
   }
   const pendingByName = new Map<string, number[]>();
+  const pendingByCallId = new Map<string, number[]>();
   const resolvedTools = new Set<number>();
-  const seenUsers = new Set<string>();
+  let previousUser: { text: string; record: Record<string, unknown>; index: number } | undefined;
 
   for (const { record, index } of artifactRecords) {
     const timestamp = recordTimestamp(record);
@@ -291,10 +311,11 @@ export function readSubagentConversation(
 
     if (recordType === "tool_start") {
       const name = text(record.toolName) || "tool";
+      const callId = text(record.toolCallId);
       const item: ToolItem = {
         kind: "tool",
         id: `${base}-tool`,
-        toolCallId: `${base}-call`,
+        toolCallId: callId || `${base}-call`,
         name,
         args: text(record.argsPreview) || undefined,
         output: "",
@@ -304,20 +325,29 @@ export function readSubagentConversation(
         isError: false,
       };
       items.push(item);
+      const itemIndex = items.length - 1;
       const queue = pendingByName.get(name) ?? [];
-      queue.push(items.length - 1);
+      queue.push(itemIndex);
       pendingByName.set(name, queue);
+      if (callId) {
+        const callQueue = pendingByCallId.get(callId) ?? [];
+        callQueue.push(itemIndex);
+        pendingByCallId.set(callId, callQueue);
+      }
       continue;
     }
 
     if (recordType === "tool_end") {
       const name = text(record.toolName) || "tool";
-      const targetIndex = findPendingTool(
-        items,
-        pendingByName,
-        name,
-        (tool) => tool.endedAt === undefined,
-      );
+      const callId = text(record.toolCallId);
+      const targetIndex = callId
+        ? findPendingTool(items, pendingByCallId, callId, (tool) => tool.endedAt === undefined)
+        : findPendingTool(
+            items,
+            pendingByName,
+            name,
+            (tool) => tool.endedAt === undefined,
+          );
       if (targetIndex !== undefined) {
         const tool = items[targetIndex] as ToolItem;
         items[targetIndex] = { ...tool, endedAt: timestamp, status: "pending" };
@@ -380,17 +410,18 @@ export function readSubagentConversation(
       const output = direct || messageText(rawMessage, "text");
       const name =
         text(rawMessage?.toolName) || text(record.toolName) || "tool";
-      const toolCallId = text(rawMessage?.toolCallId) || `${base}-call`;
+      const toolCallId = text(rawMessage?.toolCallId) || text(record.toolCallId);
+      const displayToolCallId = toolCallId || `${base}-call`;
       const isError = Boolean(rawMessage?.isError ?? record.isError);
       const details = rawMessage?.details ?? record.details;
-      const matchedIndex = pendingByName
-        .get(name)
-        ?.find((index) => !resolvedTools.has(index));
+      const matchedIndex = toolCallId
+        ? findPendingTool(items, pendingByCallId, toolCallId, (tool) => !resolvedTools.has(items.indexOf(tool)))
+        : pendingByName.get(name)?.find((index) => !resolvedTools.has(index));
       if (matchedIndex === undefined) {
         const fallback: ToolItem = {
           kind: "tool",
           id: `${base}-tool-result`,
-          toolCallId,
+          toolCallId: displayToolCallId,
           name,
           args: undefined,
           output,
@@ -408,7 +439,7 @@ export function readSubagentConversation(
         const tool = items[matchedIndex] as ToolItem;
         items[matchedIndex] = {
           ...tool,
-          toolCallId,
+          toolCallId: displayToolCallId,
           output,
           details,
           diff: resultDiff(details),
@@ -426,11 +457,12 @@ export function readSubagentConversation(
       const userText = direct || messageText(rawMessage, "text");
       if (!userText) continue;
       if (userText === "[prompt redacted]; live Prompt Audit only.") continue;
-      const key = normalized(userText);
+      const currentUser = { text: userText, record, index };
       // pi-subagents commonly writes the same task once as initial_prompt and
-      // again as message_end. Keep the first copy only.
-      if (seenUsers.has(key)) continue;
-      seenUsers.add(key);
+      // again as message_end. Suppress only that known duplicate pair (or an
+      // exact repeated record id), never an unrelated repeated prompt.
+      if (isKnownDuplicateUserRecord(previousUser, currentUser)) continue;
+      previousUser = currentUser;
       items.push({
         kind: "user",
         id: `${base}-user`,

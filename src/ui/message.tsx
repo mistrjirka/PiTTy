@@ -1,8 +1,9 @@
-import { For, Show, createEffect, createMemo, type Accessor } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, type Accessor } from "solid-js";
 import type {
 	BoxRenderable,
 	MarkdownRenderable,
 	TextRenderable,
+	ScrollBoxRenderable,
 } from "@opentui/core";
 import stripAnsi from "strip-ansi";
 import type { ConversationItem, CustomItem, ToolItem } from "../types.ts";
@@ -224,14 +225,371 @@ function currentMessageItem(source: MessageItemSource): ConversationItem {
 	return typeof source === "function" ? source() : source;
 }
 
+function resolvedBoolean(
+	value: boolean | Accessor<boolean> | undefined,
+): boolean {
+	return typeof value === "function" ? value() : value === true;
+}
+
+function ToolDetails(props: {
+	item: ToolItem;
+	toolExpanded: boolean | Accessor<boolean>;
+	onToggleTool?: ((toolId: string) => void) | undefined;
+	diffExpanded?: boolean | Accessor<boolean> | undefined;
+	onToggleDiff?: ((toolId: string) => void) | undefined;
+}) {
+	const output = () => props.item.output;
+	const diff = () => props.item.diff ?? "";
+	const expandable = () => Boolean(output() && toolOutputExpandable(output()));
+	const toolExpanded = () => expandable() && resolvedBoolean(props.toolExpanded);
+	const diffExpanded = () => resolvedBoolean(props.diffExpanded);
+	const stats = () => diffStats(diff());
+	const [scrollOwner, setScrollOwner] = createSignal<
+		"transcript" | "output" | "diff"
+	>("transcript");
+
+	let outputCollapsedBox: BoxRenderable | undefined;
+	let outputExpandedBox: BoxRenderable | undefined;
+	let outputPreviewBox: BoxRenderable | undefined;
+	let outputScrollBox: ScrollBoxRenderable | undefined;
+	let outputScrollToggle: BoxRenderable | undefined;
+	let outputScrollLabel: TextRenderable | undefined;
+	let toolToggleLabel: TextRenderable | undefined;
+	let diffContentBox: BoxRenderable | undefined;
+	let diffPreviewBox: BoxRenderable | undefined;
+	let diffScrollBox: ScrollBoxRenderable | undefined;
+	let diffScrollToggle: BoxRenderable | undefined;
+	let diffScrollLabel: TextRenderable | undefined;
+	let diffToggleLabel: TextRenderable | undefined;
+
+	const syncView = (owner: "transcript" | "output" | "diff") => {
+		const outputOpen = toolExpanded();
+		const diffOpen = diffExpanded();
+		if (outputCollapsedBox) outputCollapsedBox.visible = !outputOpen;
+		if (outputExpandedBox) outputExpandedBox.visible = outputOpen;
+		if (outputPreviewBox)
+			outputPreviewBox.visible = outputOpen && owner !== "output";
+		if (outputScrollBox)
+			outputScrollBox.visible = outputOpen && owner === "output";
+		if (outputScrollToggle) outputScrollToggle.visible = outputOpen;
+		if (outputScrollLabel)
+			outputScrollLabel.content =
+				owner === "output" ? "chat scroll" : "scroll output";
+		if (toolToggleLabel)
+			toolToggleLabel.content = outputOpen ? "collapse" : "expand";
+		if (diffContentBox) diffContentBox.visible = diffOpen;
+		if (diffPreviewBox) diffPreviewBox.visible = diffOpen && owner !== "diff";
+		if (diffScrollBox) diffScrollBox.visible = diffOpen && owner === "diff";
+		if (diffScrollToggle) diffScrollToggle.visible = diffOpen;
+		if (diffScrollLabel)
+			diffScrollLabel.content = owner === "diff" ? "chat scroll" : "scroll diff";
+		if (diffToggleLabel)
+			diffToggleLabel.content = diffOpen ? "collapse" : "view diff";
+	};
+
+	const applyScrollOwner = (owner: "transcript" | "output" | "diff") => {
+		setScrollOwner(owner);
+		syncView(owner);
+	};
+
+	createEffect(() => {
+		const owner = scrollOwner();
+		if (
+			(owner === "output" && !toolExpanded()) ||
+			(owner === "diff" && !diffExpanded())
+		) {
+			applyScrollOwner("transcript");
+			return;
+		}
+		syncView(owner);
+	});
+
+	return (
+		<>
+			<Show when={output()}>
+				<Show
+					when={expandable()}
+					fallback={
+						<text fg={colors.muted} selectable wrapMode="word">
+							{cleanTerminalText(output())}
+						</text>
+					}
+				>
+					<box flexDirection="column">
+						<box flexDirection="row">
+							<text fg={colors.subtle} wrapMode="none">
+								Output
+							</text>
+							<box flexGrow={1} />
+							<box
+								id={`${props.item.id}-output-scroll-toggle`}
+								ref={(value) => {
+									outputScrollToggle = value;
+								}}
+								visible={toolExpanded()}
+								height={1}
+								flexShrink={0}
+								onMouseDown={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									applyScrollOwner(
+										scrollOwner() === "output" ? "transcript" : "output",
+									);
+								}}
+							>
+								<text
+									ref={(value) => {
+										outputScrollLabel = value;
+									}}
+									fg={colors.cyan}
+									wrapMode="none"
+								>
+									{scrollOwner() === "output" ? "chat scroll" : "scroll output"}
+								</text>
+								</box>
+							<text
+								fg={colors.subtle}
+								wrapMode="none"
+								visible={toolExpanded()}
+							>
+								{" · "}
+							</text>
+							<box
+								id={`${props.item.id}-tool-toggle`}
+								height={1}
+								flexShrink={0}
+								onMouseDown={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									props.onToggleTool?.(props.item.id);
+								}}
+							>
+								<text
+									ref={(value) => {
+										toolToggleLabel = value;
+									}}
+									fg={colors.cyan}
+									wrapMode="none"
+								>
+									{toolExpanded() ? "collapse" : "expand"}
+								</text>
+							</box>
+						</box>
+						<box
+							ref={(value) => {
+								outputCollapsedBox = value;
+							}}
+							visible={!toolExpanded()}
+							flexDirection="row"
+							onMouseDown={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								props.onToggleTool?.(props.item.id);
+							}}
+						>
+							<text fg={colors.subtle} wrapMode="none">
+								{collapsedPreview(output())}
+							</text>
+							<box flexGrow={1} />
+							<text fg={colors.cyan}>click to expand</text>
+						</box>
+						<box
+							ref={(value) => {
+								outputExpandedBox = value;
+							}}
+							visible={toolExpanded()}
+							flexDirection="column"
+						>
+							<box
+								id={`${props.item.id}-output-preview`}
+								ref={(value) => {
+									outputPreviewBox = value;
+								}}
+								visible={scrollOwner() !== "output"}
+								height={expandedToolHeight(output())}
+								minHeight={6}
+								overflow="hidden"
+							>
+								<text fg={colors.muted} selectable wrapMode="word">
+									{cleanTerminalText(output())}
+								</text>
+							</box>
+							<scrollbox
+								id={`${props.item.id}-output-scroll`}
+								ref={(value) => {
+									outputScrollBox = value;
+								}}
+								visible={scrollOwner() === "output"}
+								focusable={false}
+								height={expandedToolHeight(output())}
+								minHeight={6}
+								scrollY
+								scrollX={false}
+								stickyScroll
+								stickyStart="bottom"
+								viewportCulling
+								onMouseScroll={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+								}}
+								verticalScrollbarOptions={{ showArrows: false }}
+							>
+								<text fg={colors.muted} selectable wrapMode="word">
+									{cleanTerminalText(output())}
+								</text>
+							</scrollbox>
+						</box>
+					</box>
+				</Show>
+			</Show>
+
+			<Show when={diff().trim()}>
+				<box
+					flexDirection="column"
+					marginTop={1}
+					border={["top"]}
+					borderColor={colors.borderStrong}
+					paddingTop={1}
+				>
+					<box flexDirection="row">
+						<text fg={colors.green} attributes={1}>
+							{diffExpanded() ? "▼" : "▶"} Changes
+						</text>
+						<text fg={colors.green}> +{stats().additions}</text>
+						<text fg={colors.red}> -{stats().deletions}</text>
+						<Show when={props.item.diffPath}>
+							<text fg={colors.muted} wrapMode="none">
+								{" "}
+								{props.item.diffPath ?? ""}
+							</text>
+						</Show>
+						<box flexGrow={1} />
+						<box
+							id={`${props.item.id}-diff-scroll-toggle`}
+							ref={(value) => {
+								diffScrollToggle = value;
+							}}
+							visible={diffExpanded()}
+							height={1}
+							flexShrink={0}
+							onMouseDown={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								applyScrollOwner(
+									scrollOwner() === "diff" ? "transcript" : "diff",
+								);
+							}}
+						>
+							<text
+								ref={(value) => {
+									diffScrollLabel = value;
+								}}
+								fg={colors.cyan}
+								wrapMode="none"
+							>
+								{scrollOwner() === "diff" ? "chat scroll" : "scroll diff"}
+							</text>
+						</box>
+						<text fg={colors.subtle} wrapMode="none" visible={diffExpanded()}>
+							{" · "}
+						</text>
+						<box
+							id={`${props.item.id}-diff-toggle`}
+							height={1}
+							flexShrink={0}
+							onMouseDown={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								props.onToggleDiff?.(props.item.id);
+							}}
+						>
+							<text
+								ref={(value) => {
+									diffToggleLabel = value;
+								}}
+								fg={colors.cyan}
+								wrapMode="none"
+							>
+								{diffExpanded() ? "collapse" : "view diff"}
+							</text>
+						</box>
+					</box>
+					<box
+						ref={(value) => {
+							diffContentBox = value;
+						}}
+						visible={diffExpanded()}
+						flexDirection="column"
+					>
+						<box
+							id={`${props.item.id}-diff-preview`}
+							ref={(value) => {
+								diffPreviewBox = value;
+							}}
+							visible={scrollOwner() !== "diff"}
+							height={expandedDiffHeight(diff())}
+							minHeight={6}
+							overflow="hidden"
+							backgroundColor={colors.diffBg}
+						>
+							<For each={diffLines(diff())}>
+								{(line) => (
+									<text
+										fg={diffLineColor(line)}
+										selectable
+										wrapMode="char"
+									>
+										{line || " "}
+									</text>
+								)}
+							</For>
+						</box>
+						<scrollbox
+							id={`${props.item.id}-diff-scroll`}
+							ref={(value) => {
+								diffScrollBox = value;
+							}}
+							visible={scrollOwner() === "diff"}
+							focusable={false}
+							height={expandedDiffHeight(diff())}
+							minHeight={6}
+							scrollY
+							scrollX={false}
+							viewportCulling
+							backgroundColor={colors.diffBg}
+							onMouseScroll={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+							}}
+							verticalScrollbarOptions={{ showArrows: false }}
+						>
+							<For each={diffLines(diff())}>
+								{(line) => (
+									<text
+										fg={diffLineColor(line)}
+										selectable
+										wrapMode="char"
+									>
+										{line || " "}
+									</text>
+								)}
+							</For>
+						</scrollbox>
+					</box>
+				</box>
+			</Show>
+		</>
+	);
+}
+
 export function MessageView(props: {
 	item: MessageItemSource;
 	showThinking: boolean;
 	thinkingExpanded?: boolean | Accessor<boolean>;
 	onToggleThinking?: () => void;
-	toolExpanded: boolean;
+	toolExpanded: boolean | Accessor<boolean>;
 	onToggleTool?: (toolId: string) => void;
-	diffExpanded?: boolean;
+	diffExpanded?: boolean | Accessor<boolean>;
 	onToggleDiff?: (toolId: string) => void;
 	subagentTargets?: SubagentTarget[] | undefined;
 	 onInspectSubagentTarget?: ((targetKey: string) => void) | undefined;
@@ -305,7 +663,9 @@ export function MessageView(props: {
 			thinkingTitle.content = expanded ? "▼ Thinking" : "▶ Thinking";
 		if (thinkingCount) {
 			const lines = thinkingLineCount(thought);
-			thinkingCount.content = `${lines} line${lines === 1 ? "" : "s"} · click`;
+			thinkingCount.content = `${lines} line${lines === 1 ? "" : "s"} · ${
+				expanded ? "collapse" : "expand"
+			}`;
 		}
 		if (thinkingPreview) {
 			thinkingPreview.content = collapsedThinkingPreview(thought);
@@ -417,7 +777,7 @@ export function MessageView(props: {
 								fg={colors.subtle}
 							>
 								{thinkingLineCount(thinking())} line
-								{thinkingLineCount(thinking()) === 1 ? "" : "s"} · click
+								{thinkingLineCount(thinking()) === 1 ? "" : "s"} · {thinkingIsExpanded() ? "collapse" : "expand"}
 							</text>
 						</box>
 						<text
@@ -500,37 +860,37 @@ export function MessageView(props: {
 
 			<Show when={item.kind === "tool"}>
 				{(() => {
-					const output = () => (item.kind === "tool" ? item.output : "");
-					const diff = () => (item.kind === "tool" ? (item.diff ?? "") : "");
-					const expandable = () =>
-						Boolean(output() && toolOutputExpandable(output()));
-					const expanded = () => expandable() && props.toolExpanded;
-					const visual = () =>
-						item.kind === "tool"
-							? toolVisual(item.name, item.isError)
-							: toolVisual("tool", false);
-					const stats = () => diffStats(diff());
+					if (item.kind !== "tool") return null;
+					const expandable = () => toolOutputExpandable(item.output);
+					const expanded = () =>
+						expandable() && resolvedBoolean(props.toolExpanded);
+					const visual = () => toolVisual(item.name, item.isError);
 					const supervisor = () =>
-						item.kind === "tool" && item.name.toLowerCase() === "subagent_supervisor";
+						item.name.toLowerCase() === "subagent_supervisor";
 					const supervisorLabel = () =>
-						supervisor() && item.kind === "tool" ? supervisorToolLabel(item.args) : undefined;
+						supervisor() ? supervisorToolLabel(item.args) : undefined;
 					const subagentFamily = () => {
-						if (item.kind !== "tool") return false;
 						const name = item.name.toLowerCase();
-						return name === "subagent" || name === "workflow" || name.endsWith("_subagent");
+						return (
+							name === "subagent" ||
+							name === "workflow" ||
+							name.endsWith("_subagent")
+						);
 					};
 					const terminal = () =>
-						item.kind === "tool" && subagentFamily()
-							? terminalBadge(item.status, item.isError, toolTiming(item, props.now ?? Date.now()))
+						subagentFamily()
+							? terminalBadge(
+									item.status,
+									item.isError,
+									toolTiming(item, props.now ?? Date.now()),
+								)
 							: undefined;
 					const subagentLabel = () =>
-						item.kind === "tool" && subagentFamily()
-							? summarizeSubagentArgs(item.args)
-							: undefined;
+						subagentFamily() ? summarizeSubagentArgs(item.args) : undefined;
 					const subagentGist = () =>
-						item.kind === "tool" && subagentFamily() ? taskGist(item.args) : undefined;
+						subagentFamily() ? taskGist(item.args) : undefined;
 					const children = () =>
-						item.kind === "tool" && subagentFamily()
+						subagentFamily()
 							? workflowChildrenSummary(item.args, item.output)
 							: undefined;
 					return (
@@ -552,34 +912,34 @@ export function MessageView(props: {
 									if (!expandable()) return;
 									event.preventDefault();
 									event.stopPropagation();
-									if (item.kind === "tool") props.onToggleTool?.(item.id);
+									props.onToggleTool?.(item.id);
 								}}
 							>
 								<text fg={visual().accent} attributes={1}>
-									{item.kind === "tool"
-										? `${expandable() ? (expanded() ? "▼ " : "▶ ") : ""}${item.status === "streaming" ? "◉" : visual().icon} TOOL · ${supervisorLabel() ?? subagentLabel() ?? item.name}${children() ? ` ${children()}` : ""}${terminal() ? ` · ${terminal()}` : ""}`
-										: ""}
+									{`${expandable() ? (expanded() ? "▼ " : "▶ ") : ""}${
+										item.status === "streaming" ? "◉" : visual().icon
+									} TOOL · ${
+										supervisorLabel() ?? subagentLabel() ?? item.name
+									}${children() ? ` ${children()}` : ""}${
+										terminal() ? ` · ${terminal()}` : ""
+									}`}
 								</text>
-								<Show when={item.kind === "tool" && item.args !== undefined && !subagentGist()}>
+								<Show when={item.args !== undefined && !subagentGist()}>
 									<text fg={colors.muted} selectable wrapMode="word">
-										{item.kind === "tool"
-											? supervisorLabel()
-												? `  ${supervisorMessage(item.args)}`
-												: `  ${prettyArgs(item.args).replace(/\s+/g, " ").slice(0, 150)}`
-											: ""}
+										{supervisorLabel()
+											? `  ${supervisorMessage(item.args)}`
+											: `  ${prettyArgs(item.args).replace(/\s+/g, " ").slice(0, 150)}`}
 									</text>
 								</Show>
 								<box flexGrow={1} />
 								<Show
 									when={
-										item.kind === "tool" &&
-										toolTiming(item, props.now ?? Date.now()) && !subagentFamily()
+										toolTiming(item, props.now ?? Date.now()) &&
+										!subagentFamily()
 									}
 								>
 									<text fg={colors.subtle}>
-										{item.kind === "tool"
-											? toolTiming(item, props.now ?? Date.now())
-											: ""}
+										{toolTiming(item, props.now ?? Date.now())}
 									</text>
 								</Show>
 							</box>
@@ -650,124 +1010,19 @@ export function MessageView(props: {
 									</For>
 								</box>
 							</Show>
-							<Show when={output()}>
-								<Show
-									when={expandable()}
-									fallback={
-										<text fg={colors.muted} selectable wrapMode="word">
-											{cleanTerminalText(output())}
-										</text>
-									}
-								>
-									<Show
-										when={expanded()}
-										fallback={
-											<box
-												flexDirection="row"
-												onMouseDown={(event) => {
-													event.preventDefault();
-													event.stopPropagation();
-													if (item.kind === "tool") props.onToggleTool?.(item.id);
-												}}
-											>
-												<text fg={colors.subtle} wrapMode="none">
-													{collapsedPreview(output())}
-												</text>
-												<box flexGrow={1} />
-												<text fg={colors.cyan}>click to expand</text>
-											</box>
-										}
-									>
-										<scrollbox
-											height={expandedToolHeight(output())}
-											minHeight={6}
-											scrollY
-											scrollX={false}
-											stickyScroll
-											stickyStart="bottom"
-											viewportCulling={true}
-											onMouseScroll={(event) => {
-												event.preventDefault();
-												event.stopPropagation();
-											}}
-											verticalScrollbarOptions={{ showArrows: false }}
-										>
-											<text fg={colors.muted} selectable wrapMode="word">
-												{cleanTerminalText(output())}
-											</text>
-										</scrollbox>
-									</Show>
-								</Show>
-							</Show>
-							<Show when={diff().trim()}>
-								<box
-									flexDirection="column"
-									marginTop={1}
-									border={["top"]}
-									borderColor={colors.borderStrong}
-									paddingTop={1}
-								>
-									<box
-										flexDirection="row"
-										onMouseDown={(event) => {
-											event.preventDefault();
-											event.stopPropagation();
-											if (item.kind === "tool") props.onToggleDiff?.(item.id);
-										}}
-									>
-										<text fg={colors.green} attributes={1}>
-											{props.diffExpanded ? "▼" : "▶"} Changes
-										</text>
-										<text fg={colors.green}> +{stats().additions}</text>
-										<text fg={colors.red}> -{stats().deletions}</text>
-										<Show when={item.kind === "tool" && item.diffPath}>
-											<text fg={colors.muted}>
-												{" "}
-												{item.kind === "tool" ? (item.diffPath ?? "") : ""}
-											</text>
-										</Show>
-										<box flexGrow={1} />
-										<text fg={colors.cyan}>
-											{props.diffExpanded
-												? "click to collapse"
-												: "click to view diff"}
-										</text>
-									</box>
-									<Show when={props.diffExpanded}>
-										<scrollbox
-											height={expandedDiffHeight(diff())}
-											minHeight={6}
-											scrollY
-											scrollX={false}
-											viewportCulling={true}
-											backgroundColor={colors.diffBg}
-											onMouseScroll={(event) => {
-												event.preventDefault();
-												event.stopPropagation();
-											}}
-											verticalScrollbarOptions={{ showArrows: false }}
-										>
-											<For each={diffLines(diff())}>
-												{(line) => (
-													<text
-														fg={diffLineColor(line)}
-														selectable
-														wrapMode="char"
-													>
-														{line || " "}
-													</text>
-												)}
-											</For>
-										</scrollbox>
-									</Show>
-								</box>
-							</Show>
+							<ToolDetails
+								item={item}
+								toolExpanded={props.toolExpanded}
+								onToggleTool={props.onToggleTool}
+								diffExpanded={props.diffExpanded}
+								onToggleDiff={props.onToggleDiff}
+							/>
 						</box>
 					);
 				})()}
 			</Show>
 
-			<Show when={item.kind === "custom"}>
+							<Show when={item.kind === "custom"}>
 				{(() => {
 					if (item.kind !== "custom") return null;
 					const question = item.customType === "subagent_supervisor_request";

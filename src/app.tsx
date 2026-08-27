@@ -35,6 +35,13 @@ import { createDiagnosticBundle } from "./diagnostics/bundle.ts";
 import { PiRpcClient, PiRpcTimeoutError } from "./rpc/pi-rpc-client.ts";
 import { ConversationModel, initialItems } from "./state/conversation.ts";
 import {
+	COMPACTION_STATUS_KEY,
+	compactionCompletionFromResult,
+	compactionSuccessText,
+	isCompactionReason,
+	parseCompactionTelemetry,
+} from "./state/compaction-telemetry.ts";
+import {
 	shouldRecoverPromptDraft,
 } from "./state/prompt-history.ts";
 import {
@@ -78,6 +85,7 @@ import {
 } from "./subagents/control.ts";
 import { ExtensionDialog } from "./ui/dialog.tsx";
 import { MessageView } from "./ui/message.tsx";
+import { CompactionPanel } from "./ui/compaction-panel.tsx";
 import { TabManager, type ConversationTab } from "./tabs/manager.ts";
 import { createTabRuntime, planForkTab, prepareForkedTabRuntime, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
 import { ExtensionRequestRouter, type ExtensionRequestEnvelope } from "./tabs/extension-router.ts";
@@ -638,6 +646,7 @@ export function App(props: AppOptions) {
 	const [activeTabId, setActiveTabId] = createSignal(tabManager.snapshot.activeId);
 	const [runtimeMap, setRuntimeMap] = createSignal<Map<string, ConversationTabRuntime>>(new Map());
 	const extensionRouter = new ExtensionRequestRouter();
+	const invalidCompactionTelemetryWarnings = new Set<string>();
 	const provisionalRuntimes = new Set<ConversationTabRuntime>();
 	const activeRuntime = () => runtimeMap().get(activeTabId()) ?? bootRuntime;
 	const selectedTargetKey = () => { revision(); return activeRuntime().selectedTargetKey; };
@@ -701,14 +710,122 @@ export function App(props: AppOptions) {
 		setDialogOwnerRuntimeId(envelope.runtimeId);
 		setDialog(event);
 	};
+	const updateCompactionSystemItem = (
+		tabRuntime: ConversationTabRuntime,
+		text: string,
+	): void => {
+		for (let index = tabRuntime.conversation.items.length - 1; index >= 0; index -= 1) {
+			const item = tabRuntime.conversation.items[index];
+			if (item?.kind === "system" && item.text.startsWith("Context compacted")) {
+				tabRuntime.conversation.items[index] = { ...item, text };
+				return;
+			}
+		}
+	};
 	const routeRuntimeEvent = (event: PiEvent, tabRuntime: ConversationTabRuntime): void => {
+		if (event.type === "compaction_start") {
+			const usage = tabRuntime.sessionStats?.contextUsage;
+			tabRuntime.compactionAttempt += 1;
+			delete tabRuntime.lastCompactionCompletion;
+			tabRuntime.compactionTelemetry = {
+				version: 1,
+				phase: "preparing",
+				attempt: tabRuntime.compactionAttempt,
+				...(isCompactionReason(event.reason) ? { reason: event.reason } : {}),
+				...(typeof usage?.tokens === "number"
+					? { tokensBefore: usage.tokens }
+					: {}),
+				...(typeof usage?.contextWindow === "number"
+					? { contextWindow: usage.contextWindow }
+					: {}),
+				...(typeof usage?.percent === "number"
+					? { contextPercent: usage.percent }
+					: {}),
+				startedAt: Date.now(),
+			};
+			tabRuntime.onConversationChange();
+		}
 		if (isExtensionUiRequest(event)) {
+			if (
+				event.method === "setStatus" &&
+				event.statusKey === COMPACTION_STATUS_KEY
+			) {
+				const telemetry =
+					typeof event.statusText === "string"
+						? parseCompactionTelemetry(event.statusText)
+						: undefined;
+				const current = tabRuntime.compactionTelemetry;
+				const completion = tabRuntime.lastCompactionCompletion;
+				if (
+					telemetry &&
+					telemetry.attempt !== undefined &&
+					((current && telemetry.attempt !== current.attempt) ||
+						(completion && telemetry.attempt !== completion.attempt))
+				)
+					return;
+				if (telemetry?.phase === "complete" && telemetry.attempt === undefined)
+					return;
+				if (telemetry?.phase === "failed") {
+					delete tabRuntime.compactionTelemetry;
+					delete tabRuntime.lastCompactionCompletion;
+					tabRuntime.onConversationChange();
+				} else if (telemetry) {
+					if (telemetry.phase === "complete" && !current && !completion)
+						return;
+					if (current) {
+						tabRuntime.compactionTelemetry = {
+							...current,
+							...telemetry,
+							...(current.startedAt !== undefined
+								? { startedAt: current.startedAt }
+								: {}),
+						};
+					}
+					if (telemetry.phase === "complete" && completion) {
+						tabRuntime.lastCompactionCompletion = {
+							...completion,
+							...(telemetry.retainedContextMessages !== undefined
+								? { retainedContextMessages: telemetry.retainedContextMessages }
+								: {}),
+						};
+						updateCompactionSystemItem(
+							tabRuntime,
+							compactionSuccessText(tabRuntime.lastCompactionCompletion),
+						);
+					}
+					tabRuntime.onConversationChange();
+				} else if (!invalidCompactionTelemetryWarnings.has(tabRuntime.id)) {
+					invalidCompactionTelemetryWarnings.add(tabRuntime.id);
+					props.logger.warn("compaction.telemetry_invalid", {
+						runtimeId: tabRuntime.id,
+					});
+				}
+				return;
+			}
 			const envelope = extensionRouter.enqueue(tabRuntime.id, event);
 			if (tabRuntime.id !== activeTabId()) {
 				tabManager.incrementBadge(tabRuntime.id, "extension");
 				refreshTabs();
 			} else if (envelope) handleExtensionRequest(envelope);
 			return;
+		}
+		if (event.type === "compaction_end") {
+			const retained = tabRuntime.compactionTelemetry?.retainedContextMessages;
+			if (!event.aborted && !event.errorMessage) {
+				tabRuntime.lastCompactionCompletion = compactionCompletionFromResult(
+					event.result,
+					retained,
+					tabRuntime.compactionTelemetry?.attempt,
+				);
+				updateCompactionSystemItem(
+					tabRuntime,
+					compactionSuccessText(tabRuntime.lastCompactionCompletion),
+				);
+			} else {
+				delete tabRuntime.lastCompactionCompletion;
+			}
+			delete tabRuntime.compactionTelemetry;
+			tabRuntime.onConversationChange();
 		}
 		if (tabRuntime.id !== activeTabId()) return;
 		if (event.type === "message_end") touch();
@@ -1162,6 +1279,10 @@ export function App(props: AppOptions) {
 		conversationRevision();
 		return activeRuntime().conversation.isStreaming;
 	});
+	const compactionTelemetry = createMemo(() => {
+		conversationRevision();
+		return activeRuntime().compactionTelemetry;
+	});
 	// Show for the whole agent turn — including thinking streams and tool
 	// calls. Hiding while the latest item is "active" made Working disappear
 	// exactly when users expect it.
@@ -1384,6 +1505,8 @@ export function App(props: AppOptions) {
 	};
 
 	const loadOlderMessages = () => {
+		const capturedRuntime = activeRuntime();
+		const capturedTabId = activeTabId();
 		const current = messageWindowStart();
 		if (current <= 0) return;
 		const oldHeight = scroll?.scrollHeight ?? 0;
@@ -1395,6 +1518,7 @@ export function App(props: AppOptions) {
 		// children. Two microtasks allow OpenTUI to finish the new layout first.
 		queueMicrotask(() =>
 			queueMicrotask(() => {
+				if (!tabRuntimeIsActive(capturedTabId) || activeRuntime() !== capturedRuntime) return;
 				if (!scroll) return;
 				const addedHeight = Math.max(0, scroll.scrollHeight - oldHeight);
 				scroll.scrollTo({ x: 0, y: oldTop + addedHeight });
@@ -1542,6 +1666,7 @@ export function App(props: AppOptions) {
 				const value = parseOnOff(parts[0]);
 				const next = value ?? !expandedTools();
 				setExpandedTools(next);
+				if (!next) setExpandedToolIds(new Set());
 				addSystem(`Tool output ${next ? "expanded" : "collapsed"}.`, "success");
 				return true;
 			}
@@ -3450,11 +3575,11 @@ export function App(props: AppOptions) {
 											showThinking
 											thinkingExpanded={() => thinkingIsExpanded(itemId)}
 											onToggleThinking={() => toggleThinkingItem(itemId)}
-											toolExpanded={
+											toolExpanded={() =>
 												tool() !== undefined && toolExpanded(itemId)
 											}
 											onToggleTool={toggleTool}
-											diffExpanded={
+											diffExpanded={() =>
 												tool() !== undefined && diffExpanded(itemId)
 											}
 											onToggleDiff={toggleDiff}
@@ -3482,6 +3607,18 @@ export function App(props: AppOptions) {
 									);
 								}}
 							</For>
+							<Show when={compactionTelemetry()}>
+								{(telemetry) => (
+									<Show when={telemetry().phase === "preparing"}>
+										<CompactionPanel
+											telemetry={telemetry()}
+											now={clockNow()}
+											spinner={spinnerFrames[spinnerIndex()] ?? "◐"}
+											frame={spinnerIndex()}
+										/>
+									</Show>
+								)}
+							</Show>
 							<Show when={showWorkingIndicator()}>
 								<box
 									paddingLeft={1}
