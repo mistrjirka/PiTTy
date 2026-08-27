@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.3
+
+### Truthful compaction telemetry
+
+- Added an ephemeral, strictly validated compaction observer that reports factual lifecycle metadata without replacing Pi's native compaction.
+- The active tab now shows truthful compaction activity, context size, summarized-message counts, and retained context-message counts when Pi provides them.
+- Late or out-of-order telemetry cannot contaminate a newer compaction attempt, and telemetry remains isolated from extension UI queues.
+
+### Transcript-first expanded output
+
+- Expanded tool output and diffs keep ordinary wheel scrolling with the transcript.
+- Explicit controls enter output/diff scroll mode, release it back to chat scrolling, and keep collapse beside the active scroll control.
+- Added regression coverage for narrow layouts, tab-safe scroll restoration, tool-call correlation, repeated prompts, and mixed-ID results.
+
+### Validation
+
+- Typecheck clean; browser-conditioned suite: 380 passed, 1 skipped, 0 failures.
+- Production compaction and delayed-status isolation smokes passed.
+- Final implementation review passed with no confirmed findings.
+
 ## 0.6.2
 
 ### Responsive under sustained output
