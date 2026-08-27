@@ -381,17 +381,10 @@ function ToolDetails(props: {
 							}}
 							visible={!toolExpanded()}
 							flexDirection="row"
-							onMouseDown={(event) => {
-								event.preventDefault();
-								event.stopPropagation();
-								props.onToggleTool?.(props.item.id);
-							}}
 						>
 							<text fg={colors.subtle} wrapMode="none">
 								{collapsedPreview(output())}
 							</text>
-							<box flexGrow={1} />
-							<text fg={colors.cyan}>click to expand</text>
 						</box>
 						<box
 							ref={(value) => {
@@ -451,7 +444,15 @@ function ToolDetails(props: {
 					borderColor={colors.borderStrong}
 					paddingTop={1}
 				>
-					<box flexDirection="row">
+					<box
+						id={`${props.item.id}-diff-header`}
+						flexDirection="row"
+						onMouseDown={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+							props.onToggleDiff?.(props.item.id);
+						}}
+					>
 						<text fg={colors.green} attributes={1}>
 							{diffExpanded() ? "▼" : "▶"} Changes
 						</text>
@@ -906,18 +907,9 @@ export function MessageView(props: {
 							paddingRight={1}
 							marginBottom={1}
 						>
-							<box
-								flexDirection="row"
-								onMouseDown={(event) => {
-									if (!expandable()) return;
-									event.preventDefault();
-									event.stopPropagation();
-									props.onToggleTool?.(item.id);
-								}}
-							>
+							<box flexDirection="row">
 								<text fg={visual().accent} attributes={1}>
-									{`${expandable() ? (expanded() ? "▼ " : "▶ ") : ""}${
-										item.status === "streaming" ? "◉" : visual().icon
+									{`${item.status === "streaming" ? "◉" : visual().icon
 									} TOOL · ${
 										supervisorLabel() ?? subagentLabel() ?? item.name
 									}${children() ? ` ${children()}` : ""}${

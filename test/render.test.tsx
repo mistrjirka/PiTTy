@@ -922,6 +922,7 @@ describe("OpenTUI components", () => {
 					now={13_000}
 					spinner="◐"
 					frame={2}
+					smartCompactProgress="Smart Compact 1/5 · Extract"
 				/>
 			),
 			100,
@@ -931,6 +932,7 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("Compacting · threshold · 12s elapsed");
 		expect(frame).toContain("Activity [");
 		expect(frame).toContain("indeterminate");
+		expect(frame).toContain("Smart Compact 1/5 · Extract");
 		expect(frame).toContain("Context size [");
 		expect(frame).toContain("150K / 200K · 75% full");
 		expect(frame).toContain("Plan: summarize 186 context messages");
@@ -1054,6 +1056,11 @@ describe("OpenTUI components", () => {
 			100,
 			30,
 		);
+		const diffPreview = setup.renderer.root.findDescendantById(
+			"scroll-owner-diff-diff-preview",
+		) as BoxRenderable | undefined;
+		expect(diffPreview).toBeDefined();
+		expect(diffPreview?.height).toBe(22);
 		let frame = setup.captureCharFrame();
 		expect(frame).toContain("src/example.ts");
 		expect(frame).toContain("scroll diff · collapse");
@@ -1084,6 +1091,18 @@ describe("OpenTUI components", () => {
 		await setup.flush();
 		expect(diffInner.visible).toBe(false);
 		expect(setup.captureCharFrame()).toContain("scroll diff · collapse");
+
+		const diffHeader = setup.renderer.root.findDescendantById(
+			"scroll-owner-diff-diff-header",
+		) as Renderable | undefined;
+		expect(diffHeader).toBeDefined();
+		if (!diffHeader) throw new Error("diff header missing");
+		await setup.mockMouse.click(diffHeader.x, diffHeader.y);
+		await setup.flush();
+		expect(diffExpanded()).toBe(false);
+		await setup.mockMouse.click(diffHeader.x, diffHeader.y);
+		await setup.flush();
+		expect(diffExpanded()).toBe(true);
 	});
 
 	test("renders distinct user, assistant, and tool messages", async () => {
@@ -3235,9 +3254,9 @@ describe("duration and sidebar repaint regressions", () => {
 				conversation.apply(
 					event({
 						type: "message_update",
-						message: { role: "assistant", content: [] },
 						assistantMessageEvent: {
 							type: isThinking ? "thinking_delta" : "text_delta",
+							contentIndex: isThinking ? 0 : 1,
 							delta: isThinking
 								? `thought ${update} `
 								: update === 5_000
@@ -3258,7 +3277,10 @@ describe("duration and sidebar repaint regressions", () => {
 			conversation.apply(
 				event({
 					type: "message_end",
-					message: { role: "assistant", content: [] },
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "FINAL_STREAMED_TEXT" }],
+					},
 				}),
 			);
 			setIds(conversation.items.map((item) => item.id));

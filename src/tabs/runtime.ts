@@ -9,9 +9,10 @@ import type {
 } from "../state/compaction-telemetry.ts";
 import { MessageUpdateBatcher } from "../state/message-update-batcher.ts";
 import { PromptHistory } from "../state/prompt-history.ts";
-import type { DraftState } from "../state/input-continuity.ts";
+import type { DraftState, DispatchGate, LocalQueuedMessage } from "../state/input-continuity.ts";
 import { RequestPerformanceTracker, type RequestPerformance } from "./request-metrics.ts";
 import type { RpcSessionState, SessionStats, SubagentRun, PiEvent } from "../types.ts";
+import type { ThinkingLevel } from "../rpc/pi-rpc-client.ts";
 
 export type TabRuntimeOptions = {
 	id: string;
@@ -52,8 +53,14 @@ export type ConversationTabRuntime = {
 	requestPerformance: RequestPerformanceTracker;
 	lastRequestPerformance?: RequestPerformance;
 	compactionTelemetry?: CompactionTelemetry;
+	smartCompactProgress?: string;
 	compactionAttempt: number;
 	lastCompactionCompletion?: CompactionCompletion;
+	queuedFollowUps: LocalQueuedMessage[];
+	dispatchGate: DispatchGate;
+	eventVersion: number;
+	abortInFlight?: Promise<void>;
+	effectiveThinkingLevels: Map<string, ThinkingLevel>;
 };
 
 export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRuntime {
@@ -99,12 +106,17 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		thinkingExpansionOverrides: new Map(),
 		runs: [],
 		inspectSubagent: false,
-	compactionAttempt: 0,
+		compactionAttempt: 0,
 		forkInProgress: false,
 		startupResolved: false,
 		requestPerformance: new RequestPerformanceTracker(),
+		queuedFollowUps: [],
+		dispatchGate: { inFlight: false, suppressNextSettled: false },
+		eventVersion: 0,
+		effectiveThinkingLevels: new Map(),
 	};
 	runtime.client.onEvent((event) => {
+		runtime.eventVersion += 1;
 		const performance = runtime.requestPerformance.handle(event, Date.now());
 		if (event.type === "message_end" && performance) runtime.lastRequestPerformance = performance;
 		if (event.type === "message_update") runtime.messageUpdates.handle(event);
@@ -118,24 +130,37 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 			);
 		}
 	});
-	runtime.client.on("protocol-error", (error: Error) => {
+	const recordRuntimeFailure = (error: Error): void => {
+		runtime.eventVersion += 1;
 		runtime.lastError = error;
 		runtime.messageUpdates.flush();
+		runtime.coalescer.flush();
 		runtime.conversation.system(error.message, "error");
+	};
+	const handleProtocolError = (error: Error): void => {
+		recordRuntimeFailure(error);
 		notifyConversationChange();
-	});
-	runtime.client.on("exit", (error: Error) => {
-		runtime.lastError = error;
-		runtime.messageUpdates.flush();
-		runtime.conversation.system(error.message, "error");
+	};
+	const handleProcessExit = (error: Error): void => {
+		recordRuntimeFailure(error);
+		runtime.conversation.apply({ type: "agent_settled" });
+		runtime.conversation.isCompacting = false;
+		delete runtime.compactionTelemetry;
+		delete runtime.smartCompactProgress;
 		notifyConversationChange();
-	});
+	};
+	runtime.client.on("protocol-error", handleProtocolError);
+	runtime.client.on("exit", handleProcessExit);
 	return runtime;
 }
 
 export async function refreshRuntimeEntries(runtime: ConversationTabRuntime): Promise<void> {
-	const users = runtime.conversation.items.filter((item) => item.kind === "user").map((item) => ({ text: item.text }));
+	const version = runtime.eventVersion;
 	const messages = await runtime.client.getForkMessages();
+	if (runtime.eventVersion !== version) return;
+	const users = runtime.conversation.items
+		.filter((item) => item.kind === "user")
+		.map((item) => ({ text: item.text }));
 	runtime.entryIndex.refresh(messages, users);
 	if (runtime.conversation.assignEntryIds(runtime.entryIndex.idsFor(users)))
 		runtime.onConversationChange();

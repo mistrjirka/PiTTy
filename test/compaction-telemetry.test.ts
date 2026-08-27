@@ -6,9 +6,24 @@ import {
 	countCompactionMessages,
 	countRetainedContextMessages,
 	parseCompactionTelemetry,
+	parseSmartCompactProgress,
 } from "../src/state/compaction-telemetry.ts";
 
 describe("compaction telemetry boundary", () => {
+	test("accepts only documented Smart Compact progress statuses", () => {
+		expect(parseSmartCompactProgress("Smart Compact 1/5 · Extract")).toBe("Smart Compact 1/5 · Extract");
+		expect(parseSmartCompactProgress("Smart Compact 5/5 · Apply")).toBe("Smart Compact 5/5 · Apply");
+		for (const value of [
+			undefined,
+			"Smart Compact 2/5 · Explore",
+			"Smart Compact 3/5 · Synthesize",
+			"Smart Compact 4/5 · Verify",
+			"Smart Compact 6/5 · Apply",
+			"Smart Compact 1/5 · Apply",
+			42,
+		])
+			expect(parseSmartCompactProgress(value)).toBeUndefined();
+	});
 	test("decodes the strict wire payload", () => {
 		expect(parseCompactionTelemetry(JSON.stringify({ version: 1, phase: "preparing", attempt: 1, tokensBefore: 120 }))).toEqual({
 			version: 1,

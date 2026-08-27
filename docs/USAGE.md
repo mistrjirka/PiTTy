@@ -119,9 +119,11 @@ PiTTy remains fully usable without these packages:
 ```bash
 pi install npm:pi-subagents
 pi install npm:@juicesharp/rpiv-todo
+pi install npm:pi-mcp-adapter
+pi install npm:pi-smart-compact
 ```
 
-`pi-subagents` adds child-agent selection, live transcript inspection, steering, pause, and stop controls. `rpiv-todo` adds bounded active and completed Todo panels.
+`pi-subagents` adds child-agent selection, live transcript inspection, steering, pause, and stop controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-mcp-adapter` enables standard MCP config changes, and `pi-smart-compact` reports coarse compaction progress in PiTTy's existing surface.
 
 ## Updates and upgrades
 

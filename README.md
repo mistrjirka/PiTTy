@@ -118,7 +118,7 @@ PiTTy needs control of the full screen for its fixed editor, independently scrol
 
 No. PiTTy installs separately and does not replace the `pi` executable. It intentionally shares Pi's configuration, credentials, models, extensions and sessions, so `pi` and `pitty` can be used alongside each other.
 
-The installer can optionally install `pi-subagents` and `@juicesharp/rpiv-todo` through `pi install`; this can be skipped with `--without-plugins`. Uninstalling PiTTy does not uninstall Pi or those packages.
+The installer can optionally install recommended Pi packages including `pi-subagents`, `@juicesharp/rpiv-todo`, `pi-mcp-adapter`, and `pi-smart-compact` through `pi install`; this can be skipped with `--without-plugins`. Uninstalling PiTTy does not uninstall Pi or those packages.
 
 </details>
 
@@ -232,11 +232,13 @@ PiTTy works without extra Pi packages. These integrations add specialized panels
 | `npm:pi-subagents` | Parallel child-agent list, live transcript inspection, pause/stop, and queued steering visibility |
 | `npm:@juicesharp/rpiv-todo` | Bounded active and completed Todo panels |
 | `npm:pi-mcp-adapter` | Optional adapter used by Settings to activate standard MCP config changes |
+| `npm:pi-smart-compact` | Optional Smart Compact progress in the existing compaction surface |
 
 ```bash
 pi install npm:pi-subagents
 pi install npm:@juicesharp/rpiv-todo
 pi install npm:pi-mcp-adapter
+pi install npm:pi-smart-compact
 ```
 
 The installer and upgrades offer missing optional integrations according to the selected plugin preference. Missing integrations leave the generic chat usable.

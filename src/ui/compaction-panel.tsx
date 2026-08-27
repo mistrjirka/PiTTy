@@ -42,6 +42,7 @@ export function CompactionPanel(props: {
 	now: number;
 	spinner: string;
 	frame: number;
+	smartCompactProgress?: string;
 }) {
 	const elapsed = () =>
 		Math.max(0, props.now - (props.telemetry.startedAt ?? props.now));
@@ -97,7 +98,7 @@ export function CompactionPanel(props: {
 				{formatDuration(elapsed())} elapsed
 			</text>
 			<text height={1} fg={colors.subtle} wrapMode="none">
-				Activity [{indeterminateCompactionBar(props.frame)}] indeterminate
+				Activity [{indeterminateCompactionBar(props.frame)}] indeterminate{props.smartCompactProgress ? ` · ${props.smartCompactProgress}` : ""}
 			</text>
 			<text height={1} fg={colors.muted} wrapMode="none">
 				{contextLine()}

@@ -1,5 +1,17 @@
 export const COMPACTION_STATUS_KEY = "pitty.compaction.v1";
+export const SMART_COMPACT_PROGRESS_KEY = "smart-compact-progress";
 export const COMPACTION_TELEMETRY_VERSION = 1;
+
+const SMART_COMPACT_PROGRESS_VALUES = new Set([
+	"Smart Compact 1/5 · Extract",
+	"Smart Compact 5/5 · Apply",
+]);
+
+export function parseSmartCompactProgress(value: unknown): string | undefined {
+	if (typeof value !== "string" || !SMART_COMPACT_PROGRESS_VALUES.has(value))
+		return undefined;
+	return value;
+}
 
 export type CompactionReason = "manual" | "threshold" | "overflow";
 export type CompactionPhase = "preparing" | "complete" | "failed";

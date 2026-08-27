@@ -14,6 +14,7 @@ describe("public installers", () => {
     expect(script).toContain("npm:pi-subagents");
     expect(script).toContain("npm:@juicesharp/rpiv-todo");
     expect(script).toContain("npm:pi-mcp-adapter");
+    expect(script).toContain("npm:pi-smart-compact");
     expect(script).toContain("pi-mcp-adapter");
     expect(script).toContain("exit code:");
     expect(script).toContain("log:");
@@ -30,6 +31,7 @@ describe("public installers", () => {
     expect(script).toContain("npm:pi-subagents");
     expect(script).toContain("npm:@juicesharp/rpiv-todo");
     expect(script).toContain("npm:pi-mcp-adapter");
+    expect(script).toContain("npm:pi-smart-compact");
     expect(script).toContain("pi-mcp-adapter");
     expect(script).toContain("exit code:");
     expect(script).toContain("log:");

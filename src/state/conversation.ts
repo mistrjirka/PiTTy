@@ -372,6 +372,7 @@ export function isConversationEvent(event: PiEvent): boolean {
 
 export class ConversationModel {
 	readonly items: ConversationItem[] = [];
+	private liveAssistantMessage: Record<string, unknown> | undefined;
 	isStreaming = false;
 	isCompacting = false;
 	steering: readonly string[] = [];
@@ -427,8 +428,7 @@ export class ConversationModel {
 			case "agent_start":
 				this.isStreaming = true;
 				return;
-			case "agent_settled":
-			case "agent_end": {
+			case "agent_settled": {
 				this.isStreaming = false;
 				for (let index = 0; index < this.items.length; index++) {
 					const item = this.items[index];
@@ -514,7 +514,20 @@ export class ConversationModel {
 	}
 
 	private applyMessageEvent(event: Record<string, unknown>): void {
-		const message = event.message;
+		// Pi's JSON/RPC adapter removes cumulative message snapshots from message_update;
+		// message_start seeds this accumulator and message_end remains authoritative.
+		const rawMessage = event.message;
+		const suppliedMessage =
+			rawMessage && typeof rawMessage === "object" && !Array.isArray(rawMessage)
+				? (rawMessage as Record<string, unknown>)
+				: undefined;
+		const eventType = event.type;
+		if (eventType === "message_start" && suppliedMessage && messageRole(suppliedMessage) === "assistant") {
+			this.liveAssistantMessage = { ...suppliedMessage };
+		} else if (eventType === "message_end" && suppliedMessage) {
+			this.liveAssistantMessage = undefined;
+		}
+		const message = suppliedMessage ?? this.liveAssistantMessage;
 		const role = messageRole(message);
 		if (role === "custom") {
 			const custom = customItemFromMessage(message, "custom-event");
@@ -568,7 +581,35 @@ export class ConversationModel {
 		const timestamp = messageTimestamp(message);
 		const fullText = extractText(message);
 		const fullThinking = extractThinking(message);
+		const authoritativeEnd = event.type === "message_end" && Boolean(suppliedMessage);
+		const deltaOnly = !suppliedMessage && Boolean(this.liveAssistantMessage);
 		const delta = eventDelta(event);
+		if (!suppliedMessage && this.liveAssistantMessage && (delta.text || delta.thinking)) {
+			const blocks = contentBlocks(this.liveAssistantMessage).map((block) => ({ ...block }));
+			const rawAssistantEvent = event.assistantMessageEvent;
+			const assistantEvent =
+				rawAssistantEvent && typeof rawAssistantEvent === "object"
+					? (rawAssistantEvent as Record<string, unknown>)
+					: undefined;
+			const contentIndex =
+				typeof assistantEvent?.contentIndex === "number" && assistantEvent.contentIndex >= 0
+					? Math.floor(assistantEvent.contentIndex)
+					: 0;
+			const blockType = delta.thinking ? "thinking" : "text";
+			const block = blocks[contentIndex];
+			if (block?.type === blockType) {
+				const field = blockType === "thinking" ? "thinking" : "text";
+				block[field] = `${typeof block[field] === "string" ? block[field] : ""}${
+					delta.thinking || delta.text
+				}`;
+			} else {
+				blocks[contentIndex] =
+					blockType === "thinking"
+						? { type: "thinking", thinking: delta.thinking }
+						: { type: "text", text: delta.text };
+			}
+			this.liveAssistantMessage.content = blocks;
+		}
 
 		let currentIndex = -1;
 		for (let index = this.items.length - 1; index >= 0; index--) {
@@ -630,12 +671,20 @@ export class ConversationModel {
 		const updated: AssistantItem = {
 			...current,
 			timestamp,
-			text: mergeStreamingText(current.text, fullText, delta.text),
-			thinking: mergeStreamingText(
-				current.thinking,
-				fullThinking,
-				delta.thinking,
-			),
+			text: authoritativeEnd
+				? fullText
+				: deltaOnly
+					? current.text + delta.text
+					: mergeStreamingText(current.text, fullText, delta.text),
+			thinking: authoritativeEnd
+				? fullThinking
+				: deltaOnly
+					? current.thinking + delta.thinking
+					: mergeStreamingText(
+							current.thinking,
+							fullThinking,
+							delta.thinking,
+						),
 			status:
 				event.type === "message_end"
 					? errored

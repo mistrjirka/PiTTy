@@ -279,21 +279,33 @@ describe("ConversationModel regressions", () => {
 		model.apply(
 			event({
 				type: "message_update",
-				message: { role: "assistant", content: [] },
-				assistantMessageEvent: { type: "thinking_delta", delta: "checking " },
+				assistantMessageEvent: {
+					type: "thinking_delta",
+					contentIndex: 0,
+					delta: "checking ",
+				},
 			}),
 		);
 		model.apply(
 			event({
 				type: "message_update",
-				message: { role: "assistant", content: [] },
-				assistantMessageEvent: { type: "text_delta", delta: "Visible answer" },
+				assistantMessageEvent: {
+					type: "text_delta",
+					contentIndex: 1,
+					delta: "Visible answer",
+				},
 			}),
 		);
 		model.apply(
 			event({
 				type: "message_end",
-				message: { role: "assistant", content: [] },
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "checking " },
+						{ type: "text", text: "Visible answer" },
+					],
+				},
 			}),
 		);
 		expect(model.items).toHaveLength(1);
@@ -303,6 +315,44 @@ describe("ConversationModel regressions", () => {
 		expect(model.items[0]?.kind === "assistant" && model.items[0].text).toBe(
 			"Visible answer",
 		);
+	});
+
+	test("preserves repeated identical deltas from the delta-only stream", () => {
+		const model = new ConversationModel();
+		model.apply(
+			event({
+				type: "message_start",
+				message: { role: "assistant", content: [] },
+			}),
+		);
+		for (const delta of ["same", "same"]) {
+			model.apply(
+				event({
+					type: "message_update",
+					assistantMessageEvent: {
+						type: "text_delta",
+						contentIndex: 0,
+						delta,
+					},
+				}),
+			);
+		}
+		expect(
+			model.items[0]?.kind === "assistant" && model.items[0].text,
+		).toBe("samesame");
+		model.apply(
+			event({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "same" }],
+				},
+			}),
+		);
+		expect(model.items).toHaveLength(1);
+		expect(
+			model.items[0]?.kind === "assistant" && model.items[0].text,
+		).toBe("same");
 	});
 
 	test("does not render empty assistant tool-call placeholders", () => {
@@ -323,6 +373,15 @@ describe("ConversationModel regressions", () => {
 			}),
 		);
 		expect(model.items).toHaveLength(0);
+	});
+
+	test("keeps streaming active across agent_end until agent_settled", () => {
+		const model = new ConversationModel();
+		model.apply(event({ type: "agent_start" }));
+		model.apply(event({ type: "agent_end" }));
+		expect(model.isStreaming).toBe(true);
+		model.apply(event({ type: "agent_settled" }));
+		expect(model.isStreaming).toBe(false);
 	});
 
 	test("tracks isCompacting across compaction_start and compaction_end", () => {

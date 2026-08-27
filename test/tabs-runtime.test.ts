@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createTabRuntime, planForkTab, prepareForkedTabRuntime, resolveTabDraftSwitch, startTabRuntime } from "../src/tabs/runtime.ts";
+import { createTabRuntime, planForkTab, prepareForkedTabRuntime, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime } from "../src/tabs/runtime.ts";
 import { PiRpcClient } from "../src/rpc/pi-rpc-client.ts";
 import type { RpcSessionState } from "../src/types.ts";
 
@@ -16,6 +16,21 @@ class StubClient extends PiRpcClient {
 	async getState(): Promise<RpcSessionState> { return this.response; }
 	onEvent(listener: (event: Record<string, unknown>) => void): () => void { this.eventCallbacks.push(listener); return () => {}; }
 	deliver(event: Record<string, unknown>): void { for (const listener of this.eventCallbacks) listener(event); }
+}
+
+class DelayedEntryClient extends StubClient {
+	private resolveMessages!: (messages: Array<{ entryId: string; text: string }>) => void;
+	private readonly messages = new Promise<Array<{ entryId: string; text: string }>>((resolve) => {
+		this.resolveMessages = resolve;
+	});
+
+	override async getForkMessages(): Promise<Array<{ entryId: string; text: string }>> {
+		return this.messages;
+	}
+
+	release(messages: Array<{ entryId: string; text: string }>): void {
+		this.resolveMessages(messages);
+	}
 }
 
 class ForkStubClient extends PiRpcClient {
@@ -200,11 +215,43 @@ describe("tab runtime factory", () => {
 		const secondClient = new StubClient(state("/tmp/b.jsonl", "b"));
 		const first = createTabRuntime({ id: "first", cwd: process.cwd(), client: firstClient });
 		const second = createTabRuntime({ id: "second", cwd: process.cwd(), client: secondClient });
+		first.conversation.isStreaming = true;
+		first.conversation.isCompacting = true;
+		first.compactionTelemetry = { version: 1, phase: "preparing" };
+		first.smartCompactProgress = "Smart Compact 1/5 · Extract";
 		firstClient.emit("exit", new Error("tab A stopped"));
 		secondClient.deliver({ type: "compaction_start" });
 		expect(first.lastError?.message).toBe("tab A stopped");
+		expect(first.conversation.isStreaming).toBe(false);
+		expect(first.conversation.isCompacting).toBe(false);
+		expect(first.compactionTelemetry).toBeUndefined();
+		expect(first.smartCompactProgress).toBeUndefined();
 		expect(second.conversation.items.length).toBeGreaterThan(0);
 		expect(second.conversation.items).not.toBe(first.conversation.items);
+	});
+
+	test("does not synthesize settlement for recoverable protocol errors", () => {
+		const client = new StubClient(state("/tmp/protocol.jsonl", "protocol"));
+		const runtime = createTabRuntime({ id: "protocol", cwd: process.cwd(), client });
+		runtime.conversation.isStreaming = true;
+		runtime.conversation.isCompacting = true;
+		const version = runtime.eventVersion;
+		client.emit("protocol-error", new Error("malformed event"));
+		expect(runtime.eventVersion).toBe(version + 1);
+		expect(runtime.conversation.isStreaming).toBe(true);
+		expect(runtime.conversation.isCompacting).toBe(true);
+		expect(runtime.lastError?.message).toBe("malformed event");
+	});
+
+	test("discards an entry refresh after a newer runtime event", async () => {
+		const client = new DelayedEntryClient(state("/tmp/entries.jsonl", "entries"));
+		const runtime = createTabRuntime({ id: "entries", cwd: process.cwd(), client });
+		runtime.conversation.optimisticUser("hello");
+		const pending = refreshRuntimeEntries(runtime);
+		client.deliver({ type: "agent_start" });
+		client.release([{ entryId: "entry-1", text: "hello" }]);
+		await pending;
+		expect(runtime.entryIndex.idFor(0)).toBeUndefined();
 	});
 
 	test("restores the target draft without an activation echo", () => {

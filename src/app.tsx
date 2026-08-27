@@ -36,10 +36,12 @@ import { PiRpcClient, PiRpcTimeoutError } from "./rpc/pi-rpc-client.ts";
 import { ConversationModel, initialItems } from "./state/conversation.ts";
 import {
 	COMPACTION_STATUS_KEY,
+	SMART_COMPACT_PROGRESS_KEY,
 	compactionCompletionFromResult,
 	compactionSuccessText,
 	isCompactionReason,
 	parseCompactionTelemetry,
+	parseSmartCompactProgress,
 } from "./state/compaction-telemetry.ts";
 import {
 	shouldRecoverPromptDraft,
@@ -64,7 +66,6 @@ import {
 	sessionDrafts,
 	settledDispatchDecision,
 	snapshotQueue,
-	type DispatchGate,
 	type PendingSteerEntry,
 } from "./state/input-continuity.ts";
 import {
@@ -94,7 +95,6 @@ import { ForkPicker } from "./ui/fork-picker.tsx";
 import { forkPickerOptions, type ForkPickerOption } from "./tabs/entry-index.ts";
 import {
 	PendingInputPanel,
-	type LocalQueuedMessage,
 } from "./ui/pending-input-panel.tsx";
 import {
 	ModelSelectorDialog,
@@ -518,6 +518,10 @@ function isThinkingLevel(value: string): value is ThinkingLevel {
 	return THINKING_LEVELS.some((level) => level === value);
 }
 
+function modelThinkingKey(provider: string, modelId: string): string {
+	return `${provider}\0${modelId}`;
+}
+
 export function globalFooterHint(
 	width: number,
 	inspectorOpen: boolean,
@@ -570,9 +574,10 @@ export function App(props: AppOptions) {
 	const [sidebarEnabled, setSidebarEnabled] = createSignal(props.sidebar);
 	const [expandedTools, setExpandedTools] = createSignal(false);
 	const [showJumpLatest, setShowJumpLatest] = createSignal(false);
-	const [queuedFollowUps, setQueuedFollowUps] = createSignal<
-		LocalQueuedMessage[]
-	>([]);
+	const queuedFollowUps = () => {
+		revision();
+		return activeRuntime().queuedFollowUps;
+	};
 	const [pendingSteers, setPendingSteers] = createSignal<PendingSteerEntry[]>(
 		[],
 	);
@@ -748,6 +753,22 @@ export function App(props: AppOptions) {
 		if (isExtensionUiRequest(event)) {
 			if (
 				event.method === "setStatus" &&
+				event.statusKey === SMART_COMPACT_PROGRESS_KEY
+			) {
+				const progress = parseSmartCompactProgress(event.statusText);
+				if (progress === undefined) {
+					if (tabRuntime.smartCompactProgress !== undefined) {
+						delete tabRuntime.smartCompactProgress;
+						tabRuntime.onConversationChange();
+					}
+				} else {
+					tabRuntime.smartCompactProgress = progress;
+					tabRuntime.onConversationChange();
+				}
+				return;
+			}
+			if (
+				event.method === "setStatus" &&
 				event.statusKey === COMPACTION_STATUS_KEY
 			) {
 				const telemetry =
@@ -811,6 +832,7 @@ export function App(props: AppOptions) {
 		}
 		if (event.type === "compaction_end") {
 			const retained = tabRuntime.compactionTelemetry?.retainedContextMessages;
+			delete tabRuntime.smartCompactProgress;
 			if (!event.aborted && !event.errorMessage) {
 				tabRuntime.lastCompactionCompletion = compactionCompletionFromResult(
 					event.result,
@@ -827,10 +849,13 @@ export function App(props: AppOptions) {
 			delete tabRuntime.compactionTelemetry;
 			tabRuntime.onConversationChange();
 		}
-		if (tabRuntime.id !== activeTabId()) return;
-		if (event.type === "message_end") touch();
+		if (tabRuntime.id === activeTabId() && event.type === "message_end") touch();
+		if (tabRuntime.id === activeTabId() && event.type === "agent_start")
+			setStatus("working");
+		if (tabRuntime.id === activeTabId() && event.type === "agent_settled")
+			setStatus("ready");
 		if (event.type === "agent_settled" || event.type === "compaction_end")
-			void flushQueuedFollowUp();
+			void flushQueuedFollowUp(tabRuntime);
 	};
 
 	const activateTab = (id: string) => {
@@ -862,7 +887,9 @@ export function App(props: AppOptions) {
 		queueMicrotask(() => { draftSwitchGuard = false; });
 		if (targetRuntime.startupResolved) {
 			if (targetRuntime.conversation.items.length === 0) void loadRuntimeHistory(targetRuntime);
-			void refreshState(targetRuntime);
+			void refreshState(targetRuntime).then(() => {
+				void flushQueuedFollowUp(targetRuntime);
+			});
 		}
 	};
 	const closeTab = (id: string) => {
@@ -1039,11 +1066,6 @@ export function App(props: AppOptions) {
 	let sessionDiscoveryGeneration = 0;
 	let tabCounter = 0;
 	let lastCtrlC = 0;
-	let abortInFlight: Promise<void> | undefined;
-	let dispatchGate: DispatchGate = {
-		inFlight: false,
-		suppressNextSettled: false,
-	};
 
 	const reconcileSteers = (nextRuns: readonly SubagentRun[]) => {
 		const nextTargets = subagentTargets(nextRuns, subagentTools());
@@ -1064,17 +1086,23 @@ export function App(props: AppOptions) {
 	const sessionStats = () => { revision(); return activeRuntime().sessionStats; };
 	const runs = () => { revision(); return activeRuntime().runs; };
 	const lastRequestPerformance = () => { revision(); return activeRuntime().lastRequestPerformance; };
-	const setSessionState = (state: RpcSessionState) => {
-		const runtime = activeRuntime();
-		runtime.sessionState = state;
-		runtime.startupResolved = true;
-		touch();
-	};
 	const setRuns = (nextRuns: SubagentRun[]) => {
 		activeRuntime().runs = nextRuns;
 		touch();
 	};
 	const currentSessionKey = () => sessionState()?.sessionId ?? props.cwd;
+	const rememberThinkingLevel = (
+		runtime: ConversationTabRuntime,
+		level = runtime.sessionState?.thinkingLevel,
+	): void => {
+		const model = runtime.sessionState?.model;
+		if (model && level && isThinkingLevel(level))
+			runtime.effectiveThinkingLevels.set(modelThinkingKey(model.provider, model.id), level);
+	};
+	const applyRememberedThinkingLevel = async (runtime: ConversationTabRuntime, provider: string, modelId: string): Promise<void> => {
+		const level = runtime.effectiveThinkingLevels.get(modelThinkingKey(provider, modelId));
+		if (level) await runtime.client.setThinkingLevel(level);
+	};
 	const currentDrafts = () => {
 		revision();
 		return sessionDrafts(activeRuntime().drafts, currentSessionKey());
@@ -1106,6 +1134,32 @@ export function App(props: AppOptions) {
 		syncPromptPlaceholder("");
 		setPromptText("");
 		setPromptCursorOffset(0);
+	};
+	const runtimeMainDraftText = (runtime: ConversationTabRuntime): string => {
+		const drafts = sessionDrafts(
+			runtime.drafts,
+			runtime.sessionState?.sessionId ?? props.cwd,
+		);
+		return expandPromptPasteTokens(drafts.main, drafts.mainPastes);
+	};
+	const clearRuntimeMainDraft = (runtime: ConversationTabRuntime): void => {
+		if (tabRuntimeIsActive(runtime.id)) {
+			clearMainDraft();
+			return;
+		}
+		const drafts = sessionDrafts(
+			runtime.drafts,
+			runtime.sessionState?.sessionId ?? props.cwd,
+		);
+		drafts.main = "";
+		drafts.mainPastes = [];
+	};
+	const clearRuntimeMainDraftIfMatches = (
+		runtime: ConversationTabRuntime,
+		expected: string,
+	): void => {
+		if (queuedPromptMatchesDraft(runtimeMainDraftText(runtime), expected))
+			clearRuntimeMainDraft(runtime);
 	};
 	const promptValue = () => prompt?.plainText ?? currentDrafts().main;
 	const expandedPromptText = () =>
@@ -1398,13 +1452,16 @@ export function App(props: AppOptions) {
 		}
 	};
 	const refreshOperation = async (target: ConversationTabRuntime): Promise<boolean> => {
+		const version = target.eventVersion;
 		try {
 			const [state, stats] = await Promise.all([
 				target.client.getState(),
 				target.client.getSessionStats(),
 			]);
+			if (target.eventVersion !== version) return true;
 			const streamingChanged = target.conversation.isStreaming !== state.isStreaming;
 			target.sessionState = state;
+			rememberThinkingLevel(target);
 			target.sessionStats = stats;
 			target.conversation.isStreaming = state.isStreaming;
 			if (streamingChanged) target.onConversationChange();
@@ -1417,6 +1474,7 @@ export function App(props: AppOptions) {
 			}
 			return true;
 		} catch (error) {
+			if (target.eventVersion !== version) return true;
 			const message = error instanceof Error ? error.message : String(error);
 			target.lastError = error instanceof Error ? error : new Error(message);
 			props.logger.error("ui.refresh_state_failed", { runtimeId: target.id, error });
@@ -1553,11 +1611,13 @@ export function App(props: AppOptions) {
 		});
 	};
 
-	const addSystem = (
+	const addSystemToRuntime = (
+		runtime: ConversationTabRuntime,
 		text: string,
 		tone: "muted" | "info" | "warning" | "error" | "success" = "info",
-	) => {
-		activeRuntime().conversation.system(text, tone);
+	): void => {
+		runtime.conversation.system(text, tone);
+		if (!tabRuntimeIsActive(runtime.id)) return;
 		trimMessageWindowIfFollowingLatest();
 		conversationTouch();
 		queueMicrotask(scrollToBottom);
@@ -1572,31 +1632,36 @@ export function App(props: AppOptions) {
 
 	const cycleThinkingEffort = async () => {
 		try {
-			const result = await activeRuntime().client.cycleThinkingLevel();
-			await refreshState();
-			const level = result?.level ?? sessionState()?.thinkingLevel ?? "unknown";
+			const runtime = activeRuntime();
+			const result = await runtime.client.cycleThinkingLevel();
+			await refreshState(runtime);
+			const level = result?.level ?? runtime.sessionState?.thinkingLevel ?? "unknown";
+			rememberThinkingLevel(runtime, isThinkingLevel(level) ? level : undefined);
 			toast(`Thinking effort: ${level}`, "success", 1600);
 		} catch (error) {
 			toast(error instanceof Error ? error.message : String(error), "error");
 		}
 	};
 
-	const loadCurrentSession = async () => {
+	const loadCurrentSession = async (runtime: ConversationTabRuntime = activeRuntime()) => {
 		const [state, messages] = await Promise.all([
-			activeRuntime().client.getState(SESSION_LOAD_REQUEST_TIMEOUT_MS),
-			activeRuntime().client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS),
+			runtime.client.getState(SESSION_LOAD_REQUEST_TIMEOUT_MS),
+			runtime.client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS),
 		]);
 		const historyItems = initialItems(messages);
-		activeRuntime().conversation.items.splice(0, activeRuntime().conversation.items.length, ...historyItems);
-		activeRuntime().conversation.isStreaming = state.isStreaming;
-		activeRuntime().conversation.steering = [];
-		activeRuntime().conversation.followUp = [];
-		setSessionState(state);
-		setQueuedFollowUps([]);
-		resetMessageWindow(historyItems.length);
-		conversationTouch();
-		queueMicrotask(scrollToBottom);
-		await refreshState();
+		runtime.conversation.items.splice(0, runtime.conversation.items.length, ...historyItems);
+		runtime.conversation.isStreaming = state.isStreaming;
+		runtime.conversation.steering = [];
+		runtime.conversation.followUp = [];
+		runtime.sessionState = state;
+		rememberThinkingLevel(runtime);
+		runtime.queuedFollowUps = [];
+		if (tabRuntimeIsActive(runtime.id)) {
+			resetMessageWindow(historyItems.length);
+			conversationTouch();
+			queueMicrotask(scrollToBottom);
+		}
+		await refreshState(runtime);
 	};
 
 	const settingsSummary = () => {
@@ -1622,7 +1687,14 @@ export function App(props: AppOptions) {
 		].join("\n");
 	};
 
-	const handleSlashCommand = async (text: string): Promise<boolean> => {
+	const handleSlashCommand = async (
+		text: string,
+		runtime: ConversationTabRuntime = activeRuntime(),
+	): Promise<boolean> => {
+		const addSystem = (
+			message: string,
+			tone: "muted" | "info" | "warning" | "error" | "success" = "info",
+		): void => addSystemToRuntime(runtime, message, tone);
 		if (!text.startsWith("/")) return false;
 		const [rawName = "", ...parts] = text.slice(1).trim().split(/\s+/);
 		const name = rawName.toLowerCase();
@@ -1683,8 +1755,8 @@ export function App(props: AppOptions) {
 					addSystem("Usage: /autocompact on|off", "warning");
 					return true;
 				}
-				await activeRuntime().client.setAutoCompaction(value);
-				await refreshState();
+				await runtime.client.setAutoCompaction(value);
+				await refreshState(runtime);
 				addSystem(
 					`Automatic compaction ${value ? "enabled" : "disabled"}.`,
 					"success",
@@ -1697,7 +1769,7 @@ export function App(props: AppOptions) {
 					addSystem("Usage: /retry on|off", "warning");
 					return true;
 				}
-				await activeRuntime().client.setAutoRetry(value);
+				await runtime.client.setAutoRetry(value);
 				setAutoRetryEnabled(value);
 				addSystem(
 					`Automatic retry ${value ? "enabled" : "disabled"}.`,
@@ -1711,8 +1783,8 @@ export function App(props: AppOptions) {
 					addSystem("Usage: /steering-mode all|one-at-a-time", "warning");
 					return true;
 				}
-				await activeRuntime().client.setSteeringMode(mode);
-				await refreshState();
+				await runtime.client.setSteeringMode(mode);
+				await refreshState(runtime);
 				addSystem(`Steering mode set to ${mode}.`, "success");
 				return true;
 			}
@@ -1723,15 +1795,15 @@ export function App(props: AppOptions) {
 					addSystem("Usage: /followup-mode all|one-at-a-time", "warning");
 					return true;
 				}
-				await activeRuntime().client.setFollowUpMode(mode);
-				await refreshState();
+				await runtime.client.setFollowUpMode(mode);
+				await refreshState(runtime);
 				addSystem(`Follow-up mode set to ${mode}.`, "success");
 				return true;
 			}
 			case "thinking": {
 				if (!argument) {
 					addSystem(
-						`Thinking level: ${sessionState()?.thinkingLevel ?? "unknown"}. Thinking text stays visible; click each Thinking heading to expand or collapse it.`,
+						`Thinking level: ${runtime.sessionState?.thinkingLevel ?? "unknown"}. Thinking text stays visible; click each Thinking heading to expand or collapse it.`,
 					);
 					return true;
 				}
@@ -1742,14 +1814,15 @@ export function App(props: AppOptions) {
 					);
 					return true;
 				}
-				await activeRuntime().client.setThinkingLevel(argument);
-				await refreshState();
+				await runtime.client.setThinkingLevel(argument);
+				await refreshState(runtime);
+				rememberThinkingLevel(runtime, argument);
 				addSystem(`Thinking level set to ${argument}.`, "success");
 				return true;
 			}
 			case "model": {
 				if (!argument) {
-					const model = sessionState()?.model;
+					const model = runtime.sessionState?.model;
 					addSystem(
 						`Current model: ${model ? `${model.provider}/${model.id}` : "unknown"}. Press Ctrl+P to choose from a list, or use /model provider/model-id.`,
 					);
@@ -1760,11 +1833,12 @@ export function App(props: AppOptions) {
 					addSystem("Usage: /model provider/model-id", "warning");
 					return true;
 				}
-				await activeRuntime().client.setModel(
-					argument.slice(0, slash),
-					argument.slice(slash + 1),
-				);
-				await refreshState();
+				rememberThinkingLevel(runtime);
+				const provider = argument.slice(0, slash);
+				const modelId = argument.slice(slash + 1);
+				await runtime.client.setModel(provider, modelId);
+				await applyRememberedThinkingLevel(runtime, provider, modelId);
+				await refreshState(runtime);
 				addSystem(`Model set to ${argument}.`, "success");
 				return true;
 			}
@@ -1784,17 +1858,17 @@ export function App(props: AppOptions) {
 				return true;
 			}
 			case "compact":
-				if (activeRuntime().conversation.isCompacting) {
+				if (runtime.conversation.isCompacting) {
 					addSystem("Compaction is already running.", "warning");
 					return true;
 				}
 				addSystem("Starting compaction…");
-				await activeRuntime().client.compact(argument || undefined);
-				await refreshState();
+				await runtime.client.compact(argument || undefined);
+				await refreshState(runtime);
 				return true;
 			case "new":
-				await activeRuntime().client.newSession();
-				await loadCurrentSession();
+				await runtime.client.newSession();
+				await loadCurrentSession(runtime);
 				addSystem("Started a new session.", "success");
 				return true;
 			case "name":
@@ -1802,12 +1876,12 @@ export function App(props: AppOptions) {
 					addSystem("Usage: /name <session name>", "warning");
 					return true;
 				}
-				await activeRuntime().client.setSessionName(argument);
-				await refreshState();
+				await runtime.client.setSessionName(argument);
+				await refreshState(runtime);
 				addSystem(`Session named “${argument}”.`, "success");
 				return true;
 			case "commands": {
-				const commands = await activeRuntime().client.getCommands();
+				const commands = await runtime.client.getCommands();
 				const rows = commands.map(
 					(command) =>
 						`/${command.name}${command.description ? ` — ${command.description}` : ""}`,
@@ -1859,22 +1933,20 @@ export function App(props: AppOptions) {
 		}
 	};
 
-	const sendText = async (text: string): Promise<"sent" | "queued"> => {
-		const wasStreaming = activeRuntime().conversation.isStreaming;
+	const sendText = async (text: string, runtime: ConversationTabRuntime = activeRuntime()): Promise<"sent" | "queued"> => {
+		const wasStreaming = runtime.conversation.isStreaming;
 		props.logger.info("ui.submit", {
 			chars: text.length,
 			streaming: wasStreaming,
-			compacting: activeRuntime().conversation.isCompacting,
+			compacting: runtime.conversation.isCompacting,
 		});
-		if (activeRuntime().conversation.isCompacting) {
+		if (runtime.conversation.isCompacting) {
 			// Pi tears down its agent connection for the duration of compaction, so a
 			// prompt sent right now can wait on a response that never arrives (the
 			// client-side RPC timeout fires, and the message never reaches the model).
 			// Queue it locally and flush once compaction_end confirms it's safe.
-			setQueuedFollowUps((current) => [
-				...current,
-				{ id: crypto.randomUUID(), text },
-			]);
+			runtime.queuedFollowUps = [...runtime.queuedFollowUps, { id: crypto.randomUUID(), text }];
+			touch();
 			props.logger.info("ui.followup_queued_for_compaction", {
 				chars: text.length,
 			});
@@ -1882,18 +1954,20 @@ export function App(props: AppOptions) {
 			return "queued";
 		}
 		if (!wasStreaming) {
-			const optimisticId = activeRuntime().conversation.optimisticUser(text);
-			trimMessageWindowIfFollowingLatest();
-			conversationTouch();
-			scrollToBottom();
+			const optimisticId = runtime.conversation.optimisticUser(text);
+			if (tabRuntimeIsActive(runtime.id)) {
+				trimMessageWindowIfFollowingLatest();
+				conversationTouch();
+				scrollToBottom();
+			}
 			try {
-				await activeRuntime().client.prompt(text);
+				await runtime.client.prompt(text);
 			} catch (error) {
-				const index = activeRuntime().conversation.items.findIndex(
+				const index = runtime.conversation.items.findIndex(
 					(item) => item.id === optimisticId,
 				);
-				if (index >= 0) activeRuntime().conversation.items.splice(index, 1);
-				conversationTouch();
+				if (index >= 0) runtime.conversation.items.splice(index, 1);
+				if (tabRuntimeIsActive(runtime.id)) conversationTouch();
 				throw error;
 			}
 			return "sent";
@@ -1903,11 +1977,12 @@ export function App(props: AppOptions) {
 		// extension commands and prompt templates. Do not add an optimistic transcript item: Pi exposes
 		// the pending text through queue_update and emits the user message once it
 		// is actually consumed.
-		await activeRuntime().client.prompt(text, "steer");
+		await runtime.client.prompt(text, "steer");
 		return "sent";
 	};
 
 	const submit = async () => {
+		const runtime = activeRuntime();
 		if (startupPhase().kind !== "ready") {
 			toast(
 				startupPhase().kind === "failed"
@@ -1917,27 +1992,28 @@ export function App(props: AppOptions) {
 			);
 			return;
 		}
-		if (!activeRuntime().startupResolved) {
+		if (!runtime.startupResolved) {
 			toast("This tab is still loading its conversation.", "warning");
 			return;
 		}
 		if (dialog()) return;
 		const text = expandedPromptText().trim();
 		if (!text) return;
-		activeRuntime().promptHistory.recordSubmitted(text);
+		runtime.promptHistory.recordSubmitted(text);
 		try {
-			if (await handleSlashCommand(text)) {
-				clearMainDraft();
+			if (await handleSlashCommand(text, runtime)) {
+				clearRuntimeMainDraftIfMatches(runtime, text);
 				return;
 			}
-			const result = await sendText(text);
-			if (result === "sent") clearMainDraft();
+			const result = await sendText(text, runtime);
+			if (result === "sent") clearRuntimeMainDraftIfMatches(runtime, text);
 		} catch (error) {
 			props.logger.error("ui.submit_failed", error);
-			addSystem(
+			runtime.conversation.system(
 				error instanceof Error ? error.message : String(error),
 				"error",
 			);
+			runtime.onConversationChange();
 		}
 	};
 
@@ -1954,19 +2030,20 @@ export function App(props: AppOptions) {
 			return;
 		}
 		clearMainDraft();
-		setQueuedFollowUps((current) => [
-			...current,
-			{ id: crypto.randomUUID(), text },
-		]);
+		const runtime = activeRuntime();
+		runtime.queuedFollowUps = [...runtime.queuedFollowUps, { id: crypto.randomUUID(), text }];
+		touch();
 		props.logger.info("ui.followup_queued", { chars: text.length });
 		toast("Follow-up queued. Alt+Up restores it for editing.", "success");
 	};
 
 	const editQueuedFollowUp = (messageId: string) => {
-		const current = queuedFollowUps();
+		const runtime = activeRuntime();
+		const current = runtime.queuedFollowUps;
 		const selected = current.find((item) => item.id === messageId);
 		if (!selected) return;
-		setQueuedFollowUps(current.filter((item) => item.id !== messageId));
+		runtime.queuedFollowUps = current.filter((item) => item.id !== messageId);
+		touch();
 		syncMainDraft(selected.text);
 		prompt?.focus();
 		toast("Queued follow-up restored to editor.", "info");
@@ -1990,54 +2067,53 @@ export function App(props: AppOptions) {
 		editQueuedFollowUp(last.id);
 	};
 
-	const flushQueuedFollowUp = async () => {
+	const flushQueuedFollowUp = async (runtime: ConversationTabRuntime = activeRuntime()) => {
 		const decision = settledDispatchDecision(
-			dispatchGate,
-			queuedFollowUps().length > 0,
-			activeRuntime().conversation.isStreaming,
+			runtime.dispatchGate,
+			runtime.queuedFollowUps.length > 0,
+			runtime.conversation.isStreaming,
 		);
 		if (decision === "busy" || decision === "empty") return;
 		if (decision === "suppressed") {
-			dispatchGate = { ...dispatchGate, suppressNextSettled: false };
+			runtime.dispatchGate = { ...runtime.dispatchGate, suppressNextSettled: false };
 			return;
 		}
-		const snapshot = snapshotQueue(queuedFollowUps());
-		dispatchGate = { ...dispatchGate, inFlight: true };
-		setQueuedFollowUps((current) =>
-			current.filter(
-				(item) => !snapshot.items.some((queued) => queued.id === item.id),
-			),
+		const snapshot = snapshotQueue(runtime.queuedFollowUps);
+		runtime.dispatchGate = { ...runtime.dispatchGate, inFlight: true };
+		runtime.queuedFollowUps = runtime.queuedFollowUps.filter(
+			(item) => !snapshot.items.some((queued) => queued.id === item.id),
 		);
+		touch();
 		try {
-			const result = await sendText(snapshot.prompt);
-			if (
-				result === "sent" &&
-				queuedPromptMatchesDraft(expandedPromptText(), snapshot.prompt)
-			)
-				clearMainDraft();
+			const result = await sendText(snapshot.prompt, runtime);
+			if (result === "sent")
+				clearRuntimeMainDraftIfMatches(runtime, snapshot.prompt);
 		} catch (error) {
-			setQueuedFollowUps((current) => restoreQueue(snapshot.items, current));
-			addSystem(
+			runtime.queuedFollowUps = restoreQueue(snapshot.items, runtime.queuedFollowUps);
+			touch();
+			runtime.conversation.system(
 				`Failed to send queued follow-ups: ${error instanceof Error ? error.message : String(error)}`,
 				"error",
 			);
+			runtime.onConversationChange();
 		} finally {
-			dispatchGate = { ...dispatchGate, inFlight: false };
+			runtime.dispatchGate = { ...runtime.dispatchGate, inFlight: false };
 		}
 	};
 
 	const abortActiveWork = () => {
-		if (abortInFlight) return;
-		dispatchGate = markAbort(dispatchGate);
-		abortInFlight = activeRuntime().client
+		const runtime = activeRuntime();
+		if (runtime.abortInFlight) return;
+		runtime.dispatchGate = markAbort(runtime.dispatchGate);
+		runtime.abortInFlight = runtime.client
 			.abort()
 			.then(() => toast("Aborting current Pi turn", "warning"))
 			.catch((error) => {
-				dispatchGate = abortFailed(dispatchGate);
+				runtime.dispatchGate = abortFailed(runtime.dispatchGate);
 				toast(String(error), "error");
 			})
 			.finally(() => {
-				abortInFlight = undefined;
+				delete runtime.abortInFlight;
 			});
 	};
 
@@ -2172,6 +2248,8 @@ export function App(props: AppOptions) {
 	};
 	const applySettingsModel = async (model: ModelChoice) => {
 		if (settingsBusy()) return;
+		const runtime = activeRuntime();
+		rememberThinkingLevel(runtime);
 		setSettingsRoute("root");
 		setSettingsSelectedId("model");
 		setSettingsBusy("model");
@@ -2181,8 +2259,9 @@ export function App(props: AppOptions) {
 			return next;
 		});
 		try {
-			await activeRuntime().client.setModel(model.provider, model.id);
-			if (!(await refreshState()))
+			await runtime.client.setModel(model.provider, model.id);
+			await applyRememberedThinkingLevel(runtime, model.provider, model.id);
+			if (!(await refreshState(runtime)))
 				throw new Error(
 					"Pi accepted the model change but state refresh failed.",
 				);
@@ -2200,6 +2279,7 @@ export function App(props: AppOptions) {
 		if (settingsBusy()) return;
 		setSettingsRoute("root");
 		setSettingsSelectedId("thinking");
+		const runtime = activeRuntime();
 		setSettingsBusy("thinking");
 		setSettingsErrors((errors) => {
 			const next = { ...errors };
@@ -2207,11 +2287,13 @@ export function App(props: AppOptions) {
 			return next;
 		});
 		try {
-			await activeRuntime().client.setThinkingLevel(level);
-			if (!(await refreshState()))
+			await runtime.client.setThinkingLevel(level);
+			rememberThinkingLevel(runtime, level);
+			if (!(await refreshState(runtime)))
 				throw new Error(
 					"Pi accepted the effort change but state refresh failed.",
 				);
+			rememberThinkingLevel(runtime, level);
 			setSettingsRoute("root");
 		} catch (error) {
 			setSettingsErrors((errors) => ({
@@ -2269,6 +2351,7 @@ export function App(props: AppOptions) {
 
 	const applySettingsRename = async (name: string) => {
 		if (settingsBusy()) return;
+		const runtime = activeRuntime();
 		setSettingsBusy("rename");
 		setSettingsErrors((errors) => {
 			const next = { ...errors };
@@ -2276,8 +2359,8 @@ export function App(props: AppOptions) {
 			return next;
 		});
 		try {
-			await activeRuntime().client.setSessionName(name);
-			if (!(await refreshState()))
+			await runtime.client.setSessionName(name);
+			if (!(await refreshState(runtime)))
 				throw new Error("Rename accepted but session refresh failed.");
 			setSettingsRoute("session");
 		} catch (error) {
@@ -2305,11 +2388,12 @@ export function App(props: AppOptions) {
 		setSettingsRoute("mcp");
 	};
 	const activateMcp = async (): Promise<boolean> => {
+		const runtime = activeRuntime();
 		try {
-			const sessionFile = sessionState()?.sessionFile;
+			const sessionFile = runtime.sessionState?.sessionFile;
 			if (!sessionFile)
 				throw new Error("Pi did not report a current session file.");
-			await activeRuntime().client.restart(sessionFile);
+			await runtime.client.restart(sessionFile);
 			const integrations = detectOptionalIntegrations({
 				...(props.piExecutable ? { piExecutable: props.piExecutable } : {}),
 				cwd: props.cwd,
@@ -2317,8 +2401,8 @@ export function App(props: AppOptions) {
 			setMcpInstallState(
 				integrations.mcpAdapter.installed ? "ready" : "missing",
 			);
-			await loadCurrentSession();
-			const refreshedCommands = await activeRuntime().client.getCommands();
+			await loadCurrentSession(runtime);
+			const refreshedCommands = await runtime.client.getCommands();
 			setCommandChoices(mergeCommandChoices(refreshedCommands));
 			setMcpConfigState("saved-active");
 			setMcpActivationPending(false);
@@ -2526,28 +2610,32 @@ export function App(props: AppOptions) {
 	};
 
 	const switchToSession = async (choice: SessionChoice) => {
+		const runtime = activeRuntime();
 		if (sessionSwitching()) return;
-		if (!pendingSession() && queuedFollowUps().length) {
+		if (!pendingSession() && runtime.queuedFollowUps.length) {
 			setPendingSession(choice);
 			setPendingSessionReason("queued");
 			return;
 		}
-		if (streaming() && !pendingSession()) {
+		if (runtime.conversation.isStreaming && !pendingSession()) {
 			setPendingSession(choice);
 			setPendingSessionReason("streaming");
 			return;
 		}
-		if (pendingSessionReason() === "queued") setQueuedFollowUps([]);
+		if (pendingSessionReason() === "queued") {
+			runtime.queuedFollowUps = [];
+			touch();
+		}
 		setSessionSwitching(true);
 		try {
-			const result = await activeRuntime().client.switchSession(choice.path);
+			const result = await runtime.client.switchSession(choice.path);
 			if (result.cancelled) {
 				setPendingSession(undefined);
 				setPendingSessionReason(undefined);
 				toast("Session switch was cancelled by Pi", "warning");
 				return;
 			}
-			await loadCurrentSession();
+			await loadCurrentSession(runtime);
 			setSessionSelectorOpen(false);
 			if (settingsRoute() === "session-switch") setSettingsRoute("root");
 			setPendingSession(undefined);
@@ -2579,11 +2667,14 @@ export function App(props: AppOptions) {
 	};
 
 	const selectModel = async (model: ModelChoice) => {
+		const runtime = activeRuntime();
+		rememberThinkingLevel(runtime);
 		setModelSelectorOpen(false);
 		setStatus(`switching to ${model.provider}/${model.id}…`);
 		try {
-			await activeRuntime().client.setModel(model.provider, model.id);
-			await refreshState();
+			await runtime.client.setModel(model.provider, model.id);
+			await applyRememberedThinkingLevel(runtime, model.provider, model.id);
+			await refreshState(runtime);
 			toast(`Model set to ${model.provider}/${model.id}`, "success");
 		} catch (error) {
 			toast(
@@ -2826,6 +2917,7 @@ export function App(props: AppOptions) {
 					),
 				});
 				startupRuntime.sessionState = state;
+				rememberThinkingLevel(startupRuntime);
 				startupRuntime.startupResolved = true;
 				startupRuntime.conversation.isStreaming = state.isStreaming;
 				setStartupPhase({ kind: "ready" });
@@ -3168,7 +3260,7 @@ export function App(props: AppOptions) {
 				return;
 			}
 			if (streaming()) {
-				if (streamingCtrlCDecision(Boolean(abortInFlight)) === "force-exit") {
+				if (streamingCtrlCDecision(Boolean(activeRuntime().abortInFlight)) === "force-exit") {
 					renderer.destroy();
 					return;
 				}
@@ -3615,6 +3707,9 @@ export function App(props: AppOptions) {
 											now={clockNow()}
 											spinner={spinnerFrames[spinnerIndex()] ?? "◐"}
 											frame={spinnerIndex()}
+											{...(activeRuntime().smartCompactProgress
+												? { smartCompactProgress: activeRuntime().smartCompactProgress }
+												: {})}
 										/>
 									</Show>
 								)}
@@ -3851,7 +3946,7 @@ export function App(props: AppOptions) {
 				paddingRight={1}
 				backgroundColor={colors.background}
 			>
-				<text fg={streaming() ? colors.green : colors.muted}>● {displayStatus()}</text>
+				<text fg={streaming() ? colors.green : colors.muted}>● {displayStatus()}{activeRuntime().smartCompactProgress ? ` · ${activeRuntime().smartCompactProgress}` : ""}</text>
 				<box flexGrow={1} />
 				<text fg={colors.subtle}>
 					{globalFooterHint(

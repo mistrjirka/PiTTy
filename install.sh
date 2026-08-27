@@ -17,7 +17,7 @@ usage() {
 PiTTy installer for Linux and macOS
 
 Usage: install.sh [options]
-  --with-plugins          Install pi-subagents and @juicesharp/rpiv-todo
+  --with-plugins          Install recommended optional Pi packages
   --without-plugins       Skip optional Pi packages
   --yes                   Accept defaults without prompting
   --allow-plugin-failure  Exit successfully when only optional packages fail
@@ -179,6 +179,7 @@ if [ "$PLUGIN_MODE" = "ask" ] || [ "$PLUGIN_MODE" = "yes" ]; then
   printf '%s\n' "$PI_LIST" | grep -F "pi-subagents" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-subagents"
   printf '%s\n' "$PI_LIST" | grep -F "@juicesharp/rpiv-todo" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS @juicesharp/rpiv-todo"
   printf '%s\n' "$PI_LIST" | grep -F "pi-mcp-adapter" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-mcp-adapter"
+  printf '%s\n' "$PI_LIST" | grep -F "pi-smart-compact" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-smart-compact"
 fi
 if [ "$PLUGIN_MODE" = "ask" ] && [ -z "$MISSING_PLUGINS" ]; then
   say "Recommended Pi packages are already installed; skipping plugin prompt."
@@ -219,6 +220,7 @@ if [ "$PLUGIN_MODE" = "yes" ]; then
   install_plugin "npm:pi-subagents" "pi-subagents"
   install_plugin "npm:@juicesharp/rpiv-todo" "@juicesharp/rpiv-todo"
   install_plugin "npm:pi-mcp-adapter" "pi-mcp-adapter"
+  install_plugin "npm:pi-smart-compact" "pi-smart-compact"
 else
   say "Skipping optional Pi packages. PiTTy will hide their panels and continue normally."
 fi
