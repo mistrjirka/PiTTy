@@ -1,6 +1,6 @@
 import type { PiEvent } from "../types.ts";
 
-export const TOOL_UPDATE_FLUSH_DELAY_MS = 50;
+export const TOOL_UPDATE_FLUSH_DELAY_MS = 250;
 export const MAX_PENDING_TOOL_UPDATES = 512;
 
 export type ToolEventTimerHandle = ReturnType<typeof setTimeout>;
@@ -31,6 +31,20 @@ function isEventType(event: PiEvent, type: string): boolean {
 	return eventRecord(event).type === type;
 }
 
+function isLifecycleBoundary(event: PiEvent): boolean {
+	const type = eventRecord(event).type;
+	return (
+		type === "tool_execution_start" ||
+		type === "agent_start" ||
+		type === "agent_settled" ||
+		type === "agent_end" ||
+		type === "compaction_start" ||
+		type === "compaction_end" ||
+		type === "auto_retry_start" ||
+		type === "auto_retry_end"
+	);
+}
+
 export class ToolEventCoalescer {
 	private readonly pending = new Map<string, PiEvent>();
 	private scheduledTimer: ToolEventTimerHandle | undefined;
@@ -50,7 +64,7 @@ export class ToolEventCoalescer {
 		if (isEventType(event, "tool_execution_update")) {
 			const id = toolCallId(event);
 			if (!id) {
-				this.flush();
+				this.flushPending();
 				this.applyEvent(event);
 				return;
 			}
@@ -69,7 +83,7 @@ export class ToolEventCoalescer {
 			return;
 		}
 
-		this.flush();
+		if (isLifecycleBoundary(event)) this.flushPending();
 		this.applyEvent(event);
 	}
 

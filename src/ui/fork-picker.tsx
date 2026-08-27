@@ -11,6 +11,15 @@ export type ForkPickerProps = {
 	onCancel: () => void;
 };
 
+function selectScrollOffset(select: SelectRenderable): number {
+	// OpenTUI does not expose the visible-window offset; read it defensively so
+	// mouse selection stays aligned after keyboard scrolling.
+	const value: unknown = Object.getOwnPropertyDescriptor(select, "scrollOffset")?.value;
+	return typeof value === "number" && Number.isInteger(value) && value >= 0
+		? value
+		: 0;
+}
+
 export function ForkPicker(props: ForkPickerProps) {
 	let search: TextareaRenderable | undefined;
 	let select: SelectRenderable | undefined;
@@ -36,7 +45,41 @@ export function ForkPicker(props: ForkPickerProps) {
 			<box flexDirection="row"><text fg={colors.textBright} attributes={1}>Fork conversation</text><box flexGrow={1} /><text fg={colors.muted} onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); props.onCancel(); }}>× Close</text></box>
 			<textarea ref={(value) => { search = value; }} focused={focus.focusTarget() === "search"} height={1} minHeight={1} maxHeight={1} placeholder="Search messages…" backgroundColor={colors.panel} focusedBackgroundColor={colors.panel} textColor={colors.textBright} placeholderColor={colors.muted} onKeyDown={cancel} onContentChange={() => { setQuery(search?.plainText ?? ""); queueMicrotask(() => select?.setSelectedIndex(0)); }} />
 			<text fg={colors.subtle}>Message list · ↑/↓ move · Enter select · Esc close</text>
-			{choices().length === 0 ? <text fg={colors.yellow}>No fork points.</text> : <select ref={(value) => { select = value; }} options={options()} selectedIndex={0} focused={focus.focusTarget() === "list"} height={Math.min(18, Math.max(5, options().length * 2))} backgroundColor={colors.panelRaised} focusedBackgroundColor={colors.panelRaised} textColor={colors.text} focusedTextColor={colors.text} selectedBackgroundColor={colors.selection} selectedTextColor={colors.textBright} descriptionColor={colors.muted} selectedDescriptionColor={colors.text} showScrollIndicator wrapSelection onKeyDown={cancel} onSelect={(_index, option) => { if (option?.value) props.onSelect(option.value.entryId); }} />}
+			{choices().length === 0 ? <text fg={colors.yellow}>No fork points.</text> : (
+				<select
+					ref={(value) => { select = value; }}
+					options={options()}
+					selectedIndex={0}
+					focused={focus.focusTarget() === "list"}
+					height={Math.min(18, Math.max(5, options().length))}
+					backgroundColor={colors.panelRaised}
+					focusedBackgroundColor={colors.panelRaised}
+					textColor={colors.text}
+					focusedTextColor={colors.text}
+					selectedBackgroundColor={colors.selection}
+					selectedTextColor={colors.textBright}
+					descriptionColor={colors.muted}
+					selectedDescriptionColor={colors.text}
+					showDescription={false}
+					showScrollIndicator
+					wrapSelection
+					onKeyDown={cancel}
+					onMouseDown={(event) => {
+						if (!select) return;
+						event.preventDefault();
+						event.stopPropagation();
+						focus.focusList();
+						const index = selectScrollOffset(select) + Math.floor(event.y - select.screenY);
+						const option = choices()[index];
+						if (!option) return;
+						select.setSelectedIndex(index);
+						props.onSelect(option.entryId);
+					}}
+					onSelect={(_index, option) => {
+						if (option?.value) props.onSelect(option.value.entryId);
+					}}
+				/>
+			)}
 		</box>
 	);
 }

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.2
+
+### Responsive under sustained output
+
+- Assistant `message_update` events are applied unchanged and in FIFO order within bounded 33 ms presentation batches, with synchronous flushes at lifecycle boundaries and shutdown.
+- Cumulative Bash snapshots retain their 250 ms coalescing path, while final states and lifecycle events remain immediate.
+- Transcript rendering now has a conversation-only revision domain, so statistics, subagent polling, badges, and tab-local UI no longer recompute unrelated message rows.
+- Tool duration text refreshes once per second while the activity spinner remains smooth.
+
+### Reliable tabs and forks
+
+- Forks are prepared and hydrated on a provisional Pi runtime before activation. The source conversation keeps streaming, and failed or cancelled forks stop only the provisional process.
+- Promoted fork runtimes receive future live updates, provisional runtimes are owned during shutdown, and delayed history responses cannot overwrite newer transcript events.
+- Background history hydration, tab-local inspector state, post-layout transcript scrolling, fork-picker mouse/keyboard selection, and the stronger two-row tab strip have regression coverage.
+
+### Validation
+
+- Typecheck clean; full browser-conditioned suite: 366 passed, 1 platform-specific skip, 0 failures.
+- Production TUI replay with 180 historical messages and 250 updates/second reduced input latency from 5.7 seconds on v0.6.1 to 12–28 ms.
+- Multi-process smokes verified source-stream continuity, populated fork activation, post-fork live updates, cancellation behavior, inspector restoration, and provisional-process cleanup.
+
 ## 0.6.1
 
 0.6.0 moved conversations into independent runtimes, but several UI reads still depended on plain mutable fields and some tab controls bypassed the full activation path. The result was visible: Ctrl+P could claim the initial tab was still starting forever, model/thinking/context values went stale, and diff expansion changed state without repainting. This release fixes those ownership and reactivity paths.

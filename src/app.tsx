@@ -23,8 +23,8 @@ import {
 } from "@opentui/solid";
 import type {
 	RpcExtensionUIRequest,
+	PiEvent,
 	RpcSessionState,
-	SessionStats,
 	SubagentRun,
 	ToolItem,
 	Toast,
@@ -79,7 +79,7 @@ import {
 import { ExtensionDialog } from "./ui/dialog.tsx";
 import { MessageView } from "./ui/message.tsx";
 import { TabManager, type ConversationTab } from "./tabs/manager.ts";
-import { createTabRuntime, planForkTab, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
+import { createTabRuntime, planForkTab, prepareForkedTabRuntime, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
 import { ExtensionRequestRouter, type ExtensionRequestEnvelope } from "./tabs/extension-router.ts";
 import { TabStrip } from "./ui/tab-strip.tsx";
 import { ForkPicker } from "./ui/fork-picker.tsx";
@@ -556,9 +556,9 @@ export function App(props: AppOptions) {
 	});
 	const conversation = new ConversationModel([], props.cwd);
 	const [revision, setRevision] = createSignal(0);
+	const [conversationRevision, setConversationRevision] = createSignal(0);
 	const [messageWindowStart, setMessageWindowStart] = createSignal(0);
 
-	const [selectedTargetKey, setSelectedTargetKey] = createSignal<string>();
 	const [sidebarEnabled, setSidebarEnabled] = createSignal(props.sidebar);
 	const [expandedTools, setExpandedTools] = createSignal(false);
 	const [showJumpLatest, setShowJumpLatest] = createSignal(false);
@@ -575,7 +575,7 @@ export function App(props: AppOptions) {
 	const [codexUsageStats, setCodexUsageStats] = createSignal<
 		Record<number, CodexUsageStats>
 	>({});
-	const [inspectSubagent, setInspectSubagent] = createSignal(false);
+
 	const [subagentSelectorOpen, setSubagentSelectorOpen] = createSignal(false);
 	const [dialog, setDialog] = createSignal<RpcExtensionUIRequest>();
 	const [dialogOwnerRuntimeId, setDialogOwnerRuntimeId] = createSignal<string>();
@@ -635,9 +635,33 @@ export function App(props: AppOptions) {
 	const initialTab: ConversationTab = { id: "main", badges: 0 };
 	const tabManager = new TabManager(initialTab);
 	const [tabState, setTabState] = createSignal(tabManager.snapshot);
+	const [activeTabId, setActiveTabId] = createSignal(tabManager.snapshot.activeId);
 	const [runtimeMap, setRuntimeMap] = createSignal<Map<string, ConversationTabRuntime>>(new Map());
 	const extensionRouter = new ExtensionRequestRouter();
-	const activeRuntime = () => runtimeMap().get(tabState().activeId) ?? bootRuntime;
+	const provisionalRuntimes = new Set<ConversationTabRuntime>();
+	const activeRuntime = () => runtimeMap().get(activeTabId()) ?? bootRuntime;
+	const selectedTargetKey = () => { revision(); return activeRuntime().selectedTargetKey; };
+	const inspectSubagent = () => { revision(); return activeRuntime().inspectSubagent; };
+	const forkingConversation = () => { revision(); return activeRuntime().forkInProgress; };
+	const displayStatus = () => {
+		if (forkingConversation()) return "forking conversation…";
+		const current = status();
+		if (current !== "forking conversation…") return current;
+		return streaming() ? "working" : "ready";
+	};
+	const setSelectedTargetKey = (key: string | undefined) => {
+		const runtime = activeRuntime();
+		if (runtime.selectedTargetKey === key) return;
+		if (key === undefined) delete runtime.selectedTargetKey;
+		else runtime.selectedTargetKey = key;
+		touch();
+	};
+	const setInspectSubagent = (value: boolean) => {
+		const runtime = activeRuntime();
+		if (runtime.inspectSubagent === value) return;
+		runtime.inspectSubagent = value;
+		touch();
+	};
 	const refreshTabs = () => setTabState(tabManager.snapshot);
 	const finishExtensionRequest = (envelope: ExtensionRequestEnvelope): void => {
 		const next = extensionRouter.complete(envelope.runtimeId, envelope.request.id);
@@ -646,7 +670,7 @@ export function App(props: AppOptions) {
 
 	const handleExtensionRequest = (envelope: ExtensionRequestEnvelope): void => {
 		const runtime = runtimeMap().get(envelope.runtimeId);
-		if (!runtime || tabState().activeId !== envelope.runtimeId) return;
+		if (!runtime || activeTabId() !== envelope.runtimeId) return;
 		const event = envelope.request;
 		if (event.method === "notify") {
 			toast(event.message, event.notifyType === "error" ? "error" : event.notifyType === "warning" ? "warning" : "info");
@@ -677,6 +701,20 @@ export function App(props: AppOptions) {
 		setDialogOwnerRuntimeId(envelope.runtimeId);
 		setDialog(event);
 	};
+	const routeRuntimeEvent = (event: PiEvent, tabRuntime: ConversationTabRuntime): void => {
+		if (isExtensionUiRequest(event)) {
+			const envelope = extensionRouter.enqueue(tabRuntime.id, event);
+			if (tabRuntime.id !== activeTabId()) {
+				tabManager.incrementBadge(tabRuntime.id, "extension");
+				refreshTabs();
+			} else if (envelope) handleExtensionRequest(envelope);
+			return;
+		}
+		if (tabRuntime.id !== activeTabId()) return;
+		if (event.type === "message_end") touch();
+		if (event.type === "agent_settled" || event.type === "compaction_end")
+			void flushQueuedFollowUp();
+	};
 
 	const activateTab = (id: string) => {
 		const targetRuntime = runtimeMap().get(id);
@@ -687,12 +725,16 @@ export function App(props: AppOptions) {
 			setDialogOwnerRuntimeId(undefined);
 		}
 		tabManager.activate(id);
+		setActiveTabId(id);
 		tabManager.clearBadges(id);
 		refreshTabs();
 		const nextExtension = extensionRouter.setActive(id);
 		if (nextExtension) handleExtensionRequest(nextExtension);
 		resetMessageWindow(targetRuntime.conversation.items.length);
-		queueMicrotask(scrollToBottom);
+		queueMicrotask(() => queueMicrotask(() => {
+			if (targetRuntime.inspectSubagent) subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER);
+			else scrollToBottom();
+		}));
 		draftSwitchGuard = true;
 		const draft = resolveTabDraftSwitch(prompt?.plainText ?? "", targetText);
 		if (prompt) {
@@ -709,13 +751,14 @@ export function App(props: AppOptions) {
 	const closeTab = (id: string) => {
 		const runtime = runtimeMap().get(id);
 		if (!runtime || id === "main") return;
-		const wasActive = tabState().activeId === id;
+		const wasActive = activeTabId() === id;
 		if (dialogOwnerRuntimeId() === id) {
 			setDialog(undefined);
 			setDialogOwnerRuntimeId(undefined);
 		}
 		extensionRouter.remove(id);
 		refreshCoordinators.delete(id);
+		runtime.messageUpdates.dispose();
 		runtime.coalescer.flush();
 		void runtime.client.stop();
 		setRuntimeMap((current) => { const next = new Map(current); next.delete(id); return next; });
@@ -727,30 +770,82 @@ export function App(props: AppOptions) {
 		const id = `tab-${++tabCounter}`;
 		if (!tabManager.create({ id, badges: 0 })) { toast("Maximum of 8 conversation tabs.", "warning"); return undefined; }
 		const runtime = createTabRuntime({ id, cwd: props.cwd, args: props.piArgs, ...(props.piExecutable ? { executable: props.piExecutable } : {}), ...(sessionFile ? { sessionFile } : {}), logger: props.logger,
-			onEvent: (_event, tabRuntime) => { if (isExtensionUiRequest(_event)) { const envelope = extensionRouter.enqueue(tabRuntime.id, _event); if (tabRuntime.id !== tabState().activeId) { tabManager.incrementBadge(tabRuntime.id, "extension"); refreshTabs(); } else if (envelope) handleExtensionRequest(envelope); return; } if (tabRuntime.id === tabState().activeId) { setRevision((value) => value + 1); if (_event.type === "agent_settled" || _event.type === "compaction_end") void flushQueuedFollowUp(); } },
+			onEvent: routeRuntimeEvent,
+			onConversationChange: (tabRuntime) => { if (tabRuntime.id === activeTabId()) conversationTouch(); },
 		});
 		setRuntimeMap((current) => new Map(current).set(id, runtime));
 		activateTab(id);
 		void startTabRuntime(runtime).then(async () => {
-			if (!tabRuntimeIsActive(id)) return;
+			runtime.startupResolved = false;
 			await loadRuntimeHistory(runtime);
-			await refreshState(runtime);
+			runtime.startupResolved = true;
+			if (tabRuntimeIsActive(id)) {
+				touch();
+				await refreshState(runtime);
+			}
 		}).catch((error) => toast(error instanceof Error ? error.message : String(error), "error", 5000));
 		return id;
 	};
 	const forkAt = async (entryId: string) => {
-		const originalSessionFile = activeRuntime().sessionState?.sessionFile;
+		const sourceRuntime = activeRuntime();
+		const originalSessionFile = sourceRuntime.sessionState?.sessionFile;
 		if (!originalSessionFile) { toast("The current session file is not available yet.", "warning"); return; }
-		toast("Forking conversation…", "info", 5000);
+		const plan = planForkTab(originalSessionFile, "", tabState().tabs.length);
+		if (!plan.canCreate || sourceRuntime.forkInProgress) {
+			toast(plan.canCreate ? "A fork is already being prepared." : "Maximum of 8 conversation tabs.", "warning");
+			return;
+		}
+		sourceRuntime.forkInProgress = true;
+		touch();
+		setStatus("forking conversation…");
+		const provisionalId = `fork-${++tabCounter}`;
+		const provisional = createTabRuntime({ id: provisionalId, cwd: props.cwd, args: props.piArgs, ...(props.piExecutable ? { executable: props.piExecutable } : {}), sessionFile: originalSessionFile, logger: props.logger,
+			onEvent: (event, runtime) => {
+				if (runtimeMap().has(runtime.id)) {
+					routeRuntimeEvent(event, runtime);
+					return;
+				}
+				if (isExtensionUiRequest(event))
+					void runtime.client.sendExtensionUiResponse({ type: "extension_ui_response", id: event.id, cancelled: true }).catch((cancelError) => props.logger.warn("tabs.provisional_extension_cancel_failed", cancelError));
+			},
+			onConversationChange: (tabRuntime) => { if (tabRuntime.id === activeTabId()) conversationTouch(); },
+		});
+		provisionalRuntimes.add(provisional);
 		try {
-			await activeRuntime().client.fork(entryId, 240_000);
-			await loadCurrentSession();
-			const forkedId = tabState().activeId;
-			const plan = planForkTab(originalSessionFile, activeRuntime().sessionState?.sessionFile ?? "", tabState().tabs.length);
-			if (!plan.canCreate) { toast("Maximum of 8 conversation tabs.", "warning"); return; }
-			const originalId = createTab(plan.originalSessionFile);
-			if (originalId) activateTab(forkedId);
-		} catch (error) { toast(error instanceof Error ? error.message : String(error), "error", 5000); }
+			const branchedState = await prepareForkedTabRuntime(
+				provisional,
+				entryId,
+				240_000,
+			);
+			const finalPlan = planForkTab(
+				originalSessionFile,
+				branchedState.sessionFile,
+				tabState().tabs.length,
+			);
+			if (!finalPlan.canCreate) throw new Error("Maximum of 8 conversation tabs.");
+			if (!tabManager.create({ id: provisionalId, badges: 0 })) throw new Error("Maximum of 8 conversation tabs.");
+			provisionalRuntimes.delete(provisional);
+			setRuntimeMap((current) => new Map(current).set(provisionalId, provisional));
+			refreshTabs();
+			activateTab(provisionalId);
+			setStatus(branchedState.isStreaming ? "working" : "ready");
+			toast("Fork created.", "success");
+		} catch (error) {
+			provisionalRuntimes.delete(provisional);
+			extensionRouter.remove(provisionalId);
+			provisional.messageUpdates.dispose();
+			provisional.coalescer.flush();
+			try {
+				await provisional.client.stop();
+			} catch (stopError) {
+				props.logger.warn("tabs.provisional_stop_failed", stopError);
+			}
+			toast(error instanceof Error ? error.message : String(error), "error", 5000);
+		} finally {
+			sourceRuntime.forkInProgress = false;
+			if (tabRuntimeIsActive(sourceRuntime.id)) touch();
+			setStatus(activeRuntime().conversation.isStreaming ? "working" : "ready");
+		}
 	};
 	const openForkPicker = async () => {
 		const runtime = activeRuntime();
@@ -763,17 +858,26 @@ export function App(props: AppOptions) {
 			toast(`Failed to load fork points: ${error instanceof Error ? error.message : String(error)}`, "error");
 		}
 	};
-	const tabRuntimeIsActive = (id: string) => tabState().activeId === id;
+	const tabRuntimeIsActive = (id: string) => activeTabId() === id;
 	const loadRuntimeHistory = async (runtime: ConversationTabRuntime) => {
+		const before = [...runtime.conversation.items];
 		const messages = await runtime.client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS);
+		const liveConversationChanged =
+			runtime.conversation.items.length !== before.length ||
+			runtime.conversation.items.some((item, index) => item !== before[index]);
+		if (liveConversationChanged) {
+			props.logger.warn("tabs.history_load_raced_live_events", { runtimeId: runtime.id });
+			return;
+		}
 		runtime.conversation.items.splice(0, runtime.conversation.items.length, ...initialItems(messages));
 		await refreshRuntimeEntries(runtime).catch((error) =>
 			props.logger.warn("tabs.entry_refresh_failed", error),
 		);
-		if (tabRuntimeIsActive(runtime.id)) { resetMessageWindow(runtime.conversation.items.length); setRevision((value) => value + 1); }
+		if (tabRuntimeIsActive(runtime.id)) { resetMessageWindow(runtime.conversation.items.length); conversationTouch(); }
 	};
 	const bootRuntime = createTabRuntime({ id: "main", cwd: props.cwd, client, conversation,
-		onEvent: (_event, tabRuntime) => { if (isExtensionUiRequest(_event)) { const envelope = extensionRouter.enqueue(tabRuntime.id, _event); if (tabRuntime.id !== tabState().activeId) { tabManager.incrementBadge(tabRuntime.id, "extension"); refreshTabs(); } else if (envelope) handleExtensionRequest(envelope); return; } if (tabRuntime.id === tabState().activeId) { setRevision((value) => value + 1); if (_event.type === "agent_settled" || _event.type === "compaction_end") void flushQueuedFollowUp(); } },
+		onEvent: routeRuntimeEvent,
+		onConversationChange: (tabRuntime) => { if (tabRuntime.id === activeTabId()) conversationTouch(); },
 	});
 	extensionRouter.setActive("main");
 	setRuntimeMap(new Map([["main", bootRuntime]]));
@@ -811,6 +915,7 @@ export function App(props: AppOptions) {
 	let subagentsTimer: ReturnType<typeof setInterval> | undefined;
 	let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 	let spinnerTimer: ReturnType<typeof setInterval> | undefined;
+	let clockTimer: ReturnType<typeof setInterval> | undefined;
 	let codexUsageTimer: ReturnType<typeof setInterval> | undefined;
 	let codexUsageHistory: CodexUsageHistory = loadCodexUsageHistory();
 	let lastRunsDigest = "";
@@ -846,10 +951,6 @@ export function App(props: AppOptions) {
 		const runtime = activeRuntime();
 		runtime.sessionState = state;
 		runtime.startupResolved = true;
-		touch();
-	};
-	const setSessionStats = (stats: SessionStats) => {
-		activeRuntime().sessionStats = stats;
 		touch();
 	};
 	const setRuns = (nextRuns: SubagentRun[]) => {
@@ -996,11 +1097,12 @@ export function App(props: AppOptions) {
 	});
 
 	const touch = () => setRevision((value) => value + 1);
+	const conversationTouch = () => setConversationRevision((value) => value + 1);
 	const visibleSidebar = createMemo(
 		() => sidebarEnabled() && dimensions().width >= 104,
 	);
 	const items = createMemo(() => {
-		revision();
+		conversationRevision();
 		// ConversationModel mutates its array in place. Return a new reference so
 		// Solid propagates updates to <For>; otherwise resumed messages stay blank.
 		return [...activeRuntime().conversation.items];
@@ -1057,7 +1159,7 @@ export function App(props: AppOptions) {
 		});
 	};
 	const streaming = createMemo(() => {
-		revision();
+		conversationRevision();
 		return activeRuntime().conversation.isStreaming;
 	});
 	// Show for the whole agent turn — including thinking streams and tool
@@ -1100,14 +1202,14 @@ export function App(props: AppOptions) {
 		);
 	};
 	const steeringQueue = createMemo(() => {
-		revision();
+		conversationRevision();
 		const rendered = recentlyRenderedUserTexts();
 		return [...activeRuntime().conversation.steering].filter(
 			(text) => !rendered.has(normalizedQueueText(text)),
 		);
 	});
 	const followUpQueue = createMemo(() => {
-		revision();
+		conversationRevision();
 		const rendered = recentlyRenderedUserTexts();
 		return [...activeRuntime().conversation.followUp].filter(
 			(text) => !rendered.has(normalizedQueueText(text)),
@@ -1180,9 +1282,11 @@ export function App(props: AppOptions) {
 				target.client.getState(),
 				target.client.getSessionStats(),
 			]);
+			const streamingChanged = target.conversation.isStreaming !== state.isStreaming;
 			target.sessionState = state;
 			target.sessionStats = stats;
 			target.conversation.isStreaming = state.isStreaming;
+			if (streamingChanged) target.onConversationChange();
 			delete target.lastError;
 			if (tabRuntimeIsActive(target.id)) {
 				setStatus(state.isStreaming ? "working" : "ready");
@@ -1331,7 +1435,7 @@ export function App(props: AppOptions) {
 	) => {
 		activeRuntime().conversation.system(text, tone);
 		trimMessageWindowIfFollowingLatest();
-		touch();
+		conversationTouch();
 		queueMicrotask(scrollToBottom);
 	};
 
@@ -1366,7 +1470,7 @@ export function App(props: AppOptions) {
 		setSessionState(state);
 		setQueuedFollowUps([]);
 		resetMessageWindow(historyItems.length);
-		touch();
+		conversationTouch();
 		queueMicrotask(scrollToBottom);
 		await refreshState();
 	};
@@ -1655,7 +1759,7 @@ export function App(props: AppOptions) {
 		if (!wasStreaming) {
 			const optimisticId = activeRuntime().conversation.optimisticUser(text);
 			trimMessageWindowIfFollowingLatest();
-			touch();
+			conversationTouch();
 			scrollToBottom();
 			try {
 				await activeRuntime().client.prompt(text);
@@ -1664,7 +1768,7 @@ export function App(props: AppOptions) {
 					(item) => item.id === optimisticId,
 				);
 				if (index >= 0) activeRuntime().conversation.items.splice(index, 1);
-				touch();
+				conversationTouch();
 				throw error;
 			}
 			return "sent";
@@ -1686,6 +1790,10 @@ export function App(props: AppOptions) {
 					: "Pi is still starting. Wait for the conversation to load.",
 				"warning",
 			);
+			return;
+		}
+		if (!activeRuntime().startupResolved) {
+			toast("This tab is still loading its conversation.", "warning");
 			return;
 		}
 		if (dialog()) return;
@@ -2524,8 +2632,6 @@ export function App(props: AppOptions) {
 				setStartupPhase({ kind: "failed", reason: "protocol" });
 			}
 			props.logger.error("ui.protocol_error", error);
-			startupRuntime.conversation.system(error.message, "error");
-			touch();
 		});
 		startupRuntime.client.on("stderr", (chunk: string) => {
 			if (!tabRuntimeIsActive(startupRuntime.id)) return;
@@ -2541,8 +2647,6 @@ export function App(props: AppOptions) {
 			}
 			props.logger.error("ui.pi_exit", error);
 			if (tabRuntimeIsActive(startupRuntime.id)) setRpcAvailable(false);
-			startupRuntime.conversation.system(error.message, "error");
-			touch();
 		});
 		void (async () => {
 			try {
@@ -2602,6 +2706,7 @@ export function App(props: AppOptions) {
 				setStartupPhase({ kind: "ready" });
 				setStatus(state.isStreaming ? "working" : "ready");
 				touch();
+				conversationTouch();
 				queueMicrotask(() =>
 					scroll?.scrollTo({ x: 0, y: Number.MAX_SAFE_INTEGER }),
 				);
@@ -2619,6 +2724,7 @@ export function App(props: AppOptions) {
 				if (previousPhase.kind !== "failed")
 					startupRuntime.conversation.system(message, "error");
 				touch();
+				conversationTouch();
 				setStatus(
 					reason === "timeout" ? "startup timed out" : "failed to start Pi",
 				);
@@ -2658,8 +2764,8 @@ export function App(props: AppOptions) {
 		}, 750);
 		spinnerTimer = setInterval(() => {
 			setSpinnerIndex((value) => (value + 1) % spinnerFrames.length);
-			setClockNow(Date.now());
 		}, 250);
+		clockTimer = setInterval(() => setClockNow(Date.now()), 1000);
 		heartbeatTimer = setInterval(() => {
 			props.logger.debug("ui.heartbeat", {
 				status: status(),
@@ -2670,7 +2776,14 @@ export function App(props: AppOptions) {
 			});
 		}, 30_000);
 		onCleanup(() => {
+			for (const runtime of provisionalRuntimes) {
+				runtime.messageUpdates.dispose();
+				runtime.coalescer.flush();
+				void runtime.client.stop();
+			}
+			provisionalRuntimes.clear();
 			for (const runtime of runtimeMap().values()) {
+				runtime.messageUpdates.dispose();
 				runtime.coalescer.flush();
 				void runtime.client.stop();
 			}
@@ -2678,6 +2791,7 @@ export function App(props: AppOptions) {
 			if (subagentsTimer) clearInterval(subagentsTimer);
 			if (heartbeatTimer) clearInterval(heartbeatTimer);
 			if (spinnerTimer) clearInterval(spinnerTimer);
+			if (clockTimer) clearInterval(clockTimer);
 			if (codexUsageTimer) clearInterval(codexUsageTimer);
 			props.logger.info("ui.cleanup");
 		});
@@ -3256,7 +3370,7 @@ export function App(props: AppOptions) {
 							scrollX={false}
 							stickyScroll
 							stickyStart="bottom"
-							viewportCulling={false}
+							viewportCulling
 							paddingLeft={2}
 							paddingRight={2}
 							verticalScrollbarOptions={{
@@ -3600,7 +3714,7 @@ export function App(props: AppOptions) {
 				paddingRight={1}
 				backgroundColor={colors.background}
 			>
-				<text fg={streaming() ? colors.green : colors.muted}>● {status()}</text>
+				<text fg={streaming() ? colors.green : colors.muted}>● {displayStatus()}</text>
 				<box flexGrow={1} />
 				<text fg={colors.subtle}>
 					{globalFooterHint(

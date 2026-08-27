@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createTabRuntime, planForkTab, resolveTabDraftSwitch, startTabRuntime } from "../src/tabs/runtime.ts";
+import { createTabRuntime, planForkTab, prepareForkedTabRuntime, resolveTabDraftSwitch, startTabRuntime } from "../src/tabs/runtime.ts";
 import { PiRpcClient } from "../src/rpc/pi-rpc-client.ts";
 import type { RpcSessionState } from "../src/types.ts";
 
@@ -18,6 +18,41 @@ class StubClient extends PiRpcClient {
 	deliver(event: Record<string, unknown>): void { for (const listener of this.eventCallbacks) listener(event); }
 }
 
+class ForkStubClient extends PiRpcClient {
+	readonly calls: string[] = [];
+	private stateIndex = 0;
+
+	constructor(
+		private readonly states: readonly RpcSessionState[],
+		private readonly messages: unknown[],
+		private readonly cancelled = false,
+	) {
+		super({ cwd: process.cwd() });
+	}
+
+	async start(): Promise<void> { this.calls.push("start"); }
+	async getState(): Promise<RpcSessionState> {
+		this.calls.push("getState");
+		const value = this.states[Math.min(this.stateIndex, this.states.length - 1)];
+		this.stateIndex += 1;
+		if (!value) throw new Error("missing state fixture");
+		return value;
+	}
+	async fork(entryId: string): Promise<{ text: string; cancelled: boolean }> {
+		this.calls.push(`fork:${entryId}`);
+		return { text: "selected prompt", cancelled: this.cancelled };
+	}
+	async getMessages(): Promise<unknown[]> {
+		this.calls.push("getMessages");
+		return this.messages;
+	}
+	async getForkMessages(): Promise<Array<{ entryId: string; text: string }>> {
+		this.calls.push("getForkMessages");
+		return [{ entryId: "entry-1", text: "selected prompt" }];
+	}
+	async stop(): Promise<void> { this.calls.push("stop"); }
+}
+
 describe("tab runtime factory", () => {
 	test("creates isolated clients, models, drafts, and expansion state", () => {
 		const first = createTabRuntime({ id: "one", cwd: process.cwd() });
@@ -26,6 +61,10 @@ describe("tab runtime factory", () => {
 		expect(first.conversation).not.toBe(second.conversation);
 		expect(first.drafts).not.toBe(second.drafts);
 		expect(first.expandedToolIds).not.toBe(second.expandedToolIds);
+		first.inspectSubagent = true;
+		first.selectedTargetKey = "target-a";
+		expect(second.inspectSubagent).toBe(false);
+		expect(second.selectedTargetKey).toBeUndefined();
 	});
 
 	test("stores distinct session files across interleaved state updates", async () => {
@@ -35,6 +74,125 @@ describe("tab runtime factory", () => {
 		expect(first.sessionState?.sessionFile).toBe("/tmp/one.jsonl");
 		expect(second.sessionState?.sessionFile).toBe("/tmp/two.jsonl");
 		expect(first.sessionState?.sessionFile).not.toBe(second.sessionState?.sessionFile);
+	});
+
+	test("flushes message batches before boundaries without transcript invalidation from extensions", () => {
+		const client = new StubClient(state("/tmp/messages.jsonl", "messages"));
+		const eventTypes: string[] = [];
+		let conversationChanges = 0;
+		const runtime = createTabRuntime({
+			id: "messages",
+			cwd: process.cwd(),
+			client,
+			onEvent: (event) => eventTypes.push(String(event.type)),
+			onConversationChange: () => { conversationChanges += 1; },
+		});
+		client.deliver({ type: "message_start", message: { role: "assistant", content: [], timestamp: 1 } });
+		client.deliver({ type: "message_update", message: { role: "assistant", content: [], timestamp: 1 }, assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "a" } });
+		client.deliver({ type: "message_update", message: { role: "assistant", content: [], timestamp: 1 }, assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "b" } });
+		client.deliver({ type: "extension_ui_request", id: "extension", method: "setWidget" });
+
+		expect(eventTypes).toEqual([
+			"message_start",
+			"message_update",
+			"message_update",
+			"extension_ui_request",
+		]);
+		expect(conversationChanges).toBe(2);
+		const assistant = runtime.conversation.items[0];
+		if (!assistant || assistant.kind !== "assistant")
+			throw new Error("buffered assistant missing");
+		expect(assistant.text).toBe("ab");
+		runtime.messageUpdates.dispose();
+	});
+
+	test("keeps cumulative tool updates on the tool coalescer path", () => {
+		const client = new StubClient(state("/tmp/tools.jsonl", "tools"));
+		let conversationChanges = 0;
+		const runtime = createTabRuntime({
+			id: "tools",
+			cwd: process.cwd(),
+			client,
+			onConversationChange: () => { conversationChanges += 1; },
+		});
+		client.deliver({ type: "tool_execution_start", toolCallId: "tool-1", toolName: "bash", args: { command: "printf" } });
+		client.deliver({ type: "tool_execution_update", toolCallId: "tool-1", toolName: "bash", partialResult: { content: [{ type: "text", text: "first" }] } });
+		client.deliver({ type: "tool_execution_update", toolCallId: "tool-1", toolName: "bash", partialResult: { content: [{ type: "text", text: "latest" }] } });
+		client.deliver({ type: "extension_ui_request", id: "extension", method: "setWidget" });
+
+		expect(conversationChanges).toBe(1);
+		runtime.coalescer.flush();
+		expect(conversationChanges).toBe(2);
+		const tool = runtime.conversation.items.find((item) => item.kind === "tool");
+		if (!tool || tool.kind !== "tool") throw new Error("tool fixture missing");
+		expect(tool.output).toBe("latest");
+		runtime.messageUpdates.dispose();
+	});
+
+	test("prepares a populated fork without touching the source runtime", async () => {
+		const sourceClient = new ForkStubClient(
+			[state("/tmp/source.jsonl", "source")],
+			[],
+		);
+		const provisionalClient = new ForkStubClient(
+			[
+				state("/tmp/source.jsonl", "source-copy"),
+				state("/tmp/forked.jsonl", "forked"),
+			],
+			[
+				{
+					role: "user",
+					content: [{ type: "text", text: "selected prompt" }],
+					timestamp: 1,
+				},
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "forked answer" }],
+					timestamp: 2,
+				},
+			],
+		);
+		const source = createTabRuntime({ id: "source", cwd: process.cwd(), client: sourceClient });
+		const provisional = createTabRuntime({ id: "fork", cwd: process.cwd(), client: provisionalClient });
+
+		const result = await prepareForkedTabRuntime(provisional, "entry-1");
+
+		expect(sourceClient.calls).toEqual([]);
+		expect(source.conversation.items).toEqual([]);
+		expect(provisionalClient.calls).toEqual([
+			"start",
+			"getState",
+			"fork:entry-1",
+			"getState",
+			"getMessages",
+			"getForkMessages",
+		]);
+		expect(result.sessionFile).toBe("/tmp/forked.jsonl");
+		expect(provisional.sessionState?.sessionId).toBe("forked");
+		expect(provisional.conversation.items.map((item) => item.kind)).toEqual([
+			"user",
+			"assistant",
+		]);
+		const firstItem = provisional.conversation.items[0];
+		if (!firstItem || firstItem.kind !== "user")
+			throw new Error("fork fixture missing user message");
+		expect(firstItem.entryId).toBe("entry-1");
+	});
+
+	test("stops fork preparation before history loading when Pi cancels", async () => {
+		const client = new ForkStubClient(
+			[state("/tmp/source.jsonl", "source-copy")],
+			[],
+			true,
+		);
+		const runtime = createTabRuntime({ id: "fork", cwd: process.cwd(), client });
+
+		await expect(prepareForkedTabRuntime(runtime, "entry-1")).rejects.toThrow(
+			"Fork cancelled.",
+		);
+		await Bun.sleep(0);
+		expect(client.calls).toEqual(["start", "getState", "fork:entry-1"]);
+		expect(runtime.conversation.items).toEqual([]);
 	});
 
 	test("keeps tab models isolated when another client exits", () => {

@@ -17,12 +17,12 @@ const update = (toolCallId: string, output: string): PiEvent => ({
 	partialResult: { content: [{ type: "text", text: output }] },
 });
 
-const end = (toolCallId: string, output: string): PiEvent => ({
+const end = (toolCallId: string, output: string, isError = false): PiEvent => ({
 	type: "tool_execution_end",
 	toolCallId,
 	toolName: "bash",
 	result: { content: [{ type: "text", text: output }] },
-	isError: false,
+	isError,
 });
 
 const updateWithoutId = (output: string): PiEvent => ({
@@ -37,13 +37,16 @@ type Harness = {
 	scheduledDelay: number | undefined;
 };
 
-function harness(applied: PiEvent[] = []): Harness {
+function harness(applied: PiEvent[] = []): Harness & { advance: (ms: number) => void } {
 	let scheduled: (() => void) | undefined;
 	let timer: ToolEventTimerHandle | undefined;
+	let now = 0;
+	let dueAt: number | undefined;
 	let cancelled = 0;
 	let scheduledDelay: number | undefined;
 	const schedule: ToolEventScheduler = (callback, delayMs) => {
 		scheduled = callback;
+		dueAt = now + delayMs;
 		scheduledDelay = delayMs;
 		timer = setTimeout(() => undefined, 10_000);
 		return timer;
@@ -51,6 +54,13 @@ function harness(applied: PiEvent[] = []): Harness {
 	const cancel: ToolEventCanceller = (handle) => {
 		cancelled += 1;
 		clearTimeout(handle);
+		dueAt = undefined;
+	};
+	const runScheduled = (): void => {
+		const callback = scheduled;
+		scheduled = undefined;
+		dueAt = undefined;
+		callback?.();
 	};
 	return {
 		coalescer: new ToolEventCoalescer({
@@ -58,7 +68,11 @@ function harness(applied: PiEvent[] = []): Harness {
 			schedule,
 			cancel,
 		}),
-		flushScheduled: () => scheduled?.(),
+		flushScheduled: runScheduled,
+		advance: (ms) => {
+			now += ms;
+			if (dueAt !== undefined && now >= dueAt) runScheduled();
+		},
 		get cancelled() {
 			return cancelled;
 		},
@@ -83,6 +97,22 @@ describe("ToolEventCoalescer", () => {
 		expect(applied).toEqual([update("one", "latest"), update("two", "other")]);
 	});
 
+	test("reduces a 100ms Bash update stream to the newest snapshot per flush", () => {
+		const applied: PiEvent[] = [];
+		const coalescingHarness = harness(applied);
+
+		for (let index = 1; index <= 20; index++) {
+			coalescingHarness.coalescer.handle(update("bash", `line-${index}`));
+			coalescingHarness.advance(100);
+		}
+		coalescingHarness.advance(250);
+
+		expect(coalescingHarness.scheduledDelay).toBe(250);
+		expect(applied.length).toBeGreaterThanOrEqual(7);
+		expect(applied.length).toBeLessThan(20);
+		expect(applied.at(-1)).toEqual(update("bash", "line-20"));
+	});
+
 	test("applies an end immediately and drops its queued update", () => {
 		const applied: PiEvent[] = [];
 		const { coalescer, flushScheduled } = harness(applied);
@@ -95,7 +125,32 @@ describe("ToolEventCoalescer", () => {
 		expect(applied).toEqual([end("one", "final")]);
 	});
 
-	test("flushes pending updates before another event and clears the timer", () => {
+	test("applies final failures immediately without stale updates", () => {
+		const applied: PiEvent[] = [];
+		const { coalescer, flushScheduled } = harness(applied);
+
+		coalescer.handle(update("one", "intermediate"));
+		coalescer.handle(end("one", "failed", true));
+		flushScheduled();
+
+		expect(applied).toEqual([end("one", "failed", true)]);
+	});
+
+	test("does not flush pending updates for unrelated events", () => {
+		const applied: PiEvent[] = [];
+		const pendingHarness = harness(applied);
+		const extensionEvent: PiEvent = { type: "extension_ui_request", id: "request" };
+
+		pendingHarness.coalescer.handle(update("one", "pending"));
+		pendingHarness.coalescer.handle(extensionEvent);
+
+		expect(applied).toEqual([extensionEvent]);
+		expect(pendingHarness.cancelled).toBe(0);
+		pendingHarness.flushScheduled();
+		expect(applied).toEqual([extensionEvent, update("one", "pending")]);
+	});
+
+	test("flushes pending updates before lifecycle boundaries and clears the timer", () => {
 		const applied: PiEvent[] = [];
 		const pendingHarness = harness(applied);
 

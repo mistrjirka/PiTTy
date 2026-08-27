@@ -347,6 +347,29 @@ export function initialItems(messages: unknown[]): ConversationItem[] {
 	return items;
 }
 
+export function isConversationEvent(event: PiEvent): boolean {
+	if (!event || typeof event !== "object" || typeof event.type !== "string") return false;
+	switch (event.type) {
+		case "agent_start":
+		case "agent_settled":
+		case "agent_end":
+		case "queue_update":
+		case "message_start":
+		case "message_end":
+		case "message_update":
+		case "tool_execution_start":
+		case "tool_execution_update":
+		case "tool_execution_end":
+		case "compaction_start":
+		case "compaction_end":
+		case "auto_retry_start":
+		case "extension_error":
+			return true;
+		default:
+			return false;
+	}
+}
+
 export class ConversationModel {
 	readonly items: ConversationItem[] = [];
 	isStreaming = false;
@@ -373,15 +396,18 @@ export class ConversationModel {
 		return itemId;
 	}
 
-	assignEntryIds(entryIds: readonly (string | undefined)[]): void {
+	assignEntryIds(entryIds: readonly (string | undefined)[]): boolean {
 		let userIndex = 0;
+		let changed = false;
 		for (const item of this.items) {
 			if (item.kind !== "user") continue;
 			const entryId = entryIds[userIndex];
+			if (item.entryId !== entryId) changed = true;
 			if (entryId) item.entryId = entryId;
 			else delete item.entryId;
 			userIndex += 1;
 		}
+		return changed;
 	}
 
 	system(text: string, tone: SystemItem["tone"] = "muted"): void {

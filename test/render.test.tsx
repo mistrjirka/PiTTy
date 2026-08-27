@@ -29,6 +29,7 @@ import { allocateSidebarPanels, Sidebar } from "../src/ui/sidebar.tsx";
 import { NotificationDialog } from "../src/ui/notification-dialog.tsx";
 import { SubagentInspector } from "../src/ui/subagent-inspector.tsx";
 import { ForkPicker } from "../src/ui/fork-picker.tsx";
+import { TabStrip } from "../src/ui/tab-strip.tsx";
 import { forkPickerOptions } from "../src/tabs/entry-index.ts";
 import { SubagentSelectorDialog } from "../src/ui/subagent-selector.tsx";
 import { subagentTargets } from "../src/subagents/targets.ts";
@@ -1025,15 +1026,17 @@ describe("OpenTUI components", () => {
 		for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(120);
 	});
 
-	test("renders fork picker options and empty state", async () => {
+	test("renders and selects fork points by keyboard and mouse", async () => {
+		const choices = forkPickerOptions([
+			{ entryId: "entry-1", text: "First message" },
+			{ entryId: "entry-2", text: "Second message" },
+		]);
+		let selectedEntry: string | undefined;
 		const setup = await mount(
 			() => (
 				<ForkPicker
-					options={forkPickerOptions([
-						{ entryId: "entry-1", text: "First message" },
-						{ entryId: "entry-2", text: "Second message" },
-					])}
-					onSelect={() => {}}
+					options={choices}
+					onSelect={(entryId) => { selectedEntry = entryId; }}
 					onCancel={() => {}}
 				/>
 			),
@@ -1045,6 +1048,66 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("1. First message");
 		expect(frame).toContain("2. Second message");
 		expect(frame).toContain("Enter select");
+		await setup.mockInput.typeText("Second");
+		await setup.flush();
+		setup.mockInput.pressEnter();
+		await setup.flush();
+		expect(selectedEntry).toBe("entry-2");
+
+		let mouseSelected: string | undefined;
+		const mouse = await mount(
+			() => (
+				<ForkPicker
+					options={choices}
+					onSelect={(entryId) => { mouseSelected = entryId; }}
+					onCancel={() => {}}
+				/>
+			),
+			80,
+			18,
+		);
+		const mouseFrame = mouse.captureCharFrame();
+		const row = mouseFrame.split("\n").findIndex((line) => line.includes("2. Second message"));
+		expect(row).toBeGreaterThanOrEqual(0);
+		await mouse.mockMouse.click(
+			Math.max(0, mouseFrame.split("\n")[row]!.indexOf("2. Second message")),
+			row,
+		);
+		await mouse.flush();
+		expect(mouseSelected).toBe("entry-2");
+
+		const longChoices = forkPickerOptions(
+			Array.from({ length: 30 }, (_, index) => ({
+				entryId: `entry-${index + 1}`,
+				text: `Message ${index + 1}`,
+			})),
+		);
+		let scrolledMouseSelection: string | undefined;
+		const scrolled = await mount(
+			() => (
+				<ForkPicker
+					options={longChoices}
+					onSelect={(entryId) => { scrolledMouseSelection = entryId; }}
+					onCancel={() => {}}
+				/>
+			),
+			80,
+			24,
+		);
+		scrolled.mockInput.pressArrow("down");
+		for (let index = 0; index < 22; index++) scrolled.mockInput.pressArrow("down");
+		await scrolled.flush();
+		const scrolledFrame = scrolled.captureCharFrame();
+		const scrolledLines = scrolledFrame.split("\n");
+		const scrolledRow = scrolledLines.findIndex((line) => /\d+\. Message \d+/.test(line));
+		const visibleMatch = scrolledLines[scrolledRow]?.match(/(\d+)\. Message \d+/);
+		if (!visibleMatch) throw new Error("scrolled fork option missing");
+		await scrolled.mockMouse.click(
+			Math.max(0, scrolledLines[scrolledRow]!.indexOf(visibleMatch[0])),
+			scrolledRow,
+		);
+		await scrolled.flush();
+		expect(scrolledMouseSelection).toBe(`entry-${visibleMatch[1]}`);
 
 		const empty = await mount(
 			() => <ForkPicker options={[]} onSelect={() => {}} onCancel={() => {}} />,
@@ -1052,6 +1115,41 @@ describe("OpenTUI components", () => {
 			12,
 		);
 		expect(empty.captureCharFrame()).toContain("fork points");
+	});
+
+	test("renders a taller tab strip without overflowing constrained panes", async () => {
+		let activated: string | undefined;
+		const setup = await mount(
+			() => (
+				<TabStrip
+					tabs={[
+						{ id: "one", sessionName: "Primary", badges: 0 },
+						{ id: "two", sessionName: "Forked", badges: 2 },
+					]}
+					activeId="one"
+					onActivate={(id) => { activated = id; }}
+					onClose={() => {}}
+					onCreate={() => {}}
+					onOpenForkPicker={() => {}}
+				/>
+			),
+			42,
+			6,
+		);
+		const strip = setup.renderer.root.findDescendantById("tab-strip");
+		if (!strip) throw new Error("tab strip missing");
+		expect(strip.height).toBe(2);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("Primary");
+		expect(frame).toContain("Forked •2");
+		for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(42);
+		const row = frame.split("\n").findIndex((line) => line.includes("Forked"));
+		await setup.mockMouse.click(
+			Math.max(0, frame.split("\n")[row]!.indexOf("Forked")),
+			row,
+		);
+		await setup.flush();
+		expect(activated).toBe("two");
 	});
 
 	test("wraps long expanded diff lines instead of clipping them", async () => {
