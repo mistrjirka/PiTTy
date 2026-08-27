@@ -11,6 +11,11 @@ import { MessageUpdateBatcher } from "../state/message-update-batcher.ts";
 import { PromptHistory } from "../state/prompt-history.ts";
 import type { DraftState, DispatchGate, LocalQueuedMessage } from "../state/input-continuity.ts";
 import { RequestPerformanceTracker, type RequestPerformance } from "./request-metrics.ts";
+import {
+	recordModelPerformanceSample,
+	loadModelPerformanceHistory,
+	saveModelPerformanceHistory,
+} from "./model-performance-history.ts";
 import type { RpcSessionState, SessionStats, SubagentRun, PiEvent } from "../types.ts";
 import type { ThinkingLevel } from "../rpc/pi-rpc-client.ts";
 
@@ -147,8 +152,24 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 	};
 	runtime.client.onEvent((event) => {
 		runtime.eventVersion += 1;
-		const performance = runtime.requestPerformance.handle(event, Date.now());
-		if (event.type === "message_end" && performance) runtime.lastRequestPerformance = performance;
+		const performance = runtime.requestPerformance.handle(
+			event,
+			Date.now(),
+			event.type === "message_start" ? runtime.sessionState?.model : undefined,
+		);
+		if (event.type === "message_end" && performance) {
+			runtime.lastRequestPerformance = performance;
+			if (performance.provider && performance.modelId) {
+				const history = loadModelPerformanceHistory();
+				const nextHistory = recordModelPerformanceSample(
+					history,
+					performance.provider,
+					performance.modelId,
+					performance,
+				);
+				saveModelPerformanceHistory(nextHistory);
+			}
+		}
 		if (event.type === "message_update") runtime.messageUpdates.handle(event);
 		else {
 			runtime.messageUpdates.flush();

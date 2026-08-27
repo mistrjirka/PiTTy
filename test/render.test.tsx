@@ -1105,6 +1105,40 @@ describe("OpenTUI components", () => {
 		expect(diffExpanded()).toBe(true);
 	});
 
+	test("keeps diff actions visible when the path is long", async () => {
+		const longPath =
+			"/home/jirka/.local/share/pi-work/projects/pitty/intents/a-very-long-workstream-name/src/example.ts";
+		const item: ConversationItem = {
+			kind: "tool",
+			id: "long-diff-path",
+			toolCallId: "long-diff-path",
+			name: "edit",
+			args: {},
+			output: "Applied edit",
+			diff: "-old\n+new",
+			diffPath: longPath,
+			timestamp: 1,
+			status: "done",
+			isError: false,
+		};
+		const setup = await mount(
+			() => (
+				<MessageView
+					item={item}
+					showThinking
+					toolExpanded={false}
+					diffExpanded
+				/>
+			),
+			80,
+			16,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("scroll diff");
+		expect(frame).toContain("collapse");
+		expect(frame).not.toContain(longPath);
+	});
+
 	test("renders distinct user, assistant, and tool messages", async () => {
 		const items: ConversationItem[] = [
 			{
@@ -1345,6 +1379,8 @@ describe("OpenTUI components", () => {
 
 	test("renders a taller tab strip without overflowing constrained panes", async () => {
 		let activated: string | undefined;
+		let created = false;
+		let forkOpened = false;
 		const setup = await mount(
 			() => (
 				<TabStrip
@@ -1355,8 +1391,8 @@ describe("OpenTUI components", () => {
 					activeId="one"
 					onActivate={(id) => { activated = id; }}
 					onClose={() => {}}
-					onCreate={() => {}}
-					onOpenForkPicker={() => {}}
+					onCreate={() => { created = true; }}
+					onOpenForkPicker={() => { forkOpened = true; }}
 				/>
 			),
 			42,
@@ -1381,6 +1417,43 @@ describe("OpenTUI components", () => {
 		);
 		await setup.flush();
 		expect(activated).toBe("two");
+		await setup.mockMouse.click(frame.split("\n")[1]!.indexOf("+"), 1);
+		await setup.flush();
+		expect(created).toBe(true);
+		await setup.mockMouse.click(frame.split("\n")[1]!.indexOf("⑂"), 1);
+		await setup.flush();
+		expect(forkOpened).toBe(true);
+	});
+
+	test("keeps tab controls visible beside long titles", async () => {
+		let created = false;
+		let forkOpened = false;
+		const longTitle = "a session with an intentionally long title";
+		const setup = await mount(
+			() => (
+				<TabStrip
+					tabs={[{ id: "long", sessionName: longTitle, badges: 0 }]}
+					activeId="long"
+					onActivate={() => {}}
+					onClose={() => {}}
+					onCreate={() => { created = true; }}
+					onOpenForkPicker={() => { forkOpened = true; }}
+				/>
+			),
+			40,
+			4,
+		);
+		const frame = setup.captureCharFrame();
+		const row = frame.split("\n")[1] ?? "";
+		expect(row).toContain("⑂");
+		expect(row).toContain("+");
+		expect(row).not.toContain(longTitle);
+		await setup.mockMouse.click(row.indexOf("+"), 1);
+		await setup.flush();
+		expect(created).toBe(true);
+		await setup.mockMouse.click(row.indexOf("⑂"), 1);
+		await setup.flush();
+		expect(forkOpened).toBe(true);
 	});
 
 	test("wraps long expanded diff lines instead of clipping them", async () => {
@@ -2132,6 +2205,15 @@ describe("OpenTUI components", () => {
 					models={models}
 					currentProvider="openai-codex"
 					currentModelId="gpt-5.6-terra"
+					performanceHistory={{
+						"openai-codex\u0000gpt-5.6-terra": [
+							{
+								timestamp: Date.now(),
+								ttftMs: 800,
+								outputTokensPerSecond: 42,
+							},
+						],
+					}}
 					onSelect={() => {}}
 					onCancel={() => {}}
 				/>
@@ -2145,6 +2227,7 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("openai-codex/gpt-5.6-terra");
 		expect(frame).toContain("400k ctx");
 		expect(frame).toContain("1M ctx");
+		expect(frame).toContain("{42 tok/s · 800ms TTFT}");
 		expect(formatContextWindow(128000)).toBe("128k ctx");
 		expect(filterModelChoices(models, "SOL").map((model) => model.id)).toEqual([
 			"gpt-5.6-sol",

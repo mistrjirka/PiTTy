@@ -6,6 +6,7 @@ import type {
 import { createMemo, createSignal } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import { colors } from "./theme.ts";
+import { formatModelPerformanceStats, modelPerformanceStats, type ModelPerformanceHistory } from "../tabs/model-performance-history.ts";
 import {
 	createSearchableDialogFocus,
 	handleSearchableDialogCancel,
@@ -87,6 +88,7 @@ export function ModelSelectorDialog(props: {
 	currentModelId?: string | undefined;
 	onSelect: (model: ModelChoice) => void;
 	onCancel: () => void;
+	performanceHistory?: ModelPerformanceHistory;
 }) {
 	let select: SelectRenderable | undefined;
 	let search: TextareaRenderable | undefined;
@@ -99,6 +101,7 @@ export function ModelSelectorDialog(props: {
 			const details = [
 				formatContextWindow(model.contextWindow),
 				model.name && model.name !== model.id ? model.name : "",
+				formatModelPerformanceStats(props.performanceHistory ? modelPerformanceStats(props.performanceHistory, model.provider, model.id) : undefined),
 			].filter(Boolean);
 			return {
 				name: `${model.provider}/${model.id}`,
@@ -246,9 +249,11 @@ export function ModelSelectorDialog(props: {
 							event.preventDefault();
 							event.stopPropagation();
 							focus.focusList();
+							// SAFETY: OpenTUI exposes these layout fields at runtime but omits them from the public type.
 							const scrollOffset =
 								(select as unknown as { scrollOffset?: number }).scrollOffset ??
 								0;
+							// SAFETY: OpenTUI exposes these layout fields at runtime but omits them from the public type.
 							const linesPerItem =
 								(select as unknown as { linesPerItem?: number }).linesPerItem ??
 								2;

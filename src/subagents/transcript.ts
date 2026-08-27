@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import { initialItems } from "../state/conversation.ts";
+import { normalizeResultDetails } from "../state/result-diff.ts";
 import type {
   ConversationItem,
   SubagentRun,
@@ -72,11 +73,7 @@ function normalized(value: string): string {
 }
 
 function resultDiff(detailsValue: unknown): string | undefined {
-  const details = objectRecord(detailsValue);
-  const patch = details?.patch;
-  if (typeof patch === "string" && patch.trim()) return patch;
-  const diff = details?.diff;
-  return typeof diff === "string" && diff.trim() ? diff : undefined;
+  return normalizeResultDetails(detailsValue).diff;
 }
 
 function resultPath(detailsValue: unknown, tool: ToolItem): string | undefined {
@@ -433,7 +430,7 @@ export function readSubagentConversation(
           status: isError ? "error" : "done",
           isError,
         };
-        fallback.diffPath = resultPath(details, fallback);
+        fallback.diffPath = normalizeResultDetails(details).path ?? resultPath(details, fallback);
         items.push(fallback);
       } else {
         const tool = items[matchedIndex] as ToolItem;
@@ -443,7 +440,7 @@ export function readSubagentConversation(
           output,
           details,
           diff: resultDiff(details),
-          diffPath: resultPath(details, tool),
+          diffPath: normalizeResultDetails(details).path ?? resultPath(details, tool),
           endedAt: tool.endedAt ?? timestamp,
           status: isError ? "error" : "done",
           isError,

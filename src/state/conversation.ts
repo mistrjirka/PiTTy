@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { createTwoFilesPatch } from "diff";
+import { normalizeResultDetails } from "./result-diff.ts";
 import type {
 	AssistantItem,
 	ConversationItem,
@@ -156,13 +157,6 @@ function mutationContent(
 	return updated === oldContent && rawEdits.length ? undefined : updated;
 }
 
-function resultDiff(result: unknown): string | undefined {
-	const details = objectRecord(objectRecord(result)?.details);
-	const patch = details?.patch;
-	if (typeof patch === "string" && patch.trim()) return patch;
-	const diff = details?.diff;
-	return typeof diff === "string" && diff.trim() ? diff : undefined;
-}
 
 function createMutationDiff(
 	toolName: string,
@@ -324,6 +318,7 @@ export function initialItems(messages: unknown[]): ConversationItem[] {
 					? record.toolCallId
 					: id("tool-call");
 			const call = toolCalls.get(toolCallId);
+			const normalizedResult = normalizeResultDetails(record.details);
 			items.push({
 				kind: "tool",
 				id: id("history-tool"),
@@ -335,6 +330,8 @@ export function initialItems(messages: unknown[]): ConversationItem[] {
 						: "tool"),
 				args: call?.arguments,
 				output,
+				...(normalizedResult.diff ? { diff: normalizedResult.diff } : {}),
+				...(normalizedResult.path ? { diffPath: normalizedResult.path } : {}),
 				details: record.details,
 				timestamp: messageTimestamp(message),
 				startedAt: messageTimestamp(message),
@@ -762,8 +759,10 @@ export class ConversationModel {
 			event.type === "tool_execution_update"
 				? event.partialResult
 				: event.result;
-		const settledDiff =
-			event.type === "tool_execution_end" ? resultDiff(result) : undefined;
+		const normalizedResult = event.type === "tool_execution_end"
+			? normalizeResultDetails(objectRecord(result)?.details)
+			: {};
+		const settledDiff = normalizedResult.diff;
 		this.items[index] = {
 			...current,
 			output: toolOutput(result),
@@ -771,6 +770,7 @@ export class ConversationModel {
 				? { details: objectRecord(result)?.details }
 				: {}),
 			...(settledDiff ? { diff: settledDiff } : {}),
+			...(normalizedResult.path ? { diffPath: normalizedResult.path } : {}),
 			status:
 				event.type === "tool_execution_end"
 					? event.isError

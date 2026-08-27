@@ -45,6 +45,32 @@ describe("conversation content boundaries", () => {
 		});
 	});
 
+	test("normalizes structured diffs in initial history", () => {
+		const items = initialItems([
+			{
+				role: "toolResult",
+				toolCallId: "readseek-history",
+				toolName: "readSeek_write",
+				content: [{ type: "text", text: "Updated" }],
+				details: {
+					diff: "  1 old display\n+ 2 new display",
+					diffData: {
+					version: 1,
+					entries: [
+						{ kind: "remove", oldLine: 1, text: "old" },
+						{ kind: "add", newLine: 1, text: "new" },
+					],
+				},
+				readSeekValue: { path: "src/history.ts" },
+				},
+				timestamp: 1,
+			},
+		]);
+		expect(items[0]?.kind).toBe("tool");
+		expect(items[0]?.kind === "tool" && items[0].diff).toBe("- old\n+ new");
+		expect(items[0]?.kind === "tool" && items[0].diffPath).toBe("src/history.ts");
+	});
+
 	test("parses visible custom messages and skips display:false history entries", () => {
 		const items = initialItems([
 			{

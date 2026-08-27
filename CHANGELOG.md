@@ -1,6 +1,21 @@
 # Changelog
 
-## 0.6.4
+## 0.6.5
+
+### Model performance history
+
+- Persist bounded per-model TTFT and output-rate samples for 31 days with atomic replacement; model selectors show historical medians only when valid history exists.
+- Attribute completed metrics to the provider/model reported at assistant message start, with a response-model fallback when the request model is unavailable.
+
+### Structured diffs and terminal layout
+
+- Normalize structured and nested readSeek results into the existing live, initial-history, and restored diff view while preserving legacy unified patches.
+- Bound unusually large diff payloads with an explicit truncation marker and keep long diff paths from colliding with their controls.
+- Keep the two-row tab strip's fork and new-session controls visible under constrained widths, and regenerate production previews with terminal-like font metrics.
+
+### Validation
+
+- Direct Bun 1.4.0 browser-conditioned suite: 399 passed, 1 skipped; typecheck, screenshot generation, and diff checks passed.
 
 ### Tabs and Fork
 

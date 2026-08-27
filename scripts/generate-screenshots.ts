@@ -67,7 +67,7 @@ function ansiToSvg(value: string): string {
 		runsByLine.push(runs);
 	}
 	const charWidth = 8.4;
-	const lineHeight = 19;
+	const lineHeight = 17;
 	const padding = 12;
 	const width = Math.ceil(maxLineCols * charWidth + padding * 2);
 	const height = lines.length * lineHeight + padding * 2;
@@ -75,7 +75,7 @@ function ansiToSvg(value: string): string {
 		const tspans = runs.map((run) => `<tspan${run.color ? ` class=\"${run.color}\"` : ""}>${escapeXml(run.text)}</tspan>`).join("");
 		return `<text x=\"${padding}\" y=\"${padding + 14 + index * lineHeight}\">${tspans}</text>`;
 	}).join("\n");
-	return `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"${width}\" height=\"${height}\" viewBox=\"0 0 ${width} ${height}\" role=\"img\" aria-label=\"PiTTy ${escapeXml("terminal preview")}\" xml:space=\"preserve\">\n<rect width=\"100%\" height=\"100%\" fill=\"#10131a\"/>\n<metadata>PiTTy terminal preview rendered from an ANSI capture using the SGR palette. This image is self-contained for README embedding.</metadata>\n<desc>Deterministic terminal UI preview with monospace text and ANSI colors.</desc>\n<style>text{font-family:monospace;font-size:14px;white-space:pre;fill:#d8dee9}.red{fill:#ff6b6b}.green{fill:#8bd49c}.yellow{fill:#f2c879}.magenta{fill:#d7a5ff}.cyan{fill:#7bdff2}.white{fill:#fff}.dim{fill:#748096}</style>\n${body}\n</svg>\n`;
+	return `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"${width}\" height=\"${height}\" viewBox=\"0 0 ${width} ${height}\" role=\"img\" aria-label=\"PiTTy ${escapeXml("terminal preview")}\" xml:space=\"preserve\">\n<rect width=\"100%\" height=\"100%\" fill=\"#10131a\"/>\n<metadata>PiTTy terminal preview rendered from an ANSI capture using the SGR palette. This image is self-contained for README embedding.</metadata>\n<desc>Deterministic terminal UI preview with monospace text and ANSI colors.</desc>\n<style>text{font-family:"DejaVu Sans Mono","Liberation Mono","Noto Sans Mono",ui-monospace,monospace;font-size:14px;line-height:17px;font-variant-ligatures:none;white-space:pre;fill:#d8dee9}.red{fill:#ff6b6b}.green{fill:#8bd49c}.yellow{fill:#f2c879}.magenta{fill:#d7a5ff}.cyan{fill:#7bdff2}.white{fill:#fff}.dim{fill:#748096}</style>\n${body}\n</svg>\n`;
 }
 
 mkdirSync(outputDir, { recursive: true });
@@ -116,7 +116,7 @@ for (const state of states) {
 		if (!captured.stdout.includes(state.expected) || !hasWholeApp || !hasStateDetails) throw new Error(`capture ${name} did not reach its expected production state (${state.expected})`);
 		const ansi = captured.stdout.trimEnd() + "\n";
 		writeFileSync(join(outputDir, `${name}.ansi`), ansi);
-		writeFileSync(join(outputDir, `${name}.html`), `<!doctype html><meta charset="utf-8"><title>PiTTy ${name}</title><style>body{background:#10131a;color:#d8dee9}pre{font:14px monospace;line-height:1.35}</style><pre>${ansiToHtml(ansi)}</pre>`);
+		writeFileSync(join(outputDir, `${name}.html`), `<!doctype html><meta charset="utf-8"><title>PiTTy ${name}</title><style>body{background:#10131a;color:#d8dee9}pre{font-family:"DejaVu Sans Mono","Liberation Mono","Noto Sans Mono",ui-monospace,monospace;font-size:14px;line-height:17px;font-variant-ligatures:none}</style><pre>${ansiToHtml(ansi)}</pre>`);
 		writeFileSync(join(outputDir, `${name}.svg`), ansiToSvg(ansi));
 	} finally {
 		spawnSync("tmux", ["-L", socket, "kill-session", "-t", session], { encoding: "utf8" });

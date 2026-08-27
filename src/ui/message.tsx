@@ -53,6 +53,14 @@ export function cleanTerminalText(value: string): string {
 	);
 }
 
+function clampDiffPath(value: string, maxLength = 48): string {
+	if (value.length <= maxLength) return value;
+	if (maxLength < 4) return value.slice(0, maxLength);
+	const left = Math.ceil((maxLength - 1) / 2);
+	const right = Math.floor((maxLength - 1) / 2);
+	return `${value.slice(0, left)}…${value.slice(-right)}`;
+}
+
 function diffLines(value: string): string[] {
 	return cleanTerminalText(value).trimEnd().split(/\r?\n/);
 }
@@ -459,9 +467,9 @@ function ToolDetails(props: {
 						<text fg={colors.green}> +{stats().additions}</text>
 						<text fg={colors.red}> -{stats().deletions}</text>
 						<Show when={props.item.diffPath}>
-							<text fg={colors.muted} wrapMode="none">
+							<text fg={colors.muted} wrapMode="none" flexShrink={1}>
 								{" "}
-								{props.item.diffPath ?? ""}
+								{clampDiffPath(props.item.diffPath ?? "")}
 							</text>
 						</Show>
 						<box flexGrow={1} />
