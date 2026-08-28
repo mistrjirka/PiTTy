@@ -4,6 +4,7 @@ import {
 	RGBA,
 	Renderable,
 	type BoxRenderable,
+	type TextRenderable,
 	type MarkdownRenderable,
 	type ScrollBoxRenderable,
 	type TextareaRenderable,
@@ -1028,6 +1029,47 @@ describe("OpenTUI components", () => {
 		expect(inner.visible).toBe(false);
 	});
 
+	test("keeps wrapped transcript diff rows intrinsic and sequential", async () => {
+		const item: ConversationItem = {
+			kind: "tool",
+			id: "wrapped-diff-rows",
+			toolCallId: "wrapped-diff-rows",
+			name: "edit",
+			args: {},
+			output: "Applied edit",
+			diff: "@@ -1,4 +1,4 @@\n context marker remains stable\n-this ordinary prose line contains enough words to wrap at this width and keep testing sequential rendering without overlap\n+that ordinary prose line contains enough words to wrap at this width and keep testing sequential rendering without overlap",
+			diffPath: "src/example.ts",
+			timestamp: 1,
+			status: "done",
+			isError: false,
+		};
+		const setup = await mount(
+			() => (
+				<MessageView
+					item={item}
+					showThinking
+					toolExpanded={false}
+					diffExpanded
+				/>
+			),
+			40,
+			30,
+		);
+		const diffPreview = setup.renderer.root.findDescendantById("wrapped-diff-rows-diff-preview") as BoxRenderable | undefined;
+		expect(diffPreview).toBeDefined();
+		if (!diffPreview) throw new Error("diff preview missing");
+		const rows = diffPreview.getChildren() as TextRenderable[];
+		expect(rows.length).toBe(4);
+		expect(rows.filter((row) => row.height > 1).length).toBeGreaterThanOrEqual(2);
+		for (const [index, row] of rows.entries()) {
+			expect(row.height).toBe(row.virtualLineCount);
+			if (index > 0) {
+				const previousRow = rows[index - 1];
+				if (!previousRow) throw new Error("previous diff row missing");
+				expect(row.y).toBeGreaterThanOrEqual(previousRow.y + previousRow.height);
+			}
+		}
+	});
 	test("keeps diff path and resets explicit diff scroll ownership on collapse", async () => {
 		const item: ConversationItem = {
 			kind: "tool",
@@ -1407,8 +1449,15 @@ describe("OpenTUI components", () => {
 		expect(tabLines[1]).toContain("Primary");
 		expect(tabLines[1]).toContain("⑂");
 		expect(tabLines[1]).toContain("+");
+		const controlsStart = tabLines[1]!.indexOf("⑂");
+		expect(controlsStart).toBeGreaterThan(tabLines[1]!.indexOf("Forked"));
+		expect(tabLines[1]!.slice(controlsStart)).toMatch(/^⑂ \+? ?/);
 		expect(frame).toContain("Primary");
 		expect(frame).toContain("Forked •2");
+		const forkColumn = tabLines[1]!.indexOf("⑂");
+		const plusColumn = tabLines[1]!.indexOf("+");
+		expect(forkColumn).toBeGreaterThan(tabLines[1]!.indexOf("Forked"));
+		expect(plusColumn).toBe(forkColumn + 3);
 		for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(42);
 		const row = frame.split("\n").findIndex((line) => line.includes("Forked"));
 		await setup.mockMouse.click(
@@ -1454,6 +1503,27 @@ describe("OpenTUI components", () => {
 		await setup.mockMouse.click(row.indexOf("⑂"), 1);
 		await setup.flush();
 		expect(forkOpened).toBe(true);
+	});
+
+	test("keeps both controls visible in a very narrow tab strip", async () => {
+		const setup = await mount(
+			() => (
+				<TabStrip
+					tabs={[{ id: "narrow", sessionName: "a very long session title", badges: 0 }]}
+					activeId="narrow"
+					onActivate={() => {}}
+					onClose={() => {}}
+					onCreate={() => {}}
+					onOpenForkPicker={() => {}}
+				/>
+			),
+			20,
+			4,
+		);
+		const lines = setup.captureCharFrame().split("\n");
+		expect(lines[1]).toContain("⑂");
+		expect(lines[1]).toContain("+");
+		expect(lines[1]!.indexOf("+")).toBe(lines[1]!.indexOf("⑂") + 3);
 	});
 
 	test("wraps long expanded diff lines instead of clipping them", async () => {

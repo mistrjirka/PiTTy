@@ -23,21 +23,16 @@
 
 ## PiTTy on screen
 
-These are captures of the production application running against a deterministic mock Pi RPC session. The transcript, tool cards, dialogs, prompt, footer, and sidebar are rendered by the same components used in normal sessions.
+These are native captures of the production PiTTy terminal surface. `bun run screenshots` (or `npm run screenshots`) starts the real route against deterministic mock RPC data and regenerates a 120×36-cell, 1200×700 Kitty/X11 matrix. ANSI and HTML files beside each PNG are diagnostics only.
 
-### Conversation, tools, and sidebar
+Prerequisites for capture: Bun, Kitty with X11 support, tmux, xdotool, and ImageMagick (`import` and `identify`). The command maps a hidden Kitty window only for capture, disables tmux status chrome, validates markers and geometry, and cleans up its sessions/sockets. It is intentionally not a headless or portable browser screenshot.
 
-The full chat view with thinking, Bash and edit results, a subagent review, supervisor notice, context usage, and the active model:
+### Generated capture matrix
 
-![PiTTy conversation with tools and sidebar](docs/screenshots/conversation.svg)
+![PiTTy conversation with colored tools, diffs, thinking, and sidebar](docs/screenshots/conversation.png)
+![PiTTy model selector with deterministic performance labels](docs/screenshots/model-selector.png)
 
-### Model picker
-
-Ctrl+P opens the searchable model picker over the live conversation without hiding session context:
-
-![PiTTy model picker over a live conversation](docs/screenshots/model-selector.svg)
-
-Regenerate both captures with `bun run screenshots` (requires `tmux`). Their ANSI and self-contained HTML versions live beside the SVG files.
+Additional generated states: `blank-session.png` (new-session dashboard), `long-diff.png` (wrapped transcript-first diff), and `tab-strip.png` (fork/new-session controls). Each has matching `.ansi` and `.html` diagnostic output.
 
 ## Install
 

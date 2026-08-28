@@ -547,6 +547,7 @@ function ToolDetails(props: {
 										fg={diffLineColor(line)}
 										selectable
 										wrapMode="char"
+										flexShrink={0}
 									>
 										{line || " "}
 									</text>

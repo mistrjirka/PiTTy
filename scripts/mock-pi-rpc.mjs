@@ -18,19 +18,18 @@ const state = {
   steeringMode: "all",
   followUpMode: "all",
   sessionId: "mock-session",
-  sessionName: "Mock Pi Session",
+  sessionName: process.env.MOCK_SCREENSHOT_SCENARIO === "empty" ? "New session" : "Mock Pi Session",
   autoCompactionEnabled: true,
-  messageCount: 2,
   pendingMessageCount: 0,
   model: { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", provider: "openai-codex", api: "openai-responses", contextWindow: 400000, maxTokens: 128000 },
 };
 
-const history = [
+const history = process.env.MOCK_SCREENSHOT_SCENARIO === "empty" ? [] : [
   { role: "user", content: [{ type: "text", text: "Existing user message" }], timestamp: 1 },
   { role: "assistant", content: [{ type: "text", text: "Existing assistant answer" }], timestamp: 2 },
 ];
 
-if (process.env.MOCK_SCREENSHOT_RICH === "1") {
+if (process.env.MOCK_SCREENSHOT_RICH === "1" && process.env.MOCK_SCREENSHOT_SCENARIO !== "empty") {
   history.push(
     { role: "user", content: [{ type: "text", text: "Review the release workflow and summarize the risks." }], timestamp: 3 },
     { role: "assistant", content: [{ type: "thinking", thinking: "I will inspect the workflow and verify the release path." }, { type: "text", text: "The workflow is ready. I found one portability edge case and corrected it." }, { type: "toolCall", id: "bash-1", toolCallId: "bash-1", name: "bash", arguments: { command: "bun run typecheck" } }], timestamp: 4, stopReason: "toolUse", usage: { input: 1200, output: 240, cacheRead: 0, cacheWrite: 0, totalTokens: 1440, cost: 0 } },
@@ -43,14 +42,31 @@ if (process.env.MOCK_SCREENSHOT_RICH === "1") {
   );
 }
 
+if (process.env.MOCK_SCREENSHOT_SCENARIO === "long-diff") {
+  const lines = Array.from({ length: 28 }, (_, index) => `${index % 2 === 0 ? "+" : "-"} wrapped transcript diff line ${index + 1} with enough deterministic text to exercise the scroll viewport`);
+  history.push(
+    { role: "user", content: [{ type: "text", text: "Long wrapped diff" }], timestamp: 11 },
+    { role: "assistant", content: [{ type: "toolCall", id: "long-diff-1", toolCallId: "long-diff-1", name: "edit", arguments: { path: "src/large-file.ts" } }], timestamp: 12, stopReason: "toolUse" },
+    { role: "toolResult", toolCallId: "long-diff-1", content: [{ type: "text", text: "Applied edit" }], details: { path: "src/large-file.ts", diffData: { entries: lines } }, timestamp: 13 },
+  );
+}
+const userMessageCount = history.filter((message) => message.role === "user").length;
+const assistantMessageCount = history.filter((message) => message.role === "assistant").length;
+const toolCallCount = history.reduce(
+  (count, message) => count + (Array.isArray(message.content) ? message.content.filter((block) => block && block.type === "toolCall").length : 0),
+  0,
+);
+const toolResultCount = history.filter((message) => message.role === "toolResult" || message.role === "tool").length;
+state.messageCount = history.length;
+
 const stats = {
   sessionFile: initialSessionFile,
   sessionId: "mock-session",
-  userMessages: process.env.MOCK_SCREENSHOT_RICH === "1" ? 2 : 1,
-  assistantMessages: process.env.MOCK_SCREENSHOT_RICH === "1" ? 4 : 1,
-  toolCalls: process.env.MOCK_SCREENSHOT_RICH === "1" ? 3 : 0,
-  toolResults: process.env.MOCK_SCREENSHOT_RICH === "1" ? 3 : 0,
-  totalMessages: process.env.MOCK_SCREENSHOT_RICH === "1" ? 10 : 2,
+  userMessages: userMessageCount,
+  assistantMessages: assistantMessageCount,
+  toolCalls: toolCallCount,
+  toolResults: toolResultCount,
+  totalMessages: history.length,
   tokens: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, total: 150 },
   cost: 0,
   contextUsage: { tokens: 33000, contextWindow: 400000, percent: 8.25 },

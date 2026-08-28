@@ -24,20 +24,16 @@ export function TabStrip(props: TabStripProps) {
 			overflow="hidden"
 		>
 			<box height={1} minHeight={1} flexShrink={0} flexDirection="row">
-				<scrollbox
+				<box
 					id="tab-strip-tabs"
-					flexGrow={1}
-					flexBasis={0}
-					flexShrink={1}
-					minWidth={0}
+					flexDirection="row"
 					height={1}
 					minHeight={1}
-					scrollX
-					scrollY={false}
-					focusable={false}
-					viewportCulling
+					flexShrink={1}
+					minWidth={0}
+					overflow="hidden"
 				>
-					<box flexDirection="row">
+					<box flexDirection="row" minWidth={0} overflow="hidden">
 						<For each={props.tabs}>
 							{(tab) => (
 								<box
@@ -87,7 +83,7 @@ export function TabStrip(props: TabStripProps) {
 							)}
 						</For>
 					</box>
-				</scrollbox>
+				</box>
 				<box
 					flexDirection="row"
 					height={1}
