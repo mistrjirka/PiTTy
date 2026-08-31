@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.6
+
+### Terminal layout and production screenshots
+
+- Align tab controls consistently in the one-row tab strip and keep the layout stable at narrow widths.
+- Fix wrapped diff layout so long lines remain readable without disrupting controls.
+- Add a native production screenshot matrix covering the supported terminal views.
+
+### Validation
+
+- Direct Bun 1.4.0 browser-conditioned suite: 401 passed, 1 skipped, 0 failed.
+- Typecheck, native screenshot generation, diagnostics, and `git diff --check` passed.
+
 ## 0.6.5
 
 ### Model performance history

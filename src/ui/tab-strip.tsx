@@ -18,9 +18,8 @@ export function TabStrip(props: TabStripProps) {
 		<box
 			id="tab-strip"
 			flexDirection="column"
-			height={2}
+			height={1}
 			width="100%"
-			paddingTop={1}
 			overflow="hidden"
 		>
 			<box height={1} minHeight={1} flexShrink={0} flexDirection="row">

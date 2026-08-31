@@ -1419,7 +1419,7 @@ describe("OpenTUI components", () => {
 		expect(empty.captureCharFrame()).toContain("fork points");
 	});
 
-	test("renders a taller tab strip without overflowing constrained panes", async () => {
+	test("renders a one-row tab strip without overflowing constrained panes", async () => {
 		let activated: string | undefined;
 		let created = false;
 		let forkOpened = false;
@@ -1442,21 +1442,20 @@ describe("OpenTUI components", () => {
 		);
 		const strip = setup.renderer.root.findDescendantById("tab-strip");
 		if (!strip) throw new Error("tab strip missing");
-		expect(strip.height).toBe(2);
+		expect(strip.height).toBe(1);
 		const frame = setup.captureCharFrame();
 		const tabLines = frame.split("\n");
-		expect(tabLines[0]).not.toContain("Primary");
-		expect(tabLines[1]).toContain("Primary");
-		expect(tabLines[1]).toContain("⑂");
-		expect(tabLines[1]).toContain("+");
-		const controlsStart = tabLines[1]!.indexOf("⑂");
-		expect(controlsStart).toBeGreaterThan(tabLines[1]!.indexOf("Forked"));
-		expect(tabLines[1]!.slice(controlsStart)).toMatch(/^⑂ \+? ?/);
+		expect(tabLines[0]).toContain("Primary");
+		expect(tabLines[0]).toContain("⑂");
+		expect(tabLines[0]).toContain("+");
+		const controlsStart = tabLines[0]!.indexOf("⑂");
+		expect(controlsStart).toBeGreaterThan(tabLines[0]!.indexOf("Forked"));
+		expect(tabLines[0]!.slice(controlsStart)).toMatch(/^⑂ \+? ?/);
 		expect(frame).toContain("Primary");
 		expect(frame).toContain("Forked •2");
-		const forkColumn = tabLines[1]!.indexOf("⑂");
-		const plusColumn = tabLines[1]!.indexOf("+");
-		expect(forkColumn).toBeGreaterThan(tabLines[1]!.indexOf("Forked"));
+		const forkColumn = tabLines[0]!.indexOf("⑂");
+		const plusColumn = tabLines[0]!.indexOf("+");
+		expect(forkColumn).toBeGreaterThan(tabLines[0]!.indexOf("Forked"));
 		expect(plusColumn).toBe(forkColumn + 3);
 		for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(42);
 		const row = frame.split("\n").findIndex((line) => line.includes("Forked"));
@@ -1466,10 +1465,10 @@ describe("OpenTUI components", () => {
 		);
 		await setup.flush();
 		expect(activated).toBe("two");
-		await setup.mockMouse.click(frame.split("\n")[1]!.indexOf("+"), 1);
+		await setup.mockMouse.click(frame.split("\n")[0]!.indexOf("+"), 0);
 		await setup.flush();
 		expect(created).toBe(true);
-		await setup.mockMouse.click(frame.split("\n")[1]!.indexOf("⑂"), 1);
+		await setup.mockMouse.click(frame.split("\n")[0]!.indexOf("⑂"), 0);
 		await setup.flush();
 		expect(forkOpened).toBe(true);
 	});
@@ -1493,14 +1492,14 @@ describe("OpenTUI components", () => {
 			4,
 		);
 		const frame = setup.captureCharFrame();
-		const row = frame.split("\n")[1] ?? "";
+		const row = frame.split("\n")[0] ?? "";
 		expect(row).toContain("⑂");
 		expect(row).toContain("+");
 		expect(row).not.toContain(longTitle);
-		await setup.mockMouse.click(row.indexOf("+"), 1);
+		await setup.mockMouse.click(row.indexOf("+"), 0);
 		await setup.flush();
 		expect(created).toBe(true);
-		await setup.mockMouse.click(row.indexOf("⑂"), 1);
+		await setup.mockMouse.click(row.indexOf("⑂"), 0);
 		await setup.flush();
 		expect(forkOpened).toBe(true);
 	});
@@ -1521,9 +1520,9 @@ describe("OpenTUI components", () => {
 			4,
 		);
 		const lines = setup.captureCharFrame().split("\n");
-		expect(lines[1]).toContain("⑂");
-		expect(lines[1]).toContain("+");
-		expect(lines[1]!.indexOf("+")).toBe(lines[1]!.indexOf("⑂") + 3);
+		expect(lines[0]).toContain("⑂");
+		expect(lines[0]).toContain("+");
+		expect(lines[0]!.indexOf("+")).toBe(lines[0]!.indexOf("⑂") + 3);
 	});
 
 	test("wraps long expanded diff lines instead of clipping them", async () => {
