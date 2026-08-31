@@ -89,6 +89,38 @@ describe("tab runtime factory", () => {
 		expect(second.selectedTargetKey).toBeUndefined();
 	});
 
+	test("records settled request timing separately from model performance", async () => {
+		const client = new StubClient(state("/tmp/timing.jsonl", "timing"));
+		const runtime = createTabRuntime({
+			id: "timing",
+			cwd: process.cwd(),
+			client,
+		});
+		client.deliver({ type: "agent_start" });
+		await Bun.sleep(2);
+		client.deliver({ type: "turn_start" });
+		client.deliver({
+			type: "message_start",
+			message: { role: "assistant", provider: "openai", model: "gpt-5" },
+		});
+		client.deliver({
+			type: "message_update",
+			assistantMessageEvent: { type: "toolcall_start" },
+		});
+		client.deliver({ type: "tool_execution_start", toolCallId: "tool" });
+		await Bun.sleep(2);
+		client.deliver({ type: "tool_execution_end", toolCallId: "tool" });
+		client.deliver({ type: "turn_end" });
+		client.deliver({ type: "agent_settled" });
+
+		expect(runtime.lastRequestTiming?.provider).toBe("openai");
+		expect(runtime.lastRequestTiming?.modelId).toBe("gpt-5");
+		expect(runtime.lastRequestTiming?.requestMs).toBeGreaterThan(0);
+		expect(runtime.lastRequestTiming?.toolCallDurationsMs).toHaveLength(1);
+		expect(runtime.timingHistory).toHaveLength(1);
+		runtime.messageUpdates.dispose();
+	});
+
 	test("stores distinct session files across interleaved state updates", async () => {
 		const first = createTabRuntime({ id: "first", cwd: process.cwd(), client: new StubClient(state("/tmp/one.jsonl", "one")) });
 		const second = createTabRuntime({ id: "second", cwd: process.cwd(), client: new StubClient(state("/tmp/two.jsonl", "two")) });

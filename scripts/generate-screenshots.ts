@@ -18,6 +18,7 @@ const rows = 36;
 const surfaceWidth = 1200;
 const surfaceHeight = 700;
 const transientNotificationWaitMs = 7_500;
+const expectedEmptyPrompt = "Ask Pi anything… (/help for commands)";
 const executable = join(import.meta.dir, "mock-pi-rpc.mjs");
 const states: ScreenshotState[] = [
   { name: "conversation", scenario: "rich", expected: ["Supervisor: release review complete", "ctrl+p models"] },
@@ -55,6 +56,10 @@ function ansiToHtml(value: string): string {
   return html;
 }
 function requireTool(command: string, args: string[], label: string): void { runNativeCommand(command, args, label); }
+function hasValidEmptyPrompt(captured: string): boolean {
+  const plain = captured.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+  return plain.split("\n").filter((line) => line.trim() === expectedEmptyPrompt).length === 1;
+}
 
 mkdirSync(outputDir, { recursive: true });
 const prerequisites: Array<[string, string[], string]> = [
@@ -66,6 +71,8 @@ const prerequisites: Array<[string, string[], string]> = [
 ];
 for (const [command, args, label] of prerequisites) requireTool(command, args, label);
 
+const userId = process.getuid?.();
+if (userId === undefined) throw new Error("native screenshot capture requires a Unix user id");
 const temporaryDir = join(tmpdir(), `pitty-screenshot-${process.pid}`);
 const performanceHome = join(temporaryDir, "state");
 const homeDir = join(temporaryDir, "home");
@@ -88,10 +95,18 @@ writeFileSync(join(performanceHome, "pitty", "model-performance-history.json"), 
 for (const state of states) {
   const session = `pitty-screenshots-${process.pid}-${state.name}`;
   const socket = `pitty-shot-${process.pid}-${state.name}`;
+  const tmuxSocketPath = join(process.env.TMUX_TMPDIR ?? "/tmp", `tmux-${userId}`, socket);
   const kittySocket = `/tmp/pitty-kitty-${process.pid}-${state.name}`;
   const kittyClass = `pitty-screenshot-${process.pid}-${state.name}`;
   let windowId: number | undefined;
   try {
+    try { unlinkSync(tmuxSocketPath); } catch { /* no stale socket */ }
+    const activeWindowResult = spawnSync("xdotool", ["getactivewindow"], { encoding: "utf8", timeout: 2_000 });
+    const activeWindow = activeWindowResult.status === 0 ? activeWindowResult.stdout.trim() : "";
+    const activeWindowPid = activeWindow
+      ? spawnSync("xdotool", ["getwindowpid", activeWindow], { encoding: "utf8", timeout: 2_000 })
+      : undefined;
+    const canRestoreFocus = activeWindowPid?.status === 0 && activeWindowPid.stdout.trim().length > 0;
     runNativeCommand("tmux", ["-L", socket, "new-session", "-d", "-x", String(columns), "-y", String(rows), "-s", session, "env", `HOME=${homeDir}`, "MOCK_SCREENSHOT_RICH=1", `MOCK_SCREENSHOT_SCENARIO=${state.scenario}`, `XDG_STATE_HOME=${performanceHome}`, "bun", "run", "src/index.tsx", "--pi", executable], `unable to start production PiTTy for ${state.name}`);
     runNativeCommand("tmux", ["-L", socket, "set-option", "-t", session, "status", "off"], `unable to hide tmux chrome for ${state.name}`);
     runNativeCommand("kitty", ["--detach", `--listen-on=unix:${kittySocket}`, `--class=${kittyClass}`, "--start-as=hidden", "--override", "allow_remote_control=socket-only", "--override", "linux_display_server=x11", "--override", "font_size=8.2", "--override", "modify_font=cell_width 128%", "--override", "window_padding_width=0", "--override", "hide_window_decorations=yes", "--override", "initial_window_width=120c", "--override", "initial_window_height=36c", "--override", "background=#10131a", "--override", "foreground=#d8dee9", "--", "tmux", "-L", socket, "attach-session", "-t", session], `unable to launch native terminal for ${state.name}`);
@@ -119,7 +134,14 @@ for (const state of states) {
     }
     if (!resized) throw new Error(`unable to set native terminal size for ${state.name}: Kitty window disappeared`);
     runNativeCommand("xdotool", ["windowmove", String(windowId), "0", "0"], `unable to position native terminal for ${state.name}`);
+    runNativeCommand("tmux", ["-L", socket, "select-pane", "-t", session, "-d"], `unable to disable native terminal input for ${state.name}`);
     runNativeCommand("xdotool", ["windowmap", String(windowId)], `unable to map native terminal for ${state.name}`);
+    if (canRestoreFocus) {
+      runNativeCommand("xdotool", ["windowactivate", "--sync", activeWindow], `unable to restore active window for ${state.name}`);
+      runNativeCommand("xdotool", ["windowfocus", activeWindow], `unable to focus restored window for ${state.name}`);
+      const focusedWindow = runNativeCommand("xdotool", ["getactivewindow"], `unable to verify active window for ${state.name}`).stdout.trim();
+      if (focusedWindow === String(windowId)) throw new Error(`native terminal retained focus for ${state.name}`);
+    }
     let captured = runNativeCommand("tmux", ["-L", socket, "capture-pane", "-e", "-p", "-t", session], `unable to capture ${state.name}`).stdout;
     for (let attempt = 0; attempt < 60; attempt++) {
       if (state.name === "blank-session"
@@ -129,14 +151,19 @@ for (const state of states) {
       captured = runNativeCommand("tmux", ["-L", socket, "capture-pane", "-e", "-p", "-t", session], `unable to capture ${state.name}`).stdout;
     }
     if (state.keys) {
+      runNativeCommand("tmux", ["-L", socket, "select-pane", "-t", session, "-e"], `unable to enable native terminal input for ${state.name}`);
       runNativeCommand("tmux", ["-L", socket, "send-keys", "-t", session, ...state.keys], `unable to prepare ${state.name}`);
+      runNativeCommand("tmux", ["-L", socket, "select-pane", "-t", session, "-d"], `unable to disable native terminal input for ${state.name}`);
       sleep(1000);
       for (let attempt = 0; attempt < 30; attempt++) {
         sleep(150);
         captured = runNativeCommand("tmux", ["-L", socket, "capture-pane", "-e", "-p", "-t", session], `unable to capture ${state.name}`).stdout;
         if (state.expected.every((marker) => captured.includes(marker))) break;
-        if (attempt === 10 && state.name === "model-selector" && !captured.includes("Select model"))
+        if (attempt === 10 && state.name === "model-selector" && !captured.includes("Select model")) {
+          runNativeCommand("tmux", ["-L", socket, "select-pane", "-t", session, "-e"], `unable to enable native terminal input for ${state.name}`);
           runNativeCommand("tmux", ["-L", socket, "send-keys", "-t", session, "C-p"], `unable to retry ${state.name}`);
+          runNativeCommand("tmux", ["-L", socket, "select-pane", "-t", session, "-d"], `unable to disable native terminal input for ${state.name}`);
+        }
       }
     }
     if (state.interaction === "open-diff") {
@@ -151,8 +178,10 @@ for (const state of states) {
       const row = lines.indexOf(label);
       const column = label.indexOf("view diff");
       const mouseSequence = `${String.fromCharCode(27)}[<0;${column + 1};${row + 1}`;
+      runNativeCommand("tmux", ["-L", socket, "select-pane", "-t", session, "-e"], `unable to enable native terminal input for ${state.name}`);
       runNativeCommand("tmux", ["-L", socket, "send-keys", "-t", session, "-l", `${mouseSequence}M`], `unable to press diff control for ${state.name}`);
       runNativeCommand("tmux", ["-L", socket, "send-keys", "-t", session, "-l", `${mouseSequence}m`], `unable to release diff control for ${state.name}`);
+      runNativeCommand("tmux", ["-L", socket, "select-pane", "-t", session, "-d"], `unable to disable native terminal input for ${state.name}`);
       let opened = false;
       for (let attempt = 0; attempt < 30; attempt++) {
         sleep(150);
@@ -165,8 +194,10 @@ for (const state of states) {
       if (!opened) throw new Error(`native diff did not open for ${state.name}`);
     }
     sleep(transientNotificationWaitMs);
+    captured = runNativeCommand("tmux", ["-L", socket, "capture-pane", "-e", "-p", "-t", session], `unable to capture ${state.name} after settling`).stdout;
     const missing = state.expected.filter((marker) => !captured.includes(marker));
-    if (missing.length || captured.includes("conversationn") || (state.name === "blank-session" && (captured.includes("Starting Pi runtime") || captured.includes("Loading recent sessions")))) throw new Error(`capture ${state.name} failed markers=${missing.join(",")} strayInput=${captured.includes("conversationn")}`);
+    const invalidPrompt = !hasValidEmptyPrompt(captured);
+    if (missing.length || invalidPrompt || (state.name === "blank-session" && (captured.includes("Starting Pi runtime") || captured.includes("Loading recent sessions")))) throw new Error(`capture ${state.name} failed markers=${missing.join(",")} invalidPrompt=${invalidPrompt}`);
     const grid = runNativeCommand("tmux", ["-L", socket, "display-message", "-p", "-t", session, "#{pane_width}x#{pane_height}"], `unable to inspect terminal grid for ${state.name}`).stdout.trim();
     if (grid !== `${columns}x${rows}`) throw new Error(`native terminal grid is ${grid}, expected ${columns}x${rows}`);
     const ansi = captured.trimEnd() + "\n";
@@ -180,6 +211,7 @@ for (const state of states) {
     spawnSync("tmux", ["-L", socket, "kill-session", "-t", session], { encoding: "utf8" });
     if (windowId !== undefined) spawnSync("xdotool", ["windowclose", String(windowId)], { encoding: "utf8", timeout: 2_000 });
     sleep(500);
+    try { unlinkSync(tmuxSocketPath); } catch { /* tmux may remove its socket */ }
     try { unlinkSync(kittySocket); } catch { /* kitty may remove its socket */ }
   }
 }

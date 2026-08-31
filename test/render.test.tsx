@@ -33,6 +33,7 @@ import { PromptMapDialog } from "../src/ui/prompt-map.tsx";
 import { MemoryBrowserDialog } from "../src/ui/memory-browser.tsx";
 import type { MemorySnapshot } from "../src/integrations/memory-store.ts";
 import { allocateSidebarPanels, Sidebar } from "../src/ui/sidebar.tsx";
+import type { RequestTiming } from "../src/tabs/request-timing.ts";
 import { NotificationDialog } from "../src/ui/notification-dialog.tsx";
 import { SubagentInspector } from "../src/ui/subagent-inspector.tsx";
 import { ForkPicker } from "../src/ui/fork-picker.tsx";
@@ -2318,6 +2319,54 @@ describe("OpenTUI components", () => {
 		);
 		expect(emptySetup.captureCharFrame()).toContain("Tab list");
 		expect(emptySetup.captureCharFrame()).toContain("No matching models.");
+	});
+
+	test("renders separate request and parallel tool timing summaries", async () => {
+		const timing: RequestTiming = {
+			provider: "openai",
+			modelId: "gpt-5",
+			requestMs: 8_400,
+			modelToToolMs: 1_200,
+			toolCallDurationsMs: [800, 900, 1_000],
+			toolWallMs: 1_400,
+		};
+		const previous: RequestTiming = {
+			provider: "openai",
+			modelId: "gpt-5",
+			requestMs: 6_200,
+			modelToToolMs: 800,
+			toolCallDurationsMs: [600, 700],
+			toolWallMs: 900,
+		};
+		const setup = await mount(
+			() => (
+				<Sidebar
+					state={{
+						sessionName: "Timing session",
+						sessionId: "session",
+						model: {
+							provider: "openai",
+							id: "gpt-5",
+							contextWindow: 100_000,
+						},
+						thinkingLevel: "high",
+					} as RpcSessionState}
+					runs={[]}
+					lastRequestTiming={timing}
+					timingHistory={[previous, timing]}
+					subagentsAvailable={false}
+					todosAvailable={false}
+					height={24}
+				/>
+			),
+			80,
+			24,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("Timing");
+		expect(frame).toContain("Request 8s · median 7s");
+		expect(frame).toContain("Model → tool 1s · median 1s");
+		expect(frame).toContain("Tools 3 · median 800ms · wall 1s");
 	});
 
 	test("keeps the main draft visible beneath the selector reservation", async () => {

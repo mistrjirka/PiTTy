@@ -850,7 +850,11 @@ export function App(props: AppOptions) {
 			delete tabRuntime.compactionTelemetry;
 			tabRuntime.onConversationChange();
 		}
-		if (tabRuntime.id === activeTabId() && event.type === "message_end") touch();
+		if (
+			tabRuntime.id === activeTabId() &&
+			(event.type === "message_end" || event.type === "agent_settled")
+		)
+			touch();
 		if (tabRuntime.id === activeTabId() && event.type === "agent_start")
 			setStatus("working");
 		if (tabRuntime.id === activeTabId() && event.type === "agent_settled")
@@ -1087,6 +1091,8 @@ export function App(props: AppOptions) {
 	const sessionStats = () => { revision(); return activeRuntime().sessionStats; };
 	const runs = () => { revision(); return activeRuntime().runs; };
 	const lastRequestPerformance = () => { revision(); return activeRuntime().lastRequestPerformance; };
+	const lastRequestTiming = () => { revision(); return activeRuntime().lastRequestTiming; };
+	const requestTimingHistory = () => { revision(); return activeRuntime().timingHistory; };
 	const setRuns = (nextRuns: SubagentRun[]) => {
 		activeRuntime().runs = nextRuns;
 		touch();
@@ -3919,6 +3925,8 @@ export function App(props: AppOptions) {
 						state={sessionState()}
 						stats={sessionStats()}
 						lastRequestPerformance={lastRequestPerformance()}
+						lastRequestTiming={lastRequestTiming()}
+						timingHistory={requestTimingHistory()}
 						runs={runs}
 						tools={subagentTools}
 						selectedTargetKey={selectedTargetKey()}

@@ -12,6 +12,11 @@ import { PromptHistory } from "../state/prompt-history.ts";
 import type { DraftState, DispatchGate, LocalQueuedMessage } from "../state/input-continuity.ts";
 import { RequestPerformanceTracker, type RequestPerformance } from "./request-metrics.ts";
 import {
+	MAX_REQUEST_TIMING_HISTORY,
+	RequestTimingTracker,
+	type RequestTiming,
+} from "./request-timing.ts";
+import {
 	recordModelPerformanceSample,
 	loadModelPerformanceHistory,
 	saveModelPerformanceHistory,
@@ -87,6 +92,9 @@ export type ConversationTabRuntime = {
 	lastError?: Error;
 	requestPerformance: RequestPerformanceTracker;
 	lastRequestPerformance?: RequestPerformance;
+	requestTiming: RequestTimingTracker;
+	lastRequestTiming?: RequestTiming;
+	timingHistory: RequestTiming[];
 	compactionTelemetry?: CompactionTelemetry;
 	smartCompactProgress?: string;
 	compactionAttempt: number;
@@ -145,6 +153,8 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		forkInProgress: false,
 		startupResolved: false,
 		requestPerformance: new RequestPerformanceTracker(),
+		requestTiming: new RequestTimingTracker(),
+		timingHistory: [],
 		queuedFollowUps: [],
 		dispatchGate: { inFlight: false, suppressNextSettled: false },
 		eventVersion: 0,
@@ -152,11 +162,24 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 	};
 	runtime.client.onEvent((event) => {
 		runtime.eventVersion += 1;
+		const receivedAt = Date.now();
 		const performance = runtime.requestPerformance.handle(
 			event,
-			Date.now(),
+			receivedAt,
 			event.type === "message_start" ? runtime.sessionState?.model : undefined,
 		);
+		const timing = runtime.requestTiming.handle(
+			event,
+			receivedAt,
+			runtime.sessionState?.model,
+		);
+		if (timing) {
+			runtime.lastRequestTiming = timing;
+			runtime.timingHistory = [
+				...runtime.timingHistory,
+				timing,
+			].slice(-MAX_REQUEST_TIMING_HISTORY);
+		}
 		if (event.type === "message_end" && performance) {
 			runtime.lastRequestPerformance = performance;
 			if (performance.provider && performance.modelId) {

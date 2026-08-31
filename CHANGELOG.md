@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.7
+
+### Request timing and native harness reliability
+
+- Add a separate Timing sidebar section for settled request duration, model-to-first-tool latency, individual tool durations, and unioned wall time for parallel tools.
+- Show bounded session-local medians for the active provider/model without changing the existing model-performance metrics.
+- Harden native Kitty/X11 screenshot captures with exact empty-prompt validation, passive pane input isolation, safe focus handling, final recapture, and UID-scoped cleanup.
+
 ## 0.6.6
 
 ### Terminal layout and production screenshots

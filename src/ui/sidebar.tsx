@@ -10,6 +10,10 @@ import type {
 import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
 import { formatDuration } from "./duration.ts";
 import type { RequestPerformance } from "../tabs/request-metrics.ts";
+import {
+	requestTimingStats,
+	type RequestTiming,
+} from "../tabs/request-timing.ts";
 import { colors } from "./theme.ts";
 import { TodoPanel, type TodoViewItem } from "./todos.tsx";
 import { appVersion } from "../version.ts";
@@ -166,6 +170,19 @@ function codexWindowPaceLine(
 			: `${Math.round(stats.rateSpanHours)}h`;
 	return `avg ${perDay.toFixed(1)}%/day (last ${spanLabel})`;
 }
+function medianValue(values: readonly number[]): number | undefined {
+	if (!values.length) return undefined;
+	const sorted = [...values].sort((a, b) => a - b);
+	const middle = Math.floor(sorted.length / 2);
+	return sorted.length % 2
+		? sorted[middle]
+		: (sorted[middle - 1]! + sorted[middle]!) / 2;
+}
+
+function medianTimingSuffix(value: number | undefined): string {
+	return value === undefined ? "" : ` · median ${formatDuration(value)}`;
+}
+
 function formatTokens(value: number | undefined): string {
 	if (value === undefined) return "—";
 	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -248,6 +265,8 @@ export function Sidebar(props: {
 	state?: RpcSessionState | undefined;
 	stats?: SessionStats | undefined;
 	lastRequestPerformance?: RequestPerformance | undefined;
+	lastRequestTiming?: RequestTiming | undefined;
+	timingHistory?: RequestTiming[] | Accessor<RequestTiming[]> | undefined;
 	runs: SubagentRun[] | Accessor<SubagentRun[]>;
 	tools?: ToolItem[] | Accessor<ToolItem[]> | undefined;
 	selectedTargetKey?: string | undefined;
@@ -292,6 +311,27 @@ export function Sidebar(props: {
 		typeof props.codexUsageStats === "function"
 			? props.codexUsageStats()
 			: props.codexUsageStats;
+	const timingHistory = () =>
+		typeof props.timingHistory === "function"
+			? props.timingHistory()
+			: (props.timingHistory ?? []);
+	const timingStats = createMemo(() => {
+		const timing = props.lastRequestTiming;
+		if (!timing?.provider || !timing.modelId) return undefined;
+		return (
+			requestTimingStats(timingHistory(), timing.provider, timing.modelId) ??
+			requestTimingStats([timing], timing.provider, timing.modelId)
+		);
+	});
+	const timingRows = () => {
+		const timing = props.lastRequestTiming;
+		if (!timing) return 0;
+		return (
+			3 +
+			(timing.modelToToolMs === undefined ? 0 : 1) +
+			(timing.toolCallDurationsMs.length > 0 ? 1 : 0)
+		);
+	};
 	const orderedNotifications = createMemo(() =>
 		[...notifications()].sort((a, b) =>
 			a.read !== b.read ? (a.read ? 1 : -1) : b.createdAt - a.createdAt,
@@ -324,6 +364,7 @@ export function Sidebar(props: {
 	};
 	const fixedHeaderRows = () =>
 		11 +
+		timingRows() +
 		codexRows() +
 		(props.stats?.contextUsage?.percent !== undefined &&
 		props.stats?.contextUsage?.percent !== null
@@ -463,6 +504,39 @@ export function Sidebar(props: {
 						TTFT {(performance().ttftMs / 1000).toFixed(1)}s · {Math.round(performance().outputTokens / (performance().generationMs / 1000))} tok/s
 					</text>
 				)}
+			</Show>
+			<Show when={props.lastRequestTiming}>
+				{(timing) => {
+					const stats = () => timingStats();
+					const requestMedian = () =>
+						stats()?.medianRequestMs ?? timing().requestMs;
+					const modelToToolMedian = () =>
+						stats()?.medianModelToToolMs ?? timing().modelToToolMs;
+					const toolMedian = () =>
+						stats()?.medianToolCallMs ??
+						medianValue(timing().toolCallDurationsMs);
+					return (
+						<>
+							<box height={1} />
+							<text width="100%" height={1} fg={colors.textBright} attributes={1}>
+								Timing
+							</text>
+							<text width="100%" height={1} fg={colors.muted} wrapMode="none">
+								Request {formatDuration(timing().requestMs)}{medianTimingSuffix(requestMedian())}
+							</text>
+							<Show when={timing().modelToToolMs !== undefined}>
+								<text width="100%" height={1} fg={colors.muted} wrapMode="none">
+									Model → tool {formatDuration(timing().modelToToolMs)}{medianTimingSuffix(modelToToolMedian())}
+								</text>
+							</Show>
+							<Show when={timing().toolCallDurationsMs.length > 0}>
+								<text width="100%" height={1} fg={colors.muted} wrapMode="none">
+									Tools {timing().toolCallDurationsMs.length} · median {formatDuration(toolMedian())} · wall {formatDuration(timing().toolWallMs)}
+								</text>
+							</Show>
+						</>
+					);
+				}}
 			</Show>
 			<Show when={codexUsage()?.windows.length}>
 				<box height={1} />
