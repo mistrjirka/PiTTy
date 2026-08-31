@@ -134,6 +134,52 @@ export type OneRoundProgress = {
 	error?: string;
 };
 
+/** Accumulated per-lane streamed text for the current one-round compaction run. */
+export type OneRoundLaneTexts = {
+	runId: string;
+	intent: string;
+	execution: string;
+};
+
+/** Bound for retained per-lane streamed text; only the tail is ever displayed. */
+export const ONE_ROUND_LANE_TEXT_CAP = 20_000;
+
+/** Keeps the cap-sized tail without leaving a dangling low surrogate at the cut. */
+function capLaneTail(text: string): string {
+	if (text.length <= ONE_ROUND_LANE_TEXT_CAP) return text;
+	const tail = text.slice(-ONE_ROUND_LANE_TEXT_CAP);
+	const first = tail.charCodeAt(0);
+	return first >= 0xdc00 && first <= 0xdfff ? tail.slice(1) : tail;
+}
+
+/**
+ * Appends the plugin's per-lane `delta` fields verbatim (the plugin documents
+ * deltas as "text produced since the previous emitted progress frame").
+ * A new runId starts fresh accumulation; each lane is capped to its tail so
+ * memory stays bounded for long summaries.
+ */
+export function applyOneRoundLaneDeltas(
+	prev: OneRoundLaneTexts | undefined,
+	progress: OneRoundProgress,
+): OneRoundLaneTexts {
+	const base = prev?.runId === progress.runId
+		? prev
+		: { runId: progress.runId, intent: "", execution: "" };
+	const intentDelta = progress.lanes.intent.delta;
+	const executionDelta = progress.lanes.execution.delta;
+	return {
+		runId: progress.runId,
+		intent:
+			intentDelta !== undefined
+				? capLaneTail(base.intent + intentDelta)
+				: base.intent,
+		execution:
+			executionDelta !== undefined
+				? capLaneTail(base.execution + executionDelta)
+				: base.execution,
+	};
+}
+
 export type CompactionPreparation = {
 	firstKeptEntryId?: string;
 	messagesToSummarize?: unknown[];

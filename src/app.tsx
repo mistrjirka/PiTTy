@@ -46,6 +46,7 @@ import {
 	parseOneRoundProgress,
 	parseSmartCompactProgress,
 	compactionCompletionForItem,
+	applyOneRoundLaneDeltas,
 	type CompactionCompletion,
 } from "./state/compaction-telemetry.ts";
 import {
@@ -783,8 +784,12 @@ export function App(props: AppOptions) {
 						? parseOneRoundProgress(event.statusText)
 						: undefined;
 				if (progress === undefined) {
-					if (tabRuntime.oneRoundProgress !== undefined) {
+					if (
+						tabRuntime.oneRoundProgress !== undefined ||
+						tabRuntime.oneRoundLaneTexts !== undefined
+					) {
 						delete tabRuntime.oneRoundProgress;
+						delete tabRuntime.oneRoundLaneTexts;
 						tabRuntime.onConversationChange();
 					}
 				} else if (
@@ -794,9 +799,15 @@ export function App(props: AppOptions) {
 				) {
 					delete tabRuntime.oneRoundProgress;
 					tabRuntime.onConversationChange();
-				} else if (tabRuntime.oneRoundProgress !== progress) {
-					tabRuntime.oneRoundProgress = progress;
-					tabRuntime.onConversationChange();
+				} else {
+					tabRuntime.oneRoundLaneTexts = applyOneRoundLaneDeltas(
+						tabRuntime.oneRoundLaneTexts,
+						progress,
+					);
+					if (tabRuntime.oneRoundProgress !== progress) {
+						tabRuntime.oneRoundProgress = progress;
+						tabRuntime.onConversationChange();
+					}
 				}
 				return;
 			}
@@ -867,6 +878,7 @@ export function App(props: AppOptions) {
 			const retained = tabRuntime.compactionTelemetry?.retainedContextMessages;
 			delete tabRuntime.smartCompactProgress;
 			delete tabRuntime.oneRoundProgress;
+			delete tabRuntime.oneRoundLaneTexts;
 			if (!event.aborted && !event.errorMessage) {
 				const completion: CompactionCompletion = {
 					...compactionCompletionFromResult(
@@ -3792,10 +3804,13 @@ export function App(props: AppOptions) {
 											{...(activeRuntime().smartCompactProgress
 												? { smartCompactProgress: activeRuntime().smartCompactProgress }
 												: {})}
-											{...(activeRuntime().oneRoundProgress
-												? { oneRoundProgress: activeRuntime().oneRoundProgress }
-												: {})}
-										/>
+									{...(activeRuntime().oneRoundProgress
+										? { oneRoundProgress: activeRuntime().oneRoundProgress }
+										: {})}
+									{...(activeRuntime().oneRoundLaneTexts
+										? { laneTexts: activeRuntime().oneRoundLaneTexts }
+										: {})}
+									/>
 									</Show>
 								)}
 							</Show>

@@ -10,6 +10,8 @@ import {
 	parseCompactionTelemetry,
 	parseOneRoundDetails,
 	parseOneRoundProgress,
+	applyOneRoundLaneDeltas,
+	ONE_ROUND_LANE_TEXT_CAP,
 	parseSmartCompactProgress,
 	type OneRoundDetails,
 	type OneRoundProgress,
@@ -320,5 +322,50 @@ describe("pi-one-round-compaction live progress", () => {
 		const { delta: _d, ...intent } = progress.lanes.intent as any;
 		const parsed = parseOneRoundProgress({ ...rest, lanes: { ...lanesOuter, intent } });
 		expect(parsed?.lanes.intent.delta).toBeUndefined();
+	});
+	test("accumulates per-lane deltas for the active run", () => {
+		const frame1 = parseOneRoundProgress(progress)!;
+		const afterFirst = applyOneRoundLaneDeltas(undefined, frame1);
+		expect(afterFirst).toEqual({ runId: "run-1", intent: " new text", execution: "" });
+
+		const frame2 = parseOneRoundProgress({ ...frame1, seq: 8, lanes: { intent: { ...frame1.lanes.intent, chars: 1304, delta: " more" }, execution: { ...frame1.lanes.execution, delta: "evidence text" } } })!;
+		const afterSecond = applyOneRoundLaneDeltas(afterFirst, frame2);
+		expect(afterSecond.intent).toBe(" new text more");
+		expect(afterSecond.execution).toBe("evidence text");
+	});
+
+	test("resets accumulation when the run id changes", () => {
+		const first = applyOneRoundLaneDeltas(undefined, parseOneRoundProgress(progress)!);
+		const nextRun = parseOneRoundProgress({ ...progress, runId: "run-2", lanes: { intent: { role: "intent", state: "streaming", chars: 5, delta: "fresh" }, execution: { role: "execution", state: "queued", chars: 0 } } })!;
+		const after = applyOneRoundLaneDeltas(first, nextRun);
+		expect(after).toEqual({ runId: "run-2", intent: "fresh", execution: "" });
+	});
+
+	test("keeps only the tail of long lane text", () => {
+		let state = applyOneRoundLaneDeltas(undefined, parseOneRoundProgress(progress)!);
+		const chunk = "x".repeat(ONE_ROUND_LANE_TEXT_CAP);
+		for (let i = 0; i < 3; i++) {
+			const frame = parseOneRoundProgress({ ...progress, seq: 10 + i, lanes: { ...progress.lanes, intent: { ...progress.lanes.intent, chars: (i + 1) * ONE_ROUND_LANE_TEXT_CAP, delta: chunk } } })!;
+			state = applyOneRoundLaneDeltas(state, frame);
+		}
+		expect(state.intent).toHaveLength(ONE_ROUND_LANE_TEXT_CAP);
+		expect(state.intent.endsWith(chunk.slice(-100))).toBe(true);
+	});
+	test("keeps the tail on a code point boundary", () => {
+		// The cap cut lands between the surrogate halves; the lone low
+		// surrogate must be dropped instead of displayed as a replacement char.
+		const emoji = "\ud83d\ude00"; // 😀 astral character
+		const delta = "a" + emoji + "c".repeat(ONE_ROUND_LANE_TEXT_CAP - 1);
+		const frame = parseOneRoundProgress({ ...progress, lanes: { intent: { ...progress.lanes.intent, chars: delta.length, delta }, execution: { ...progress.lanes.execution } } })!;
+		const state = applyOneRoundLaneDeltas(undefined, frame);
+		expect(state.intent).toBe("c".repeat(ONE_ROUND_LANE_TEXT_CAP - 1));
+		const first = state.intent.charCodeAt(0);
+		expect(first >= 0xdc00 && first <= 0xdfff).toBe(false);
+	});
+
+	test("keeps prior text when a frame carries no deltas", () => {
+		const first = applyOneRoundLaneDeltas(undefined, parseOneRoundProgress(progress)!);
+		const quiet = parseOneRoundProgress({ ...progress, seq: 9, lanes: { intent: { ...progress.lanes.intent, delta: undefined }, execution: { ...progress.lanes.execution } } })!;
+		expect(applyOneRoundLaneDeltas(first, quiet)).toEqual(first);
 	});
 });

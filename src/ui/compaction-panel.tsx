@@ -7,6 +7,7 @@ import {
 	type OneRoundLaneProgress,
 	type OneRoundProgress,
 } from "../state/compaction-telemetry.ts";
+import type { OneRoundLaneTexts } from "../state/compaction-telemetry.ts";
 import { formatDuration } from "./duration.ts";
 import { colors, getMarkdownStyle } from "./theme.ts";
 
@@ -64,6 +65,20 @@ function laneLine(lane: OneRoundLaneProgress): string {
 	return `${laneStateIcon(lane.state)} ${lane.role} · ${lane.state} · ${lane.chars.toLocaleString()} chars${elapsed}`;
 }
 
+const LANE_TEXT_LINES = 3;
+
+/** Tail window of a streamed lane text; a leading ellipsis line marks clipped content above. */
+export function laneTailLines(
+	text: string,
+	maxLines = LANE_TEXT_LINES,
+): string[] {
+	const lines = text.replace(/\r/g, "").split("\n");
+	while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+	if (lines.length === 0) return [];
+	if (lines.length <= maxLines) return lines;
+	return ["…", ...lines.slice(-(maxLines - 1))];
+}
+
 export function CompactionPanel(props: {
 	telemetry: CompactionTelemetry;
 	now: number;
@@ -71,6 +86,7 @@ export function CompactionPanel(props: {
 	frame: number;
 	smartCompactProgress?: string;
 	oneRoundProgress?: OneRoundProgress;
+	laneTexts?: OneRoundLaneTexts;
 }) {
 	const elapsed = () =>
 		Math.max(0, props.now - (props.telemetry.startedAt ?? props.now));
@@ -107,7 +123,6 @@ export function CompactionPanel(props: {
 		return `Plan: ${[summarize, keep].filter(Boolean).join(" · ")}`;
 	};
 
-	const height = props.oneRoundProgress ? 5 : 4;
 	const phaseLine = () => {
 		if (!props.oneRoundProgress) return "";
 		const mode =
@@ -117,8 +132,7 @@ export function CompactionPanel(props: {
 
 	return (
 		<box
-			height={height}
-			minHeight={height}
+			{...(props.oneRoundProgress ? {} : { height: 4, minHeight: 4 })}
 			flexShrink={0}
 			flexDirection="column"
 			paddingLeft={1}
@@ -138,9 +152,23 @@ export function CompactionPanel(props: {
 					<text height={1} fg={colors.subtle} wrapMode="none">
 						{laneLine(props.oneRoundProgress.lanes.intent)}
 					</text>
+					<Show when={(props.laneTexts?.intent ?? "").length > 0}>
+						<box height={LANE_TEXT_LINES} overflow="hidden" paddingLeft={2} flexShrink={0}>
+							<text fg={colors.muted} wrapMode="word">
+								{laneTailLines(props.laneTexts?.intent ?? "").join("\n")}
+							</text>
+						</box>
+					</Show>
 					<text height={1} fg={colors.subtle} wrapMode="none">
 						{laneLine(props.oneRoundProgress.lanes.execution)}
 					</text>
+					<Show when={(props.laneTexts?.execution ?? "").length > 0}>
+						<box height={LANE_TEXT_LINES} overflow="hidden" paddingLeft={2} flexShrink={0}>
+							<text fg={colors.muted} wrapMode="word">
+								{laneTailLines(props.laneTexts?.execution ?? "").join("\n")}
+							</text>
+						</box>
+					</Show>
 				</>
 			) : (
 				<text height={1} fg={colors.subtle} wrapMode="none">

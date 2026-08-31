@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.12
+
+### One-round compaction: live AI text
+
+- The `pi-one-round-compaction` panel now streams the real model text: the plugin's per-lane `delta` frames are appended verbatim (bounded to a 20k-character tail per lane, reset per run) and the live panel shows a three-line tail window under each lane status line, clipped with a `…` marker. Plain text while streaming — no partial-Markdown re-parsing.
+- Lane text is tab-owned and cleared with the progress frame on completion, failure, process exit, or stale status.
+
+### Stability
+
+- Fixed the sudden `MaxListenersExceededWarning` from the terminal renderer: every scrollbox registers one long-lived `selection` listener on the shared renderer, and a conversation with 11+ expandable outputs/diffs crossed node's default 10-listener warning threshold. The renderer's listener limit is now raised at bootstrap.
+
 ## 0.6.11
 
 ### Reasoning rendering

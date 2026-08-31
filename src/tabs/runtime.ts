@@ -7,6 +7,7 @@ import type {
 	CompactionCompletion,
 	CompactionTelemetry,
 	OneRoundProgress,
+	OneRoundLaneTexts,
 } from "../state/compaction-telemetry.ts";
 import { MessageUpdateBatcher } from "../state/message-update-batcher.ts";
 import { PromptHistory } from "../state/prompt-history.ts";
@@ -105,6 +106,8 @@ export type ConversationTabRuntime = {
 	smartCompactProgress?: string;
 	/** Live two-lane progress published by pi-one-round-compaction (RPC setStatus). */
 	oneRoundProgress?: OneRoundProgress;
+	/** Accumulated per-lane streamed text for the live one-round progress run. */
+	oneRoundLaneTexts?: OneRoundLaneTexts;
 	compactionAttempt: number;
 	lastCompactionCompletion?: CompactionCompletion;
 	queuedFollowUps: LocalQueuedMessage[];
@@ -230,6 +233,7 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		delete runtime.compactionTelemetry;
 		delete runtime.smartCompactProgress;
 		delete runtime.oneRoundProgress;
+		delete runtime.oneRoundLaneTexts;
 		notifyConversationChange();
 	};
 	runtime.client.on("protocol-error", handleProtocolError);

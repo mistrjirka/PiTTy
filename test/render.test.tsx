@@ -23,6 +23,7 @@ import {
 	compactionContextPercent,
 	determinateContextBar,
 	indeterminateCompactionBar,
+	laneTailLines,
 } from "../src/ui/compaction-panel.tsx";
 import type { CompactionCompletion } from "../src/state/compaction-telemetry.ts";
 import {
@@ -1020,6 +1021,47 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("150K / 200K · 75% full");
 		expect(frame).toContain("Plan: summarize 186 context messages");
 		expect(frame).toContain("keep 23 recent context messages");
+	});
+	test("renders live one-round lane text as tail windows", async () => {
+		expect(laneTailLines("")).toEqual([]);
+		expect(laneTailLines("one\ntwo\nthree\n")).toEqual(["one", "two", "three"]);
+		expect(laneTailLines("l1\nl2\nl3\nl4\nl5")).toEqual(["…", "l4", "l5"]);
+		const setup = await mount(
+			() => (
+				<CompactionPanel
+					telemetry={{ version: 1, phase: "preparing", reason: "manual", startedAt: 1_000 }}
+					now={4_000}
+					spinner="◐"
+					frame={1}
+					oneRoundProgress={{
+						v: 1,
+						runId: "run-1",
+						seq: 3,
+						phase: "streaming",
+						mode: "normal",
+						reason: "manual",
+						elapsedMs: 3000,
+						retainedTurns: 2,
+						estimatedRetainedTokens: 30_000,
+						keepRecentTokens: 32_000,
+						boundaryMode: "whole-turn",
+						lanes: {
+							intent: { role: "intent", state: "streaming", chars: 900, elapsedMs: 2500 },
+							execution: { role: "execution", state: "queued", chars: 0 },
+						},
+					}}
+					laneTexts={{ runId: "run-1", intent: "line one\nline two\nline three\nline four", execution: "" }}
+				/>
+			),
+			100,
+			14,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("◐ intent · streaming · 900 chars");
+		expect(frame).toContain("line three");
+		expect(frame).toContain("line four");
+		expect(frame).not.toContain("line one");
+		expect(frame).toContain("execution · queued · 0 chars");
 	});
 
 	test("renders the compacted summary collapsed and expanded with the markdown summary", async () => {

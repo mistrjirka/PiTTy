@@ -57,7 +57,10 @@ const logger = new DiagnosticLogger({
 });
 let renderer: Awaited<ReturnType<typeof createCliRenderer>> | undefined;
 const removeProcessDiagnostics = installProcessDiagnostics(logger, (error, origin, crashPath) => {
-  try { renderer?.destroy(); } catch {}
+  try { renderer?.destroy(); } catch (destroyError) {
+    // Best-effort teardown on the crash path; never let it mask the crash report.
+    logger.warn("renderer.destroy_failed", destroyError);
+  }
   const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
   process.stderr.write(`\nPiTTy crashed (${origin}): ${detail}\n`);
   if (crashPath) process.stderr.write(`Crash report: ${crashPath}\n`);
@@ -106,6 +109,13 @@ try {
     backgroundColor: colors.background,
     openConsoleOnError: false,
   });
+  // Every ScrollBoxRenderable registers one lightweight `selection` listener
+  // on the shared renderer. A conversation with many expandable tool outputs
+  // and diffs legitimately holds more than node's default warning threshold
+  // (10) live scrollboxes at once, and the listener is released when the
+  // scrollbox is destroyed — so silence the leak warning for the renderer
+  // instead of hiding a genuine runaway elsewhere.
+  renderer.setMaxListeners(0);
   themeController.attachRenderer(renderer);
   logger.info("renderer.created");
 
@@ -132,7 +142,10 @@ try {
   logger.info("renderer.stopped");
 } catch (error) {
   const crashPath = logger.crash(error, "topLevel");
-  try { renderer?.destroy(); } catch {}
+  try { renderer?.destroy(); } catch (destroyError) {
+    // Best-effort teardown on the failure path; never let it mask the crash report.
+    logger.warn("renderer.destroy_failed", destroyError);
+  }
   const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
   process.stderr.write(`\nPiTTy failed: ${detail}\n`);
   if (crashPath) process.stderr.write(`Crash report: ${crashPath}\n`);
