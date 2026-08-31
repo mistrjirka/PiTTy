@@ -37,11 +37,13 @@ import { PiRpcClient, PiRpcTimeoutError } from "./rpc/pi-rpc-client.ts";
 import { ConversationModel, initialItems } from "./state/conversation.ts";
 import {
 	COMPACTION_STATUS_KEY,
+	ONE_ROUND_PROGRESS_KEY,
 	SMART_COMPACT_PROGRESS_KEY,
 	compactionCompletionFromResult,
 	compactionSuccessText,
 	isCompactionReason,
 	parseCompactionTelemetry,
+	parseOneRoundProgress,
 	parseSmartCompactProgress,
 	compactionCompletionForItem,
 	type CompactionCompletion,
@@ -774,6 +776,32 @@ export function App(props: AppOptions) {
 			}
 			if (
 				event.method === "setStatus" &&
+				event.statusKey === ONE_ROUND_PROGRESS_KEY
+			) {
+				const progress =
+					typeof event.statusText === "string"
+						? parseOneRoundProgress(event.statusText)
+						: undefined;
+				if (progress === undefined) {
+					if (tabRuntime.oneRoundProgress !== undefined) {
+						delete tabRuntime.oneRoundProgress;
+						tabRuntime.onConversationChange();
+					}
+				} else if (
+					progress.phase === "complete" ||
+					progress.phase === "error" ||
+					progress.phase === "aborted"
+				) {
+					delete tabRuntime.oneRoundProgress;
+					tabRuntime.onConversationChange();
+				} else if (tabRuntime.oneRoundProgress !== progress) {
+					tabRuntime.oneRoundProgress = progress;
+					tabRuntime.onConversationChange();
+				}
+				return;
+			}
+			if (
+				event.method === "setStatus" &&
 				event.statusKey === COMPACTION_STATUS_KEY
 			) {
 				const telemetry =
@@ -838,6 +866,7 @@ export function App(props: AppOptions) {
 		if (event.type === "compaction_end") {
 			const retained = tabRuntime.compactionTelemetry?.retainedContextMessages;
 			delete tabRuntime.smartCompactProgress;
+			delete tabRuntime.oneRoundProgress;
 			if (!event.aborted && !event.errorMessage) {
 				const completion: CompactionCompletion = {
 					...compactionCompletionFromResult(
@@ -3762,6 +3791,9 @@ export function App(props: AppOptions) {
 											frame={spinnerIndex()}
 											{...(activeRuntime().smartCompactProgress
 												? { smartCompactProgress: activeRuntime().smartCompactProgress }
+												: {})}
+											{...(activeRuntime().oneRoundProgress
+												? { oneRoundProgress: activeRuntime().oneRoundProgress }
 												: {})}
 										/>
 									</Show>

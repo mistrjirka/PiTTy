@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.11
+
+### Reasoning rendering
+
+- Streaming reasoning is now shown as plain text and rendered as Markdown only when the reasoning block actually finishes, so partially streamed fences and emphasis no longer re-parse and flicker while the model is still thinking.
+
+### bun 1.4.0 compatibility
+
+- bun 1.4 no longer applies the top-level `bunfig.toml` preload to `bun test`; the Solid JSX transform and the `solid-js` client-build redirect moved to a `[test] preload` entry plus an explicit `solid-js` alias preload, restoring the reactive client runtime (the SSR build executes effects eagerly and produced stray empty text nodes in `<box>` elements).
+- The bun development pin moved to 1.4.0; the full test suite runs green under it.
+- The diff-header action row reserves one cell so the scroll/collapse actions stay fully visible next to a long clamped path.
+
+### pi-one-round-compaction integration
+
+- Live two-lane progress from the `pi-one-round-compaction` extension (intent/implementation + execution/evidence, characters, state, elapsed) is shown in the compaction panel while it runs.
+- The compacted-context card now reads the extension's `details` payload and shows its shape: parallel lanes and wall time, complete turns kept, whole-turn vs split-turn boundary, plus file/git and intent-workflow state in the completion data.
+
 ## 0.6.10
 
 ### Compaction card placement

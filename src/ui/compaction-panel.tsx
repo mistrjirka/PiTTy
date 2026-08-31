@@ -1,8 +1,11 @@
 import {
 	compactTokenCount,
 	compactionSummaryCaption,
+	formatCompactionDuration,
 	type CompactionCompletion,
 	type CompactionTelemetry,
+	type OneRoundLaneProgress,
+	type OneRoundProgress,
 } from "../state/compaction-telemetry.ts";
 import { formatDuration } from "./duration.ts";
 import { colors, getMarkdownStyle } from "./theme.ts";
@@ -42,12 +45,32 @@ export function determinateContextBar(
 	return `${"█".repeat(filled)}${"░".repeat(width - filled)}`;
 }
 
+function laneStateIcon(state: OneRoundLaneProgress["state"]): string {
+	switch (state) {
+		case "streaming":
+			return "◐";
+		case "done":
+			return "✓";
+		case "error":
+			return "×";
+		default:
+			return "○";
+	}
+}
+
+function laneLine(lane: OneRoundLaneProgress): string {
+	const elapsed =
+		lane.elapsedMs !== undefined ? ` · ${formatCompactionDuration(lane.elapsedMs)}` : "";
+	return `${laneStateIcon(lane.state)} ${lane.role} · ${lane.state} · ${lane.chars.toLocaleString()} chars${elapsed}`;
+}
+
 export function CompactionPanel(props: {
 	telemetry: CompactionTelemetry;
 	now: number;
 	spinner: string;
 	frame: number;
 	smartCompactProgress?: string;
+	oneRoundProgress?: OneRoundProgress;
 }) {
 	const elapsed = () =>
 		Math.max(0, props.now - (props.telemetry.startedAt ?? props.now));
@@ -84,10 +107,18 @@ export function CompactionPanel(props: {
 		return `Plan: ${[summarize, keep].filter(Boolean).join(" · ")}`;
 	};
 
+	const height = props.oneRoundProgress ? 5 : 4;
+	const phaseLine = () => {
+		if (!props.oneRoundProgress) return "";
+		const mode =
+			props.oneRoundProgress.mode === "workflow" ? "intent workflow" : "normal";
+		return ` · ${mode} · ${props.oneRoundProgress.phase}`;
+	};
+
 	return (
 		<box
-			height={4}
-			minHeight={4}
+			height={height}
+			minHeight={height}
 			flexShrink={0}
 			flexDirection="column"
 			paddingLeft={1}
@@ -98,13 +129,24 @@ export function CompactionPanel(props: {
 			borderColor={colors.cyan}
 		>
 			<text height={1} fg={colors.cyan} attributes={1} wrapMode="none">
-				{props.spinner} Compacting
+				{props.spinner} Compacting{phaseLine()}
 				{props.telemetry.reason ? ` · ${props.telemetry.reason}` : ""} ·{" "}
 				{formatDuration(elapsed())} elapsed
 			</text>
-			<text height={1} fg={colors.subtle} wrapMode="none">
-				Activity [{indeterminateCompactionBar(props.frame)}] indeterminate{props.smartCompactProgress ? ` · ${props.smartCompactProgress}` : ""}
-			</text>
+			{props.oneRoundProgress ? (
+				<>
+					<text height={1} fg={colors.subtle} wrapMode="none">
+						{laneLine(props.oneRoundProgress.lanes.intent)}
+					</text>
+					<text height={1} fg={colors.subtle} wrapMode="none">
+						{laneLine(props.oneRoundProgress.lanes.execution)}
+					</text>
+				</>
+			) : (
+				<text height={1} fg={colors.subtle} wrapMode="none">
+					Activity [{indeterminateCompactionBar(props.frame)}] indeterminate{props.smartCompactProgress ? ` · ${props.smartCompactProgress}` : ""}
+				</text>
+			)}
 			<text height={1} fg={colors.muted} wrapMode="none">
 				{contextLine()}
 			</text>

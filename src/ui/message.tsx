@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Accessor } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, type Accessor } from "solid-js";
 import type {
 	BoxRenderable,
 	MarkdownRenderable,
@@ -126,7 +126,6 @@ function collapsedPreview(output: string): string {
 	return normalized.length > 100 ? `${normalized.slice(0, 97)}…` : normalized;
 }
 
-const STREAMING_THINKING_PUSH_INTERVAL_MS = 100;
 export function cleanThinkingText(value: string): string {
 	let result = cleanTerminalText(value).trimStart();
 	// Some providers include their own “Thinking” heading. Strip every leading
@@ -468,7 +467,7 @@ function ToolDetails(props: {
 						<text fg={colors.green}> +{stats().additions}</text>
 						<text fg={colors.red}> -{stats().deletions}</text>
 						<Show when={props.item.diffPath}>
-							<text fg={colors.muted} wrapMode="none" flexShrink={1}>
+							<text fg={colors.muted} wrapMode="none" flexShrink={1} marginRight={1}>
 								{" "}
 								{clampDiffPath(props.item.diffPath ?? "")}
 							</text>
@@ -640,8 +639,7 @@ export function MessageView(props: {
 	let thinkingCount: TextRenderable | undefined;
 	let thinkingPreview: TextRenderable | undefined;
 	let thinkingMarkdown: MarkdownRenderable | undefined;
-	let thinkingMarkdownTimer: ReturnType<typeof setTimeout> | undefined;
-	let lastThinkingMarkdownPushAt = 0;
+	let thinkingStreamText: TextRenderable | undefined;
 	let answerWrapper: BoxRenderable | undefined;
 	let streamingAnswer: TextRenderable | undefined;
 	let finalAnswer: MarkdownRenderable | undefined;
@@ -666,6 +664,7 @@ export function MessageView(props: {
 		if (value.kind !== "assistant") return;
 		const thought = thinking();
 		const response = answer();
+		const streaming = value.status === "streaming";
 		const showThinking = props.showThinking && Boolean(thought.trim());
 		const expanded = thinkingIsExpanded();
 		if (thinkingWrapper) {
@@ -685,35 +684,15 @@ export function MessageView(props: {
 			thinkingPreview.visible = !expanded;
 		}
 		if (thinkingMarkdown) {
-			thinkingMarkdown.visible = expanded;
-			if (expanded) {
-				if (value.status === "streaming") {
-					const streamNow = Date.now();
-					if (streamNow - lastThinkingMarkdownPushAt >= STREAMING_THINKING_PUSH_INTERVAL_MS) {
-						lastThinkingMarkdownPushAt = streamNow;
-						if (!thinkingMarkdown.streaming) thinkingMarkdown.streaming = true;
-						thinkingMarkdown.content = thought;
-					} else if (!thinkingMarkdownTimer) {
-						thinkingMarkdownTimer = setTimeout(() => {
-							thinkingMarkdownTimer = undefined;
-							if (!thinkingMarkdown || thinkingMarkdown.isDestroyed) return;
-							lastThinkingMarkdownPushAt = Date.now();
-							if (!thinkingMarkdown.streaming) thinkingMarkdown.streaming = true;
-							thinkingMarkdown.content = thinking();
-						}, STREAMING_THINKING_PUSH_INTERVAL_MS - (streamNow - lastThinkingMarkdownPushAt));
-					}
-				} else {
-					if (thinkingMarkdownTimer) {
-						clearTimeout(thinkingMarkdownTimer);
-						thinkingMarkdownTimer = undefined;
-					}
-					if (!thinkingMarkdown.streaming) thinkingMarkdown.streaming = true;
-					thinkingMarkdown.content = thought;
-				}
-			} else if (thinkingMarkdownTimer) {
-				clearTimeout(thinkingMarkdownTimer);
-				thinkingMarkdownTimer = undefined;
+			thinkingMarkdown.visible = expanded && !streaming;
+			if (expanded && !streaming) {
+				if (!thinkingMarkdown.streaming) thinkingMarkdown.streaming = true;
+				thinkingMarkdown.content = thought;
 			}
+		}
+		if (thinkingStreamText) {
+			thinkingStreamText.visible = expanded && streaming;
+			if (expanded && streaming) thinkingStreamText.content = thought || "▍";
 		}
 
 		const showAnswer =
@@ -732,9 +711,6 @@ export function MessageView(props: {
 				finalAnswer.content = response || "▍";
 			}
 		}
-	});
-	onCleanup(() => {
-		if (thinkingMarkdownTimer) clearTimeout(thinkingMarkdownTimer);
 	});
 
 	return (
@@ -832,6 +808,18 @@ export function MessageView(props: {
 							wrapMode="none"
 						>
 							{collapsedThinkingPreview(thinking())}
+						</text>
+						<text
+							id={`${item.id}-thinking-stream`}
+							ref={(value) => {
+								thinkingStreamText = value;
+							}}
+							visible={false}
+							fg={colors.muted}
+							selectable
+							wrapMode="word"
+						>
+							{thinking() || "▍"}
 						</text>
 						<markdown
 							id={`${item.id}-thinking-markdown`}
