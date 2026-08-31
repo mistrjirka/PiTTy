@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	compactTokenCount,
+	compactionCompletionForItem,
 	compactionCompletionFromResult,
 	compactionSuccessText,
 	compactionSummaryCaption,
@@ -134,5 +135,21 @@ describe("compaction telemetry boundary", () => {
 		expect(compactionSummaryCaption({ tokensBefore: 12_000 })).toBe("12K");
 		expect(compactionSummaryCaption({})).toBe("");
 		expect(compactionSummaryCaption({ durationMs: 400 })).toBe("400ms");
+	});
+
+	test("compactionCompletionForItem attaches completion only to the newest notice", () => {
+		const completion = { tokensBefore: 152_000, estimatedTokensAfter: 32_000 };
+		const items = [
+			{ id: "u1", kind: "user", text: "hello" },
+			{ id: "s1", kind: "system", text: "Context compacted." },
+			{ id: "t1", kind: "tool" },
+			{ id: "u2", kind: "user", text: "next" },
+			{ id: "s2", kind: "system", text: "Context compacted." },
+		] as const;
+		expect(compactionCompletionForItem(items, "s2", completion)).toEqual(completion);
+		expect(compactionCompletionForItem(items, "s1", completion)).toBeUndefined();
+		expect(compactionCompletionForItem(items, "u2", completion)).toBeUndefined();
+		expect(compactionCompletionForItem(items, "s2", undefined)).toBeUndefined();
+		expect(compactionCompletionForItem([], "s2", completion)).toBeUndefined();
 	});
 });

@@ -315,3 +315,18 @@ export function formatCompactionDuration(milliseconds: number): string {
 	if (milliseconds < 1000) return `${Math.round(milliseconds)}ms`;
 	return `${(milliseconds / 1000).toFixed(1)}s`;
 }
+
+export function compactionCompletionForItem(
+	items: readonly { id: string; kind: string; text?: string }[],
+	itemId: string,
+	completion: CompactionCompletion | undefined,
+): CompactionCompletion | undefined {
+	if (completion === undefined) return undefined;
+	let newestNoticeId: string | undefined;
+	for (const item of items) {
+		if (item.kind === "system" && item.text?.startsWith("Context compacted")) {
+			newestNoticeId = item.id;
+		}
+	}
+	return newestNoticeId === itemId ? completion : undefined;
+}

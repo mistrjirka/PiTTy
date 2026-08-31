@@ -43,6 +43,7 @@ import {
 	isCompactionReason,
 	parseCompactionTelemetry,
 	parseSmartCompactProgress,
+	compactionCompletionForItem,
 	type CompactionCompletion,
 } from "./state/compaction-telemetry.ts";
 import {
@@ -1369,15 +1370,6 @@ export function App(props: AppOptions) {
 	const lastCompactionCompletion = createMemo(() => {
 		conversationRevision();
 		return activeRuntime().lastCompactionCompletion;
-	});
-	const lastItemIsCompactionCompletion = createMemo(() => {
-		const items = activeRuntime().conversation.items;
-		const last = items[items.length - 1];
-		return Boolean(
-			lastCompactionCompletion() &&
-				last?.kind === "system" &&
-				last.text.startsWith("Context compacted"),
-		);
 	});
 	// Show for the whole agent turn — including thinking streams and tool
 	// calls. Hiding while the latest item is "active" made Working disappear
@@ -3695,6 +3687,13 @@ export function App(props: AppOptions) {
 									const item = createMemo(() =>
 										visibleItems().find((candidate) => candidate.id === itemId),
 									);
+									const compactionCompletion = createMemo(() =>
+										compactionCompletionForItem(
+											activeRuntime().conversation.items,
+											itemId,
+											lastCompactionCompletion(),
+										),
+									);
 									const tool = createMemo(() => {
 										const candidate = item();
 										return candidate?.kind === "tool" ? candidate : undefined;
@@ -3704,6 +3703,16 @@ export function App(props: AppOptions) {
 									);
 									const initialItem = item();
 									if (!initialItem) return null;
+									const completion = compactionCompletion();
+									if (completion) {
+										return (
+											<CompactedSummary
+												completion={completion}
+												expanded={compactionSummaryExpanded}
+												onToggle={() => setCompactionSummaryExpanded((value) => !value)}
+											/>
+										);
+									}
 									const itemSource = () => item() ?? initialItem;
 									return (
 										<MessageView
@@ -3757,13 +3766,6 @@ export function App(props: AppOptions) {
 										/>
 									</Show>
 								)}
-							</Show>
-							<Show when={lastItemIsCompactionCompletion()}>
-								<CompactedSummary
-									completion={lastCompactionCompletion()!}
-									expanded={compactionSummaryExpanded}
-									onToggle={() => setCompactionSummaryExpanded((value) => !value)}
-								/>
 							</Show>
 							<Show when={showWorkingIndicator()}>
 								<box

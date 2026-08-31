@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.10
+
+### Compaction card placement
+
+- The compacted-context card now renders in the transcript flow as a regular message row, where the compaction notice is, instead of being pinned below the whole conversation. It stays with the scroll history when new messages arrive instead of disappearing.
+
 ## 0.6.9
 
 ### Forking and compaction
