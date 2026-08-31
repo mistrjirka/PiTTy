@@ -119,7 +119,7 @@ export function ModelSelectorDialog(props: {
 		handleSearchableDialogCancel(event, props.onCancel);
 	};
 
-	const selectedIndex = createMemo(() => {
+	const currentIndex = createMemo(() => {
 		const index = filteredModels().findIndex(
 			(model) =>
 				model.provider === props.currentProvider &&
@@ -127,20 +127,28 @@ export function ModelSelectorDialog(props: {
 		);
 		return index >= 0 ? index : 0;
 	});
+	const [highlight, setHighlight] = createSignal(currentIndex());
 
 	useKeyboard((event) => {
 		if (event.eventType === "release") return;
-		if (
-			handleSearchableDialogCancel(event, props.onCancel) ||
-			focus.onKeyDown(event)
-		)
-			return;
-		if (event.name === "enter" || event.name === "return") {
+		if (handleSearchableDialogCancel(event, props.onCancel)) return;
+		if (event.name === "up" || event.name === "down") {
 			const models = filteredModels();
-			const model =
-				models[
-					focus.activeFocus() === "list" ? (select?.getSelectedIndex() ?? 0) : 0
-				];
+			if (!models.length) return;
+			event.preventDefault();
+			event.stopPropagation();
+			const next =
+				event.name === "down"
+					? Math.min(models.length - 1, highlight() + 1)
+					: Math.max(0, highlight() - 1);
+			setHighlight(next);
+			select?.setSelectedIndex(next);
+			focus.focusList();
+			return;
+		}
+		if (focus.onKeyDown(event)) return;
+		if (event.name === "enter" || event.name === "return") {
+			const model = filteredModels()[highlight()];
 			if (model) {
 				event.preventDefault();
 				event.stopPropagation();
@@ -213,7 +221,11 @@ export function ModelSelectorDialog(props: {
 					onKeyDown={cancelOnEscape}
 					onContentChange={() => {
 						setQuery(search?.plainText ?? "");
-						queueMicrotask(() => select?.setSelectedIndex(0));
+						queueMicrotask(() => {
+							const target = currentIndex();
+							setHighlight(target);
+							select?.setSelectedIndex(target);
+						});
 					}}
 				/>
 				<text fg={colors.subtle}>
@@ -229,7 +241,7 @@ export function ModelSelectorDialog(props: {
 							select = value;
 						}}
 						options={options()}
-						selectedIndex={selectedIndex()}
+						selectedIndex={highlight()}
 						focused={focus.focusTarget() === "list"}
 						flexGrow={1}
 						minHeight={5}
@@ -264,6 +276,7 @@ export function ModelSelectorDialog(props: {
 							const model = filteredModels()[index];
 							if (!model) return;
 							select.setSelectedIndex(index);
+							setHighlight(index);
 							props.onSelect(model);
 						}}
 						onSelect={(_index, option) => {

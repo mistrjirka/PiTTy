@@ -482,6 +482,68 @@ describe("OpenTUI components", () => {
 		expect(cancelled).toBe(1);
 	});
 
+	test("model selector arrows move one row from the highlighted model", async () => {
+		const models = [
+			{ provider: "openai", id: "alpha", name: "Alpha" },
+			{ provider: "openai", id: "beta", name: "Beta" },
+			{ provider: "openai", id: "gamma", name: "Gamma" },
+			{ provider: "openai", id: "delta", name: "Delta" },
+		];
+		let selectedModel: string | undefined;
+		const setup = await mount(() => (
+			<ModelSelectorDialog
+				models={models}
+				currentProvider="openai"
+				currentModelId="gamma"
+				onSelect={(model) => {
+					selectedModel = model.id;
+				}}
+				onCancel={() => {}}
+			/>
+		));
+		await setup.flush();
+		const selectedLine = (frame: string, id: string) =>
+			frame.split("\n").find((line) => line.includes(`openai/${id}`));
+		expect(selectedLine(setup.captureCharFrame(), "gamma") ?? "").toContain("▶");
+		setup.mockInput.pressArrow("down");
+		await setup.flush();
+		const afterDown = setup.captureCharFrame();
+		expect(selectedLine(afterDown, "delta") ?? "").toContain("▶");
+		expect(selectedLine(afterDown, "gamma") ?? "").not.toContain("▶");
+		setup.mockInput.pressArrow("up");
+		setup.mockInput.pressArrow("up");
+		await setup.flush();
+		const afterUp = setup.captureCharFrame();
+		expect(selectedLine(afterUp, "beta") ?? "").toContain("▶");
+		setup.mockInput.pressEnter();
+		await setup.flush();
+		expect(selectedModel).toBe("beta");
+	});
+
+	test("model selector enter selects the highlighted model from the search box", async () => {
+		const models = [
+			{ provider: "openai", id: "alpha", name: "Alpha" },
+			{ provider: "openai", id: "beta", name: "Beta" },
+			{ provider: "openai", id: "gamma", name: "Gamma" },
+		];
+		let selectedModel: string | undefined;
+		const setup = await mount(() => (
+			<ModelSelectorDialog
+				models={models}
+				currentProvider="openai"
+				currentModelId="gamma"
+				onSelect={(model) => {
+					selectedModel = model.id;
+				}}
+				onCancel={() => {}}
+			/>
+		));
+		await setup.flush();
+		setup.mockInput.pressEnter();
+		await setup.flush();
+		expect(selectedModel).toBe("gamma");
+	});
+
 	test("model selector selects a row on mouse click", async () => {
 		const models = [
 			{ provider: "openai", id: "alpha", name: "Alpha" },
@@ -2321,23 +2383,31 @@ describe("OpenTUI components", () => {
 		expect(emptySetup.captureCharFrame()).toContain("No matching models.");
 	});
 
-	test("renders separate request and parallel tool timing summaries", async () => {
-		const timing: RequestTiming = {
-			provider: "openai",
-			modelId: "gpt-5",
-			requestMs: 8_400,
-			modelToToolMs: 1_200,
-			toolCallDurationsMs: [800, 900, 1_000],
-			toolWallMs: 1_400,
-		};
-		const previous: RequestTiming = {
-			provider: "openai",
-			modelId: "gpt-5",
-			requestMs: 6_200,
-			modelToToolMs: 800,
-			toolCallDurationsMs: [600, 700],
-			toolWallMs: 900,
-		};
+	test("keys timing summaries to the selected model and shows only two medians", async () => {
+		const history: RequestTiming[] = [
+			{
+				provider: "openai",
+				modelId: "gpt-5",
+				requestMs: 6_200,
+				modelToToolMs: 800,
+				toolCallDurationsMs: [600, 700],
+				toolWallMs: 900,
+			},
+			{
+				provider: "openai",
+				modelId: "gpt-5",
+				requestMs: 8_400,
+				modelToToolMs: 1_200,
+				toolCallDurationsMs: [800, 900, 1_000],
+				toolWallMs: 1_400,
+			},
+			{
+				provider: "openai",
+				modelId: "other-model",
+				requestMs: 2_000,
+				toolCallDurationsMs: [],
+			},
+		];
 		const setup = await mount(
 			() => (
 				<Sidebar
@@ -2352,8 +2422,7 @@ describe("OpenTUI components", () => {
 						thinkingLevel: "high",
 					} as RpcSessionState}
 					runs={[]}
-					lastRequestTiming={timing}
-					timingHistory={[previous, timing]}
+					timingHistory={history}
 					subagentsAvailable={false}
 					todosAvailable={false}
 					height={24}
@@ -2364,9 +2433,47 @@ describe("OpenTUI components", () => {
 		);
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("Timing");
-		expect(frame).toContain("Request 8s · median 7s");
-		expect(frame).toContain("Model → tool 1s · median 1s");
-		expect(frame).toContain("Tools 3 · median 800ms · wall 1s");
+		expect(frame).toContain("Turn 7s · Tool 800ms");
+		expect(frame).not.toContain("2s");
+	});
+
+	test("hides timing until the selected model has produced a request", async () => {
+		const history: RequestTiming[] = [
+			{
+				provider: "openai",
+				modelId: "gpt-5",
+				requestMs: 8_400,
+				modelToToolMs: 1_200,
+				toolCallDurationsMs: [800],
+				toolWallMs: 900,
+			},
+		];
+		const setup = await mount(
+			() => (
+				<Sidebar
+					state={{
+						sessionName: "Timing session",
+						sessionId: "session",
+						model: {
+							provider: "openai",
+							id: "gpt-4",
+							contextWindow: 100_000,
+						},
+						thinkingLevel: "high",
+					} as RpcSessionState}
+					runs={[]}
+					timingHistory={history}
+					subagentsAvailable={false}
+					todosAvailable={false}
+					height={24}
+				/>
+			),
+			80,
+			24,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).not.toContain("· Tool");
+		expect(frame).not.toContain("Turn");
 	});
 
 	test("keeps the main draft visible beneath the selector reservation", async () => {

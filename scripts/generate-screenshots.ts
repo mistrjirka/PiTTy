@@ -13,10 +13,10 @@ type ScreenshotState = {
 };
 
 const outputDir = join(import.meta.dir, "..", "docs", "screenshots");
-const columns = 120;
-const rows = 36;
-const surfaceWidth = 1200;
-const surfaceHeight = 700;
+const columns = 140;
+const rows = 44;
+const surfaceWidth = 1400;
+const surfaceHeight = 1028;
 const transientNotificationWaitMs = 7_500;
 const expectedEmptyPrompt = "Ask Pi anything… (/help for commands)";
 const executable = join(import.meta.dir, "mock-pi-rpc.mjs");
@@ -92,7 +92,7 @@ writeFileSync(join(performanceHome, "pitty", "model-performance-history.json"), 
   ],
 }));
 
-for (const state of states) {
+function captureState(state: ScreenshotState): void {
   const session = `pitty-screenshots-${process.pid}-${state.name}`;
   const socket = `pitty-shot-${process.pid}-${state.name}`;
   const tmuxSocketPath = join(process.env.TMUX_TMPDIR ?? "/tmp", `tmux-${userId}`, socket);
@@ -109,7 +109,7 @@ for (const state of states) {
     const canRestoreFocus = activeWindowPid?.status === 0 && activeWindowPid.stdout.trim().length > 0;
     runNativeCommand("tmux", ["-L", socket, "new-session", "-d", "-x", String(columns), "-y", String(rows), "-s", session, "env", `HOME=${homeDir}`, "MOCK_SCREENSHOT_RICH=1", `MOCK_SCREENSHOT_SCENARIO=${state.scenario}`, `XDG_STATE_HOME=${performanceHome}`, "bun", "run", "src/index.tsx", "--pi", executable], `unable to start production PiTTy for ${state.name}`);
     runNativeCommand("tmux", ["-L", socket, "set-option", "-t", session, "status", "off"], `unable to hide tmux chrome for ${state.name}`);
-    runNativeCommand("kitty", ["--detach", `--listen-on=unix:${kittySocket}`, `--class=${kittyClass}`, "--start-as=hidden", "--override", "allow_remote_control=socket-only", "--override", "linux_display_server=x11", "--override", "font_size=8.2", "--override", "modify_font=cell_width 128%", "--override", "window_padding_width=0", "--override", "hide_window_decorations=yes", "--override", "initial_window_width=120c", "--override", "initial_window_height=36c", "--override", "background=#10131a", "--override", "foreground=#d8dee9", "--", "tmux", "-L", socket, "attach-session", "-t", session], `unable to launch native terminal for ${state.name}`);
+    runNativeCommand("kitty", ["--detach", `--listen-on=unix:${kittySocket}`, `--class=${kittyClass}`, "--start-as=hidden", "--override", "allow_remote_control=socket-only", "--override", "linux_display_server=x11", "--override", "font_family=Noto Sans Mono", "--override", "font_size=10", "--override", "window_padding_width=0", "--override", "hide_window_decorations=yes", "--override", "initial_window_width=140c", "--override", "initial_window_height=44c", "--override", "background=#10131a", "--override", "foreground=#d8dee9", "--", "tmux", "-L", socket, "attach-session", "-t", session], `unable to launch native terminal for ${state.name}`);
     for (let attempt = 0; attempt < 40 && windowId === undefined; attempt++) {
       sleep(100);
       const found = spawnSync("xdotool", ["search", "--class", kittyClass], { encoding: "utf8", timeout: 2_000 });
@@ -213,7 +213,19 @@ for (const state of states) {
     sleep(500);
     try { unlinkSync(tmuxSocketPath); } catch { /* tmux may remove its socket */ }
     try { unlinkSync(kittySocket); } catch { /* kitty may remove its socket */ }
+}
+}
+for (const state of states) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      captureState(state);
+      break;
+    } catch (error) {
+      if (attempt === 1) throw error;
+      sleep(1_500);
+    }
   }
 }
+
 cleanupTemporaryDir();
 process.stdout.write(`Generated ${states.length} native terminal PNGs (${columns}x${rows} cells, ${surfaceWidth}x${surfaceHeight}, Kitty X11) in ${outputDir}\n`);

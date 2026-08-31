@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.8
+
+### Statistics and dialogs
+
+- The Timing section now shows two numbers for the selected model: median turn time and median tool-call time, hidden until that model has actually produced a request so switching models never shows the previous model's numbers.
+- The Ctrl+P model picker moves one row from the highlighted model on arrow keys instead of jumping to the first or last entry, and Enter selects the highlighted model from the search box.
+- Streaming thinking is pushed to the Markdown renderer at most every 100 ms and never while collapsed or hidden, removing the lag and flicker from long thinking blocks.
+
+### README and screenshots
+
+- Rewrote the README around what users need: how it looks, what it is, how it differs from Pi's TUI, install, and first steps, without capture-tooling details.
+- Regenerated the native screenshot matrix at 140x44 cells (1400x1028) using the system monospace Konsole uses, so captures show a larger terminal without huge text.
+- The native capture harness retries each state once on transient X11 startup races and cleans up per-state sockets.
+
 ## 0.6.7
 
 ### Request timing and native harness reliability

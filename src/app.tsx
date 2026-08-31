@@ -1091,7 +1091,6 @@ export function App(props: AppOptions) {
 	const sessionStats = () => { revision(); return activeRuntime().sessionStats; };
 	const runs = () => { revision(); return activeRuntime().runs; };
 	const lastRequestPerformance = () => { revision(); return activeRuntime().lastRequestPerformance; };
-	const lastRequestTiming = () => { revision(); return activeRuntime().lastRequestTiming; };
 	const requestTimingHistory = () => { revision(); return activeRuntime().timingHistory; };
 	const setRuns = (nextRuns: SubagentRun[]) => {
 		activeRuntime().runs = nextRuns;
@@ -3925,7 +3924,6 @@ export function App(props: AppOptions) {
 						state={sessionState()}
 						stats={sessionStats()}
 						lastRequestPerformance={lastRequestPerformance()}
-						lastRequestTiming={lastRequestTiming()}
 						timingHistory={requestTimingHistory()}
 						runs={runs}
 						tools={subagentTools}
