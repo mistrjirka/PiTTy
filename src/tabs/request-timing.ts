@@ -6,6 +6,8 @@ export type RequestTiming = {
 	requestMs: number;
 	modelToToolMs?: number;
 	toolCallDurationsMs: number[];
+	/** Number of tool calls started during the request, even when per-call timing was incomplete. */
+	toolCallCount?: number;
 	toolWallMs?: number;
 };
 
@@ -35,6 +37,7 @@ type ActiveRequestTiming = {
 	modelToToolMs?: number;
 	activeTools: Map<string, number>;
 	toolIntervals: TimingInterval[];
+	toolCallCount: number;
 	toolTimingIncomplete: boolean;
 };
 
@@ -145,6 +148,7 @@ export class RequestTimingTracker {
 				...(model?.id?.trim() ? { modelId: model.id.trim() } : {}),
 				activeTools: new Map(),
 				toolIntervals: [],
+				toolCallCount: 0,
 				toolTimingIncomplete: false,
 			};
 			return undefined;
@@ -183,6 +187,7 @@ export class RequestTimingTracker {
 			}
 			recordModelToTool(active, receivedAt);
 			active.activeTools.set(toolCallId, receivedAt);
+			active.toolCallCount += 1;
 			return undefined;
 		}
 		if (type === "tool_execution_end") {
@@ -213,6 +218,7 @@ export class RequestTimingTracker {
 						toolCallDurationsMs: intervals.map(
 							(interval) => interval.endedAt - interval.startedAt,
 						),
+						toolCallCount: active.toolCallCount,
 						...(active.provider ? { provider: active.provider } : {}),
 						...(active.modelId ? { modelId: active.modelId } : {}),
 						...(active.modelToToolMs !== undefined
@@ -250,14 +256,21 @@ export function requestTimingStats(
 	const modelToTool = samples.flatMap((sample) =>
 		sample.modelToToolMs === undefined ? [] : [sample.modelToToolMs],
 	);
-	const toolCalls = samples.flatMap((sample) => sample.toolCallDurationsMs);
+	// Per turn, the tool metric is the turn's share per tool call (turn time divided
+	// by how many tools ran in that turn), then the median across turns. Turns
+	// without tool calls contribute nothing. The turn span already includes TTFT,
+	// so the share reflects prompt processing too without double-counting it.
+	const toolShares = samples.flatMap((sample) => {
+		const toolCallCount = sample.toolCallCount ?? sample.toolCallDurationsMs.length;
+		return toolCallCount >= 1 ? [sample.requestMs / toolCallCount] : [];
+	});
 	const stats: RequestTimingStats = {
 		medianRequestMs: median(samples.map((sample) => sample.requestMs))!,
 	};
 	const medianModelToToolMs = median(modelToTool);
 	if (medianModelToToolMs !== undefined)
 		stats.medianModelToToolMs = medianModelToToolMs;
-	const medianToolCallMs = median(toolCalls);
+	const medianToolCallMs = median(toolShares);
 	if (medianToolCallMs !== undefined) stats.medianToolCallMs = medianToolCallMs;
 	return stats;
 }

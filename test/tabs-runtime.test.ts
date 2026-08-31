@@ -76,6 +76,11 @@ describe("tab runtime factory", () => {
 		expect(sessionFilePiArgs(["--extension", "observer", "--", "custom-arg"], "/tmp/fork.jsonl")).toEqual(["--extension", "observer", "--session", "/tmp/fork.jsonl", "--", "custom-arg"]);
 	});
 
+	test("sessionFilePiArgs drops continue/resume flags when forcing a session file", () => {
+		expect(sessionFilePiArgs(["--continue", "-c", "--resume", "-r", "--model", "gpt"], "/tmp/fork.jsonl")).toEqual(["--model", "gpt", "--session", "/tmp/fork.jsonl"]);
+		expect(sessionFilePiArgs(["-c", "--", "--custom"], "/tmp/fork.jsonl")).toEqual(["--session", "/tmp/fork.jsonl", "--", "--custom"]);
+	});
+
 	test("creates isolated clients, models, drafts, and expansion state", () => {
 		const first = createTabRuntime({ id: "one", cwd: process.cwd() });
 		const second = createTabRuntime({ id: "two", cwd: process.cwd() });

@@ -18,11 +18,13 @@ import {
 	toolOutputExpandable,
 } from "../src/ui/message.tsx";
 import {
+	CompactedSummary,
 	CompactionPanel,
 	compactionContextPercent,
 	determinateContextBar,
 	indeterminateCompactionBar,
 } from "../src/ui/compaction-panel.tsx";
+import type { CompactionCompletion } from "../src/state/compaction-telemetry.ts";
 import {
 	filterModelChoices,
 	formatContextWindow,
@@ -423,6 +425,22 @@ describe("OpenTUI components", () => {
 		const modelSetup = await mount(() => (
 			<ModelSelectorDialog
 				models={models}
+				timingHistory={[
+					{
+						provider: "openai",
+						modelId: "alpha",
+						requestMs: 7_000,
+						toolCallDurationsMs: [100, 100, 100],
+						toolCallCount: 3,
+					},
+					{
+						provider: "anthropic",
+						modelId: "beta",
+						requestMs: 2_000,
+						toolCallDurationsMs: [900],
+						toolCallCount: 1,
+					},
+				]}
 				onSelect={(model) => {
 					selectedModel = model.id;
 				}}
@@ -432,6 +450,7 @@ describe("OpenTUI components", () => {
 		await modelSetup.mockInput.typeText("beta");
 		await modelSetup.flush();
 		expect(modelSetup.captureCharFrame()).toContain("anthropic/beta");
+		expect(modelSetup.captureCharFrame()).toContain("Turn 2s · Tool 2s");
 		modelSetup.mockInput.pressArrow("down");
 		await modelSetup.flush();
 		modelSetup.mockInput.pressEnter();
@@ -1003,6 +1022,59 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("keep 23 recent context messages");
 	});
 
+	test("renders the compacted summary collapsed and expanded with the markdown summary", async () => {
+		const completion: CompactionCompletion = {
+			tokensBefore: 152_000,
+			estimatedTokensAfter: 32_000,
+			reason: "threshold",
+			durationMs: 2_300,
+			retainedContextMessages: 41,
+			summary: "The agent verified the release workflow and fixed one portability edge case.",
+		};
+
+		const collapsed = await mount(
+			() => <CompactedSummary completion={completion} expanded={createSignal(false)[0]} onToggle={() => {}} />,
+			100,
+			10,
+		);
+		let frame = collapsed.captureCharFrame();
+		expect(frame).toContain("── Compacted");
+		expect(frame).toContain("152K → ~32K · threshold · 2.3s · kept 41 messages");
+		expect(frame).toContain("▶ Show compaction summary");
+		expect(frame).not.toContain("The agent verified");
+
+		const expandedSetup = await mount(
+			() => <CompactedSummary completion={completion} expanded={createSignal(true)[0]} onToggle={() => {}} />,
+			100,
+			10,
+		);
+		frame = expandedSetup.captureCharFrame();
+		expect(frame).toContain("▼ Hide compaction summary");
+		expect(frame).toContain("The agent verified the release workflow");
+
+		// The toggle routes mouse-down to the parent's handler.
+		const [expanded, setExpanded] = createSignal(false);
+		const wired = await mount(
+			() => (
+				<CompactedSummary
+					completion={completion}
+					expanded={expanded}
+					onToggle={() => setExpanded((value) => !value)}
+				/>
+			),
+			100,
+			10,
+		);
+		const toggle = wired.renderer.root.findDescendantById(
+			"compacted-summary-toggle",
+		) as TextRenderable | undefined;
+		expect(toggle).toBeDefined();
+		if (!toggle) throw new Error("compacted summary toggle missing");
+		await wired.mockMouse.click(toggle.x, toggle.y);
+		await wired.flush();
+		expect(expanded()).toBe(true);
+	});
+
 	test("keeps wheel scrolling transcript-first until output scrolling is explicit", async () => {
 		const item: ConversationItem = {
 			kind: "tool",
@@ -1087,6 +1159,7 @@ describe("OpenTUI components", () => {
 		if (!toolToggle) throw new Error("tool collapse toggle missing");
 		await setup.mockMouse.click(toolToggle.x, toolToggle.y);
 		await setup.flush();
+		await setup.waitForVisualIdle({ quietFrames: 4, maxFrames: 300 });
 		expect(expanded()).toBe(false);
 		expect(setup.captureCharFrame()).toContain("expand");
 		expect(inner.visible).toBe(false);
@@ -2433,8 +2506,9 @@ describe("OpenTUI components", () => {
 		);
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("Timing");
-		expect(frame).toContain("Turn 7s · Tool 800ms");
-		expect(frame).not.toContain("2s");
+		expect(frame).toContain("Turn 7s · Tool 2s");
+		expect(frame).not.toContain("Turn 2s");
+		expect(frame).not.toContain("other-model");
 	});
 
 	test("hides timing until the selected model has produced a request", async () => {

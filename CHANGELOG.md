@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.9
+
+### Forking and compaction
+
+- Fix forking from a message opening a completely unrelated conversation: the pivot menu and row fork button now resolve the recipient session entry against the newest matching file entries at click time, and the provisional Pi process never inherits a stale `--continue`/`--resume` session when a session file is forced.
+- Show a compacted-context card after compaction with the size change (e.g. `152K → ~32K`), the reason, how long the compaction took, and an expandable Markdown summary of what Pi kept; the card collapses its details until clicked.
+
+### Timing metrics
+
+- The Timing tool number is now the median of (turn time ÷ tool calls in that turn), so it reflects how much of a turn each tool round-trip actually costs instead of reporting the raw duration of the tool process.
+- Turn time spans prompt processing through generation (TTFT included once, never added on top), and tool counts are kept even when individual per-call timings are incomplete.
+- The model picker now shows the same Turn/Tool medians for every model that has run requests in this session.
+
 ## 0.6.8
 
 ### Statistics and dialogs

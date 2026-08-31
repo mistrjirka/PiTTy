@@ -6,7 +6,9 @@ import type {
 import { createMemo, createSignal } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import { colors } from "./theme.ts";
+import { formatDuration } from "./duration.ts";
 import { formatModelPerformanceStats, modelPerformanceStats, type ModelPerformanceHistory } from "../tabs/model-performance-history.ts";
+import { requestTimingStats, type RequestTiming } from "../tabs/request-timing.ts";
 import {
 	createSearchableDialogFocus,
 	handleSearchableDialogCancel,
@@ -82,6 +84,16 @@ export function normalizeModelChoices(values: unknown[]): ModelChoice[] {
 	);
 }
 
+	export function formatModelTimingLine(
+	stats: { medianRequestMs: number; medianToolCallMs?: number } | undefined,
+): string {
+	if (!stats) return "";
+	const parts = [`Turn ${formatDuration(stats.medianRequestMs)}`];
+	if (stats.medianToolCallMs !== undefined)
+		parts.push(`Tool ${formatDuration(stats.medianToolCallMs)}`);
+	return parts.join(" · ");
+}
+
 export function ModelSelectorDialog(props: {
 	models: ModelChoice[];
 	currentProvider?: string | undefined;
@@ -89,6 +101,7 @@ export function ModelSelectorDialog(props: {
 	onSelect: (model: ModelChoice) => void;
 	onCancel: () => void;
 	performanceHistory?: ModelPerformanceHistory;
+	timingHistory?: readonly RequestTiming[];
 }) {
 	let select: SelectRenderable | undefined;
 	let search: TextareaRenderable | undefined;
@@ -98,10 +111,12 @@ export function ModelSelectorDialog(props: {
 	);
 	const options = createMemo(() =>
 		filteredModels().map((model) => {
+			const timing = requestTimingStats(props.timingHistory ?? [], model.provider, model.id);
 			const details = [
 				formatContextWindow(model.contextWindow),
 				model.name && model.name !== model.id ? model.name : "",
 				formatModelPerformanceStats(props.performanceHistory ? modelPerformanceStats(props.performanceHistory, model.provider, model.id) : undefined),
+				formatModelTimingLine(timing),
 			].filter(Boolean);
 			return {
 				name: `${model.provider}/${model.id}`,

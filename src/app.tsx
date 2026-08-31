@@ -29,6 +29,7 @@ import type {
 	ToolItem,
 	Toast,
 	NotificationRecord,
+	ConversationItem,
 } from "./types.ts";
 import type { DiagnosticLogger } from "./diagnostics/logger.ts";
 import { createDiagnosticBundle } from "./diagnostics/bundle.ts";
@@ -42,6 +43,7 @@ import {
 	isCompactionReason,
 	parseCompactionTelemetry,
 	parseSmartCompactProgress,
+	type CompactionCompletion,
 } from "./state/compaction-telemetry.ts";
 import {
 	shouldRecoverPromptDraft,
@@ -86,14 +88,14 @@ import {
 } from "./subagents/control.ts";
 import { ExtensionDialog } from "./ui/dialog.tsx";
 import { MessageView } from "./ui/message.tsx";
-import { CompactionPanel } from "./ui/compaction-panel.tsx";
+import { CompactedSummary, CompactionPanel } from "./ui/compaction-panel.tsx";
 import { TabManager, type ConversationTab } from "./tabs/manager.ts";
 import { blankTabPiArgs, createTabRuntime, planForkTab, prepareForkedTabRuntime, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
 import { loadModelPerformanceHistory } from "./tabs/model-performance-history.ts";
 import { ExtensionRequestRouter, type ExtensionRequestEnvelope } from "./tabs/extension-router.ts";
 import { TabStrip } from "./ui/tab-strip.tsx";
 import { ForkPicker } from "./ui/fork-picker.tsx";
-import { forkPickerOptions, type ForkPickerOption } from "./tabs/entry-index.ts";
+import { alignLatestUserEntryIds, forkPickerOptions, type ForkPickerOption } from "./tabs/entry-index.ts";
 import {
 	PendingInputPanel,
 } from "./ui/pending-input-panel.tsx";
@@ -600,6 +602,7 @@ export function App(props: AppOptions) {
 	const [forkPickerOpen, setForkPickerOpen] = createSignal(false);
 	const [forkPickerOptionsSignal, setForkPickerOptions] = createSignal<ForkPickerOption[]>([]);
 	let draftSwitchGuard = false;
+	const [compactionSummaryExpanded, setCompactionSummaryExpanded] = createSignal(false);
 	const [settingsRoute, setSettingsRoute] =
 		createSignal<SettingsRoute>("closed");
 	const [mcpScope, setMcpScope] = createSignal<McpScope>("global");
@@ -835,15 +838,19 @@ export function App(props: AppOptions) {
 			const retained = tabRuntime.compactionTelemetry?.retainedContextMessages;
 			delete tabRuntime.smartCompactProgress;
 			if (!event.aborted && !event.errorMessage) {
-				tabRuntime.lastCompactionCompletion = compactionCompletionFromResult(
-					event.result,
-					retained,
-					tabRuntime.compactionTelemetry?.attempt,
-				);
-				updateCompactionSystemItem(
-					tabRuntime,
-					compactionSuccessText(tabRuntime.lastCompactionCompletion),
-				);
+				const completion: CompactionCompletion = {
+					...compactionCompletionFromResult(
+						event.result,
+						retained,
+						tabRuntime.compactionTelemetry?.attempt,
+					),
+					...(tabRuntime.compactionTelemetry?.startedAt !== undefined
+						? { durationMs: Date.now() - tabRuntime.compactionTelemetry.startedAt }
+						: {}),
+					...(isCompactionReason(event.reason) ? { reason: event.reason } : {}),
+				};
+				tabRuntime.lastCompactionCompletion = completion;
+				updateCompactionSystemItem(tabRuntime, "Context compacted.");
 			} else {
 				delete tabRuntime.lastCompactionCompletion;
 			}
@@ -935,9 +942,25 @@ export function App(props: AppOptions) {
 		}).catch((error) => toast(error instanceof Error ? error.message : String(error), "error", 5000));
 		return id;
 	};
-	const forkAt = async (entryId: string) => {
+	const forkAt = async (entryId: string, userItem?: ConversationItem | undefined) => {
 		const sourceRuntime = activeRuntime();
 		const originalSessionFile = sourceRuntime.sessionState?.sessionFile;
+		if (!originalSessionFile) { toast("The current session file is not available yet.", "warning"); return; }
+		// The row button's entry id is text-aligned and can drift after compaction
+		// or with duplicated prompts. Re-resolve the clicked visible message
+		// against Pi's current forkable list, newest-first, before forking.
+		let forkEntryId = entryId;
+		if (userItem?.kind === "user") {
+			try {
+				const messages = await sourceRuntime.client.getForkMessages();
+				const userItems = sourceRuntime.conversation.items.filter((item) => item.kind === "user");
+				const userIndex = userItems.findIndex((item) => item.id === userItem.id);
+				if (userIndex >= 0)
+					forkEntryId = alignLatestUserEntryIds(userItems, messages)[userIndex] ?? entryId;
+			} catch (error) {
+				props.logger?.warn("tabs.fork_resolution_failed", error);
+			}
+		}
 		if (!originalSessionFile) { toast("The current session file is not available yet.", "warning"); return; }
 		const plan = planForkTab(originalSessionFile, "", tabState().tabs.length);
 		if (!plan.canCreate || sourceRuntime.forkInProgress) {
@@ -963,7 +986,7 @@ export function App(props: AppOptions) {
 		try {
 			const branchedState = await prepareForkedTabRuntime(
 				provisional,
-				entryId,
+				forkEntryId,
 				240_000,
 			);
 			const finalPlan = planForkTab(
@@ -1342,6 +1365,19 @@ export function App(props: AppOptions) {
 	const compactionTelemetry = createMemo(() => {
 		conversationRevision();
 		return activeRuntime().compactionTelemetry;
+	});
+	const lastCompactionCompletion = createMemo(() => {
+		conversationRevision();
+		return activeRuntime().lastCompactionCompletion;
+	});
+	const lastItemIsCompactionCompletion = createMemo(() => {
+		const items = activeRuntime().conversation.items;
+		const last = items[items.length - 1];
+		return Boolean(
+			lastCompactionCompletion() &&
+				last?.kind === "system" &&
+				last.text.startsWith("Context compacted"),
+		);
 	});
 	// Show for the whole agent turn — including thinking streams and tool
 	// calls. Hiding while the latest item is "active" made Working disappear
@@ -3684,7 +3720,7 @@ export function App(props: AppOptions) {
 											}
 											onToggleDiff={toggleDiff}
 											canFork={!streaming()}
-											onFork={(entryId) => void forkAt(entryId)}
+											onFork={(entryId) => void forkAt(entryId, item())}
 											subagentTargets={subagentTargetsForItem()}
 											onInspectSubagentTarget={(targetKey) => {
 												setSelectedTargetKey(targetKey);
@@ -3721,6 +3757,13 @@ export function App(props: AppOptions) {
 										/>
 									</Show>
 								)}
+							</Show>
+							<Show when={lastItemIsCompactionCompletion()}>
+								<CompactedSummary
+									completion={lastCompactionCompletion()!}
+									expanded={compactionSummaryExpanded}
+									onToggle={() => setCompactionSummaryExpanded((value) => !value)}
+								/>
 							</Show>
 							<Show when={showWorkingIndicator()}>
 								<box
@@ -4045,6 +4088,7 @@ export function App(props: AppOptions) {
 					currentProvider={sessionState()?.model?.provider}
 					currentModelId={sessionState()?.model?.id}
 					performanceHistory={loadModelPerformanceHistory()}
+					timingHistory={activeRuntime().timingHistory}
 					onSelect={(model) => void applySettingsModel(model)}
 					onCancel={() => setSettingsRoute("root")}
 				/>
@@ -4144,6 +4188,7 @@ export function App(props: AppOptions) {
 					currentProvider={sessionState()?.model?.provider}
 					currentModelId={sessionState()?.model?.id}
 					performanceHistory={loadModelPerformanceHistory()}
+					timingHistory={activeRuntime().timingHistory}
 					onSelect={(model) => void selectModel(model)}
 					onCancel={closeModelSelector}
 				/>

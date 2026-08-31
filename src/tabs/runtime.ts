@@ -61,7 +61,12 @@ export function blankTabPiArgs(args: readonly string[]): string[] {
 }
 
 export function sessionFilePiArgs(args: readonly string[], sessionFile: string): string[] {
-	const result = [...args];
+	// A forced session file is authoritative; drop continue/resume flags that
+	// would otherwise let Pi resolve a different session for this process.
+	const withoutContinue = args.filter(
+		(arg) => arg !== "--continue" && arg !== "-c" && arg !== "--resume" && arg !== "-r",
+	);
+	const result = [...withoutContinue];
 	const separatorIndex = result.indexOf("--");
 	result.splice(separatorIndex === -1 ? result.length : separatorIndex, 0, "--session", sessionFile);
 	return result;

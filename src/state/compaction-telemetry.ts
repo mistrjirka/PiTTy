@@ -37,6 +37,11 @@ export type CompactionCompletion = {
 	estimatedTokensAfter?: number;
 	attempt?: number;
 	retainedContextMessages?: number;
+	/** Summary text Pi generated for the compacted context. */
+	summary?: string;
+	/** Wall-clock duration of the compaction attempt in milliseconds. */
+	durationMs?: number;
+	reason?: CompactionReason;
 };
 
 export type CompactionPreparation = {
@@ -236,12 +241,17 @@ export function compactionCompletionFromResult(
 		: isFiniteNonNegativeInteger(record?.attempt)
 			? record.attempt
 			: undefined;
-	return {
+	const completion: CompactionCompletion = {
 		...(isFiniteNonNegative(record?.tokensBefore)
 			? { tokensBefore: record.tokensBefore }
 			: {}),
 		...(isFiniteNonNegative(record?.estimatedTokensAfter)
 			? { estimatedTokensAfter: record.estimatedTokensAfter }
+			: {}),
+		...(record?.summary !== undefined &&
+		typeof record.summary === "string" &&
+		record.summary.trim()
+			? { summary: record.summary.trim() }
 			: {}),
 		...(retained === undefined
 			? {}
@@ -250,6 +260,7 @@ export function compactionCompletionFromResult(
 			? {}
 			: { attempt: completionAttempt }),
 	};
+	return completion;
 }
 
 export function compactionSuccessText(
@@ -277,4 +288,30 @@ export function compactionSuccessText(
 	return details.length > 0
 		? `Context compacted (${details.join(" · ")}).`
 		: "Context compacted.";
+}
+
+export function compactionSummaryCaption(completion: CompactionCompletion): string {
+	const parts: string[] = [];
+	if (
+		completion.tokensBefore !== undefined &&
+		completion.estimatedTokensAfter !== undefined
+	) {
+		parts.push(
+			`${compactTokenCount(completion.tokensBefore)} → ~${compactTokenCount(completion.estimatedTokensAfter)}`,
+		);
+	} else if (completion.tokensBefore !== undefined) {
+		parts.push(compactTokenCount(completion.tokensBefore));
+	}
+	if (completion.reason) parts.push(completion.reason);
+	if (completion.durationMs !== undefined)
+		parts.push(formatCompactionDuration(completion.durationMs));
+	if (completion.retainedContextMessages !== undefined)
+		parts.push(`kept ${completion.retainedContextMessages} messages`);
+	return parts.join(" · ");
+}
+
+export function formatCompactionDuration(milliseconds: number): string {
+	if (!Number.isFinite(milliseconds) || milliseconds < 0) return "";
+	if (milliseconds < 1000) return `${Math.round(milliseconds)}ms`;
+	return `${(milliseconds / 1000).toFixed(1)}s`;
 }

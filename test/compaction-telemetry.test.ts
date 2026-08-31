@@ -3,6 +3,7 @@ import {
 	compactTokenCount,
 	compactionCompletionFromResult,
 	compactionSuccessText,
+	compactionSummaryCaption,
 	countCompactionMessages,
 	countRetainedContextMessages,
 	parseCompactionTelemetry,
@@ -102,5 +103,36 @@ describe("compaction telemetry boundary", () => {
 		expect(
 			compactionCompletionFromResult({ tokensBefore: Number.NaN }, 2.5),
 		).toEqual({});
+	});
+
+	test("compactionCompletionFromResult retains the summary text", () => {
+		expect(
+			compactionCompletionFromResult({
+				summary: "  The agent verified the release workflow.  ",
+				tokensBefore: 50_000,
+			estimatedTokensAfter: 12_000,
+			}),
+		).toEqual({
+			summary: "The agent verified the release workflow.",
+			tokensBefore: 50_000,
+			estimatedTokensAfter: 12_000,
+		});
+		expect(compactionCompletionFromResult({ summary: "   " })).toEqual({});
+		expect(compactionCompletionFromResult({ summary: 42 })).toEqual({});
+	});
+
+	test("compactionSummaryCaption formats sizes, reason, duration, and kept messages", () => {
+		expect(
+			compactionSummaryCaption({
+				tokensBefore: 152_000,
+				estimatedTokensAfter: 32_000,
+				reason: "threshold",
+				durationMs: 2_300,
+				retainedContextMessages: 41,
+			}),
+		).toBe("152K → ~32K · threshold · 2.3s · kept 41 messages");
+		expect(compactionSummaryCaption({ tokensBefore: 12_000 })).toBe("12K");
+		expect(compactionSummaryCaption({})).toBe("");
+		expect(compactionSummaryCaption({ durationMs: 400 })).toBe("400ms");
 	});
 });

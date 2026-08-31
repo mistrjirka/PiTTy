@@ -35,6 +35,30 @@ export function alignUserEntryIds(
 	return result;
 }
 
+/**
+ * Align visible user items to persisted user entries starting from the newest
+ * end. The visible tail of a session (including after compaction) corresponds
+ * to the newest matching file entries, so reverse alignment cannot map a
+ * duplicated prompt text onto an unrelated older occurrence. Fails closed per
+ * item and stops at the first gap.
+ */
+export function alignLatestUserEntryIds(
+	userItems: readonly UserMessageText[],
+	messages: readonly ForkMessage[],
+): Array<string | undefined> {
+	const result: Array<string | undefined> = new Array(userItems.length).fill(undefined);
+	let cursor = messages.length - 1;
+	for (let index = userItems.length - 1; index >= 0; index--) {
+		const wanted = normalizeEntryText(userItems[index]?.text ?? "");
+		while (cursor >= 0 && normalizeEntryText(messages[cursor]?.text ?? "") !== wanted) cursor -= 1;
+		const match = cursor >= 0 ? messages[cursor] : undefined;
+		if (!match) break;
+		result[index] = match.entryId;
+		cursor -= 1;
+	}
+	return result;
+}
+
 export type ForkPickerOption = {
 	entryId: string;
 	label: string;

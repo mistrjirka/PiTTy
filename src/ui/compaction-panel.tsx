@@ -1,9 +1,14 @@
 import {
 	compactTokenCount,
+	compactionSummaryCaption,
+	type CompactionCompletion,
 	type CompactionTelemetry,
 } from "../state/compaction-telemetry.ts";
 import { formatDuration } from "./duration.ts";
-import { colors } from "./theme.ts";
+import { colors, getMarkdownStyle } from "./theme.ts";
+
+import { createMemo, Show } from "solid-js";
+import type { MarkdownRenderable } from "@opentui/core";
 
 const BAR_WIDTH = 16;
 
@@ -106,6 +111,91 @@ export function CompactionPanel(props: {
 			<text height={1} fg={colors.muted} wrapMode="none">
 				{messageLine()}
 			</text>
+		</box>
+	);
+}
+
+export function CompactedSummary(props: {
+	completion: CompactionCompletion;
+	expanded: () => boolean;
+	onToggle: () => void;
+}) {
+	const expanded = createMemo(() => props.expanded());
+	const finalizeSummary = function (this: MarkdownRenderable) {
+		if (!this.streaming) return;
+		queueMicrotask(() => {
+			if (!this.isDestroyed) this.streaming = false;
+		});
+	};
+	return (
+		<box
+			flexDirection="column"
+			paddingLeft={1}
+			paddingRight={1}
+			marginBottom={1}
+			backgroundColor={colors.panelSoft}
+			border={["left"]}
+			borderColor={colors.cyan}
+		>
+			<text height={1} fg={colors.cyan} attributes={1} wrapMode="none">
+				{"── Compacted " + "─".repeat(34)}
+			</text>
+			<text height={1} fg={colors.muted} wrapMode="none">
+				{compactionSummaryCaption(props.completion)}
+			</text>
+			<Show
+				when={expanded()}
+				fallback={
+					<box
+						height={1}
+						id="compacted-summary-toggle"
+						flexShrink={0}
+						onMouseDown={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+							props.onToggle();
+						}}
+					>
+						<text height={1} fg={colors.subtle} selectable wrapMode="none">
+							▶ Show compaction summary
+						</text>
+					</box>
+				}
+			>
+				{(() => (
+					[
+						<box
+							height={1}
+							id="compacted-summary-toggle"
+							flexShrink={0}
+							onMouseDown={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								props.onToggle();
+							}}
+						>
+							<text height={1} fg={colors.subtle} selectable wrapMode="none">
+								▼ Hide compaction summary
+							</text>
+						</box>,
+						Boolean(props.completion.summary) ? (
+							<markdown
+								content={props.completion.summary ?? ""}
+								syntaxStyle={getMarkdownStyle()}
+								fg={colors.textBright}
+								conceal
+								streaming
+								renderAfter={finalizeSummary}
+								tableOptions={{
+									style: "columns",
+									wrapMode: "word",
+									selectable: true,
+								}}
+							/>
+						) : null,
+					]
+				))()}
+			</Show>
 		</box>
 	);
 }

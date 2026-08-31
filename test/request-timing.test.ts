@@ -52,6 +52,7 @@ describe("request timing", () => {
 			requestMs: 1_900,
 			modelToToolMs: 350,
 			toolCallDurationsMs: [1_000, 1_000],
+			toolCallCount: 2,
 			toolWallMs: 1_050,
 		});
 		expect(tracker.value).toEqual(timing);
@@ -109,7 +110,54 @@ describe("request timing", () => {
 		expect(overlapping.handle({ type: "agent_settled" }, 300)).toBeUndefined();
 	});
 
-	test("calculates model-specific median summaries", () => {
+	test("turn time spans TTFT (prompt processing) without double-counting it", () => {
+		const tracker = new RequestTimingTracker();
+		tracker.handle({ type: "agent_start" }, 100);
+		tracker.handle(
+			{
+				type: "message_start",
+				message: { role: "assistant", provider: "openai", model: "gpt-5" },
+			},
+			300,
+		);
+		// Slow first token: prompt processing takes until 2_500.
+		tracker.handle(
+			{
+				type: "message_update",
+				assistantMessageEvent: { type: "text_delta" },
+			},
+			2_500,
+		);
+		tracker.handle({ type: "turn_end" }, 2_600);
+		const timing = tracker.handle({ type: "agent_settled" }, 3_000);
+		// requestMs covers agent_start -> settled; the 2_400ms prompt processing
+		// (TTFT) is inside that span, not added on top of it.
+		expect(timing?.requestMs).toBe(2_900);
+		expect(timing?.toolWallMs).toBeUndefined();
+	});
+
+	test("counts tool calls even when per-call timing is incomplete", () => {
+		const tracker = new RequestTimingTracker();
+		tracker.handle({ type: "agent_start" }, 100);
+		tracker.handle({ type: "tool_execution_start", toolCallId: "one" }, 200);
+		tracker.handle({ type: "tool_execution_start", toolCallId: "two" }, 300);
+		tracker.handle({ type: "tool_execution_start", toolCallId: "three" }, 400);
+		tracker.handle({ type: "tool_execution_end", toolCallId: "two" }, 500);
+		// "one" never ends, so per-call durations are dropped as incomplete…
+		const timing = tracker.handle({ type: "agent_settled" }, 600);
+		expect(timing).toBeUndefined();
+		// …but when the agent does settle cleanly, the count still reflects all starts.
+		const clean = new RequestTimingTracker();
+		clean.handle({ type: "agent_start" }, 100);
+		clean.handle({ type: "tool_execution_start", toolCallId: "one" }, 200);
+		clean.handle({ type: "tool_execution_start", toolCallId: "two" }, 300);
+		clean.handle({ type: "tool_execution_end", toolCallId: "one" }, 400);
+		clean.handle({ type: "tool_execution_end", toolCallId: "two" }, 500);
+		const cleanTiming = clean.handle({ type: "agent_settled" }, 900);
+		expect(cleanTiming?.toolCallCount).toBe(2);
+	});
+
+	test("calculates model-specific median summaries from per-turn tool shares", () => {
 		const history = [
 			{
 				provider: "openai",
@@ -117,6 +165,7 @@ describe("request timing", () => {
 				requestMs: 8_000,
 				modelToToolMs: 1_000,
 				toolCallDurationsMs: [400, 600],
+				toolCallCount: 2,
 				toolWallMs: 700,
 			},
 			{
@@ -125,6 +174,7 @@ describe("request timing", () => {
 				requestMs: 10_000,
 				modelToToolMs: 2_000,
 				toolCallDurationsMs: [800],
+				toolCallCount: 1,
 				toolWallMs: 900,
 			},
 			{
@@ -135,11 +185,32 @@ describe("request timing", () => {
 			},
 		];
 
+		// Tool metric = median of (turn time ÷ tool calls in that turn):
+		// 8 000 / 2 = 4 000, 10 000 / 1 = 10 000 → median 7 000.
 		expect(requestTimingStats(history, "openai", "gpt-5")).toEqual({
 			medianRequestMs: 9_000,
 			medianModelToToolMs: 1_500,
-			medianToolCallMs: 600,
+			medianToolCallMs: 7_000,
 		});
 		expect(requestTimingStats(history, "missing", "gpt-5")).toBeUndefined();
+	});
+
+	test("falls back to duration counts for hand-built samples", () => {
+		const history = [
+			{
+				provider: "openai",
+				modelId: "gpt-5",
+				requestMs: 6_000,
+				toolCallDurationsMs: [100, 200],
+			},
+		];
+		expect(requestTimingStats(history, "openai", "gpt-5")?.medianToolCallMs).toBe(3_000);
+		expect(
+			requestTimingStats(
+				[{ provider: "openai", modelId: "gpt-5", requestMs: 5_000, toolCallDurationsMs: [] }],
+				"openai",
+				"gpt-5",
+			)?.medianToolCallMs,
+		).toBeUndefined();
 	});
 });

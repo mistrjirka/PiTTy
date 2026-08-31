@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { alignUserEntryIds, EntryIndex, forkPickerOptions } from "../src/tabs/entry-index.ts";
+import { alignLatestUserEntryIds, alignUserEntryIds, EntryIndex, forkPickerOptions } from "../src/tabs/entry-index.ts";
 
 describe("conversation entry index", () => {
 test("returns no fork options for empty input", () => {
@@ -45,5 +45,38 @@ expect(forkPickerOptions([
 		index.applyEntries([{ id: "a", type: "message", message: { role: "user", content: "hello" } }], "a", [{ text: "hello" }]);
 		expect(index.idFor(0)).toBe("a");
 		expect(index.getLeafId()).toBe("a");
+	});
+
+	test("alignLatestUserEntryIds maps the visible tail to the newest entries", () => {
+		const messages = [
+			{ entryId: "old", text: "inspect layout" },
+			{ entryId: "mid", text: "fix the diff" },
+			{ entryId: "new", text: "release it" },
+		];
+		expect(alignLatestUserEntryIds([{ text: "release it" }], messages)).toEqual(["new"]);
+		expect(alignLatestUserEntryIds([{ text: "fix the diff" }, { text: "release it" }], messages)).toEqual(["mid", "new"]);
+	});
+
+	test("alignLatestUserEntryIds prefers the newest occurrence of duplicated text", () => {
+		const messages = [
+			{ entryId: "old", text: "continue" },
+			{ entryId: "mid", text: "review the diff" },
+			{ entryId: "later", text: "continue" },
+		];
+		expect(alignLatestUserEntryIds([{ text: "continue" }], messages)).toEqual(["later"]);
+	});
+
+	test("alignLatestUserEntryIds keeps consecutive duplicates in order", () => {
+		const messages = [
+			{ entryId: "first", text: "run tests" },
+			{ entryId: "second", text: "run tests" },
+		];
+		expect(alignLatestUserEntryIds([{ text: "run tests" }, { text: "run tests" }], messages)).toEqual(["first", "second"]);
+	});
+
+	test("alignLatestUserEntryIds fails closed on an unmatched tail", () => {
+		const messages = [{ entryId: "a", text: "older prompt" }];
+		expect(alignLatestUserEntryIds([{ text: "summarized prompt" }, { text: "older prompt" }], messages)).toEqual([undefined, "a"]);
+		expect(alignLatestUserEntryIds([{ text: "missing" }], messages)).toEqual([undefined]);
 	});
 });
