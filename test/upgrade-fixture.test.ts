@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, cp, mkdir, mkdtemp, readFile, realpath, writeFile, rm } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -9,7 +9,7 @@ const temporary: string[] = [];
 async function runNode(file: string, args: string[], env: NodeJS.ProcessEnv = process.env): Promise<{ code: number; output: string }> {
   return await new Promise((resolve) => execFile("node", [file, ...args], { encoding: "utf8", env }, (error, stdout, stderr) => resolve({ code: error?.code === undefined ? 0 : Number(error.code), output: `${stdout}${stderr}` })));
 }
-async function installRoot(base: string, name: string, marker: string, valid: boolean, bundledPi = false): Promise<string> {
+async function installRoot(base: string, name: string, marker: string, valid: boolean): Promise<string> {
   const root = path.join(base, name);
   await mkdir(path.join(root, "bin"), { recursive: true });
   await mkdir(path.join(root, "node_modules", ".bin"), { recursive: true });
@@ -22,12 +22,8 @@ async function installRoot(base: string, name: string, marker: string, valid: bo
     await mkdir(path.join(root, "src"), { recursive: true });
     await writeFile(path.join(root, "src", "index.tsx"), `import { writeFileSync } from 'node:fs';
 writeFileSync(process.env.PITTY_FIXTURE_MARKER!, 'new');
-${bundledPi ? "writeFileSync(process.env.PITTY_PI_BIN_MARKER!, process.env.PI_BIN!);" : ""}
+if (process.env.PITTY_PI_BIN_MARKER) writeFileSync(process.env.PITTY_PI_BIN_MARKER, process.env.PI_BIN ?? 'undefined');
 `);
-    if (bundledPi) {
-      await mkdir(path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist"), { recursive: true });
-      await writeFile(path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"), "");
-    }
   }
   return root;
 }
@@ -47,13 +43,13 @@ describe("launcher pending activation fixture", () => {
     expect(await readFile(`${root}/marker`, "utf8")).toBe("new");
   });
 
-  test("prefers the staged Pi CLI while preserving PI_BIN overrides", async () => {
+  test("leaves default Pi resolution to PATH while preserving PI_BIN overrides", async () => {
     const base = await mkdtemp(path.join(os.tmpdir(), "pitty-launcher-")); temporary.push(base);
-    const root = await installRoot(base, "app", "old", true, true);
+    const root = await installRoot(base, "app", "old", true);
     const marker = path.join(base, "pi-bin");
     const result = await runNode(path.join(root, "bin", "pitty.mjs"), [], { ...process.env, PI_BIN: undefined, PITTY_FIXTURE_MARKER: path.join(base, "ran"), PITTY_PI_BIN_MARKER: marker });
     expect(result.code).toBe(0);
-    expect(await realpath(await readFile(marker, "utf8"))).toBe(await realpath(path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js")));
+    expect(await readFile(marker, "utf8")).toBe("undefined");
 
     const override = path.join(base, "override");
     const overrideResult = await runNode(path.join(root, "bin", "pitty.mjs"), [], { ...process.env, PI_BIN: override, PITTY_FIXTURE_MARKER: path.join(base, "ran-override"), PITTY_PI_BIN_MARKER: marker });

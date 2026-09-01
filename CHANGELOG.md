@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.13
+
+### Pi executable resolution
+
+- PiTTy no longer silently overrides the user's Pi executable with its bundled Pi CLI. When `PI_BIN` is not set, the launcher now lets Pi resolve `pi` from `PATH`, while explicit `PI_BIN` overrides remain supported.
+- Updated the bundled Pi dependency to `0.84.4` and added launcher regression coverage for default and explicit executable resolution.
+
 ## 0.6.12
 
 ### One-round compaction: live AI text

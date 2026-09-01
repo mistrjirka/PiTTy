@@ -52,8 +52,6 @@ if (isUpgrade) {
   try { activatePending(); root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); }
   const preload = path.join(root, "src", "preload.ts");
   const childEnv = { ...process.env, PITTY_NODE_EXECUTABLE: process.execPath };
-  const bundledPi = path.join(root, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js");
-  if (!childEnv.PI_BIN && fs.existsSync(bundledPi)) childEnv.PI_BIN = bundledPi;
   const bun = findBundledBun(root);
   if (!bun) {
     console.error("PiTTy could not find its bundled Bun runtime.");
