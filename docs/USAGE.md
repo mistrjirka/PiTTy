@@ -80,6 +80,7 @@ Type `/` to open command suggestions. PiTTy merges its local commands with exten
 | `Ctrl+I` / click a subagent | Open or close the subagent inspector |
 | `F6` / `Shift+F6` | Select the next or previous subagent |
 | `Ctrl+A` | Pause the selected running file-controlled subagent |
+| Click `▶ Resume` | Resume the selected paused file-controlled subagent |
 | `Ctrl+Shift+A` | Stop the selected active file-controlled subagent |
 | `Ctrl+Shift+L` | Create a diagnostics bundle |
 | `Esc` | Close the active dialog/inspector or abort the current Pi turn |
@@ -123,7 +124,7 @@ pi install npm:pi-mcp-adapter
 pi install npm:pi-smart-compact
 ```
 
-`pi-subagents` adds child-agent selection, live transcript inspection, steering, pause, and stop controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-mcp-adapter` enables standard MCP config changes, and `pi-smart-compact` reports coarse compaction progress in PiTTy's existing surface.
+`pi-subagents` adds child-agent selection, live transcript inspection, steering, pause, resume, and stop controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-mcp-adapter` enables standard MCP config changes, and `pi-smart-compact` reports coarse compaction progress in PiTTy's existing surface.
 
 ## Updates and upgrades
 

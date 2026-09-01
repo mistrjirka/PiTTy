@@ -184,6 +184,30 @@ describe("pi-one-round-compaction details", () => {
 		expect(parseOneRoundDetails(details)).toEqual(details);
 	});
 
+	test("accepts every plugin boundary mode and preserves split-turn details", () => {
+		for (const boundaryMode of ["whole-turn", "split-turn", "pi-fallback"] as const) {
+			const parsed = parseOneRoundDetails({
+				...details,
+				boundaryMode,
+				isSplitTurn: boundaryMode === "split-turn",
+			});
+			expect(parsed?.boundaryMode).toBe(boundaryMode);
+		}
+
+		const splitDetails = {
+			...details,
+			boundaryMode: "split-turn" as const,
+			isSplitTurn: true,
+		};
+		const completion = compactionCompletionFromResult({ details: splitDetails });
+		expect(completion.boundaryMode).toBe("split-turn");
+		expect(compactionSummaryCaption(completion)).toContain("split-turn boundary");
+		const fallbackCompletion = compactionCompletionFromResult({
+			details: { ...details, boundaryMode: "pi-fallback" },
+		});
+		expect(compactionSummaryCaption(fallbackCompletion)).toContain("Pi fallback boundary");
+	});
+
 	test("rejects foreign plugins, wrong versions, and malformed shapes", () => {
 		for (const value of [
 			undefined,
@@ -290,6 +314,15 @@ describe("pi-one-round-compaction live progress", () => {
 
 	test("parses a valid live progress frame", () => {
 		expect(parseOneRoundProgress(progress)).toEqual(progress);
+	});
+
+	test("accepts split-turn in the plugin live progress frame", () => {
+		const splitProgress: OneRoundProgress = {
+			...progress,
+			boundaryMode: "split-turn",
+		};
+		expect(parseOneRoundProgress(splitProgress)).toEqual(splitProgress);
+		expect(parseOneRoundProgress({ ...progress, boundaryMode: "pi-fallback" })?.boundaryMode).toBe("pi-fallback");
 	});
 
 	test("accepts normal mode without intent workflow", () => {

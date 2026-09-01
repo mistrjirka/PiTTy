@@ -1,6 +1,6 @@
 {
   "name": "pitty-pi-ui",
-  "version": "0.6.13",
+  "version": "0.6.14",
   "private": false,
   "type": "module",
   "description": "PiTTy: a fast, extensible OpenTUI frontend for the Pi coding agent",
@@ -11,6 +11,7 @@
     "test": "bun test --conditions=browser",
     "test:ui": "bun test --conditions=browser test/render.test.tsx",
     "screenshots": "bun scripts/generate-screenshots.ts",
+    "screenshots:subagents": "bun scripts/generate-subagent-screenshots.ts",
     "diagnostics": "bun run src/diagnostics/collect.ts",
     "test:unit": "bun test --conditions=browser test/input-continuity.test.ts test/prompt-history.test.ts test/paste-blocks.test.ts test/conversation.test.ts test/diagnostics.test.ts test/message-window.test.ts test/pi-command.test.ts test/request-timing.test.ts test/rpc.test.ts test/subagents.test.ts test/integrations.test.ts test/codex-usage.test.ts test/codex-usage-history.test.ts test/installers.test.ts test/sessions.test.ts test/update.test.ts test/upgrade.test.ts test/upgrade-fixture.test.ts test/install-fixture.test.ts test/install-powershell-fixture.test.ts test/logo.test.ts test/theme.test.ts test/settings.test.tsx test/mcp-config.test.ts test/memory-store.test.ts test/render.test.tsx",
     "check": "npm run typecheck && npm run test:unit"

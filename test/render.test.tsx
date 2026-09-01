@@ -36,7 +36,10 @@ import { PromptMapDialog } from "../src/ui/prompt-map.tsx";
 import { MemoryBrowserDialog } from "../src/ui/memory-browser.tsx";
 import type { MemorySnapshot } from "../src/integrations/memory-store.ts";
 import { allocateSidebarPanels, Sidebar } from "../src/ui/sidebar.tsx";
-import type { RequestTiming } from "../src/tabs/request-timing.ts";
+import {
+	REQUEST_TIMING_VERSION,
+	type RequestTiming,
+} from "../src/tabs/request-timing.ts";
 import { NotificationDialog } from "../src/ui/notification-dialog.tsx";
 import { SubagentInspector } from "../src/ui/subagent-inspector.tsx";
 import { ForkPicker } from "../src/ui/fork-picker.tsx";
@@ -428,16 +431,18 @@ describe("OpenTUI components", () => {
 				models={models}
 				timingHistory={[
 					{
+						timingVersion: REQUEST_TIMING_VERSION,
 						provider: "openai",
 						modelId: "alpha",
-						requestMs: 7_000,
+						turnMs: 7_000,
 						toolCallDurationsMs: [100, 100, 100],
 						toolCallCount: 3,
 					},
 					{
+						timingVersion: REQUEST_TIMING_VERSION,
 						provider: "anthropic",
 						modelId: "beta",
-						requestMs: 2_000,
+						turnMs: 2_000,
 						toolCallDurationsMs: [900],
 						toolCallCount: 1,
 					},
@@ -451,7 +456,7 @@ describe("OpenTUI components", () => {
 		await modelSetup.mockInput.typeText("beta");
 		await modelSetup.flush();
 		expect(modelSetup.captureCharFrame()).toContain("anthropic/beta");
-		expect(modelSetup.captureCharFrame()).toContain("Turn 2s · Tool 2s");
+		expect(modelSetup.captureCharFrame()).toContain("Turn 2s · Tool 900ms");
 		modelSetup.mockInput.pressArrow("down");
 		await modelSetup.flush();
 		modelSetup.mockInput.pressEnter();
@@ -2501,25 +2506,28 @@ describe("OpenTUI components", () => {
 	test("keys timing summaries to the selected model and shows only two medians", async () => {
 		const history: RequestTiming[] = [
 			{
+				timingVersion: REQUEST_TIMING_VERSION,
 				provider: "openai",
 				modelId: "gpt-5",
-				requestMs: 6_200,
+				turnMs: 6_200,
 				modelToToolMs: 800,
 				toolCallDurationsMs: [600, 700],
 				toolWallMs: 900,
 			},
 			{
+				timingVersion: REQUEST_TIMING_VERSION,
 				provider: "openai",
 				modelId: "gpt-5",
-				requestMs: 8_400,
+				turnMs: 8_400,
 				modelToToolMs: 1_200,
 				toolCallDurationsMs: [800, 900, 1_000],
 				toolWallMs: 1_400,
 			},
 			{
+				timingVersion: REQUEST_TIMING_VERSION,
 				provider: "openai",
 				modelId: "other-model",
-				requestMs: 2_000,
+				turnMs: 2_000,
 				toolCallDurationsMs: [],
 			},
 		];
@@ -2548,7 +2556,7 @@ describe("OpenTUI components", () => {
 		);
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("Timing");
-		expect(frame).toContain("Turn 7s · Tool 2s");
+		expect(frame).toContain("Turn 7s · Tool 800ms");
 		expect(frame).not.toContain("Turn 2s");
 		expect(frame).not.toContain("other-model");
 	});
@@ -2556,9 +2564,10 @@ describe("OpenTUI components", () => {
 	test("hides timing until the selected model has produced a request", async () => {
 		const history: RequestTiming[] = [
 			{
+				timingVersion: REQUEST_TIMING_VERSION,
 				provider: "openai",
 				modelId: "gpt-5",
-				requestMs: 8_400,
+				turnMs: 8_400,
 				modelToToolMs: 1_200,
 				toolCallDurationsMs: [800],
 				toolWallMs: 900,
@@ -2903,6 +2912,12 @@ describe("OpenTUI components", () => {
 			asyncDir: "/tmp/hint-queued",
 			state: "queued",
 		};
+		const pausedRun: SubagentRun = {
+			...runningRun,
+			runId: "hint-paused",
+			asyncDir: "/tmp/hint-paused",
+			state: "paused",
+		};
 		const finishedRun: SubagentRun = {
 			...runningRun,
 			runId: "hint-finished",
@@ -2917,39 +2932,49 @@ describe("OpenTUI components", () => {
 		};
 		const running = subagentTargets([runningRun])[0];
 		const queued = subagentTargets([queuedRun])[0];
+		const paused = subagentTargets([pausedRun])[0];
 		const finished = subagentTargets([finishedRun])[0];
 		const foreground = subagentTargets([foregroundRun])[0];
-		if (!running || !queued || !finished || !foreground)
+		if (!running || !queued || !paused || !finished || !foreground)
 			throw new Error("hint fixtures missing");
 		const runningView = await mount(
 			() => <SubagentInspector target={running} items={[]} now={1} />,
 			100,
 			24,
 		);
-		expect(runningView.captureCharFrame()).toContain(
-			"Ctrl+A pause · Ctrl+Shift+A stop",
-		);
+		expect(runningView.captureCharFrame()).toContain("⏸ Pause");
+		expect(runningView.captureCharFrame()).toContain("⏹ Stop");
 		const queuedView = await mount(
 			() => <SubagentInspector target={queued} items={[]} now={1} />,
 			100,
 			24,
 		);
+		expect(queuedView.captureCharFrame()).toContain("⏹ Stop");
 		expect(queuedView.captureCharFrame()).toContain("Ctrl+Shift+A stop");
+		expect(queuedView.captureCharFrame()).not.toContain("⏸ Pause");
 		expect(queuedView.captureCharFrame()).not.toContain("Ctrl+A pause");
+		const pausedView = await mount(
+			() => <SubagentInspector target={paused} items={[]} now={1} />,
+			100,
+			24,
+		);
+		expect(pausedView.captureCharFrame()).toContain("▶ Resume");
+		expect(pausedView.captureCharFrame()).toContain("⏹ Stop");
+		expect(pausedView.captureCharFrame()).toContain("Resume via click · Ctrl+Shift+A stop");
+		expect(pausedView.captureCharFrame()).not.toContain("⏸ Pause");
+		expect(pausedView.captureCharFrame()).not.toContain("Ctrl+A pause");
 		const finishedView = await mount(
 			() => <SubagentInspector target={finished} items={[]} now={1} />,
 			100,
 			24,
 		);
-		expect(finishedView.captureCharFrame()).not.toContain("Ctrl+Shift+A stop");
+		expect(finishedView.captureCharFrame()).not.toContain("⏹ Stop");
 		const foregroundView = await mount(
 			() => <SubagentInspector target={foreground} items={[]} now={1} />,
 			100,
 			24,
 		);
-		expect(foregroundView.captureCharFrame()).not.toContain(
-			"Ctrl+Shift+A stop",
-		);
+		expect(foregroundView.captureCharFrame()).not.toContain("⏹ Stop");
 	});
 
 	test("keeps subagent transcript rendering uncullled", async () => {

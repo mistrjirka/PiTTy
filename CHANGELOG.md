@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.14
+
+### Timing, controls, and transcript layout
+
+- Timing now reports per-LLM-call Turn duration separately from tool-call timing, making model and tool performance easier to compare.
+- Added pause, resume, and stop controls for subagents, plus fork compatibility with `pi-rewind`.
+- Compaction telemetry and boundary handling now stay compatible with the current Pi workflow.
+- Expanded output follows the transcript first, with improved scrolling and tab layout; native screenshots cover the relevant terminal views.
+
 ## 0.6.13
 
 ### Pi executable resolution

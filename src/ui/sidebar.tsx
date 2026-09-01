@@ -489,7 +489,7 @@ export function Sidebar(props: {
 							Timing
 						</text>
 						<text width="100%" height={1} fg={colors.muted} wrapMode="none">
-							Turn {formatDuration(stats().medianRequestMs)} · Tool {formatDuration(stats().medianToolCallMs)}
+							Turn {formatDuration(stats().medianTurnMs)} · Tool {formatDuration(stats().medianToolCallMs)}
 						</text>
 					</>
 				)}

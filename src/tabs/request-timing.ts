@@ -1,27 +1,43 @@
 import type { RequestModelSnapshot } from "./request-metrics.ts";
 
+export const REQUEST_TIMING_VERSION: 2 = 2;
+
+type RequestTimingVersion = typeof REQUEST_TIMING_VERSION;
+
 export type RequestTiming = {
+	timingVersion: RequestTimingVersion;
 	provider?: string;
 	modelId?: string;
-	requestMs: number;
+	turnMs: number;
 	modelToToolMs?: number;
 	toolCallDurationsMs: number[];
-	/** Number of tool calls started during the request, even when per-call timing was incomplete. */
+	/** Number of tool calls started during the model call, even when per-call timing was incomplete. */
 	toolCallCount?: number;
+	/** Wall time covered by the union of tool execution intervals for this model call. */
 	toolWallMs?: number;
 };
 
 export const MAX_REQUEST_TIMING_HISTORY = 1_000;
 
 export type RequestTimingStats = {
-	medianRequestMs: number;
+	medianTurnMs: number;
 	medianModelToToolMs?: number;
 	medianToolCallMs?: number;
 };
 
 type TimingTurn = {
 	startedAt: number;
+	messageStarted: boolean;
+	messageEndedAt?: number;
+	failed: boolean;
 	modelToToolRecorded: boolean;
+	modelToToolMs?: number;
+	provider?: string;
+	modelId?: string;
+	activeTools: Map<string, number>;
+	toolIntervals: TimingInterval[];
+	toolCallCount: number;
+	toolTimingIncomplete: boolean;
 };
 
 type TimingInterval = {
@@ -30,15 +46,7 @@ type TimingInterval = {
 };
 
 type ActiveRequestTiming = {
-	startedAt: number;
-	provider?: string;
-	modelId?: string;
 	turn?: TimingTurn;
-	modelToToolMs?: number;
-	activeTools: Map<string, number>;
-	toolIntervals: TimingInterval[];
-	toolCallCount: number;
-	toolTimingIncomplete: boolean;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -95,38 +103,83 @@ function assistantEventFromEvent(
 }
 
 function updateModelIdentity(
-	active: ActiveRequestTiming,
+	turn: TimingTurn,
 	message: Record<string, unknown> | undefined,
 	model: RequestModelSnapshot | undefined,
 ): void {
-	if (!active.provider) {
+	if (!turn.provider) {
 		const provider = stringField(message, "provider") ?? model?.provider?.trim();
-		if (provider) active.provider = provider;
+		if (provider) turn.provider = provider;
 	}
-	if (!active.modelId) {
+	if (!turn.modelId) {
 		const modelId =
 			stringField(message, "model") ??
 			stringField(message, "responseModel") ??
 			model?.id?.trim();
-		if (modelId) active.modelId = modelId;
+		if (modelId) turn.modelId = modelId;
 	}
 }
 
+function validTimestamp(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value > 0
+		? value
+		: undefined;
+}
+
+function createTurn(startedAt: number): TimingTurn {
+	return {
+		startedAt,
+		messageStarted: false,
+		failed: false,
+		modelToToolRecorded: false,
+		activeTools: new Map(),
+		toolIntervals: [],
+		toolCallCount: 0,
+		toolTimingIncomplete: false,
+	};
+}
+
 function ensureTurn(active: ActiveRequestTiming, startedAt: number): TimingTurn {
-	if (!active.turn) active.turn = { startedAt, modelToToolRecorded: false };
+	if (!active.turn) active.turn = createTurn(startedAt);
 	return active.turn;
 }
 
 function recordModelToTool(active: ActiveRequestTiming, at: number): void {
 	const turn = active.turn;
 	if (!turn || turn.modelToToolRecorded || at < turn.startedAt) return;
-	active.modelToToolMs = (active.modelToToolMs ?? 0) + at - turn.startedAt;
 	turn.modelToToolRecorded = true;
+	turn.modelToToolMs = at - turn.startedAt;
 }
 
 export class RequestTimingTracker {
 	private active: ActiveRequestTiming | undefined;
 	private completed: RequestTiming | undefined;
+
+	private finishTurn(): RequestTiming | undefined {
+		const turn = this.active?.turn;
+		if (!turn || turn.messageEndedAt === undefined) return undefined;
+		const endedAt = turn.messageEndedAt;
+		const intervals = turn.toolTimingIncomplete ? [] : turn.toolIntervals;
+		const turnMs = endedAt - turn.startedAt;
+		if (turn.failed || turnMs <= 0 || turn.activeTools.size > 0) return undefined;
+		const timing: RequestTiming = {
+			timingVersion: REQUEST_TIMING_VERSION,
+			turnMs,
+			toolCallDurationsMs: intervals.map(
+				(interval) => interval.endedAt - interval.startedAt,
+			),
+			toolCallCount: turn.toolCallCount,
+			...(turn.provider ? { provider: turn.provider } : {}),
+			...(turn.modelId ? { modelId: turn.modelId } : {}),
+			...(turn.modelToToolMs !== undefined
+				? { modelToToolMs: turn.modelToToolMs }
+				: {}),
+			...(intervals.length ? { toolWallMs: unionDuration(intervals) } : {}),
+		};
+		delete this.active!.turn;
+		this.completed = timing;
+		return timing;
+	}
 
 	handle(
 		event: Record<string, unknown>,
@@ -138,19 +191,7 @@ export class RequestTimingTracker {
 		if (!type) return undefined;
 
 		if (type === "agent_start") {
-			if (this.active) {
-				this.active = undefined;
-				return undefined;
-			}
-			this.active = {
-				startedAt: receivedAt,
-				...(model?.provider?.trim() ? { provider: model.provider.trim() } : {}),
-				...(model?.id?.trim() ? { modelId: model.id.trim() } : {}),
-				activeTools: new Map(),
-				toolIntervals: [],
-				toolCallCount: 0,
-				toolTimingIncomplete: false,
-			};
+			this.active = {};
 			return undefined;
 		}
 
@@ -158,19 +199,22 @@ export class RequestTimingTracker {
 		if (!active) return undefined;
 
 		if (type === "turn_start") {
-			active.turn = { startedAt: receivedAt, modelToToolRecorded: false };
-			return undefined;
-		}
-		if (type === "turn_end") {
-			delete active.turn;
-			return undefined;
+			const prior = this.finishTurn();
+			if (active.turn) delete active.turn;
+			active.turn = createTurn(receivedAt);
+			return prior;
 		}
 		if (type === "message_start") {
 			const message = messageFromEvent(record);
-			if (stringField(message, "role") === "assistant") {
-				updateModelIdentity(active, message, model);
-				ensureTurn(active, receivedAt);
+			if (stringField(message, "role") !== "assistant") return undefined;
+			const turn = ensureTurn(active, receivedAt);
+			if (turn.messageStarted) {
+				delete active.turn;
+				return undefined;
 			}
+			turn.messageStarted = true;
+			turn.startedAt = validTimestamp(message?.timestamp) ?? receivedAt;
+			updateModelIdentity(turn, message, model);
 			return undefined;
 		}
 		if (type === "message_update") {
@@ -179,64 +223,92 @@ export class RequestTimingTracker {
 			if (deltaType === "toolcall_start") recordModelToTool(active, receivedAt);
 			return undefined;
 		}
+		if (type === "message_end") {
+			const message = messageFromEvent(record);
+			if (stringField(message, "role") !== "assistant") return undefined;
+			const turn = ensureTurn(active, receivedAt);
+			if (turn.messageEndedAt !== undefined) {
+				delete active.turn;
+				return undefined;
+			}
+			if (!turn.messageStarted) {
+				turn.messageStarted = true;
+				const timestamp = validTimestamp(message?.timestamp);
+				if (timestamp !== undefined) turn.startedAt = timestamp;
+			}
+			updateModelIdentity(turn, message, model);
+			turn.messageEndedAt = receivedAt;
+			const stopReason = stringField(message, "stopReason");
+			turn.failed = stopReason === "error" || stopReason === "aborted";
+			return undefined;
+		}
 		if (type === "tool_execution_start") {
+			const turn = active.turn;
 			const toolCallId = stringField(record, "toolCallId");
-			if (!toolCallId || active.activeTools.has(toolCallId)) {
-				active.toolTimingIncomplete = true;
+			if (!turn || !toolCallId || turn.activeTools.has(toolCallId)) {
+				if (turn) turn.toolTimingIncomplete = true;
 				return undefined;
 			}
 			recordModelToTool(active, receivedAt);
-			active.activeTools.set(toolCallId, receivedAt);
-			active.toolCallCount += 1;
+			turn.activeTools.set(toolCallId, receivedAt);
+			turn.toolCallCount += 1;
 			return undefined;
 		}
 		if (type === "tool_execution_end") {
+			const turn = active.turn;
 			const toolCallId = stringField(record, "toolCallId");
-			if (!toolCallId) {
-				active.toolTimingIncomplete = true;
+			if (!turn || !toolCallId) {
+				if (turn) turn.toolTimingIncomplete = true;
 				return undefined;
 			}
-			const startedAt = active.activeTools.get(toolCallId);
+			const startedAt = turn.activeTools.get(toolCallId);
 			if (startedAt === undefined) {
-				active.toolTimingIncomplete = true;
+				turn.toolTimingIncomplete = true;
 				return undefined;
 			}
-			active.activeTools.delete(toolCallId);
+			turn.activeTools.delete(toolCallId);
 			if (receivedAt >= startedAt)
-				active.toolIntervals.push({ startedAt, endedAt: receivedAt });
-			else active.toolTimingIncomplete = true;
+				turn.toolIntervals.push({ startedAt, endedAt: receivedAt });
+			else turn.toolTimingIncomplete = true;
 			return undefined;
 		}
-		if (type !== "agent_settled") return undefined;
-
-		const endedAt = receivedAt;
-		const intervals = active.toolTimingIncomplete ? [] : active.toolIntervals;
-		const timing =
-			endedAt > active.startedAt && active.activeTools.size === 0
-				? {
-						requestMs: endedAt - active.startedAt,
-						toolCallDurationsMs: intervals.map(
-							(interval) => interval.endedAt - interval.startedAt,
-						),
-						toolCallCount: active.toolCallCount,
-						...(active.provider ? { provider: active.provider } : {}),
-						...(active.modelId ? { modelId: active.modelId } : {}),
-						...(active.modelToToolMs !== undefined
-							? { modelToToolMs: active.modelToToolMs }
-							: {}),
-						...(intervals.length
-							? { toolWallMs: unionDuration(intervals) }
-							: {}),
-				  }
-				: undefined;
-		this.active = undefined;
-		if (timing) this.completed = timing;
-		return timing;
+		if (type === "turn_end") {
+			const timing = this.finishTurn();
+			if (active.turn) delete active.turn;
+			return timing;
+		}
+		if (type === "agent_settled") {
+			const timing = this.finishTurn();
+			this.active = undefined;
+			return timing;
+		}
+		return undefined;
 	}
 
 	get value(): RequestTiming | undefined {
 		return this.completed;
 	}
+}
+
+function isCurrentRequestTiming(value: unknown): value is RequestTiming {
+	if (!isRecord(value)) return false;
+	const toolDurations = value.toolCallDurationsMs;
+	return (
+		value.timingVersion === REQUEST_TIMING_VERSION &&
+		validTimestamp(value.turnMs) !== undefined &&
+		Array.isArray(toolDurations) &&
+		toolDurations.every(
+			(duration): duration is number =>
+				typeof duration === "number" && Number.isFinite(duration) && duration >= 0,
+		)
+	);
+}
+
+/** Discards request-level samples produced before per-call Turn semantics. */
+export function retainCurrentRequestTimings(
+	history: readonly unknown[],
+): RequestTiming[] {
+	return history.filter(isCurrentRequestTiming);
 }
 
 export function requestTimingStats(
@@ -247,7 +319,7 @@ export function requestTimingStats(
 	const normalizedProvider = provider.trim();
 	const normalizedModelId = modelId.trim();
 	if (!normalizedProvider || !normalizedModelId) return undefined;
-	const samples = history.filter(
+	const samples = retainCurrentRequestTimings(history).filter(
 		(sample) =>
 			sample.provider === normalizedProvider &&
 			sample.modelId === normalizedModelId,
@@ -256,21 +328,14 @@ export function requestTimingStats(
 	const modelToTool = samples.flatMap((sample) =>
 		sample.modelToToolMs === undefined ? [] : [sample.modelToToolMs],
 	);
-	// Per turn, the tool metric is the turn's share per tool call (turn time divided
-	// by how many tools ran in that turn), then the median across turns. Turns
-	// without tool calls contribute nothing. The turn span already includes TTFT,
-	// so the share reflects prompt processing too without double-counting it.
-	const toolShares = samples.flatMap((sample) => {
-		const toolCallCount = sample.toolCallCount ?? sample.toolCallDurationsMs.length;
-		return toolCallCount >= 1 ? [sample.requestMs / toolCallCount] : [];
-	});
+	const toolDurations = samples.flatMap((sample) => sample.toolCallDurationsMs);
 	const stats: RequestTimingStats = {
-		medianRequestMs: median(samples.map((sample) => sample.requestMs))!,
+		medianTurnMs: median(samples.map((sample) => sample.turnMs))!,
 	};
 	const medianModelToToolMs = median(modelToTool);
 	if (medianModelToToolMs !== undefined)
 		stats.medianModelToToolMs = medianModelToToolMs;
-	const medianToolCallMs = median(toolShares);
+	const medianToolCallMs = median(toolDurations);
 	if (medianToolCallMs !== undefined) stats.medianToolCallMs = medianToolCallMs;
 	return stats;
 }

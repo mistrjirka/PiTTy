@@ -8,7 +8,11 @@ import { useKeyboard } from "@opentui/solid";
 import { colors } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
 import { formatModelPerformanceStats, modelPerformanceStats, type ModelPerformanceHistory } from "../tabs/model-performance-history.ts";
-import { requestTimingStats, type RequestTiming } from "../tabs/request-timing.ts";
+import {
+	requestTimingStats,
+	type RequestTiming,
+	type RequestTimingStats,
+} from "../tabs/request-timing.ts";
 import {
 	createSearchableDialogFocus,
 	handleSearchableDialogCancel,
@@ -85,10 +89,10 @@ export function normalizeModelChoices(values: unknown[]): ModelChoice[] {
 }
 
 	export function formatModelTimingLine(
-	stats: { medianRequestMs: number; medianToolCallMs?: number } | undefined,
+	stats: RequestTimingStats | undefined,
 ): string {
 	if (!stats) return "";
-	const parts = [`Turn ${formatDuration(stats.medianRequestMs)}`];
+	const parts = [`Turn ${formatDuration(stats.medianTurnMs)}`];
 	if (stats.medianToolCallMs !== undefined)
 		parts.push(`Tool ${formatDuration(stats.medianToolCallMs)}`);
 	return parts.join(" · ");

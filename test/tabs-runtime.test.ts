@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { blankTabPiArgs, createTabRuntime, planForkTab, prepareForkedTabRuntime, refreshRuntimeEntries, resolveTabDraftSwitch, sessionFilePiArgs, startTabRuntime } from "../src/tabs/runtime.ts";
+import { blankTabPiArgs, createTabRuntime, planForkTab, prepareForkedTabRuntime, provisionalExtensionUiResponse, refreshRuntimeEntries, resolveTabDraftSwitch, sessionFilePiArgs, startTabRuntime } from "../src/tabs/runtime.ts";
 import { PiRpcClient } from "../src/rpc/pi-rpc-client.ts";
-import type { RpcSessionState } from "../src/types.ts";
+import type { RpcExtensionUIRequest, RpcSessionState } from "../src/types.ts";
 
 const state = (sessionFile: string, sessionId: string): RpcSessionState => ({
 	sessionFile, sessionId, thinkingLevel: "low", isStreaming: false, isCompacting: false,
@@ -69,6 +69,52 @@ class ForkStubClient extends PiRpcClient {
 }
 
 describe("tab runtime factory", () => {
+	test("answers only the pi-rewind fork restore option and cancels other extension requests", () => {
+		const safeSelect: RpcExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: "rewind-1",
+			method: "select",
+			title: "Restore Options",
+			options: [
+				"Conversation only (keep files)",
+				"Restore all (files + conversation)",
+				"Code only (restore files, keep conversation)",
+				"Cancel",
+			],
+		};
+		expect(provisionalExtensionUiResponse(safeSelect)).toEqual({
+			type: "extension_ui_response",
+			id: "rewind-1",
+			value: "Conversation only (keep files)",
+		});
+
+		const unrelatedSelect: RpcExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: "other-1",
+			method: "select",
+			title: "Other extension",
+			options: ["Restore all", "Cancel"],
+		};
+		expect(provisionalExtensionUiResponse(unrelatedSelect)).toEqual({
+			type: "extension_ui_response",
+			id: "other-1",
+			cancelled: true,
+		});
+
+		const unrelatedConfirm: RpcExtensionUIRequest = {
+			type: "extension_ui_request",
+			id: "other-2",
+			method: "confirm",
+			title: "Other extension",
+			message: "Continue?",
+		};
+		expect(provisionalExtensionUiResponse(unrelatedConfirm)).toEqual({
+			type: "extension_ui_response",
+			id: "other-2",
+			cancelled: true,
+		});
+	});
+
 	test("removes startup session selectors for blank tabs while preserving other Pi args", () => {
 		expect(blankTabPiArgs(["--extension", "observer", "--continue", "--session", "/tmp/source.jsonl", "--model", "gpt", "--", "-c", "--session=keep"])).toEqual(["--extension", "observer", "--model", "gpt", "--", "-c", "--session=keep"]);
 		expect(blankTabPiArgs(["-c", "-s", "/tmp/source.jsonl", "-m", "gpt"])).toEqual(["-m", "gpt"]);
@@ -94,7 +140,7 @@ describe("tab runtime factory", () => {
 		expect(second.selectedTargetKey).toBeUndefined();
 	});
 
-	test("records settled request timing separately from model performance", async () => {
+	test("records per-call timing separately from model performance", async () => {
 		const client = new StubClient(state("/tmp/timing.jsonl", "timing"));
 		const runtime = createTabRuntime({
 			id: "timing",
@@ -106,11 +152,15 @@ describe("tab runtime factory", () => {
 		client.deliver({ type: "turn_start" });
 		client.deliver({
 			type: "message_start",
-			message: { role: "assistant", provider: "openai", model: "gpt-5" },
+			message: { role: "assistant", provider: "openai", model: "gpt-5", timestamp: Date.now() - 10 },
 		});
 		client.deliver({
 			type: "message_update",
 			assistantMessageEvent: { type: "toolcall_start" },
+		});
+		client.deliver({
+			type: "message_end",
+			message: { role: "assistant", provider: "openai", model: "gpt-5", timestamp: Date.now() - 10 },
 		});
 		client.deliver({ type: "tool_execution_start", toolCallId: "tool" });
 		await Bun.sleep(2);
@@ -120,7 +170,7 @@ describe("tab runtime factory", () => {
 
 		expect(runtime.lastRequestTiming?.provider).toBe("openai");
 		expect(runtime.lastRequestTiming?.modelId).toBe("gpt-5");
-		expect(runtime.lastRequestTiming?.requestMs).toBeGreaterThan(0);
+		expect(runtime.lastRequestTiming?.turnMs).toBeGreaterThan(0);
 		expect(runtime.lastRequestTiming?.toolCallDurationsMs).toHaveLength(1);
 		expect(runtime.timingHistory).toHaveLength(1);
 		runtime.messageUpdates.dispose();

@@ -16,6 +16,7 @@ export function parseSmartCompactProgress(value: unknown): string | undefined {
 
 export type CompactionReason = "manual" | "threshold" | "overflow";
 export type CompactionPhase = "preparing" | "complete" | "failed";
+export type OneRoundBoundaryMode = "whole-turn" | "split-turn" | "pi-fallback";
 
 export type CompactionTelemetry = {
 	version: 1;
@@ -48,14 +49,14 @@ export type CompactionCompletion = {
 	/** Wall-clock duration of the one-round compaction in milliseconds. */
 	wallTimeMs?: number;
 	/** Boundary strategy the plugin used to keep recent turns verbatim. */
-	boundaryMode?: "whole-turn" | "pi-fallback";
+	boundaryMode?: OneRoundBoundaryMode;
 	/** Number of complete turns retained verbatim by the plugin. */
 	retainedTurns?: number;
 	/** Token budget for recent turns (compaction.keepRecentTokens). */
 	keepRecentTokens?: number;
 	/** Estimated tokens after compaction, including the plugin summary. */
 	estimatedRetainedTokens?: number;
-	/** Whether the plugin cut inside a turn (Pi fallback boundary). */
+	/** Whether the plugin cut inside a turn. */
 	isSplitTurn?: boolean;
 	/** Per-lane summarization results (intent + execution). */
 	lanes?: OneRoundLane[];
@@ -99,7 +100,7 @@ export type OneRoundDetails = {
 	lanes: OneRoundLane[];
 	wallTimeMs: number;
 	keepRecentTokens: number;
-	boundaryMode: "whole-turn" | "pi-fallback";
+	boundaryMode: OneRoundBoundaryMode;
 	retainedTurns: number;
 	estimatedRetainedTokens: number;
 	isSplitTurn: boolean;
@@ -128,7 +129,7 @@ export type OneRoundProgress = {
 	retainedTurns: number;
 	estimatedRetainedTokens: number;
 	keepRecentTokens: number;
-	boundaryMode: "whole-turn" | "pi-fallback";
+	boundaryMode: OneRoundBoundaryMode;
 	intentWorkflow?: { active: true; workstream: string; hasPlan: boolean };
 	lanes: { intent: OneRoundLaneProgress; execution: OneRoundLaneProgress };
 	error?: string;
@@ -463,7 +464,7 @@ export function compactionSummaryCaption(completion: CompactionCompletion): stri
 		if (completion.retainedTurns !== undefined) {
 			parts.push(
 				`kept ${completion.retainedTurns} complete turn${completion.retainedTurns === 1 ? "" : "s"}${completion.boundaryMode
-					? ` · ${completion.boundaryMode === "whole-turn" ? "whole-turn boundary" : "split-turn fallback"}`
+					? ` · ${completion.boundaryMode === "whole-turn" ? "whole-turn boundary" : completion.boundaryMode === "split-turn" ? "split-turn boundary" : "Pi fallback boundary"}`
 					: ""}`,
 			);
 		}
@@ -498,6 +499,10 @@ export function compactionCompletionForItem(
 
 function isStringArray(value: unknown): value is string[] {
 	return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isOneRoundBoundaryMode(value: unknown): value is OneRoundBoundaryMode {
+	return value === "whole-turn" || value === "split-turn" || value === "pi-fallback";
 }
 
 const ONE_ROUND_PROGRESS_PHASES = [
@@ -535,7 +540,7 @@ export function parseOneRoundDetails(value: unknown): OneRoundDetails | undefine
 	}
 	if (!isFiniteNonNegativeInteger(value.wallTimeMs)) return undefined;
 	if (!isFiniteNonNegative(value.keepRecentTokens)) return undefined;
-	if (value.boundaryMode !== "whole-turn" && value.boundaryMode !== "pi-fallback") return undefined;
+	if (!isOneRoundBoundaryMode(value.boundaryMode)) return undefined;
 	if (!isFiniteNonNegativeInteger(value.retainedTurns)) return undefined;
 	if (!isFiniteNonNegative(value.estimatedRetainedTokens)) return undefined;
 	if (typeof value.isSplitTurn !== "boolean") return undefined;
@@ -647,7 +652,7 @@ export function parseOneRoundProgress(value: unknown): OneRoundProgress | undefi
 	if (!isFiniteNonNegativeInteger(value.retainedTurns)) return undefined;
 	if (!isFiniteNonNegative(value.estimatedRetainedTokens)) return undefined;
 	if (!isFiniteNonNegative(value.keepRecentTokens)) return undefined;
-	if (value.boundaryMode !== "whole-turn" && value.boundaryMode !== "pi-fallback") return undefined;
+	if (!isOneRoundBoundaryMode(value.boundaryMode)) return undefined;
 	let intentWorkflow: { active: true; workstream: string; hasPlan: boolean } | undefined;
 	if (value.intentWorkflow !== undefined) {
 		if (

@@ -19,6 +19,9 @@ export function SubagentInspector(props: {
 	now: number;
 	scrollRef?: (value: ScrollBoxRenderable) => void;
 	onClose?: () => void;
+	onPause?: () => void;
+	onResume?: () => void;
+	onStop?: () => void;
 	onChooseTarget?: () => void;
 	targetCount?: number;
 	draft?: (() => string) | undefined;
@@ -35,6 +38,22 @@ export function SubagentInspector(props: {
 	const target = () =>
 		(props.target ?? (props.run ? subagentTargets([props.run])[0] : undefined))!;
 	const run = () => target().run;
+	// Pause/resume/stop are file-backed controls, not steering, so they stay
+	// available while a run is paused (canSteer is false for paused runs).
+	const controlState = () => {
+		const state = run().state;
+		return state === "running" || state === "paused" || state === "queued";
+	};
+	const canControl = () =>
+		controlState() &&
+		(target().canSteer || run().state === "paused") &&
+		Boolean(run().asyncDir) &&
+		run().control !== "foreground";
+	const controlHint = () => {
+		if (run().state === "running") return "Ctrl+A pause · Ctrl+Shift+A stop";
+		if (run().state === "paused") return "Resume via click · Ctrl+Shift+A stop";
+		return "Ctrl+Shift+A stop";
+	};
 	const step = () => target().step;
 	const elapsed = () =>
 		target().startedAt
@@ -138,30 +157,57 @@ export function SubagentInspector(props: {
 					↑/Ctrl+↑ main chat · Esc / Ctrl+I close
 				</text>
 				<Show
-					when={
-						target().active &&
-						target().canSteer &&
-						Boolean(run().asyncDir) &&
-						run().control !== "foreground" &&
-						run().state === "running"
-					}
+					when={canControl()}
 				>
-					<text height={1} fg={colors.yellow} wrapMode="none">
-						Ctrl+A pause · Ctrl+Shift+A stop
-					</text>
-				</Show>
-				<Show
-					when={
-						target().active &&
-						target().canSteer &&
-						Boolean(run().asyncDir) &&
-						run().control !== "foreground" &&
-						run().state === "queued"
-					}
-				>
-					<text height={1} fg={colors.yellow} wrapMode="none">
-						Ctrl+Shift+A stop
-					</text>
+					<box flexDirection="row" height={1} minHeight={1} flexShrink={0}>
+						<Show when={run().state === "running"}>
+							<text
+								id="subagent-pause"
+								fg={colors.yellow}
+								attributes={1}
+								wrapMode="none"
+								onMouseDown={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									props.onPause?.();
+								}}
+							>
+								⏸ Pause
+							</text>
+						</Show>
+						<Show when={run().state === "paused"}>
+							<text
+								id="subagent-resume"
+								fg={colors.green}
+								attributes={1}
+								wrapMode="none"
+								onMouseDown={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									props.onResume?.();
+								}}
+							>
+								▶ Resume
+							</text>
+						</Show>
+						<Show when={["running", "paused", "queued"].includes(run().state)}>
+							<text
+								id="subagent-stop"
+								fg={colors.red}
+								attributes={1}
+								wrapMode="none"
+								onMouseDown={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									props.onStop?.();
+								}}
+							>
+								⏹ Stop
+							</text>
+						</Show>
+						<box flexGrow={1} height={1} />
+						<text fg={colors.muted} wrapMode="none">{controlHint()}</text>
+					</box>
 				</Show>
 				{(() => {
 					const currentStep = step();

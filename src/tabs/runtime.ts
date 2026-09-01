@@ -16,6 +16,7 @@ import { RequestPerformanceTracker, type RequestPerformance } from "./request-me
 import {
 	MAX_REQUEST_TIMING_HISTORY,
 	RequestTimingTracker,
+	retainCurrentRequestTimings,
 	type RequestTiming,
 } from "./request-timing.ts";
 import {
@@ -23,8 +24,33 @@ import {
 	loadModelPerformanceHistory,
 	saveModelPerformanceHistory,
 } from "./model-performance-history.ts";
-import type { RpcSessionState, SessionStats, SubagentRun, PiEvent } from "../types.ts";
+import type {
+	PiEvent,
+	RpcExtensionUIRequest,
+	RpcExtensionUIResponse,
+	RpcSessionState,
+	SessionStats,
+	SubagentRun,
+} from "../types.ts";
 import type { ThinkingLevel } from "../rpc/pi-rpc-client.ts";
+
+const PI_REWIND_CONVERSATION_ONLY_OPTION = "Conversation only (keep files)";
+
+export function provisionalExtensionUiResponse(
+	request: RpcExtensionUIRequest,
+): RpcExtensionUIResponse {
+	if (
+		request.method === "select" &&
+		request.options.includes(PI_REWIND_CONVERSATION_ONLY_OPTION)
+	) {
+		return {
+			type: "extension_ui_response",
+			id: request.id,
+			value: PI_REWIND_CONVERSATION_ONLY_OPTION,
+		};
+	}
+	return { type: "extension_ui_response", id: request.id, cancelled: true };
+}
 
 export type TabRuntimeOptions = {
 	id: string;
@@ -173,6 +199,13 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 	};
 	runtime.client.onEvent((event) => {
 		runtime.eventVersion += 1;
+		if (event.type === "agent_start") {
+			const currentTimingHistory = retainCurrentRequestTimings(runtime.timingHistory);
+			if (currentTimingHistory.length !== runtime.timingHistory.length) {
+				runtime.timingHistory = currentTimingHistory;
+				delete runtime.lastRequestTiming;
+			}
+		}
 		const receivedAt = Date.now();
 		const performance = runtime.requestPerformance.handle(
 			event,

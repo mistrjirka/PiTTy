@@ -5,11 +5,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
 	pauseSubagent,
+	resumeSubagent,
 	steerSubagent,
 	stopSubagent,
 } from "../src/subagents/control.ts";
 import {
 	applyDerivedChildTranscript,
+	asyncRunsRoot,
 	childRunIdFromSessionFile,
 	listSubagentRuns,
 	matchesSubagentSession,
@@ -44,7 +46,9 @@ afterEach(() => {
 });
 
 function run(): SubagentRun {
-	const asyncDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-oc-test-"));
+	const root = asyncRunsRoot();
+	fs.mkdirSync(root, { recursive: true });
+	const asyncDir = fs.mkdtempSync(path.join(root, "pi-oc-test-"));
 	roots.push(asyncDir);
 	return {
 		runId: "run-1",
@@ -674,6 +678,40 @@ describe("subagent controls", () => {
 		}
 	});
 
+	test("resume removes the interrupt control", () => {
+		const target = run();
+		pauseSubagent(target);
+		expect(
+			JSON.parse(
+				fs.readFileSync(
+					path.join(target.asyncDir!, "control", "interrupt.json"),
+					"utf8",
+				),
+			).type,
+		).toBe("interrupt");
+		resumeSubagent(target);
+		let exists = true;
+		try {
+			fs.statSync(path.join(target.asyncDir!, "control", "interrupt.json"));
+		} catch {
+			exists = false;
+		}
+		expect(exists).toBe(false);
+	});
+
+	test("resume rejects foreground runs without touching disk", () => {
+		const target: SubagentRun = {
+			runId: "foreground",
+			control: "foreground",
+			mode: "single",
+			state: "paused",
+			steps: [],
+		};
+		expect(() => resumeSubagent(target)).toThrow(
+			"read-only; file control is unsupported",
+		);
+	});
+
 	test("rejects all file controls for foreground runs without writing", () => {
 		const target: SubagentRun = {
 			runId: "foreground",
@@ -703,6 +741,22 @@ describe("subagent controls", () => {
 		expect(() => pauseSubagent(target)).toThrow(
 			"File-control directory is missing",
 		);
+		expect(() => resumeSubagent(target)).toThrow(
+			"File-control directory is missing",
+		);
+	});
+
+	test("rejects symlinked file-control directories", () => {
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "pi-oc-outside-"));
+		const link = fs.mkdtempSync(path.join(asyncRunsRoot(), "pi-oc-link-"));
+		fs.rmSync(link, { recursive: true, force: true });
+		fs.symlinkSync(outside, link, "dir");
+		roots.push(outside, link);
+		const target = { ...run(), asyncDir: link };
+		expect(() => pauseSubagent(target)).toThrow(
+			"File-control directory is not a regular directory",
+		);
+		expect(fs.existsSync(path.join(outside, "control"))).toBe(false);
 	});
 
 	test("writes a steer request", () => {

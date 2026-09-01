@@ -19,7 +19,7 @@
 
 ![PiTTy main conversation view with tool cards, thinking, and the sidebar](docs/screenshots/conversation.png)
 
-More views: [model picker](docs/screenshots/model-selector.png) · [new-session dashboard](docs/screenshots/blank-session.png) · [wrapped diff](docs/screenshots/long-diff.png) · [tab strip](docs/screenshots/tab-strip.png)
+More views: [model picker](docs/screenshots/model-selector.png) · [new-session dashboard](docs/screenshots/blank-session.png) · [wrapped diff](docs/screenshots/long-diff.png) · [tab strip](docs/screenshots/tab-strip.png) · [running subagent controls](docs/screenshots/subagent-running.png) · [paused subagent controls](docs/screenshots/subagent-paused.png)
 
 ## What it is
 
@@ -30,7 +30,7 @@ An empty session opens straight into the chat with a passive dashboard of recent
 ## What's different from Pi's TUI
 
 - **The prompt stays put.** The transcript scrolls independently, so long conversations don't push the input line away.
-- **Subagents are inspectable.** Every child agent's live transcript opens in the sidebar, with steering, queued follow-ups, and pause/stop for supported runs.
+- **Subagents are inspectable.** Every child agent's live transcript opens in the sidebar, with steering, queued follow-ups, and pause/resume/stop for supported runs.
 - **Tool output is readable.** Edit/write tools get a dedicated diff view, tools render as collapsible cards, and timings stay on screen.
 - **Less hunting.** Searchable model picker (`Ctrl+P`), session browser (`/resume`), request map (`Ctrl+R`), and prompt history on an empty prompt (`↑`).
 - **Live themes.** Ten presets plus full color-token editing, applied immediately.
@@ -98,7 +98,7 @@ pitty --session /path/to/file.jsonl
 pitty-resume -C /path/to/project   # open the session picker immediately
 ```
 
-Inside PiTTy, the essentials are: `Enter` sends (or accepts a slash suggestion), `Shift+Enter` adds a newline, `Ctrl+P` picks a model, `Ctrl+X` opens Settings, `Ctrl+S` toggles the sidebar, `Ctrl+O` expands or collapses tool and thinking details, `Ctrl+I` opens the selected subagent, and `Esc` closes a dialog or aborts the current turn. `/help` lists everything; the full [usage and controls guide](docs/USAGE.md) has the details.
+Inside PiTTy, the essentials are: `Enter` sends (or accepts a slash suggestion), `Shift+Enter` adds a newline, `Ctrl+P` picks a model, `Ctrl+X` opens Settings, `Ctrl+S` toggles the sidebar, `Ctrl+O` expands or collapses tool and thinking details, `Ctrl+I` opens the selected subagent, `Ctrl+A` pauses it, `Ctrl+Shift+A` stops it, and `Esc` closes a dialog or aborts the current turn. `/help` lists everything; the full [usage and controls guide](docs/USAGE.md) has the details.
 
 ## Optional integrations
 

@@ -87,6 +87,7 @@ import { subagentActivityAt } from "./subagents/transcript.ts";
 import { createSubagentTranscriptCache } from "./subagents/transcript-cache.ts";
 import {
 	pauseSubagent,
+	resumeSubagent,
 	steerSubagent,
 	stopSubagent,
 } from "./subagents/control.ts";
@@ -94,7 +95,7 @@ import { ExtensionDialog } from "./ui/dialog.tsx";
 import { MessageView } from "./ui/message.tsx";
 import { CompactedSummary, CompactionPanel } from "./ui/compaction-panel.tsx";
 import { TabManager, type ConversationTab } from "./tabs/manager.ts";
-import { blankTabPiArgs, createTabRuntime, planForkTab, prepareForkedTabRuntime, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
+import { blankTabPiArgs, createTabRuntime, planForkTab, prepareForkedTabRuntime, provisionalExtensionUiResponse, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
 import { loadModelPerformanceHistory } from "./tabs/model-performance-history.ts";
 import { ExtensionRequestRouter, type ExtensionRequestEnvelope } from "./tabs/extension-router.ts";
 import { TabStrip } from "./ui/tab-strip.tsx";
@@ -1020,7 +1021,7 @@ export function App(props: AppOptions) {
 					return;
 				}
 				if (isExtensionUiRequest(event))
-					void runtime.client.sendExtensionUiResponse({ type: "extension_ui_response", id: event.id, cancelled: true }).catch((cancelError) => props.logger.warn("tabs.provisional_extension_cancel_failed", cancelError));
+					void runtime.client.sendExtensionUiResponse(provisionalExtensionUiResponse(event)).catch((cancelError) => props.logger.warn("tabs.provisional_extension_response_failed", cancelError));
 			},
 			onConversationChange: (tabRuntime) => { if (tabRuntime.id === activeTabId()) conversationTouch(); },
 		});
@@ -3155,6 +3156,74 @@ export function App(props: AppOptions) {
 		}
 	};
 
+	const subagentControlGuard = (): { target?: SubagentTarget; run?: SubagentRun } => {
+		if (!inspectSubagent()) return {};
+		if (!subagentsAvailable()) {
+			toast("Install pi-subagents to control child agents", "info", 5000);
+			return {};
+		}
+		const target = selectedSubagentTarget();
+		const run = target?.run;
+		const controllableState = run?.state === "running" || run?.state === "paused" || run?.state === "queued";
+		const controllable = controllableState && (target?.canSteer || run?.state === "paused");
+		if (!target || !controllable || !run?.asyncDir || run.control === "foreground") {
+			toast("No steerable file-controlled subagent selected", "warning");
+			return {};
+		}
+		return { target, run };
+	};
+
+	const requestPauseSubagent = () => {
+		const { run } = subagentControlGuard();
+		if (!run) return;
+		if (run.state !== "running") {
+			toast("Only running subagents can be paused", "warning");
+			return;
+		}
+		try {
+			pauseSubagent(run);
+			props.logger.info("subagent.pause_requested", { runId: run.runId, agent: run.agent, pid: run.pid });
+			toast(`Pause requested for ${run.agent ?? run.runId}`, "warning");
+		} catch (error) {
+			props.logger.error("subagent.pause_failed", { runId: run.runId, error });
+			toast(error instanceof Error ? error.message : String(error), "error");
+		}
+	};
+
+	const requestResumeSubagent = () => {
+		const { run } = subagentControlGuard();
+		if (!run) return;
+		if (run.state !== "paused") {
+			toast("Only paused subagents can be resumed", "warning");
+			return;
+		}
+		try {
+			resumeSubagent(run);
+			props.logger.info("subagent.resume_requested", { runId: run.runId, agent: run.agent, pid: run.pid });
+			toast(`Resume requested for ${run.agent ?? run.runId}`, "info");
+		} catch (error) {
+			props.logger.error("subagent.resume_failed", { runId: run.runId, error });
+			toast(error instanceof Error ? error.message : String(error), "error");
+		}
+	};
+
+	const requestStopSubagent = () => {
+		const { run } = subagentControlGuard();
+		if (!run) return;
+		if (run.state !== "running" && run.state !== "paused" && run.state !== "queued") {
+			toast("No active file-controlled subagent selected", "warning");
+			return;
+		}
+		try {
+			stopSubagent(run);
+			props.logger.info("subagent.stop_requested", { runId: run.runId, agent: run.agent, pid: run.pid });
+			toast(`Stop requested for ${run.agent ?? run.runId}`, "warning");
+		} catch (error) {
+			props.logger.error("subagent.stop_failed", { runId: run.runId, error });
+			toast(error instanceof Error ? error.message : String(error), "error");
+		}
+	};
+
 	useKeyboard((event) => {
 		if (event.eventType === "release") return;
 		if (event.ctrl && event.name === "tab" && !forkPickerOpen()) {
@@ -3521,70 +3590,13 @@ export function App(props: AppOptions) {
 		if (keyIs(event, "a", { ctrl: true, shift: false })) {
 			if (!inspectSubagent()) return;
 			event.preventDefault();
-			if (!subagentsAvailable())
-				return toast(
-					"Install pi-subagents to control child agents",
-					"info",
-					5000,
-				);
-			const target = selectedSubagentTarget();
-			const run = target?.run;
-			if (
-				!target?.active ||
-				!target.canSteer ||
-				!run?.asyncDir ||
-				run.control === "foreground" ||
-				run.state !== "running"
-			)
-				return toast("No running file-controlled subagent selected", "warning");
-			try {
-				pauseSubagent(run);
-				props.logger.info("subagent.pause_requested", {
-					runId: run.runId,
-					agent: run.agent,
-					pid: run.pid,
-				});
-				toast(`Pause requested for ${run.agent ?? run.runId}`, "warning");
-			} catch (error) {
-				props.logger.error("subagent.pause_failed", {
-					runId: run.runId,
-					error,
-				});
-				toast(error instanceof Error ? error.message : String(error), "error");
-			}
+			requestPauseSubagent();
 			return;
 		}
 		if (keyIs(event, "a", { ctrl: true, shift: true })) {
 			if (!inspectSubagent()) return;
 			event.preventDefault();
-			if (!subagentsAvailable())
-				return toast(
-					"Install pi-subagents to control child agents",
-					"info",
-					5000,
-				);
-			const target = selectedSubagentTarget();
-			const run = target?.run;
-			if (
-				!target?.active ||
-				!target.canSteer ||
-				!run?.asyncDir ||
-				run.control === "foreground" ||
-				(run.state !== "running" && run.state !== "queued")
-			)
-				return toast("No active file-controlled subagent selected", "warning");
-			try {
-				stopSubagent(run);
-				props.logger.info("subagent.stop_requested", {
-					runId: run.runId,
-					agent: run.agent,
-					pid: run.pid,
-				});
-				toast(`Stop requested for ${run.agent ?? run.runId}`, "warning");
-			} catch (error) {
-				props.logger.error("subagent.stop_failed", { runId: run.runId, error });
-				toast(error instanceof Error ? error.message : String(error), "error");
-			}
+			requestStopSubagent();
 			return;
 		}
 		if (event.name === "f6") {
@@ -3633,6 +3645,9 @@ export function App(props: AppOptions) {
 									subagentScroll = value;
 								}}
 								onClose={closeSubagentInspector}
+								onPause={requestPauseSubagent}
+								onResume={requestResumeSubagent}
+								onStop={requestStopSubagent}
 								onChooseTarget={() => setSubagentSelectorOpen(true)}
 								targetCount={availableSubagentTargets().length}
 								draft={() => currentDrafts().subagents.get(target().key) ?? ""}
