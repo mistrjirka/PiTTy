@@ -66,6 +66,7 @@ function laneLine(lane: OneRoundLaneProgress): string {
 }
 
 const LANE_TEXT_LINES = 3;
+const EXPANDED_LANE_TEXT_LINES = 12;
 
 /** Tail window of a streamed lane text; a leading ellipsis line marks clipped content above. */
 export function laneTailLines(
@@ -84,9 +85,11 @@ export function CompactionPanel(props: {
 	now: number;
 	spinner: string;
 	frame: number;
-	smartCompactProgress?: string;
-	oneRoundProgress?: OneRoundProgress;
-	laneTexts?: OneRoundLaneTexts;
+	smartCompactProgress?: string | undefined;
+	oneRoundProgress?: OneRoundProgress | undefined;
+	laneTexts?: OneRoundLaneTexts | undefined;
+	expanded?: () => boolean;
+	onToggle?: () => void;
 }) {
 	const elapsed = () =>
 		Math.max(0, props.now - (props.telemetry.startedAt ?? props.now));
@@ -123,6 +126,8 @@ export function CompactionPanel(props: {
 		return `Plan: ${[summarize, keep].filter(Boolean).join(" · ")}`;
 	};
 
+	const isExpanded = () => props.expanded?.() ?? false;
+	const laneTextLines = () => (isExpanded() ? EXPANDED_LANE_TEXT_LINES : LANE_TEXT_LINES);
 	const phaseLine = () => {
 		if (!props.oneRoundProgress) return "";
 		const mode =
@@ -142,20 +147,37 @@ export function CompactionPanel(props: {
 			border={["left"]}
 			borderColor={colors.cyan}
 		>
-			<text height={1} fg={colors.cyan} attributes={1} wrapMode="none">
-				{props.spinner} Compacting{phaseLine()}
-				{props.telemetry.reason ? ` · ${props.telemetry.reason}` : ""} ·{" "}
-				{formatDuration(elapsed())} elapsed
-			</text>
+			<box height={1} flexDirection="row" flexShrink={0}>
+				<text height={1} fg={colors.cyan} attributes={1} wrapMode="none" flexShrink={1}>
+					{props.spinner} Compacting{phaseLine()}
+					{props.telemetry.reason ? ` · ${props.telemetry.reason}` : ""} ·{" "}
+					{formatDuration(elapsed())} elapsed
+				</text>
+				<box flexGrow={1} minWidth={0} />
+				<box
+					height={1}
+					id="compaction-panel-toggle"
+					flexShrink={0}
+					onMouseDown={(event) => {
+						event.preventDefault();
+						event.stopPropagation();
+						props.onToggle?.();
+					}}
+				>
+					<text height={1} fg={colors.subtle} selectable wrapMode="none">
+						{isExpanded() ? "collapse" : "expand"}
+					</text>
+				</box>
+			</box>
 			{props.oneRoundProgress ? (
 				<>
 					<text height={1} fg={colors.subtle} wrapMode="none">
 						{laneLine(props.oneRoundProgress.lanes.intent)}
 					</text>
 					<Show when={(props.laneTexts?.intent ?? "").length > 0}>
-						<box height={LANE_TEXT_LINES} overflow="hidden" paddingLeft={2} flexShrink={0}>
+						<box height={laneTextLines()} overflow="hidden" paddingLeft={2} flexShrink={0}>
 							<text fg={colors.muted} wrapMode="word">
-								{laneTailLines(props.laneTexts?.intent ?? "").join("\n")}
+								{laneTailLines(props.laneTexts?.intent ?? "", laneTextLines()).join("\n")}
 							</text>
 						</box>
 					</Show>
@@ -163,9 +185,9 @@ export function CompactionPanel(props: {
 						{laneLine(props.oneRoundProgress.lanes.execution)}
 					</text>
 					<Show when={(props.laneTexts?.execution ?? "").length > 0}>
-						<box height={LANE_TEXT_LINES} overflow="hidden" paddingLeft={2} flexShrink={0}>
+						<box height={laneTextLines()} overflow="hidden" paddingLeft={2} flexShrink={0}>
 							<text fg={colors.muted} wrapMode="word">
-								{laneTailLines(props.laneTexts?.execution ?? "").join("\n")}
+								{laneTailLines(props.laneTexts?.execution ?? "", laneTextLines()).join("\n")}
 							</text>
 						</box>
 					</Show>

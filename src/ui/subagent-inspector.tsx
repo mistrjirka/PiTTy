@@ -193,6 +193,7 @@ export function SubagentInspector(props: {
 						<Show when={["running", "paused", "queued"].includes(run().state)}>
 							<text
 								id="subagent-stop"
+								marginLeft={2}
 								fg={colors.red}
 								attributes={1}
 								wrapMode="none"

@@ -248,6 +248,7 @@ const LOGIN_GUIDANCE =
 export type DetailToggleState = {
 	toolsExpanded: boolean;
 	thinkingExpanded: boolean;
+	compactionExpanded?: boolean;
 	hasExpandedToolOverride?: boolean;
 	hasExpandedThinkingOverride?: boolean;
 };
@@ -311,6 +312,7 @@ export function nextDetailToggle(state: DetailToggleState): boolean {
 	const hasVisibleDetails =
 		state.toolsExpanded ||
 		state.thinkingExpanded ||
+		state.compactionExpanded === true ||
 		state.hasExpandedToolOverride === true ||
 		state.hasExpandedThinkingOverride === true;
 	return !hasVisibleDetails;
@@ -577,6 +579,7 @@ export function App(props: AppOptions) {
 	const conversation = new ConversationModel([], props.cwd);
 	const [revision, setRevision] = createSignal(0);
 	const [conversationRevision, setConversationRevision] = createSignal(0);
+	const [compactionRevision, setCompactionRevision] = createSignal(0);
 	const [messageWindowStart, setMessageWindowStart] = createSignal(0);
 
 	const [sidebarEnabled, setSidebarEnabled] = createSignal(props.sidebar);
@@ -648,6 +651,7 @@ export function App(props: AppOptions) {
 	const [memoryBrowserOpen, setMemoryBrowserOpen] = createSignal(false);
 	const [memorySnapshot, setMemorySnapshot] = createSignal<MemorySnapshot>();
 	const [thinkingExpanded, setThinkingExpanded] = createSignal(true);
+	const [compactionExpanded, setCompactionExpanded] = createSignal(false);
 	const [promptText, setPromptText] = createSignal("");
 	const [promptCursorOffset, setPromptCursorOffset] = createSignal(0);
 	const [commandChoices, setCommandChoices] =
@@ -736,6 +740,10 @@ export function App(props: AppOptions) {
 			}
 		}
 	};
+	const notifyCompactionChange = (tabRuntime: ConversationTabRuntime): void => {
+		if (tabRuntime.id === activeTabId()) setCompactionRevision((value) => value + 1);
+		tabRuntime.onConversationChange();
+	};
 	const routeRuntimeEvent = (event: PiEvent, tabRuntime: ConversationTabRuntime): void => {
 		if (event.type === "compaction_start") {
 			const usage = tabRuntime.sessionStats?.contextUsage;
@@ -757,7 +765,7 @@ export function App(props: AppOptions) {
 					: {}),
 				startedAt: Date.now(),
 			};
-			tabRuntime.onConversationChange();
+			notifyCompactionChange(tabRuntime);
 		}
 		if (isExtensionUiRequest(event)) {
 			if (
@@ -768,11 +776,11 @@ export function App(props: AppOptions) {
 				if (progress === undefined) {
 					if (tabRuntime.smartCompactProgress !== undefined) {
 						delete tabRuntime.smartCompactProgress;
-						tabRuntime.onConversationChange();
+						notifyCompactionChange(tabRuntime);
 					}
 				} else {
 					tabRuntime.smartCompactProgress = progress;
-					tabRuntime.onConversationChange();
+					notifyCompactionChange(tabRuntime);
 				}
 				return;
 			}
@@ -791,7 +799,7 @@ export function App(props: AppOptions) {
 					) {
 						delete tabRuntime.oneRoundProgress;
 						delete tabRuntime.oneRoundLaneTexts;
-						tabRuntime.onConversationChange();
+						notifyCompactionChange(tabRuntime);
 					}
 				} else if (
 					progress.phase === "complete" ||
@@ -799,7 +807,7 @@ export function App(props: AppOptions) {
 					progress.phase === "aborted"
 				) {
 					delete tabRuntime.oneRoundProgress;
-					tabRuntime.onConversationChange();
+					notifyCompactionChange(tabRuntime);
 				} else {
 					tabRuntime.oneRoundLaneTexts = applyOneRoundLaneDeltas(
 						tabRuntime.oneRoundLaneTexts,
@@ -807,7 +815,7 @@ export function App(props: AppOptions) {
 					);
 					if (tabRuntime.oneRoundProgress !== progress) {
 						tabRuntime.oneRoundProgress = progress;
-						tabRuntime.onConversationChange();
+						notifyCompactionChange(tabRuntime);
 					}
 				}
 				return;
@@ -834,7 +842,7 @@ export function App(props: AppOptions) {
 				if (telemetry?.phase === "failed") {
 					delete tabRuntime.compactionTelemetry;
 					delete tabRuntime.lastCompactionCompletion;
-					tabRuntime.onConversationChange();
+					notifyCompactionChange(tabRuntime);
 				} else if (telemetry) {
 					if (telemetry.phase === "complete" && !current && !completion)
 						return;
@@ -859,7 +867,7 @@ export function App(props: AppOptions) {
 							compactionSuccessText(tabRuntime.lastCompactionCompletion),
 						);
 					}
-					tabRuntime.onConversationChange();
+					notifyCompactionChange(tabRuntime);
 				} else if (!invalidCompactionTelemetryWarnings.has(tabRuntime.id)) {
 					invalidCompactionTelemetryWarnings.add(tabRuntime.id);
 					props.logger.warn("compaction.telemetry_invalid", {
@@ -898,7 +906,7 @@ export function App(props: AppOptions) {
 				delete tabRuntime.lastCompactionCompletion;
 			}
 			delete tabRuntime.compactionTelemetry;
-			tabRuntime.onConversationChange();
+			notifyCompactionChange(tabRuntime);
 		}
 		if (
 			tabRuntime.id === activeTabId() &&
@@ -1405,9 +1413,15 @@ export function App(props: AppOptions) {
 		conversationRevision();
 		return activeRuntime().conversation.isStreaming;
 	});
-	const compactionTelemetry = createMemo(() => {
-		conversationRevision();
-		return activeRuntime().compactionTelemetry;
+	const compactionView = createMemo(() => {
+		compactionRevision();
+		const runtime = activeRuntime();
+		return {
+			telemetry: runtime.compactionTelemetry,
+			smartCompactProgress: runtime.smartCompactProgress,
+			oneRoundProgress: runtime.oneRoundProgress,
+			laneTexts: runtime.oneRoundLaneTexts,
+		};
 	});
 	const lastCompactionCompletion = createMemo(() => {
 		conversationRevision();
@@ -3522,6 +3536,7 @@ export function App(props: AppOptions) {
 			const next = nextDetailToggle({
 				toolsExpanded: expandedTools(),
 				thinkingExpanded: thinkingExpanded(),
+				compactionExpanded: compactionExpanded(),
 				hasExpandedToolOverride: activeRuntime().expandedToolIds.size > 0,
 				hasExpandedThinkingOverride: [
 					...activeRuntime().thinkingExpansionOverrides.values(),
@@ -3529,6 +3544,7 @@ export function App(props: AppOptions) {
 			});
 			setExpandedTools(next);
 			setAllThinkingExpanded(next);
+			setCompactionExpanded(next);
 			setExpandedToolIds(new Set<string>());
 			return;
 		}
@@ -3808,26 +3824,18 @@ export function App(props: AppOptions) {
 									);
 								}}
 							</For>
-							<Show when={compactionTelemetry()}>
-								{(telemetry) => (
-									<Show when={telemetry().phase === "preparing"}>
-										<CompactionPanel
-											telemetry={telemetry()}
-											now={clockNow()}
-											spinner={spinnerFrames[spinnerIndex()] ?? "◐"}
-											frame={spinnerIndex()}
-											{...(activeRuntime().smartCompactProgress
-												? { smartCompactProgress: activeRuntime().smartCompactProgress }
-												: {})}
-									{...(activeRuntime().oneRoundProgress
-										? { oneRoundProgress: activeRuntime().oneRoundProgress }
-										: {})}
-									{...(activeRuntime().oneRoundLaneTexts
-										? { laneTexts: activeRuntime().oneRoundLaneTexts }
-										: {})}
-									/>
-									</Show>
-								)}
+							<Show when={compactionView().telemetry?.phase === "preparing"}>
+								<CompactionPanel
+									telemetry={compactionView().telemetry!}
+									now={clockNow()}
+									spinner={spinnerFrames[spinnerIndex()] ?? "◐"}
+									frame={spinnerIndex()}
+									smartCompactProgress={compactionView().smartCompactProgress}
+									oneRoundProgress={compactionView().oneRoundProgress}
+									laneTexts={compactionView().laneTexts}
+									expanded={compactionExpanded}
+									onToggle={() => setCompactionExpanded((value) => !value)}
+								/>
 							</Show>
 							<Show when={showWorkingIndicator()}>
 								<box

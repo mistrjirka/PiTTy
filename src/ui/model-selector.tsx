@@ -93,8 +93,8 @@ export function normalizeModelChoices(values: unknown[]): ModelChoice[] {
 ): string {
 	if (!stats) return "";
 	const parts = [`Turn ${formatDuration(stats.medianTurnMs)}`];
-	if (stats.medianToolCallMs !== undefined)
-		parts.push(`Tool ${formatDuration(stats.medianToolCallMs)}`);
+	if (stats.medianTurnPerToolMs !== undefined)
+		parts.push(`Tool ${formatDuration(stats.medianTurnPerToolMs)}`);
 	return parts.join(" · ");
 }
 

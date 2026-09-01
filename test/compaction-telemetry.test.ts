@@ -180,8 +180,56 @@ describe("pi-one-round-compaction details", () => {
 		intentWorkflow: { active: true, workstream: "fix-flicker", hasPlan: true },
 	};
 
+	const v4Usage = {
+		input: 1_200,
+		output: 600,
+		cacheRead: 80,
+		cacheWrite: 0,
+		cacheWrite1h: 0,
+		reasoning: 200,
+		totalTokens: 1_880,
+		cost: { input: 0.01, output: 0.02, cacheRead: 0.001, cacheWrite: 0, total: 0.031 },
+	};
+	const detailsV4: OneRoundDetails = {
+		...details,
+		version: 4 as const,
+		lanes: details.lanes.map((lane) => ({ ...lane, usage: v4Usage })),
+		targetPostCompactTokens: 32_000,
+		effectiveRecentTokenBudget: 30_000,
+		estimatedTokensAfter: 31_000,
+		targetExceeded: false,
+		traceReadFiles: ["src/a.ts"],
+		traceEditedFiles: ["src/b.ts"],
+		userMessages: [{ timestamp: 1_000, text: "hello", originalChars: 5, trimmed: false }],
+		knownUserArtifactIds: ["U0001"],
+		durableUserReferences: [{ id: "U0001", state: "active", misses: 0, semanticNote: "exact" }],
+		renderBudgets: {
+			intentWorkflowChars: 100,
+			gitStateChars: 200,
+			editedFilesChars: 300,
+			readFilesChars: 400,
+			userMessagesChars: 500,
+			userArtifactReferencesChars: 600,
+		},
+	};
+
 	test("parses a valid version-2 details object", () => {
 		expect(parseOneRoundDetails(details)).toEqual(details);
+	});
+
+	test("parses the installed version-4 details shape without dropping usage or metadata", () => {
+		expect(parseOneRoundDetails(detailsV4)).toEqual(detailsV4);
+		const completion = compactionCompletionFromResult({ details: detailsV4 });
+		expect(completion.wallTimeMs).toBe(detailsV4.wallTimeMs);
+		expect(completion.lanes).toEqual(detailsV4.lanes);
+		expect(completion.estimatedTokensAfter).toBe(detailsV4.estimatedTokensAfter);
+		expect(completion.git).toEqual(detailsV4.git);
+		const invalidUsage = detailsV4.lanes.map((lane) => ({
+			...lane,
+			usage: { ...lane.usage, cost: { ...lane.usage.cost, total: -1 } },
+		}));
+		expect(parseOneRoundDetails({ ...detailsV4, extra: true })).toBeUndefined();
+		expect(parseOneRoundDetails({ ...detailsV4, lanes: invalidUsage })).toBeUndefined();
 	});
 
 	test("accepts every plugin boundary mode and preserves split-turn details", () => {
@@ -314,6 +362,15 @@ describe("pi-one-round-compaction live progress", () => {
 
 	test("parses a valid live progress frame", () => {
 		expect(parseOneRoundProgress(progress)).toEqual(progress);
+	});
+
+	test("parses a serialized live progress frame from the RPC status wire", () => {
+		expect(parseOneRoundProgress(JSON.stringify(progress))).toEqual(progress);
+	});
+
+	test("rejects malformed serialized live progress frames safely", () => {
+		expect(parseOneRoundProgress('{"v":1,')).toBeUndefined();
+		expect(parseOneRoundProgress(JSON.stringify({ ...progress, v: 2 }))).toBeUndefined();
 	});
 
 	test("accepts split-turn in the plugin live progress frame", () => {

@@ -44,7 +44,7 @@ export type CompactionCompletion = {
 	/** Wall-clock duration of the compaction attempt in milliseconds. */
 	durationMs?: number;
 	reason?: CompactionReason;
-	/** One-round compaction plugin details (plugin: pi-one-round-compaction, version 2). */
+	/** One-round compaction plugin details (plugin: pi-one-round-compaction, versions 2 and 4). */
 	plugin?: "pi-one-round-compaction";
 	/** Wall-clock duration of the one-round compaction in milliseconds. */
 	wallTimeMs?: number;
@@ -59,7 +59,7 @@ export type CompactionCompletion = {
 	/** Whether the plugin cut inside a turn. */
 	isSplitTurn?: boolean;
 	/** Per-lane summarization results (intent + execution). */
-	lanes?: OneRoundLane[];
+	lanes?: Array<OneRoundLane | OneRoundLaneV2>;
 	/** Read-only / relevant files tracked by the plugin across compactions. */
 	readFiles?: string[];
 	/** Modified files tracked by the plugin across compactions. */
@@ -70,11 +70,61 @@ export type CompactionCompletion = {
 	intentWorkflow?: OneRoundIntentWorkflow;
 };
 
+export type OneRoundLaneV2 = {
+	lane: "intent" | "execution";
+	model: string;
+	thinkingLevel: string;
+	durationMs: number;
+};
+
+export type OneRoundUsageCost = {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	total: number;
+};
+
+export type OneRoundUsage = {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	cacheWrite1h?: number;
+	reasoning?: number;
+	totalTokens: number;
+	cost: OneRoundUsageCost;
+};
+
 export type OneRoundLane = {
 	lane: "intent" | "execution";
 	model: string;
 	thinkingLevel: string;
 	durationMs: number;
+	usage: OneRoundUsage;
+};
+
+export type OneRoundUserMessage = {
+	timestamp: number;
+	text: string;
+	originalChars: number;
+	trimmed: boolean;
+};
+
+export type OneRoundDurableUserReference = {
+	id: string;
+	state: "active" | "cooling";
+	misses: number;
+	semanticNote?: string;
+};
+
+export type OneRoundRenderBudgets = {
+	intentWorkflowChars: number;
+	gitStateChars: number;
+	editedFilesChars: number;
+	readFilesChars: number;
+	userMessagesChars: number;
+	userArtifactReferencesChars: number;
 };
 
 export type OneRoundGit = {
@@ -94,10 +144,10 @@ export type OneRoundIntentWorkflow = {
 };
 
 /** Shape written by pi-one-round-compaction into CompactionResult.details (version 2). */
-export type OneRoundDetails = {
+export type OneRoundDetailsV2 = {
 	plugin: "pi-one-round-compaction";
 	version: 2;
-	lanes: OneRoundLane[];
+	lanes: OneRoundLaneV2[];
 	wallTimeMs: number;
 	keepRecentTokens: number;
 	boundaryMode: OneRoundBoundaryMode;
@@ -109,6 +159,35 @@ export type OneRoundDetails = {
 	git?: OneRoundGit;
 	intentWorkflow: OneRoundIntentWorkflow;
 };
+
+/** Shape written by pi-one-round-compaction into CompactionResult.details (version 4). */
+export type OneRoundDetailsV4 = {
+	plugin: "pi-one-round-compaction";
+	version: 4;
+	lanes: OneRoundLane[];
+	wallTimeMs: number;
+	keepRecentTokens: number;
+	boundaryMode: OneRoundBoundaryMode;
+	retainedTurns: number;
+	estimatedRetainedTokens: number;
+	targetPostCompactTokens: number;
+	effectiveRecentTokenBudget: number;
+	estimatedTokensAfter: number;
+	targetExceeded: boolean;
+	isSplitTurn: boolean;
+	readFiles: string[];
+	modifiedFiles: string[];
+	traceReadFiles: string[];
+	traceEditedFiles: string[];
+	userMessages: OneRoundUserMessage[];
+	knownUserArtifactIds: string[];
+	durableUserReferences: OneRoundDurableUserReference[];
+	renderBudgets: OneRoundRenderBudgets;
+	git?: OneRoundGit;
+	intentWorkflow: OneRoundIntentWorkflow;
+};
+
+export type OneRoundDetails = OneRoundDetailsV2 | OneRoundDetailsV4;
 
 export type OneRoundLaneProgress = {
 	role: "intent" | "execution" | "implementation" | "evidence";
@@ -405,6 +484,9 @@ export function compactionCompletionFromResult(
 		completion.retainedTurns = oneRound.retainedTurns;
 		completion.keepRecentTokens = oneRound.keepRecentTokens;
 		completion.estimatedRetainedTokens = oneRound.estimatedRetainedTokens;
+		if (oneRound.version === 4 && completion.estimatedTokensAfter === undefined) {
+			completion.estimatedTokensAfter = oneRound.estimatedTokensAfter;
+		}
 		completion.isSplitTurn = oneRound.isSplitTurn;
 		completion.lanes = oneRound.lanes;
 		completion.readFiles = oneRound.readFiles;
@@ -505,85 +587,301 @@ function isOneRoundBoundaryMode(value: unknown): value is OneRoundBoundaryMode {
 	return value === "whole-turn" || value === "split-turn" || value === "pi-fallback";
 }
 
-const ONE_ROUND_PROGRESS_PHASES = [
-	"preparing",
-	"streaming",
-	"merging",
-	"complete",
-	"error",
-	"aborted",
-] as const;
-const ONE_ROUND_LANE_ROLES = ["intent", "execution", "implementation", "evidence"] as const;
-const ONE_ROUND_LANE_STATES = ["queued", "streaming", "done", "error"] as const;
+function hasOnlyKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
+	return Object.keys(record).every((key) => keys.includes(key));
+}
 
-/**
- * Validates the pi-one-round-compaction details object (version 2) that the
- * plugin writes into CompactionResult.details. Returns undefined for anything
- * that is not produced by that plugin so foreign/older details stay hidden.
- */
-export function parseOneRoundDetails(value: unknown): OneRoundDetails | undefined {
-	if (!isRecord(value)) return undefined;
-	if (value.plugin !== "pi-one-round-compaction" || value.version !== 2) return undefined;
-	if (!Array.isArray(value.lanes) || value.lanes.length === 0) return undefined;
-	const lanes: OneRoundLane[] = [];
-	for (const raw of value.lanes) {
-		if (!isRecord(raw)) return undefined;
-		if (raw.lane !== "intent" && raw.lane !== "execution") return undefined;
-		if (typeof raw.model !== "string" || typeof raw.thinkingLevel !== "string") return undefined;
-		if (!isFiniteNonNegativeInteger(raw.durationMs)) return undefined;
-		lanes.push({
-			lane: raw.lane,
-			model: raw.model,
-			thinkingLevel: raw.thinkingLevel,
-			durationMs: raw.durationMs,
-		});
-	}
-	if (!isFiniteNonNegativeInteger(value.wallTimeMs)) return undefined;
-	if (!isFiniteNonNegative(value.keepRecentTokens)) return undefined;
-	if (!isOneRoundBoundaryMode(value.boundaryMode)) return undefined;
-	if (!isFiniteNonNegativeInteger(value.retainedTurns)) return undefined;
-	if (!isFiniteNonNegative(value.estimatedRetainedTokens)) return undefined;
-	if (typeof value.isSplitTurn !== "boolean") return undefined;
-	if (!isStringArray(value.readFiles) || !isStringArray(value.modifiedFiles)) return undefined;
-	let git: OneRoundGit | undefined;
-	if (value.git !== undefined) {
-		if (!isRecord(value.git)) return undefined;
-		if (
-			typeof value.git.root !== "string" ||
-			typeof value.git.branch !== "string" ||
-			typeof value.git.head !== "string" ||
-			!isStringArray(value.git.dirty) ||
-			typeof value.git.truncated !== "boolean"
-		) {
-			return undefined;
-		}
-		git = {
-			root: value.git.root,
-			branch: value.git.branch,
-			head: value.git.head,
-			dirty: value.git.dirty,
-			truncated: value.git.truncated,
-		};
-	}
-	if (!isRecord(value.intentWorkflow) || typeof value.intentWorkflow.active !== "boolean") {
+function isOneRoundLaneName(value: unknown): value is "intent" | "execution" {
+	return value === "intent" || value === "execution";
+}
+
+function parseOneRoundLaneV2(value: unknown): OneRoundLaneV2 | undefined {
+	if (
+		!isRecord(value) ||
+		!hasOnlyKeys(value, ["lane", "model", "thinkingLevel", "durationMs"]) ||
+		!isOneRoundLaneName(value.lane) ||
+		typeof value.model !== "string" ||
+		typeof value.thinkingLevel !== "string" ||
+		!isFiniteNonNegativeInteger(value.durationMs)
+	) {
 		return undefined;
 	}
-	const intentWorkflow: OneRoundIntentWorkflow = { active: value.intentWorkflow.active };
-	const workflow = value.intentWorkflow;
-	if (workflow.active) {
-		if (typeof workflow.workstream !== "string" || typeof workflow.hasPlan !== "boolean") {
-			return undefined;
-		}
-		intentWorkflow.workstream = workflow.workstream;
-		intentWorkflow.hasPlan = workflow.hasPlan;
+	return {
+		lane: value.lane,
+		model: value.model,
+		thinkingLevel: value.thinkingLevel,
+		durationMs: value.durationMs,
+	};
+}
+
+function parseOneRoundLanesV2(value: unknown): OneRoundLaneV2[] | undefined {
+	if (!Array.isArray(value) || value.length === 0) return undefined;
+	const lanes: OneRoundLaneV2[] = [];
+	for (const item of value) {
+		const lane = parseOneRoundLaneV2(item);
+		if (lane === undefined) return undefined;
+		lanes.push(lane);
 	}
-	if (workflow.intentTruncated !== undefined) {
-		if (typeof workflow.intentTruncated !== "boolean") return undefined;
-		intentWorkflow.intentTruncated = workflow.intentTruncated;
+	return lanes;
+}
+
+function parseOneRoundUsageCost(value: unknown): OneRoundUsageCost | undefined {
+	if (
+		!isRecord(value) ||
+		!hasOnlyKeys(value, ["input", "output", "cacheRead", "cacheWrite", "total"]) ||
+		!isFiniteNonNegative(value.input) ||
+		!isFiniteNonNegative(value.output) ||
+		!isFiniteNonNegative(value.cacheRead) ||
+		!isFiniteNonNegative(value.cacheWrite) ||
+		!isFiniteNonNegative(value.total)
+	) {
+		return undefined;
 	}
-	if (workflow.planTruncated !== undefined) {
-		if (typeof workflow.planTruncated !== "boolean") return undefined;
-		intentWorkflow.planTruncated = workflow.planTruncated;
+	return {
+		input: value.input,
+		output: value.output,
+		cacheRead: value.cacheRead,
+		cacheWrite: value.cacheWrite,
+		total: value.total,
+	};
+}
+
+function parseOneRoundUsage(value: unknown): OneRoundUsage | undefined {
+	if (!isRecord(value) || !hasOnlyKeys(value, ["input", "output", "cacheRead", "cacheWrite", "cacheWrite1h", "reasoning", "totalTokens", "cost"])) return undefined;
+	if (
+		!isFiniteNonNegative(value.input) ||
+		!isFiniteNonNegative(value.output) ||
+		!isFiniteNonNegative(value.cacheRead) ||
+		!isFiniteNonNegative(value.cacheWrite) ||
+		!isFiniteNonNegative(value.totalTokens)
+	) {
+		return undefined;
+	}
+	if (value.cacheWrite1h !== undefined && !isFiniteNonNegative(value.cacheWrite1h)) return undefined;
+	if (value.reasoning !== undefined && !isFiniteNonNegative(value.reasoning)) return undefined;
+	const cost = parseOneRoundUsageCost(value.cost);
+	if (cost === undefined) return undefined;
+	return {
+		input: value.input,
+		output: value.output,
+		cacheRead: value.cacheRead,
+		cacheWrite: value.cacheWrite,
+		...(value.cacheWrite1h !== undefined ? { cacheWrite1h: value.cacheWrite1h } : {}),
+		...(value.reasoning !== undefined ? { reasoning: value.reasoning } : {}),
+		totalTokens: value.totalTokens,
+		cost,
+	};
+}
+
+function parseOneRoundLaneV4(value: unknown): OneRoundLane | undefined {
+	if (
+		!isRecord(value) ||
+		!hasOnlyKeys(value, ["lane", "model", "thinkingLevel", "durationMs", "usage"]) ||
+		!isOneRoundLaneName(value.lane) ||
+		typeof value.model !== "string" ||
+		typeof value.thinkingLevel !== "string" ||
+		!isFiniteNonNegativeInteger(value.durationMs)
+	) {
+		return undefined;
+	}
+	const usage = parseOneRoundUsage(value.usage);
+	if (usage === undefined) return undefined;
+	return {
+		lane: value.lane,
+		model: value.model,
+		thinkingLevel: value.thinkingLevel,
+		durationMs: value.durationMs,
+		usage,
+	};
+}
+
+function parseOneRoundLanesV4(value: unknown): OneRoundLane[] | undefined {
+	if (!Array.isArray(value) || value.length === 0) return undefined;
+	const lanes: OneRoundLane[] = [];
+	for (const item of value) {
+		const lane = parseOneRoundLaneV4(item);
+		if (lane === undefined) return undefined;
+		lanes.push(lane);
+	}
+	return lanes;
+}
+
+function parseOneRoundUserMessage(value: unknown): OneRoundUserMessage | undefined {
+	if (
+		!isRecord(value) ||
+		!hasOnlyKeys(value, ["timestamp", "text", "originalChars", "trimmed"]) ||
+		!isFiniteNonNegative(value.timestamp) ||
+		typeof value.text !== "string" ||
+		!isFiniteNonNegativeInteger(value.originalChars) ||
+		typeof value.trimmed !== "boolean"
+	) {
+		return undefined;
+	}
+	return {
+		timestamp: value.timestamp,
+		text: value.text,
+		originalChars: value.originalChars,
+		trimmed: value.trimmed,
+	};
+}
+
+function parseOneRoundUserMessages(value: unknown): OneRoundUserMessage[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const messages: OneRoundUserMessage[] = [];
+	for (const item of value) {
+		const message = parseOneRoundUserMessage(item);
+		if (message === undefined) return undefined;
+		messages.push(message);
+	}
+	return messages;
+}
+
+function parseOneRoundDurableReference(value: unknown): OneRoundDurableUserReference | undefined {
+	if (
+		!isRecord(value) ||
+		!hasOnlyKeys(value, ["id", "state", "misses", "semanticNote"]) ||
+		typeof value.id !== "string" ||
+		(value.state !== "active" && value.state !== "cooling") ||
+		!isFiniteNonNegativeInteger(value.misses) ||
+		(value.semanticNote !== undefined && typeof value.semanticNote !== "string")
+	) {
+		return undefined;
+	}
+	return {
+		id: value.id,
+		state: value.state,
+		misses: value.misses,
+		...(typeof value.semanticNote === "string" ? { semanticNote: value.semanticNote } : {}),
+	};
+}
+
+function parseOneRoundDurableReferences(value: unknown): OneRoundDurableUserReference[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const references: OneRoundDurableUserReference[] = [];
+	for (const item of value) {
+		const reference = parseOneRoundDurableReference(item);
+		if (reference === undefined) return undefined;
+		references.push(reference);
+	}
+	return references;
+}
+
+function parseOneRoundRenderBudgets(value: unknown): OneRoundRenderBudgets | undefined {
+	if (!isRecord(value)) return undefined;
+	const intentWorkflowChars = value.intentWorkflowChars;
+	const gitStateChars = value.gitStateChars;
+	const editedFilesChars = value.editedFilesChars;
+	const readFilesChars = value.readFilesChars;
+	const userMessagesChars = value.userMessagesChars;
+	const userArtifactReferencesChars = value.userArtifactReferencesChars;
+	if (
+		!hasOnlyKeys(value, [
+			"intentWorkflowChars",
+			"gitStateChars",
+			"editedFilesChars",
+			"readFilesChars",
+			"userMessagesChars",
+			"userArtifactReferencesChars",
+		]) ||
+		!isFiniteNonNegativeInteger(intentWorkflowChars) ||
+		!isFiniteNonNegativeInteger(gitStateChars) ||
+		!isFiniteNonNegativeInteger(editedFilesChars) ||
+		!isFiniteNonNegativeInteger(readFilesChars) ||
+		!isFiniteNonNegativeInteger(userMessagesChars) ||
+		!isFiniteNonNegativeInteger(userArtifactReferencesChars)
+	) {
+		return undefined;
+	}
+	return {
+		intentWorkflowChars,
+		gitStateChars,
+		editedFilesChars,
+		readFilesChars,
+		userMessagesChars,
+		userArtifactReferencesChars,
+	};
+}
+
+function parseOneRoundGit(value: unknown): OneRoundGit | undefined {
+	if (
+		!isRecord(value) ||
+		!hasOnlyKeys(value, ["root", "branch", "head", "dirty", "truncated"]) ||
+		typeof value.root !== "string" ||
+		typeof value.branch !== "string" ||
+		typeof value.head !== "string" ||
+		!isStringArray(value.dirty) ||
+		typeof value.truncated !== "boolean"
+	) {
+		return undefined;
+	}
+	return {
+		root: value.root,
+		branch: value.branch,
+		head: value.head,
+		dirty: value.dirty,
+		truncated: value.truncated,
+	};
+}
+
+function parseOneRoundIntentWorkflow(value: unknown): OneRoundIntentWorkflow | undefined {
+	if (
+		!isRecord(value) ||
+		!hasOnlyKeys(value, ["active", "workstream", "hasPlan", "intentTruncated", "planTruncated"]) ||
+		typeof value.active !== "boolean" ||
+		(value.workstream !== undefined && typeof value.workstream !== "string") ||
+		(value.hasPlan !== undefined && typeof value.hasPlan !== "boolean") ||
+		(value.intentTruncated !== undefined && typeof value.intentTruncated !== "boolean") ||
+		(value.planTruncated !== undefined && typeof value.planTruncated !== "boolean")
+	) {
+		return undefined;
+	}
+	if (value.active && (typeof value.workstream !== "string" || typeof value.hasPlan !== "boolean")) return undefined;
+	return {
+		active: value.active,
+		...(typeof value.workstream === "string" ? { workstream: value.workstream } : {}),
+		...(typeof value.hasPlan === "boolean" ? { hasPlan: value.hasPlan } : {}),
+		...(typeof value.intentTruncated === "boolean" ? { intentTruncated: value.intentTruncated } : {}),
+		...(typeof value.planTruncated === "boolean" ? { planTruncated: value.planTruncated } : {}),
+	};
+}
+
+function parseOneRoundDetailsV2(value: Record<string, unknown>): OneRoundDetailsV2 | undefined {
+	if (
+		!hasOnlyKeys(value, [
+			"plugin",
+			"version",
+			"lanes",
+			"wallTimeMs",
+			"keepRecentTokens",
+			"boundaryMode",
+			"retainedTurns",
+			"estimatedRetainedTokens",
+			"isSplitTurn",
+			"readFiles",
+			"modifiedFiles",
+			"git",
+			"intentWorkflow",
+		])
+	) {
+		return undefined;
+	}
+	const lanes = parseOneRoundLanesV2(value.lanes);
+	const git = value.git === undefined ? undefined : parseOneRoundGit(value.git);
+	const intentWorkflow = parseOneRoundIntentWorkflow(value.intentWorkflow);
+	if (
+		lanes === undefined ||
+		!isFiniteNonNegativeInteger(value.wallTimeMs) ||
+		!isFiniteNonNegative(value.keepRecentTokens) ||
+		!isOneRoundBoundaryMode(value.boundaryMode) ||
+		!isFiniteNonNegativeInteger(value.retainedTurns) ||
+		!isFiniteNonNegative(value.estimatedRetainedTokens) ||
+		typeof value.isSplitTurn !== "boolean" ||
+		!isStringArray(value.readFiles) ||
+		!isStringArray(value.modifiedFiles) ||
+		(value.git !== undefined && git === undefined) ||
+		intentWorkflow === undefined
+	) {
+		return undefined;
 	}
 	return {
 		plugin: "pi-one-round-compaction",
@@ -597,9 +895,120 @@ export function parseOneRoundDetails(value: unknown): OneRoundDetails | undefine
 		isSplitTurn: value.isSplitTurn,
 		readFiles: value.readFiles,
 		modifiedFiles: value.modifiedFiles,
-		...(git ? { git } : {}),
+		...(git === undefined ? {} : { git }),
 		intentWorkflow,
 	};
+}
+
+function parseOneRoundDetailsV4(value: Record<string, unknown>): OneRoundDetailsV4 | undefined {
+	if (
+		!hasOnlyKeys(value, [
+			"plugin",
+			"version",
+			"lanes",
+			"wallTimeMs",
+			"keepRecentTokens",
+			"boundaryMode",
+			"retainedTurns",
+			"estimatedRetainedTokens",
+			"targetPostCompactTokens",
+			"effectiveRecentTokenBudget",
+			"estimatedTokensAfter",
+			"targetExceeded",
+			"isSplitTurn",
+			"readFiles",
+			"modifiedFiles",
+			"traceReadFiles",
+			"traceEditedFiles",
+			"userMessages",
+			"knownUserArtifactIds",
+			"durableUserReferences",
+			"renderBudgets",
+			"git",
+			"intentWorkflow",
+		])
+	) {
+		return undefined;
+	}
+	const lanes = parseOneRoundLanesV4(value.lanes);
+	const userMessages = parseOneRoundUserMessages(value.userMessages);
+	const durableUserReferences = parseOneRoundDurableReferences(value.durableUserReferences);
+	const renderBudgets = parseOneRoundRenderBudgets(value.renderBudgets);
+	const git = value.git === undefined ? undefined : parseOneRoundGit(value.git);
+	const intentWorkflow = parseOneRoundIntentWorkflow(value.intentWorkflow);
+	if (
+		lanes === undefined ||
+		!isFiniteNonNegativeInteger(value.wallTimeMs) ||
+		!isFiniteNonNegative(value.keepRecentTokens) ||
+		!isOneRoundBoundaryMode(value.boundaryMode) ||
+		!isFiniteNonNegativeInteger(value.retainedTurns) ||
+		!isFiniteNonNegative(value.estimatedRetainedTokens) ||
+		!isFiniteNonNegative(value.targetPostCompactTokens) ||
+		!isFiniteNonNegative(value.effectiveRecentTokenBudget) ||
+		!isFiniteNonNegative(value.estimatedTokensAfter) ||
+		typeof value.targetExceeded !== "boolean" ||
+		typeof value.isSplitTurn !== "boolean" ||
+		!isStringArray(value.readFiles) ||
+		!isStringArray(value.modifiedFiles) ||
+		!isStringArray(value.traceReadFiles) ||
+		!isStringArray(value.traceEditedFiles) ||
+		userMessages === undefined ||
+		!isStringArray(value.knownUserArtifactIds) ||
+		durableUserReferences === undefined ||
+		renderBudgets === undefined ||
+		(value.git !== undefined && git === undefined) ||
+		intentWorkflow === undefined
+	) {
+		return undefined;
+	}
+	return {
+		plugin: "pi-one-round-compaction",
+		version: 4,
+		lanes,
+		wallTimeMs: value.wallTimeMs,
+		keepRecentTokens: value.keepRecentTokens,
+		boundaryMode: value.boundaryMode,
+		retainedTurns: value.retainedTurns,
+		estimatedRetainedTokens: value.estimatedRetainedTokens,
+		targetPostCompactTokens: value.targetPostCompactTokens,
+		effectiveRecentTokenBudget: value.effectiveRecentTokenBudget,
+		estimatedTokensAfter: value.estimatedTokensAfter,
+		targetExceeded: value.targetExceeded,
+		isSplitTurn: value.isSplitTurn,
+		readFiles: value.readFiles,
+		modifiedFiles: value.modifiedFiles,
+		traceReadFiles: value.traceReadFiles,
+		traceEditedFiles: value.traceEditedFiles,
+		userMessages,
+		knownUserArtifactIds: value.knownUserArtifactIds,
+		durableUserReferences,
+		renderBudgets,
+		...(git === undefined ? {} : { git }),
+		intentWorkflow,
+	};
+}
+
+const ONE_ROUND_PROGRESS_PHASES = [
+	"preparing",
+	"streaming",
+	"merging",
+	"complete",
+	"error",
+	"aborted",
+] as const;
+const ONE_ROUND_LANE_ROLES = ["intent", "execution", "implementation", "evidence"] as const;
+const ONE_ROUND_LANE_STATES = ["queued", "streaming", "done", "error"] as const;
+
+/**
+ * Validates the pi-one-round-compaction details objects (versions 2 and 4) that the
+ * plugin writes into CompactionResult.details. Returns undefined for anything
+ * that is not produced by that plugin so foreign/older details stay hidden.
+ */
+export function parseOneRoundDetails(value: unknown): OneRoundDetails | undefined {
+	if (!isRecord(value) || value.plugin !== "pi-one-round-compaction") return undefined;
+	if (value.version === 2) return parseOneRoundDetailsV2(value);
+	if (value.version === 4) return parseOneRoundDetailsV4(value);
+	return undefined;
 }
 
 function parseOneRoundLaneProgress(value: unknown): OneRoundLaneProgress | undefined {
@@ -637,6 +1046,13 @@ function parseOneRoundLaneProgress(value: unknown): OneRoundLaneProgress | undef
  * publishes via ctx.ui.setStatus("pi-one-round-compaction.progress.v1", ...).
  */
 export function parseOneRoundProgress(value: unknown): OneRoundProgress | undefined {
+	if (typeof value === "string") {
+		try {
+			value = JSON.parse(value);
+		} catch {
+			return undefined;
+		}
+	}
 	if (!isRecord(value) || value.v !== 1) return undefined;
 	if (typeof value.runId !== "string" || !value.runId) return undefined;
 	if (!isFiniteNonNegativeInteger(value.seq)) return undefined;

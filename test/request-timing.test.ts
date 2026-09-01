@@ -148,6 +148,7 @@ describe("request timing", () => {
 				turnMs: 1_000,
 				modelToToolMs: 100,
 				toolCallDurationsMs: [400, 600],
+				toolCallCount: 2,
 			},
 			{
 				timingVersion: REQUEST_TIMING_VERSION,
@@ -156,6 +157,7 @@ describe("request timing", () => {
 				turnMs: 3_000,
 				modelToToolMs: 300,
 				toolCallDurationsMs: [800],
+				toolCallCount: 3,
 			},
 			{
 				timingVersion: REQUEST_TIMING_VERSION,
@@ -168,8 +170,25 @@ describe("request timing", () => {
 		expect(requestTimingStats(history, "openai", "gpt-5")).toEqual({
 			medianTurnMs: 2_000,
 			medianModelToToolMs: 200,
-			medianToolCallMs: 600,
+			medianTurnPerToolMs: 750,
 		});
+	});
+
+	test("ignores samples without a positive tool call count", () => {
+		const base = {
+			timingVersion: REQUEST_TIMING_VERSION as 2,
+			provider: "openai",
+			modelId: "gpt-5",
+			toolCallDurationsMs: [900],
+		};
+		expect(
+			requestTimingStats([
+				{ ...base, turnMs: 1_000, toolCallCount: 0 },
+				{ ...base, turnMs: 2_000 },
+				{ ...base, turnMs: 3_000, toolCallCount: -1 },
+				{ ...base, turnMs: 4_000, toolCallCount: 1.5 },
+			], "openai", "gpt-5"),
+		).toEqual({ medianTurnMs: 2_500 });
 	});
 
 	test("discards incompatible request-level samples", () => {

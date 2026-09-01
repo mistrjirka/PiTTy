@@ -11,7 +11,7 @@ import {
 } from "@opentui/core";
 import type { TestRendererSetup } from "@opentui/core/testing";
 import { createDynamic, testRender } from "@opentui/solid";
-import { For, Show, createSignal } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 import {
 	cleanThinkingText,
 	MessageView,
@@ -25,7 +25,12 @@ import {
 	indeterminateCompactionBar,
 	laneTailLines,
 } from "../src/ui/compaction-panel.tsx";
-import type { CompactionCompletion } from "../src/state/compaction-telemetry.ts";
+import type {
+	CompactionCompletion,
+	CompactionTelemetry,
+	OneRoundLaneTexts,
+	OneRoundProgress,
+} from "../src/state/compaction-telemetry.ts";
 import {
 	filterModelChoices,
 	formatContextWindow,
@@ -456,7 +461,7 @@ describe("OpenTUI components", () => {
 		await modelSetup.mockInput.typeText("beta");
 		await modelSetup.flush();
 		expect(modelSetup.captureCharFrame()).toContain("anthropic/beta");
-		expect(modelSetup.captureCharFrame()).toContain("Turn 2s · Tool 900ms");
+		expect(modelSetup.captureCharFrame()).toContain("Turn 2s · Tool 2s");
 		modelSetup.mockInput.pressArrow("down");
 		await modelSetup.flush();
 		modelSetup.mockInput.pressEnter();
@@ -1031,6 +1036,11 @@ describe("OpenTUI components", () => {
 		expect(laneTailLines("")).toEqual([]);
 		expect(laneTailLines("one\ntwo\nthree\n")).toEqual(["one", "two", "three"]);
 		expect(laneTailLines("l1\nl2\nl3\nl4\nl5")).toEqual(["…", "l4", "l5"]);
+		expect(laneTailLines(Array.from({ length: 14 }, (_, i) => `line ${i + 1}`).join("\n"), 12)).toEqual([
+			"…",
+			...Array.from({ length: 11 }, (_, i) => `line ${i + 4}`),
+		]);
+		const [expanded, setExpanded] = createSignal(false);
 		const setup = await mount(
 			() => (
 				<CompactionPanel
@@ -1056,17 +1066,101 @@ describe("OpenTUI components", () => {
 						},
 					}}
 					laneTexts={{ runId: "run-1", intent: "line one\nline two\nline three\nline four", execution: "" }}
+					expanded={expanded}
+					onToggle={() => setExpanded((value) => !value)}
 				/>
 			),
 			100,
 			14,
 		);
-		const frame = setup.captureCharFrame();
+		let frame = setup.captureCharFrame();
 		expect(frame).toContain("◐ intent · streaming · 900 chars");
 		expect(frame).toContain("line three");
 		expect(frame).toContain("line four");
 		expect(frame).not.toContain("line one");
 		expect(frame).toContain("execution · queued · 0 chars");
+		expect(frame).toContain("expand");
+		const toggle = setup.renderer.root.findDescendantById("compaction-panel-toggle") as TextRenderable | undefined;
+		expect(toggle).toBeDefined();
+		if (!toggle) throw new Error("compaction panel toggle missing");
+		await setup.mockMouse.click(toggle.x, toggle.y);
+		await setup.flush();
+		expect(expanded()).toBe(true);
+		frame = setup.captureCharFrame();
+		expect(frame).toContain("collapse");
+		expect(frame).toContain("line one");
+	});
+
+	test("updates the mounted compaction panel when live progress arrives", async () => {
+		const [revision, setRevision] = createSignal(0);
+		const runtime: {
+			telemetry: CompactionTelemetry | undefined;
+			smartCompactProgress: string | undefined;
+			oneRoundProgress: OneRoundProgress | undefined;
+			laneTexts: OneRoundLaneTexts | undefined;
+		} = {
+			telemetry: { version: 1, phase: "preparing", reason: "manual", startedAt: 1_000 },
+			smartCompactProgress: undefined,
+			oneRoundProgress: undefined,
+			laneTexts: undefined,
+		};
+		const compactionView = createMemo(() => {
+			revision();
+			return {
+				telemetry: runtime.telemetry,
+				smartCompactProgress: runtime.smartCompactProgress,
+				oneRoundProgress: runtime.oneRoundProgress,
+				laneTexts: runtime.laneTexts,
+			};
+		});
+		const publish = () => setRevision((value) => value + 1);
+		const progress: OneRoundProgress = {
+			v: 1,
+			runId: "run-1",
+			seq: 1,
+			phase: "streaming",
+			mode: "normal",
+			reason: "manual",
+			elapsedMs: 500,
+			retainedTurns: 1,
+			estimatedRetainedTokens: 10_000,
+			keepRecentTokens: 12_000,
+			boundaryMode: "whole-turn",
+			lanes: {
+				intent: { role: "intent", state: "streaming", chars: 10 },
+				execution: { role: "execution", state: "queued", chars: 0 },
+			},
+		};
+		const setup = await mount(
+			() => (
+				<Show when={compactionView().telemetry?.phase === "preparing"}>
+					<CompactionPanel
+						telemetry={compactionView().telemetry!}
+						now={2_000}
+						spinner="◐"
+						frame={1}
+						smartCompactProgress={compactionView().smartCompactProgress}
+						oneRoundProgress={compactionView().oneRoundProgress}
+						laneTexts={compactionView().laneTexts}
+					/>
+				</Show>
+			),
+			100,
+			10,
+		);
+		let frame = setup.captureCharFrame();
+		expect(frame).toContain("Activity [");
+		runtime.oneRoundProgress = progress;
+		publish();
+		await setup.flush();
+		frame = setup.captureCharFrame();
+		expect(frame).toContain("intent · streaming · 10 chars");
+		expect(frame).not.toContain("Activity [");
+		runtime.telemetry = undefined;
+		runtime.oneRoundProgress = undefined;
+		publish();
+		await setup.flush();
+		expect(setup.captureCharFrame()).not.toContain("Compacting");
 	});
 
 	test("renders the compacted summary collapsed and expanded with the markdown summary", async () => {
@@ -2425,12 +2519,20 @@ describe("OpenTUI components", () => {
 			nextDetailToggle({
 				toolsExpanded: false,
 				thinkingExpanded: false,
+				compactionExpanded: true,
 				hasExpandedToolOverride: true,
 			}),
 		).toBe(false);
 		expect(
 			nextDetailToggle({ toolsExpanded: false, thinkingExpanded: false }),
 		).toBe(true);
+		expect(
+			nextDetailToggle({
+				toolsExpanded: false,
+				thinkingExpanded: false,
+				compactionExpanded: true,
+			}),
+		).toBe(false);
 	});
 
 	test("normalizes and renders the Ctrl+P model list", async () => {
@@ -2512,6 +2614,7 @@ describe("OpenTUI components", () => {
 				turnMs: 6_200,
 				modelToToolMs: 800,
 				toolCallDurationsMs: [600, 700],
+				toolCallCount: 1,
 				toolWallMs: 900,
 			},
 			{
@@ -2521,6 +2624,7 @@ describe("OpenTUI components", () => {
 				turnMs: 8_400,
 				modelToToolMs: 1_200,
 				toolCallDurationsMs: [800, 900, 1_000],
+				toolCallCount: 2,
 				toolWallMs: 1_400,
 			},
 			{
@@ -2556,7 +2660,7 @@ describe("OpenTUI components", () => {
 		);
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("Timing");
-		expect(frame).toContain("Turn 7s · Tool 800ms");
+		expect(frame).toContain("Turn 7s · Tool 5s");
 		expect(frame).not.toContain("Turn 2s");
 		expect(frame).not.toContain("other-model");
 	});

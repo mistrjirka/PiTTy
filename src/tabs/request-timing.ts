@@ -22,7 +22,8 @@ export const MAX_REQUEST_TIMING_HISTORY = 1_000;
 export type RequestTimingStats = {
 	medianTurnMs: number;
 	medianModelToToolMs?: number;
-	medianToolCallMs?: number;
+	/** Median model-call Turn duration per tool call, from samples with a positive call count. */
+	medianTurnPerToolMs?: number;
 };
 
 type TimingTurn = {
@@ -328,14 +329,19 @@ export function requestTimingStats(
 	const modelToTool = samples.flatMap((sample) =>
 		sample.modelToToolMs === undefined ? [] : [sample.modelToToolMs],
 	);
-	const toolDurations = samples.flatMap((sample) => sample.toolCallDurationsMs);
+	const turnPerTool = samples.flatMap((sample) => {
+		const count = sample.toolCallCount;
+		if (count === undefined || !Number.isInteger(count) || count <= 0) return []
+		const value = sample.turnMs / count;
+		return Number.isFinite(value) && value > 0 ? [value] : [];
+	});
 	const stats: RequestTimingStats = {
 		medianTurnMs: median(samples.map((sample) => sample.turnMs))!,
 	};
 	const medianModelToToolMs = median(modelToTool);
 	if (medianModelToToolMs !== undefined)
 		stats.medianModelToToolMs = medianModelToToolMs;
-	const medianToolCallMs = median(toolDurations);
-	if (medianToolCallMs !== undefined) stats.medianToolCallMs = medianToolCallMs;
+	const medianTurnPerToolMs = median(turnPerTool);
+	if (medianTurnPerToolMs !== undefined) stats.medianTurnPerToolMs = medianTurnPerToolMs;
 	return stats;
 }
