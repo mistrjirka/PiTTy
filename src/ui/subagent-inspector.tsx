@@ -10,7 +10,7 @@ import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
 import { colors } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
 import { formatContextWindow } from "./model-selector.tsx";
-import { MessageView } from "./message.tsx";
+import { cleanTerminalText, MessageView } from "./message.tsx";
 
 export function SubagentInspector(props: {
 	target?: SubagentTarget | undefined;
@@ -132,7 +132,7 @@ export function SubagentInspector(props: {
 							props.onChooseTarget?.();
 						}}
 					>
-						{target().label} ▼
+						{cleanTerminalText(target().label)} ▼
 					</text>
 					<text
 						id="subagent-inspector-close"
@@ -213,8 +213,8 @@ export function SubagentInspector(props: {
 				{(() => {
 					const currentStep = step();
 					const who = currentStep
-						? `${currentStep.agent} #${currentStep.index + 1}`
-						: target().label;
+						? `${cleanTerminalText(currentStep.agent)} #${currentStep.index + 1}`
+						: cleanTerminalText(target().label);
 					const timing = [
 						`⏱${formatDuration(elapsed())}`,
 						timeoutMs() ? `⏳${formatDuration(timeoutMs())}` : "",
@@ -232,7 +232,7 @@ export function SubagentInspector(props: {
 							wrapMode="none"
 							fg={colors.muted}
 						>
-							{who} · {run().mode}/{currentStep?.status ?? target().state} · {timing}
+							{who} · {cleanTerminalText(run().mode)}/{cleanTerminalText(currentStep?.status ?? target().state)} · {timing}
 						</text>
 					);
 				})()}
@@ -244,9 +244,9 @@ export function SubagentInspector(props: {
 						wrapMode="none"
 						fg={colors.cyan}
 					>
-						⚙{currentTool() ?? "working"}
+						⚙{cleanTerminalText(currentTool() ?? "working")}
 						{toolElapsed() !== undefined ? ` ${formatDuration(toolElapsed())}` : ""}
-						{currentPath() ? ` · ${currentPath()}` : ""}
+						{currentPath() ? ` · ${cleanTerminalText(currentPath()!)}` : ""}
 					</text>
 				</Show>
 				<text
@@ -256,9 +256,9 @@ export function SubagentInspector(props: {
 					wrapMode="none"
 					fg={colors.subtle}
 				>
-					▤{target().model ?? "unknown"} ·{" "}
+					▤{cleanTerminalText(target().model ?? "unknown")} ·{" "}
 					{formatContextWindow(target().contextWindow) || "ctx?"} · ◆
-					{target().thinking ?? "unknown"}
+					{cleanTerminalText(target().thinking ?? "unknown")}
 				</text>
 				<Show when={target().error}>
 					<text
@@ -268,7 +268,7 @@ export function SubagentInspector(props: {
 						wrapMode="none"
 						fg={colors.red}
 					>
-						✖ {target().error}
+						✖ {cleanTerminalText(target().error!)}
 					</text>
 				</Show>
 			</box>
@@ -288,6 +288,14 @@ export function SubagentInspector(props: {
 					<text fg={colors.muted}>
 						No transcript has been written for this subagent yet.
 					</text>
+					<Show when={props.target?.active}>
+						<text fg={colors.cyan} wrapMode="none">
+							{cleanTerminalText(`⚙${currentTool() ?? "working"}${toolElapsed() !== undefined ? ` ${formatDuration(toolElapsed())}` : ""}`)}
+							{run().toolCount !== undefined ? ` · ${run().toolCount} tools` : ""}
+							{run().turnCount !== undefined ? ` · ${run().turnCount} turns` : ""}
+							{run().totalTokens !== undefined ? ` · ${run().totalTokens} tok` : ""}
+						</text>
+					</Show>
 				</Show>
 				<For each={props.items}>
 					{(item) => (
@@ -356,7 +364,7 @@ export function SubagentInspector(props: {
 							steerEditor = value;
 						}}
 						focused
-						placeholder={`Steer ${target().label}…`}
+						placeholder={`Steer ${cleanTerminalText(target().label)}…`}
 						wrapMode="word"
 						backgroundColor={colors.panel}
 						focusedBackgroundColor={colors.panel}

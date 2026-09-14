@@ -123,11 +123,97 @@ export function deriveChildTranscript(
  */
 function liveArtifactDirectories(cwd?: string, parentSessionFile?: string): string[] {
   const directories = new Set<string>();
-  if (cwd) directories.add(path.join(cwd, ".pi", "subagents", "artifacts"));
   if (parentSessionFile && (parentSessionFile.includes("/") || parentSessionFile.includes("\\"))) {
     directories.add(path.join(path.dirname(parentSessionFile), "subagent-artifacts"));
   }
+  if (cwd) directories.add(path.join(cwd, ".pi", "subagents", "artifacts"));
+  if (!parentSessionFile)
+    directories.add(path.join(subagentTempRoot(), "artifacts"));
   return [...directories];
+}
+
+export type LiveChildTranscriptQuery = {
+  agent: string;
+  index?: number;
+  childRunId?: string;
+  startedAt?: number;
+  endedAt?: number;
+  cwd?: string;
+  parentSessionFile?: string;
+};
+
+/** Resolve the one live artifact that can be attributed to a running child. */
+export function resolveLiveChildTranscriptPath(
+  query: LiveChildTranscriptQuery,
+): string | undefined {
+  const agent = query.agent.trim();
+  if (!agent) return undefined;
+  const sanitizedAgent = agent.replace(/[^\w.-]/g, "_");
+  const suffix =
+    query.index !== undefined
+      ? `_${sanitizedAgent}_${query.index}_transcript.jsonl`
+      : `_${sanitizedAgent}_transcript.jsonl`;
+  const directories = liveArtifactDirectories(query.cwd, query.parentSessionFile);
+
+  const childRunId = query.childRunId?.trim();
+  if (childRunId && /^[A-Za-z0-9._-]+$/.test(childRunId)) {
+    const directNames = [
+      `${childRunId}${suffix}`,
+      ...(query.index !== undefined
+        ? [`${childRunId}_${sanitizedAgent}_transcript.jsonl`]
+        : []),
+    ];
+    for (const directory of directories) {
+      for (const name of directNames) {
+        const candidate = path.join(directory, name);
+        if (fs.existsSync(candidate)) return candidate;
+      }
+    }
+  }
+
+  const lowerBound = (query.startedAt ?? 0) - 5_000;
+  const upperBound =
+    query.endedAt !== undefined ? query.endedAt + 60_000 : undefined;
+  const matches = new Set<string>();
+  for (const directory of directories) {
+    let names: string[];
+    try {
+      names = fs.readdirSync(directory);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const matchesName =
+        query.index === undefined
+          ? name.endsWith(`_${sanitizedAgent}_transcript.jsonl`)
+          : name.endsWith(`_${sanitizedAgent}_${query.index}_transcript.jsonl`) ||
+            (query.index <= 0 && name.endsWith(`_${sanitizedAgent}_transcript.jsonl`));
+      if (!matchesName) continue;
+      const transcriptPath = path.join(directory, name);
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(transcriptPath);
+      } catch {
+        continue;
+      }
+      if (
+        stat.mtimeMs < lowerBound ||
+        (upperBound !== undefined && stat.mtimeMs > upperBound)
+      ) continue;
+      const metaPath = transcriptPath.slice(0, -"_transcript.jsonl".length) + "_meta.json";
+      try {
+        const raw: unknown = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+          const meta = raw as Record<string, unknown>;
+          if (meta.agent !== agent) continue;
+        }
+      } catch {
+        // Metadata is optional while the child is running.
+      }
+      matches.add(transcriptPath);
+    }
+  }
+  return matches.size === 1 ? [...matches][0] : undefined;
 }
 
 function liveTranscriptForStep(
@@ -137,49 +223,17 @@ function liveTranscriptForStep(
   runStartedAt?: number,
   runEndedAt?: number,
 ): string | undefined {
-  const agent = step.agent.trim();
-  if (!agent || step.status !== "running") return undefined;
-  const sanitizedAgent = agent.replace(/[^\w.-]/g, "_");
-  const indexedSuffix = `_${sanitizedAgent}_${step.index}_transcript.jsonl`;
-  const flatSuffix = `_${sanitizedAgent}_transcript.jsonl`;
-  const lowerBound = (runStartedAt ?? step.startedAt ?? 0) - 5_000;
-  const upperBound = runEndedAt !== undefined ? runEndedAt + 60_000 : undefined;
-
-  const matches: string[] = [];
-  for (const directory of liveArtifactDirectories(cwd, parentSessionFile)) {
-    let names: string[];
-    try {
-      names = fs.readdirSync(directory);
-    } catch {
-      continue;
-    }
-    for (const name of names) {
-      const indexedName = step.index > 0 && name.endsWith(indexedSuffix);
-      const flatName = step.index <= 0 && name.endsWith(flatSuffix) && !/_\d+_transcript\.jsonl$/.test(name);
-      if (!name.includes(`_${sanitizedAgent}_`) || (!indexedName && !flatName)) continue;
-      const transcriptPath = path.join(directory, name);
-      let stat: fs.Stats;
-      try {
-        stat = fs.statSync(transcriptPath);
-      } catch {
-        continue;
-      }
-      if (stat.mtimeMs < lowerBound || (upperBound !== undefined && stat.mtimeMs > upperBound)) continue;
-      const metaPath = transcriptPath.slice(0, -"_transcript.jsonl".length) + "_meta.json";
-      try {
-        const raw: unknown = JSON.parse(fs.readFileSync(metaPath, "utf8"));
-        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-          const meta = raw as Record<string, unknown>;
-          if (meta.agent !== agent) continue;
-        }
-      } catch {
-        // Metadata is optional; filename and time-window identity remain usable.
-      }
-      matches.push(transcriptPath);
-    }
-  }
-  const match = matches[0];
-  return matches.length === 1 && match ? match : undefined;
+  if (step.status !== "running") return undefined;
+  const startedAt = runStartedAt ?? step.startedAt;
+  return resolveLiveChildTranscriptPath({
+    agent: step.agent,
+    index: step.index,
+    ...(step.runId !== undefined ? { childRunId: step.runId } : {}),
+    ...(startedAt !== undefined ? { startedAt } : {}),
+    ...(runEndedAt !== undefined ? { endedAt: runEndedAt } : {}),
+    ...(cwd !== undefined ? { cwd } : {}),
+    ...(parentSessionFile !== undefined ? { parentSessionFile } : {}),
+  });
 }
 
 export function applyDerivedChildTranscript(
@@ -244,7 +298,11 @@ export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
       ...(string(step.label) ? { label: string(step.label) } : {}),
       ...(string(step.model) ? { model: string(step.model) } : {}),
       ...(string(step.thinking) ? { thinking: string(step.thinking) } : {}),
-      ...(number(step.contextWindow) !== undefined ? { contextWindow: number(step.contextWindow) } : {}),
+      ...(number(step.contextWindow) !== undefined
+        ? { contextWindow: number(step.contextWindow) }
+        : number(step.contextLimit) !== undefined
+          ? { contextWindow: number(step.contextLimit) }
+          : {}),
       ...(string(step.activityState) ? { activityState: string(step.activityState) } : {}),
       ...(number(step.lastActivityAt) !== undefined ? { lastActivityAt: number(step.lastActivityAt) } : {}),
       ...(string(step.currentTool) ? { currentTool: string(step.currentTool) } : {}),
@@ -300,7 +358,11 @@ export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
     ...(string(record.agent) ? { agent: string(record.agent) } : {}),
     ...(string(record.model) ? { model: string(record.model) } : {}),
     ...(string(record.thinking) ? { thinking: string(record.thinking) } : {}),
-    ...(number(record.contextWindow) !== undefined ? { contextWindow: number(record.contextWindow) } : {}),
+    ...(number(record.contextWindow) !== undefined
+      ? { contextWindow: number(record.contextWindow) }
+      : number(record.contextLimit) !== undefined
+        ? { contextWindow: number(record.contextLimit) }
+        : {}),
     ...(Array.isArray(record.agents) ? { agents: record.agents.filter((value): value is string => typeof value === "string") } : {}),
     ...(string(record.activityState) ? { activityState: string(record.activityState) } : {}),
     ...(number(record.lastActivityAt) !== undefined ? { lastActivityAt: number(record.lastActivityAt) } : {}),

@@ -22,9 +22,12 @@ import {
 	formatWindowLabel,
 	type CodexUsage,
 } from "../integrations/codex-usage.ts";
+import type { OpencodeUsage } from "../integrations/opencode-usage.ts";
 import {
 	formatRunoutIn,
-	type CodexUsageStats,
+	type UsageStats,
+	type UsageWindow,
+	type UsageWindows,
 } from "../integrations/codex-usage-history.ts";
 
 const CONTENT_WIDTH = 36;
@@ -131,9 +134,9 @@ function formatSignedPercent(value: number): string {
 	return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
-function codexWindowSummaryLine(
+function usageWindowSummaryLine(
 	usedPercent: number,
-	stats: CodexUsageStats | undefined,
+	stats: UsageStats | undefined,
 ): string {
 	const remaining = stats?.remainingPercent ?? Math.max(0, 100 - usedPercent);
 	const delta =
@@ -143,9 +146,9 @@ function codexWindowSummaryLine(
 	return `${Math.round(usedPercent)}% used (${Math.round(remaining)}% left${delta})`;
 }
 
-function codexWindowResetLine(
+function usageWindowResetLine(
 	resetAfterSeconds: number,
-	stats: CodexUsageStats | undefined,
+	stats: UsageStats | undefined,
 ): string {
 	const resetIn = formatResetIn(resetAfterSeconds);
 	if (!stats?.predictedRunoutAt) return `resets ${resetIn}`;
@@ -155,8 +158,8 @@ function codexWindowResetLine(
 		: `resets ${resetIn} · runs out ${runoutIn}`;
 }
 
-function codexWindowPaceLine(
-	stats: CodexUsageStats | undefined,
+function usageWindowPaceLine(
+	stats: UsageStats | undefined,
 ): string | undefined {
 	if (
 		stats?.ratePercentPerHour === undefined ||
@@ -169,6 +172,69 @@ function codexWindowPaceLine(
 			? `${(stats.rateSpanHours / 24).toFixed(1)}d`
 			: `${Math.round(stats.rateSpanHours)}h`;
 	return `avg ${perDay.toFixed(1)}%/day (last ${spanLabel})`;
+}
+
+function usageRowCount(
+	usage: UsageWindows | undefined,
+	stats: Record<number, UsageStats> | undefined,
+): number {
+	if (!usage?.windows.length) return 0;
+	let rows = 2;
+	for (const window of usage.windows) {
+		rows += 2;
+		if (usageWindowPaceLine(stats?.[window.windowSeconds])) rows += 1;
+	}
+	return rows;
+}
+
+type UsageWindowRowsProps = {
+	windows: readonly UsageWindow[] | Accessor<readonly UsageWindow[] | undefined>;
+	stats:
+		| Record<number, UsageStats>
+		| Accessor<Record<number, UsageStats> | undefined>
+		| undefined;
+};
+
+function UsageWindowRows(props: UsageWindowRowsProps) {
+	const windows = () =>
+		typeof props.windows === "function" ? props.windows() : props.windows;
+	const stats = () =>
+		typeof props.stats === "function" ? props.stats() : props.stats;
+	return (
+		<For each={windows() ?? []}>
+			{(window) => {
+				const windowStats = () => stats()?.[window.windowSeconds];
+				const pace = () => usageWindowPaceLine(windowStats());
+				return (
+					<>
+						<text width="100%" height={1} fg={colors.muted} wrapMode="none">
+							{clip(
+								`${formatWindowLabel(window.windowSeconds)}: ${usageWindowSummaryLine(window.usedPercent, windowStats())}`,
+							)}
+						</text>
+						<text
+							width="100%"
+							height={1}
+							fg={windowStats()?.runsOutBeforeReset ? colors.yellow : colors.subtle}
+							wrapMode="none"
+						>
+							{clip(`  ${usageWindowResetLine(window.resetAfterSeconds, windowStats())}`)}
+						</text>
+						<Show when={pace()}>
+							<text
+								width="100%"
+								height={1}
+								fg={colors.subtle}
+								wrapMode="none"
+							>
+								{clip(`  ${pace()}`)}
+							</text>
+						</Show>
+					</>
+				);
+			}}
+		</For>
+	);
 }
 
 function formatTokens(value: number | undefined): string {
@@ -272,8 +338,13 @@ export function Sidebar(props: {
 		| undefined;
 	codexUsage?: CodexUsage | Accessor<CodexUsage | undefined> | undefined;
 	codexUsageStats?:
-		| Record<number, CodexUsageStats>
-		| Accessor<Record<number, CodexUsageStats> | undefined>
+		| Record<number, UsageStats>
+		| Accessor<Record<number, UsageStats> | undefined>
+		| undefined;
+	opencodeUsage?: OpencodeUsage | Accessor<OpencodeUsage | undefined> | undefined;
+	opencodeUsageStats?:
+		| Record<number, UsageStats>
+		| Accessor<Record<number, UsageStats> | undefined>
 		| undefined;
 	onOpenNotification?: (recordId: string) => void;
 	onOpenTodo?: (todo: TodoViewItem) => void;
@@ -298,6 +369,14 @@ export function Sidebar(props: {
 		typeof props.codexUsageStats === "function"
 			? props.codexUsageStats()
 			: props.codexUsageStats;
+	const opencodeUsage = () =>
+		typeof props.opencodeUsage === "function"
+			? props.opencodeUsage()
+			: props.opencodeUsage;
+	const opencodeUsageStats = () =>
+		typeof props.opencodeUsageStats === "function"
+			? props.opencodeUsageStats()
+			: props.opencodeUsageStats;
 	const timingHistory = () =>
 		typeof props.timingHistory === "function"
 			? props.timingHistory()
@@ -327,21 +406,13 @@ export function Sidebar(props: {
 		);
 	const hasSubagents = () => props.subagentsAvailable !== false;
 	const hasTodos = () => props.todosAvailable !== false && todos().length > 0;
-	const codexRows = () => {
-		const usage = codexUsage();
-		if (!usage?.windows.length) return 0;
-		let rows = 2;
-		for (const window of usage.windows) {
-			rows += 2;
-			if (codexWindowPaceLine(codexUsageStats()?.[window.windowSeconds]))
-				rows += 1;
-		}
-		return rows;
-	};
+	const codexRows = () => usageRowCount(codexUsage(), codexUsageStats());
+	const opencodeRows = () => usageRowCount(opencodeUsage(), opencodeUsageStats());
 	const fixedHeaderRows = () =>
 		11 +
 		timingRows() +
 		codexRows() +
+		opencodeRows() +
 		(props.stats?.contextUsage?.percent !== undefined &&
 		props.stats?.contextUsage?.percent !== null
 			? 1
@@ -502,43 +573,20 @@ export function Sidebar(props: {
 				<text width="100%" height={1} fg={colors.textBright} attributes={1}>
 					Codex
 				</text>
-				<For each={codexUsage()?.windows ?? []}>
-					{(window) => {
-						const stats = () => codexUsageStats()?.[window.windowSeconds];
-						const pace = () => codexWindowPaceLine(stats());
-						return (
-							<>
-								<text width="100%" height={1} fg={colors.muted} wrapMode="none">
-									{clip(
-										`${formatWindowLabel(window.windowSeconds)}: ${codexWindowSummaryLine(window.usedPercent, stats())}`,
-									)}
-								</text>
-								<text
-									width="100%"
-									height={1}
-									fg={
-										stats()?.runsOutBeforeReset ? colors.yellow : colors.subtle
-									}
-									wrapMode="none"
-								>
-									{clip(
-										`  ${codexWindowResetLine(window.resetAfterSeconds, stats())}`,
-									)}
-								</text>
-								<Show when={pace()}>
-									<text
-										width="100%"
-										height={1}
-										fg={colors.subtle}
-										wrapMode="none"
-									>
-										{clip(`  ${pace()}`)}
-									</text>
-								</Show>
-							</>
-						);
-					}}
-				</For>
+				<UsageWindowRows
+					windows={() => codexUsage()?.windows}
+					stats={codexUsageStats}
+				/>
+			</Show>
+			<Show when={opencodeUsage()?.windows.length}>
+				<box height={1} />
+				<text width="100%" height={1} fg={colors.textBright} attributes={1}>
+					OpenCode Go
+				</text>
+				<UsageWindowRows
+					windows={() => opencodeUsage()?.windows}
+					stats={opencodeUsageStats}
+				/>
 			</Show>
 			<box height={1} />
 

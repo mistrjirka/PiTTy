@@ -3,12 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-	computeCodexUsageStats,
+	computeUsageStats,
 	formatRunoutIn,
-	loadCodexUsageHistory,
-	recordCodexUsageSample,
-	saveCodexUsageHistory,
-	type CodexUsageSample,
+	loadUsageHistory,
+	recordUsageSample,
+	saveUsageHistory,
+	type UsageSample,
 } from "../src/integrations/codex-usage-history.ts";
 import type {
 	CodexUsage,
@@ -37,18 +37,18 @@ function window(overrides: Partial<CodexUsageWindow> = {}): CodexUsageWindow {
 	};
 }
 
-describe("loadCodexUsageHistory / saveCodexUsageHistory", () => {
+describe("loadUsageHistory / saveUsageHistory", () => {
 	test("returns an empty history when the file is missing", () => {
 		expect(
-			loadCodexUsageHistory(path.join(os.tmpdir(), "does-not-exist.json")),
+			loadUsageHistory(path.join(os.tmpdir(), "does-not-exist.json")),
 		).toEqual({});
 	});
 
 	test("round-trips a history written to disk", () => {
 		const file = tempPath();
 		const history = { 18000: [{ t: 1, usedPercent: 10, resetAt: 1 }] };
-		saveCodexUsageHistory(history, file);
-		expect(loadCodexUsageHistory(file)).toEqual(history);
+		saveUsageHistory(history, file);
+		expect(loadUsageHistory(file)).toEqual(history);
 	});
 
 	test("ignores malformed entries", () => {
@@ -60,34 +60,34 @@ describe("loadCodexUsageHistory / saveCodexUsageHistory", () => {
 				18000: [{ t: 1 }, "bad", { t: 2, usedPercent: 5, resetAt: 1 }],
 			}),
 		);
-		expect(loadCodexUsageHistory(file)).toEqual({
+		expect(loadUsageHistory(file)).toEqual({
 			18000: [{ t: 2, usedPercent: 5, resetAt: 1 }],
 		});
 	});
 });
 
-describe("recordCodexUsageSample", () => {
+describe("recordUsageSample", () => {
 	const usage: CodexUsage = { windows: [window()] };
 
 	test("records a first sample immediately", () => {
-		const history = recordCodexUsageSample({}, usage, 1_000);
+		const history = recordUsageSample({}, usage, 1_000);
 		expect(history[18_000]).toEqual([
 			{ t: 1_000, usedPercent: 50, resetAt: 1_000 },
 		]);
 	});
 
 	test("throttles samples that arrive within the minimum interval", () => {
-		let history = recordCodexUsageSample({}, usage, 1_000);
-		history = recordCodexUsageSample(history, usage, 1_000 + 60_000);
+		let history = recordUsageSample({}, usage, 1_000);
+		history = recordUsageSample(history, usage, 1_000 + 60_000);
 		expect(history[18_000]).toHaveLength(1);
 	});
 
 	test("always records a new sample immediately after a reset", () => {
-		let history = recordCodexUsageSample({}, usage, 1_000);
+		let history = recordUsageSample({}, usage, 1_000);
 		const resetUsage: CodexUsage = {
 			windows: [window({ usedPercent: 2, resetAt: 2_000 })],
 		};
-		history = recordCodexUsageSample(history, resetUsage, 1_000 + 60_000);
+		history = recordUsageSample(history, resetUsage, 1_000 + 60_000);
 		expect(history[18_000]).toHaveLength(2);
 		expect(history[18_000]?.[1]).toEqual({
 			t: 1_000 + 60_000,
@@ -98,7 +98,7 @@ describe("recordCodexUsageSample", () => {
 
 	test("prunes samples older than the 31-day retention window", () => {
 		const now = 32 * 24 * 60 * 60 * 1000;
-		const history = recordCodexUsageSample(
+		const history = recordUsageSample(
 			{ 18000: [{ t: 0, usedPercent: 1, resetAt: 1_000 }] },
 			usage,
 			now,
@@ -110,7 +110,7 @@ describe("recordCodexUsageSample", () => {
 
 	test("retains samples within the 31-day window", () => {
 		const now = 20 * 24 * 60 * 60 * 1000;
-		const history = recordCodexUsageSample(
+		const history = recordUsageSample(
 			{ 18000: [{ t: 0, usedPercent: 1, resetAt: 1_000 }] },
 			usage,
 			now,
@@ -131,8 +131,8 @@ describe("persistence safety", () => {
 
 	test("saves atomically and round-trips without leaving temp files", () => {
 		const history = { 18000: [{ t: 1, usedPercent: 10, resetAt: 1 }] };
-		saveCodexUsageHistory(history, file);
-		expect(loadCodexUsageHistory(file)).toEqual(history);
+		saveUsageHistory(history, file);
+		expect(loadUsageHistory(file)).toEqual(history);
 		const leftovers = fs
 			.readdirSync(path.dirname(file))
 			.filter(
@@ -148,18 +148,18 @@ describe("persistence safety", () => {
 		const B1 = A1 + 5 * 60_000;
 		const A2 = B1 + 5 * 60_000;
 		// Process A writes first.
-		saveCodexUsageHistory(recordCodexUsageSample({}, usageA, A1), file);
+		saveUsageHistory(recordUsageSample({}, usageA, A1), file);
 		// Process B loads A's file, records its own sample, saves.
-		saveCodexUsageHistory(
-			recordCodexUsageSample(loadCodexUsageHistory(file), usageB, B1),
+		saveUsageHistory(
+			recordUsageSample(loadUsageHistory(file), usageB, B1),
 			file,
 		);
 		// Process A (stale in-memory) reloads the merged file, records again, saves.
-		saveCodexUsageHistory(
-			recordCodexUsageSample(loadCodexUsageHistory(file), usageA, A2),
+		saveUsageHistory(
+			recordUsageSample(loadUsageHistory(file), usageA, A2),
 			file,
 		);
-		const final = loadCodexUsageHistory(file)[18_000];
+		const final = loadUsageHistory(file)[18_000];
 		expect(final).toHaveLength(3);
 		expect(final?.map((sample) => sample.t).sort((x, y) => x - y)).toEqual([
 			A1, B1, A2,
@@ -167,20 +167,20 @@ describe("persistence safety", () => {
 	});
 });
 
-describe("computeCodexUsageStats", () => {
+describe("computeUsageStats", () => {
 	test("reports remaining percent from the live window", () => {
-		const stats = computeCodexUsageStats([], window({ usedPercent: 30 }), 0);
+		const stats = computeUsageStats([], window({ usedPercent: 30 }), 0);
 		expect(stats.remainingPercent).toBe(70);
 	});
 
 	test("computes the last-hour delta within the same reset epoch", () => {
 		const now = 2 * 60 * 60_000;
-		const samples: CodexUsageSample[] = [
+		const samples: UsageSample[] = [
 			{ t: 0, usedPercent: 10, resetAt: 1 },
 			{ t: 30 * 60_000, usedPercent: 15, resetAt: 1 },
 			{ t: now - 60 * 60_000, usedPercent: 20, resetAt: 1 },
 		];
-		const stats = computeCodexUsageStats(
+		const stats = computeUsageStats(
 			samples,
 			window({ usedPercent: 30, resetAt: 1 }),
 			now,
@@ -190,11 +190,11 @@ describe("computeCodexUsageStats", () => {
 
 	test("does not treat a reset as negative consumption", () => {
 		const now = 2 * 60 * 60_000;
-		const samples: CodexUsageSample[] = [
+		const samples: UsageSample[] = [
 			{ t: 0, usedPercent: 95, resetAt: 1 },
 			{ t: now - 30 * 60_000, usedPercent: 2, resetAt: 2 },
 		];
-		const stats = computeCodexUsageStats(
+		const stats = computeUsageStats(
 			samples,
 			window({ usedPercent: 5, resetAt: 2 }),
 			now,
@@ -206,10 +206,10 @@ describe("computeCodexUsageStats", () => {
 
 	test("predicts a runout timestamp from the wall-clock average rate", () => {
 		const now = 2 * 60 * 60_000;
-		const samples: CodexUsageSample[] = [
+		const samples: UsageSample[] = [
 			{ t: now - 60 * 60_000, usedPercent: 40, resetAt: 1 },
 		];
-		const stats = computeCodexUsageStats(
+		const stats = computeUsageStats(
 			samples,
 			window({ usedPercent: 50, resetAt: 1, resetAfterSeconds: 3_600 }),
 			now,
@@ -223,12 +223,12 @@ describe("computeCodexUsageStats", () => {
 
 	test("ignores a last-hour burst when projecting runout (idle-inclusive week pace)", () => {
 		const now = 10 * 60 * 60_000;
-		const samples: CodexUsageSample[] = [
+		const samples: UsageSample[] = [
 			{ t: 0, usedPercent: 0, resetAt: 1 },
 			// Slow burn for most of the span, then a busy final hour.
 			{ t: now - 60 * 60_000, usedPercent: 5, resetAt: 1 },
 		];
-		const stats = computeCodexUsageStats(
+		const stats = computeUsageStats(
 			samples,
 			window({ usedPercent: 15, resetAt: 1 }),
 			now,
@@ -246,10 +246,10 @@ describe("computeCodexUsageStats", () => {
 	test("flags when the projected runout lands before the window resets", () => {
 		const now = 2 * 60 * 60_000;
 		const resetAtSeconds = now / 1000 + 3_600; // resets in 1h
-		const samples: CodexUsageSample[] = [
+		const samples: UsageSample[] = [
 			{ t: now - 60 * 60_000, usedPercent: 85, resetAt: resetAtSeconds },
 		];
-		const stats = computeCodexUsageStats(
+		const stats = computeUsageStats(
 			samples,
 			window({
 				usedPercent: 95,
@@ -262,19 +262,19 @@ describe("computeCodexUsageStats", () => {
 	});
 
 	test("does not project a runout without enough history", () => {
-		const stats = computeCodexUsageStats([], window({ usedPercent: 50 }), 0);
+		const stats = computeUsageStats([], window({ usedPercent: 50 }), 0);
 		expect(stats.predictedRunoutAt).toBeUndefined();
 		expect(stats.ratePercentPerHour).toBeUndefined();
 	});
 
 	test("ignores a stale last-hour anchor left by a long gap (e.g. PiTTy closed)", () => {
 		const now = 10 * 60 * 60_000;
-		const samples: CodexUsageSample[] = [
+		const samples: UsageSample[] = [
 			// Only sample is from 6h ago, well outside the last-hour tolerance window -
 			// using it as "an hour ago" would misreport a 6h delta as a 1h rate.
 			{ t: now - 6 * 60 * 60_000, usedPercent: 10, resetAt: 1 },
 		];
-		const stats = computeCodexUsageStats(
+		const stats = computeUsageStats(
 			samples,
 			window({ usedPercent: 40, resetAt: 1 }),
 			now,

@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { CodexUsage, CodexUsageWindow } from "./codex-usage.ts";
 
 /**
  * A single point-in-time reading of one rate-limit window, persisted to disk
@@ -10,13 +9,24 @@ import type { CodexUsage, CodexUsageWindow } from "./codex-usage.ts";
  * only changes when the window actually resets, so samples can be grouped
  * by epoch without needing wall-clock reset detection.
  */
-export type CodexUsageSample = {
+export type UsageSample = {
 	t: number;
 	usedPercent: number;
 	resetAt: number;
 };
 
-export type CodexUsageHistory = Record<number, CodexUsageSample[]>;
+export type UsageWindow = {
+	usedPercent: number;
+	windowSeconds: number;
+	resetAfterSeconds: number;
+	resetAt: number;
+};
+
+export type UsageWindows = {
+	windows: readonly UsageWindow[];
+};
+
+export type UsageHistory = Record<number, UsageSample[]>;
 
 const MAX_HISTORY_MS = 31 * 24 * 60 * 60 * 1000;
 const MIN_SAMPLE_INTERVAL_MS = 4 * 60 * 1000;
@@ -29,7 +39,7 @@ export function defaultCodexUsageHistoryPath(): string {
 	return path.join(base, "codex-usage-history.json");
 }
 
-function isSample(value: unknown): value is CodexUsageSample {
+function isSample(value: unknown): value is UsageSample {
 	if (!value || typeof value !== "object") return false;
 	const record = value as Record<string, unknown>;
 	return (
@@ -39,13 +49,13 @@ function isSample(value: unknown): value is CodexUsageSample {
 	);
 }
 
-export function loadCodexUsageHistory(
-	filePath: string = defaultCodexUsageHistoryPath(),
-): CodexUsageHistory {
+export function loadUsageHistory(
+	filePath: string,
+): UsageHistory {
 	try {
 		const raw = JSON.parse(fs.readFileSync(filePath, "utf8"));
 		if (!raw || typeof raw !== "object") return {};
-		const history: CodexUsageHistory = {};
+		const history: UsageHistory = {};
 		for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
 			const windowSeconds = Number(key);
 			if (!Number.isFinite(windowSeconds) || !Array.isArray(value)) continue;
@@ -57,9 +67,9 @@ export function loadCodexUsageHistory(
 	}
 }
 
-export function saveCodexUsageHistory(
-	history: CodexUsageHistory,
-	filePath: string = defaultCodexUsageHistoryPath(),
+export function saveUsageHistory(
+	history: UsageHistory,
+	filePath: string,
 ): void {
 	try {
 		const dir = path.dirname(filePath);
@@ -82,12 +92,12 @@ export function saveCodexUsageHistory(
  * immediately, since it marks a new epoch boundary) and pruned to the
  * trailing `MAX_HISTORY_MS`.
  */
-export function recordCodexUsageSample(
-	history: CodexUsageHistory,
-	usage: CodexUsage,
+export function recordUsageSample(
+	history: UsageHistory,
+	usage: UsageWindows,
 	now: number = Date.now(),
-): CodexUsageHistory {
-	const next: CodexUsageHistory = { ...history };
+): UsageHistory {
+	const next: UsageHistory = { ...history };
 	for (const window of usage.windows) {
 		const existing = next[window.windowSeconds] ?? [];
 		const last = existing.at(-1);
@@ -110,7 +120,7 @@ export function recordCodexUsageSample(
 	return next;
 }
 
-export type CodexUsageStats = {
+export type UsageStats = {
 	remainingPercent: number;
 	/** Percentage points consumed in roughly the last hour, within the current reset epoch (display-only; not used for runout). */
 	lastHourDeltaPercent?: number;
@@ -138,11 +148,11 @@ const HOUR_ANCHOR_TOLERANCE_MS = 20 * 60_000;
  * weekly pace rather than assuming continuous 24/7 use. The last-hour delta
  * is kept for the summary line only and does not drive the runout projection.
  */
-export function computeCodexUsageStats(
-	samples: CodexUsageSample[],
-	current: CodexUsageWindow,
+export function computeUsageStats(
+	samples: UsageSample[],
+	current: UsageWindow,
 	now: number = Date.now(),
-): CodexUsageStats {
+): UsageStats {
 	const remainingPercent = Math.max(0, 100 - current.usedPercent);
 	const ordered = [
 		...samples,
@@ -158,7 +168,7 @@ export function computeCodexUsageStats(
 	// closed for a stretch spanning it - the nearest sample could be many hours
 	// stale. Presenting that gap's raw delta as a per-hour rate would wildly
 	// misrepresent it, so treat it as no recent data instead.
-	let hourAnchor: CodexUsageSample | undefined;
+	let hourAnchor: UsageSample | undefined;
 	for (let i = currentEpoch.length - 1; i >= 0; i--) {
 		const sample = currentEpoch[i];
 		if (sample && sample.t <= hourAgo) {

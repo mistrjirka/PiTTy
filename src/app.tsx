@@ -171,6 +171,7 @@ import {
 import { Sidebar } from "./ui/sidebar.tsx";
 import { NotificationDialog } from "./ui/notification-dialog.tsx";
 import { SubagentInspector } from "./ui/subagent-inspector.tsx";
+import { resolveLiveChildTranscriptPath } from "./subagents/artifacts.ts";
 import { SubagentSelectorDialog } from "./ui/subagent-selector.tsx";
 import {
 	ownedSubagentTargetsForItems,
@@ -201,12 +202,19 @@ import {
 	type CodexUsage,
 } from "./integrations/codex-usage.ts";
 import {
-	computeCodexUsageStats,
-	loadCodexUsageHistory,
-	recordCodexUsageSample,
-	saveCodexUsageHistory,
-	type CodexUsageHistory,
-	type CodexUsageStats,
+	defaultOpencodeUsageHistoryPath,
+	fetchOpencodeUsage,
+	type OpencodeUsage,
+} from "./integrations/opencode-usage.ts";
+import {
+	computeUsageStats,
+	loadUsageHistory,
+	recordUsageSample,
+	saveUsageHistory,
+	type UsageHistory,
+	defaultCodexUsageHistoryPath,
+	type UsageStats,
+	type UsageWindows,
 } from "./integrations/codex-usage-history.ts";
 import { appVersion } from "./version.ts";
 import {
@@ -597,7 +605,11 @@ export function App(props: AppOptions) {
 	const [clockNow, setClockNow] = createSignal(Date.now());
 	const [codexUsage, setCodexUsage] = createSignal<CodexUsage>();
 	const [codexUsageStats, setCodexUsageStats] = createSignal<
-		Record<number, CodexUsageStats>
+		Record<number, UsageStats>
+	>({});
+	const [opencodeUsage, setOpencodeUsage] = createSignal<OpencodeUsage>();
+	const [opencodeUsageStats, setOpencodeUsageStats] = createSignal<
+		Record<number, UsageStats>
 	>({});
 
 	const [subagentSelectorOpen, setSubagentSelectorOpen] = createSignal(false);
@@ -1140,7 +1152,11 @@ export function App(props: AppOptions) {
 	let spinnerTimer: ReturnType<typeof setInterval> | undefined;
 	let clockTimer: ReturnType<typeof setInterval> | undefined;
 	let codexUsageTimer: ReturnType<typeof setInterval> | undefined;
-	let codexUsageHistory: CodexUsageHistory = loadCodexUsageHistory();
+	let codexUsageHistory: UsageHistory = loadUsageHistory(defaultCodexUsageHistoryPath());
+	let opencodeUsageTimer: ReturnType<typeof setInterval> | undefined;
+	let opencodeUsageHistory: UsageHistory = loadUsageHistory(
+		defaultOpencodeUsageHistoryPath(),
+	);
 	let lastRunsDigest = "";
 	let sessionDiscoveryGeneration = 0;
 	let tabCounter = 0;
@@ -1453,8 +1469,34 @@ export function App(props: AppOptions) {
 			) ?? availableSubagentTargets()[0],
 	);
 	const inspectedTranscriptCache = createSubagentTranscriptCache();
+	const inspectedTarget = createMemo(() => {
+		const target = selectedSubagentTarget();
+		if (target?.active && !target.transcriptPath && !target.sessionFile) {
+			const parentSessionFile = activeRuntime().sessionState?.sessionFile;
+			const transcriptPath = resolveLiveChildTranscriptPath({
+				agent: target.step?.agent ?? target.run.agent ?? target.label,
+				...(target.workflowKey !== undefined
+					? { index: 0 }
+					: target.stepIndex !== undefined
+						? { index: target.stepIndex }
+						: {}),
+				...(target.childRunId !== undefined ? { childRunId: target.childRunId } : {}),
+				...(target.startedAt !== undefined ? { startedAt: target.startedAt } : {}),
+				cwd: props.cwd,
+				...(parentSessionFile ? { parentSessionFile } : {}),
+			});
+			if (transcriptPath) {
+				return {
+					...target,
+					transcriptPath,
+					run: { ...target.run, transcriptPath },
+				};
+			}
+		}
+		return target;
+	});
 	const inspectedTranscript = createMemo(() =>
-		inspectedTranscriptCache(selectedSubagentTarget(), inspectSubagent()),
+		inspectedTranscriptCache(inspectedTarget(), inspectSubagent()),
 	);
 	const recentlyRenderedUserTexts = () => {
 		const cutoff = Date.now() - 120_000;
@@ -3039,31 +3081,58 @@ export function App(props: AppOptions) {
 				);
 			}
 		})();
-		const updateCodexUsage = (usage: CodexUsage | undefined) => {
-			setCodexUsage(usage);
-			if (!usage) return;
+		const updateUsage = <T extends UsageWindows>(
+			usage: T | undefined,
+			setUsage: (value: T | undefined) => void,
+			historyPath: string,
+			history: UsageHistory,
+			setStats: (value: Record<number, UsageStats>) => void,
+		): UsageHistory => {
+			setUsage(usage);
+			if (!usage) return history;
 			const now = Date.now();
-			// Re-read the latest on-disk history before recording so multiple
-			// PiTTy instances append to (rather than overwrite) each other's samples.
-			codexUsageHistory = recordCodexUsageSample(
-				loadCodexUsageHistory(),
+			const nextHistory = recordUsageSample(
+				loadUsageHistory(historyPath),
 				usage,
 				now,
 			);
-			saveCodexUsageHistory(codexUsageHistory);
-			const stats: Record<number, CodexUsageStats> = {};
+			saveUsageHistory(nextHistory, historyPath);
+			const stats: Record<number, UsageStats> = {};
 			for (const window of usage.windows) {
-				stats[window.windowSeconds] = computeCodexUsageStats(
-					codexUsageHistory[window.windowSeconds] ?? [],
+				stats[window.windowSeconds] = computeUsageStats(
+					nextHistory[window.windowSeconds] ?? [],
 					window,
 					now,
 				);
 			}
-			setCodexUsageStats(stats);
+			setStats(stats);
+			return nextHistory;
+		};
+		const updateCodexUsage = (usage: CodexUsage | undefined) => {
+			codexUsageHistory = updateUsage(
+				usage,
+				setCodexUsage,
+				defaultCodexUsageHistoryPath(),
+				codexUsageHistory,
+				setCodexUsageStats,
+			);
 		};
 		void fetchCodexUsage().then(updateCodexUsage);
 		codexUsageTimer = setInterval(() => {
 			void fetchCodexUsage().then(updateCodexUsage);
+		}, 5 * 60_000);
+		const updateOpencodeUsage = (usage: OpencodeUsage | undefined) => {
+			opencodeUsageHistory = updateUsage(
+				usage,
+				setOpencodeUsage,
+				defaultOpencodeUsageHistoryPath(),
+				opencodeUsageHistory,
+				setOpencodeUsageStats,
+			);
+		};
+		void fetchOpencodeUsage().then(updateOpencodeUsage);
+		opencodeUsageTimer = setInterval(() => {
+			void fetchOpencodeUsage().then(updateOpencodeUsage);
 		}, 5 * 60_000);
 		statsTimer = setInterval(() => void refreshState(), 10_000);
 		subagentsTimer = setInterval(() => {
@@ -3102,6 +3171,7 @@ export function App(props: AppOptions) {
 			if (spinnerTimer) clearInterval(spinnerTimer);
 			if (clockTimer) clearInterval(clockTimer);
 			if (codexUsageTimer) clearInterval(codexUsageTimer);
+			if (opencodeUsageTimer) clearInterval(opencodeUsageTimer);
 			props.logger.info("ui.cleanup");
 		});
 	});
@@ -3654,7 +3724,7 @@ export function App(props: AppOptions) {
 					>
 						{(target) => (
 							<SubagentInspector
-								target={target()}
+								target={inspectedTarget()}
 								items={inspectedTranscript()}
 								now={clockNow()}
 								scrollRef={(value) => {
@@ -3666,14 +3736,14 @@ export function App(props: AppOptions) {
 								onStop={requestStopSubagent}
 								onChooseTarget={() => setSubagentSelectorOpen(true)}
 								targetCount={availableSubagentTargets().length}
-								draft={() => currentDrafts().subagents.get(target().key) ?? ""}
+								draft={() => currentDrafts().subagents.get(inspectedTarget()!.key) ?? ""}
 								onDraftChange={(text) => {
-									currentDrafts().subagents.set(target().key, text);
+									currentDrafts().subagents.set(inspectedTarget()!.key, text);
 									touch();
 								}}
 								onSteer={sendSubagentSteer}
 								pendingSteers={pendingSteers().filter(
-									(entry) => entry.targetKey === target().key,
+									(entry) => entry.targetKey === inspectedTarget()!.key,
 								)}
 								thinkingExpanded={thinkingIsExpanded}
 								onToggleThinking={toggleThinkingItem}
@@ -4049,6 +4119,8 @@ export function App(props: AppOptions) {
 						onOpenTodo={(todo) => openTodo(todo.id)}
 						codexUsage={codexUsage}
 						codexUsageStats={codexUsageStats}
+						opencodeUsage={opencodeUsage}
+						opencodeUsageStats={opencodeUsageStats}
 						subagentsAvailable={subagentsAvailable()}
 						todosAvailable={todosAvailable()}
 						notifications={notificationHistory}

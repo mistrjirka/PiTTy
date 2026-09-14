@@ -16,6 +16,7 @@ import {
 	listSubagentRuns,
 	matchesSubagentSession,
 	readSubagentRun,
+	resolveLiveChildTranscriptPath,
 	subagentTempRoot,
 } from "../src/subagents/artifacts.ts";
 import {
@@ -2989,5 +2990,201 @@ describe("subagent controls", () => {
 			"repeat",
 			"duplicate",
 		]);
+	});
+
+	test("projects workflowChildren live activity over sparse workflow trace rows", () => {
+		const tool: ToolItem = {
+			kind: "tool", id: "workflow-live-projection", toolCallId: "workflow-call", name: "subagent", args: {}, output: "working",
+			details: {
+				mode: "workflow", runId: "workflow-parent",
+				workflow: { trace: [{ operation: "run", key: "child", state: "started", agent: "general" }] },
+				workflowChildren: { version: 1, children: [{ childId: "child", state: "running", agent: "general", model: "provider/live", activity: { currentTool: "bash", currentToolStartedAt: 250, lastActivityAt: 300, toolCount: 2, turnCount: 1, tokens: 30 } }] },
+			}, timestamp: 100, status: "streaming", isError: false,
+		};
+		const target = subagentTargets([], [tool])[0];
+		expect(target).toMatchObject({ model: "provider/live", lastUpdate: 300 });
+		expect(target?.run).toMatchObject({ currentTool: "bash", currentToolStartedAt: 250, lastUpdate: 300 });
+	});
+
+	test("dedupes workflow child rows by richness", () => {
+		const mission: SubagentRun = { runId: "mission-run", control: "mission", mode: "workflow", state: "running", steps: [
+			{ index: 0, agent: "worker", status: "running", workflowKey: "child", sessionFile: "/tmp/shared-child.jsonl" },
+		] };
+		const artifact: SubagentRun = { runId: "artifact-run", control: "file", mode: "workflow", state: "running", steps: [
+			{ index: 0, agent: "worker", status: "running", workflowKey: "child", sessionFile: "/tmp/shared-child.jsonl", model: "provider/live", transcriptPath: "/tmp/live-transcript.jsonl" },
+		] };
+		const targets = subagentTargets([mission, artifact]);
+		expect(targets).toHaveLength(1);
+		expect(targets[0]).toMatchObject({ model: "provider/live", transcriptPath: "/tmp/live-transcript.jsonl" });
+	});
+
+	test("resolves only a unique in-window live transcript", () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-live-query-"));
+		roots.push(cwd);
+		const artifacts = path.join(cwd, ".pi", "subagents", "artifacts");
+		fs.mkdirSync(artifacts, { recursive: true });
+		const now = Date.now();
+		const transcriptPath = path.join(artifacts, "child_worker_0_transcript.jsonl");
+		fs.writeFileSync(transcriptPath, "");
+		expect(resolveLiveChildTranscriptPath({ agent: "worker", index: 0, startedAt: now, cwd })).toBe(transcriptPath);
+		const second = path.join(artifacts, "other_worker_0_transcript.jsonl");
+		fs.writeFileSync(second, "");
+		expect(resolveLiveChildTranscriptPath({ agent: "worker", index: 0, startedAt: now, cwd })).toBeUndefined();
+		fs.rmSync(second);
+		fs.utimesSync(transcriptPath, new Date(now - 20_000), new Date(now - 20_000));
+		expect(resolveLiveChildTranscriptPath({ agent: "worker", index: 0, startedAt: now, cwd })).toBeUndefined();
+	});
+
+	test("does not resolve a bare parent session id from a relative artifact directory", () => {
+		const relativeDir = path.join(process.cwd(), "subagent-artifacts");
+		fs.mkdirSync(relativeDir, { recursive: true });
+		const transcriptPath = path.join(relativeDir, "bare_worker_0_transcript.jsonl");
+		fs.writeFileSync(transcriptPath, "");
+		try {
+			expect(resolveLiveChildTranscriptPath({ agent: "worker", index: 0, startedAt: Date.now(), parentSessionFile: "session-id" })).toBeUndefined();
+		} finally {
+			fs.rmSync(relativeDir, { recursive: true, force: true });
+		}
+	});
+
+	test("uses the child-local index zero for workflow transcript artifacts", () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-workflow-query-"));
+		roots.push(cwd);
+		const artifacts = path.join(cwd, ".pi", "subagents", "artifacts");
+		fs.mkdirSync(artifacts, { recursive: true });
+		const first = path.join(artifacts, "child-a_worker_0_transcript.jsonl");
+		fs.writeFileSync(first, "");
+		expect(resolveLiveChildTranscriptPath({ agent: "worker", index: 0, childRunId: "child-a", startedAt: Date.now(), cwd })).toBe(first);
+		const second = path.join(artifacts, "child-b_worker_0_transcript.jsonl");
+		fs.writeFileSync(second, "");
+		expect(resolveLiveChildTranscriptPath({ agent: "worker", index: 0, startedAt: Date.now(), cwd })).toBeUndefined();
+	});
+
+	test("enriches a workflow parent step from its matching live child", () => {
+		const parent: SubagentRun = {
+			runId: "parent-live",
+			asyncDir: "/tmp/parent-live",
+			control: "file",
+			mode: "workflow",
+			state: "running",
+			steps: [{ index: 0, agent: "worker", workflowKey: "alpha", runId: "child-live", status: "running" }],
+		};
+		const child: SubagentRun = {
+			runId: "child-live",
+			parentWorkflowRunId: "parent-live",
+			control: "file",
+			mode: "single",
+			state: "running",
+			steps: [{ index: 0, agent: "worker", workflowKey: "alpha", runId: "child-live", status: "running", model: "provider/live", currentTool: "bash", currentToolStartedAt: 200, lastActivityAt: 300, turnCount: 2, toolCount: 4, sessionFile: "/tmp/child-live.jsonl" }],
+		};
+		const targets = subagentTargets([parent, child]);
+		expect(targets).toHaveLength(1);
+		expect(targets[0]?.step).toMatchObject({ model: "provider/live", currentTool: "bash", currentToolStartedAt: 200, lastActivityAt: 300, turnCount: 2, toolCount: 4 });
+		expect(targets[0]?.sessionFile).toBe("/tmp/child-live.jsonl");
+	});
+
+	test("keeps parent workflow metadata authoritative during child enrichment", () => {
+		const parent: SubagentRun = { runId: "parent-authority", mode: "workflow", state: "running", steps: [{ index: 0, agent: "worker", workflowKey: "alpha", runId: "child-authority", status: "running", model: "provider/parent", currentTool: "parent-tool" }] };
+		const child: SubagentRun = { runId: "child-authority", parentWorkflowRunId: "parent-authority", mode: "single", state: "running", steps: [{ index: 0, agent: "worker", workflowKey: "alpha", runId: "child-authority", status: "running", model: "provider/child", currentTool: "child-tool" }] };
+		const target = subagentTargets([parent, child])[0];
+		expect(target?.step).toMatchObject({ model: "provider/parent", currentTool: "parent-tool" });
+	});
+
+	test("isolates live metadata between workflow children", () => {
+		const parent: SubagentRun = { runId: "parent-isolated", mode: "workflow", state: "running", steps: [
+			{ index: 0, agent: "worker-a", workflowKey: "alpha", runId: "child-a", status: "running" },
+			{ index: 1, agent: "worker-b", workflowKey: "beta", runId: "child-b", status: "running" },
+		] };
+		const childA: SubagentRun = { runId: "child-a", parentWorkflowRunId: "parent-isolated", mode: "single", state: "running", steps: [{ index: 0, agent: "worker-a", workflowKey: "alpha", runId: "child-a", status: "running", model: "provider/a", currentTool: "tool-a" }] };
+		const childB: SubagentRun = { runId: "child-b", parentWorkflowRunId: "parent-isolated", mode: "single", state: "running", steps: [{ index: 0, agent: "worker-b", workflowKey: "beta", runId: "child-b", status: "running", model: "provider/b", currentTool: "tool-b" }] };
+		const targets = subagentTargets([parent, childA, childB]);
+		expect(targets).toHaveLength(2);
+		expect(targets.find((target) => target.workflowKey === "alpha")?.step).toMatchObject({ model: "provider/a", currentTool: "tool-a" });
+		expect(targets.find((target) => target.workflowKey === "beta")?.step).toMatchObject({ model: "provider/b", currentTool: "tool-b" });
+	});
+
+	test("rejects same-agent matches split between cwd and temp roots", () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-live-ambiguous-"));
+		roots.push(cwd);
+		const cwdArtifacts = path.join(cwd, ".pi", "subagents", "artifacts");
+		const tempArtifacts = path.join(subagentTempRoot(), "artifacts");
+		fs.mkdirSync(cwdArtifacts, { recursive: true });
+		fs.mkdirSync(tempArtifacts, { recursive: true });
+		roots.push(tempArtifacts);
+		const cwdPath = path.join(cwdArtifacts, "cwd_worker_0_transcript.jsonl");
+		const tempPath = path.join(tempArtifacts, "temp_worker_0_transcript.jsonl");
+		fs.writeFileSync(cwdPath, "");
+		fs.writeFileSync(tempPath, "");
+		const startedAt = Date.now();
+		expect(resolveLiveChildTranscriptPath({ agent: "worker", index: 0, startedAt, cwd })).toBeUndefined();
+	});
+
+	test("resolves an indexed target through its exact flat child run artifact", () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-live-flat-run-"));
+		roots.push(cwd);
+		const artifacts = path.join(cwd, ".pi", "subagents", "artifacts");
+		fs.mkdirSync(artifacts, { recursive: true });
+		const transcriptPath = path.join(artifacts, "child-run-flat_worker_transcript.jsonl");
+		fs.writeFileSync(transcriptPath, "");
+		expect(resolveLiveChildTranscriptPath({ agent: "worker", index: 1, childRunId: "child-run-flat", cwd })).toBe(transcriptPath);
+	});
+
+	test("rejects unsafe child run ids without probing outside the artifact root", () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-live-unsafe-"));
+		roots.push(cwd);
+		const artifacts = path.join(cwd, ".pi", "subagents", "artifacts");
+		fs.mkdirSync(artifacts, { recursive: true });
+		const outside = path.join(cwd, "outside_worker_transcript.jsonl");
+		fs.writeFileSync(outside, "");
+		for (const childRunId of ["../outside", "child/run", "child\u0000run"]) {
+			expect(resolveLiveChildTranscriptPath({ agent: "worker", index: 0, childRunId, cwd, parentSessionFile: "session-id" })).toBeUndefined();
+		}
+	});
+
+	test("uses live progress precedence through every foreground entry path", () => {
+		const live = {
+			version: 1,
+			children: [{ childId: "child", agent: "worker", activity: { currentTool: "live-tool", toolCount: 2 } }],
+		};
+		const makeTool = (callId: string, details: Record<string, unknown>): ToolItem => ({
+			kind: "tool",
+			id: callId,
+			toolCallId: callId,
+			name: "subagent",
+			args: {},
+			output: "working",
+			details: { ...details, workflowChildren: live },
+			timestamp: 1,
+			status: "streaming",
+			isError: false,
+		});
+		const resultsOnly = makeTool("results-only", {
+			results: [{ key: "child", progress: { agent: "worker", currentTool: "stored-tool", toolCount: 1 } }],
+		});
+		const traceTerminal = makeTool("trace-terminal", {
+			workflow: { trace: [{ operation: "run", key: "child", agent: "worker", state: "started" }] },
+			results: [{ key: "child", progress: { agent: "worker", currentTool: "stored-tool", toolCount: 1 } }],
+		});
+		const traceOnly = makeTool("trace-only", {
+			workflow: { trace: [{ operation: "run", key: "child", agent: "worker", state: "started" }] },
+		});
+		const targets = subagentTargets([], [resultsOnly, traceTerminal, traceOnly]);
+		expect(targets.map((target) => [target.toolCallId, target.run.currentTool, target.run.toolCount])).toEqual([
+			["results-only", "live-tool", 2],
+			["trace-only", "live-tool", 2],
+			["trace-terminal", "live-tool", 2],
+		]);
+	});
+
+	test("maps contextLimit to contextWindow without overriding explicit contextWindow", () => {
+		const target = run();
+		fs.writeFileSync(path.join(target.asyncDir!, "status.json"), JSON.stringify({ runId: "context-limit", mode: "single", state: "running", contextLimit: 1048576, steps: [
+			{ index: 0, agent: "explicit", status: "running", contextWindow: 8192, contextLimit: 1048576 },
+			{ index: 1, agent: "fallback", status: "running", contextLimit: 65536 },
+		]}));
+		const parsed = readSubagentRun(target.asyncDir!);
+		expect(parsed?.contextWindow).toBe(1048576);
+		expect(parsed?.steps[0]?.contextWindow).toBe(8192);
+		expect(parsed?.steps[1]?.contextWindow).toBe(65536);
 	});
 });

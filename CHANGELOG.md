@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.16
+
+### Live subagent progress
+
+- A running pi-subagents child reports its resolved model, the tool it is currently running with elapsed time, tool/turn/token counters, and a truthful last-activity time again. pi-subagents moved this data into a new live child projection and left the older per-child fields sparse; PiTTy kept reading the old fields, so a running child showed `unknown` for its model and a stale activity time.
+- Background (`async: true`) workflow children report the live model, current tool and context window as well: parent workflow steps inherit the matching child run's metadata, and `contextLimit` now maps to the context window instead of rendering `ctx?`.
+- A metadata-poor duplicate row (for example a mission row carrying only a heartbeat) can no longer shadow the model- and transcript-bearing row for the same child.
+
+### Live subagent transcripts
+
+- A running foreground workflow child shows its transcript in the inspector instead of "No transcript has been written for this subagent yet." until it finishes. Child session and transcript artifacts are attributed only on a unique, time-windowed match, so ambiguous same-agent siblings fail closed and show live activity instead of a guessed transcript.
+- The inspector also shows a live activity line for an active child that has no transcript artifact yet.
+
+### OpenCode Go usage
+
+- The sidebar shows OpenCode Go subscription usage next to the existing Codex block: 5-hour, weekly and monthly utilization with reset countdowns, plus the same pace/runout line once enough history has accumulated. It appears only when an `opencode-go` credential is present and authorized, and stays hidden when the credential is missing, the account is not entitled, or the request fails.
+
+### Hardening
+
+- Upstream-provided child metadata (agent, label, status, model, thinking, tool, path, error) is now sanitized before rendering in the subagent inspector, matching the existing sanitizer boundary used by the conversation and sidebar.
+
 ## 0.6.15
 
 ### Live compaction and timing

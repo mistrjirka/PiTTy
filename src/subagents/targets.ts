@@ -142,6 +142,14 @@ type ForegroundEntry = {
 	workflow?: boolean | undefined;
 };
 
+/** Live projections are authoritative for fields they carry; stored progress fills the rest. */
+function mergeLiveProgress(
+	progress: Record<string, unknown>,
+	live: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+	return live ? { ...progress, ...live } : progress;
+}
+
 type RequestedMetadata = {
 	label?: string;
 	agent?: string;
@@ -240,6 +248,21 @@ function workflowIdentity(value: Record<string, unknown>): string | undefined {
 	return undefined;
 }
 
+function workflowChildren(details: Record<string, unknown>): Map<string, Record<string, unknown>> {
+	const value = record(details.workflowChildren);
+	if (value?.version !== 1 || !Array.isArray(value.children)) return new Map();
+	const rows = new Map<string, Record<string, unknown>>();
+	for (const child of value.children) {
+		const row = record(child);
+		const childId = typeof row?.childId === "string" ? row.childId.trim() : "";
+		if (row && childId) {
+			const activity = record(row.activity);
+			rows.set(childId, activity ? { ...activity, ...row } : row);
+		}
+	}
+	return rows;
+}
+
 function workflowTrace(details: Record<string, unknown>): ForegroundEntry[] {
 	const workflow = record(details.workflow);
 	const trace = workflow?.trace;
@@ -286,6 +309,7 @@ function foregroundProgressState(
 function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
 	const details = record(item.details);
 	const traceEntries = details ? workflowTrace(details) : [];
+	const liveChildren = details ? workflowChildren(details) : new Map<string, Record<string, unknown>>();
 	const results = details?.results;
 	if (Array.isArray(results)) {
 		const entries = results
@@ -321,10 +345,23 @@ function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
 			})
 			.map((entry) => {
 				const identity = entry.identity ?? workflowIdentity(entry.result ?? {});
-				return identity ? { ...entry, identity } : entry;
+				const live = identity ? liveChildren.get(identity) : undefined;
+				return live
+					? { ...entry, progress: mergeLiveProgress(entry.progress, live), identity }
+					: identity
+						? { ...entry, identity }
+						: entry;
 			});
 		if (entries.length > 0) {
-			if (traceEntries.length === 0) return entries;
+			if (traceEntries.length === 0) {
+				return entries.map((entry) => {
+					const identity = entry.identity ?? workflowIdentity(entry.result ?? {});
+					const live = identity ? liveChildren.get(identity) : undefined;
+					return live
+						? { ...entry, progress: mergeLiveProgress(entry.progress, live), identity }
+						: entry;
+				});
+			}
 			const byIdentity = new Map<string, ForegroundEntry>();
 			for (const entry of entries) {
 				if (entry.identity !== undefined && !byIdentity.has(entry.identity))
@@ -387,7 +424,12 @@ function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
 				if (!terminal) return trace;
 				return {
 					...trace,
-					progress: { ...trace.progress, ...terminal.progress },
+					progress: {
+						...mergeLiveProgress(
+							{ ...trace.progress, ...terminal.progress },
+							identity ? liveChildren.get(identity) : undefined,
+						),
+					},
 					result: terminal.result,
 					identity,
 				};
@@ -398,7 +440,14 @@ function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
 			return merged;
 		}
 	}
-	if (traceEntries.length > 0) return traceEntries;
+	if (traceEntries.length > 0) {
+		return traceEntries.map((entry) => {
+			const live = entry.identity ? liveChildren.get(entry.identity) : undefined;
+			return live
+				? { ...entry, progress: mergeLiveProgress(entry.progress, live) }
+				: entry;
+		});
+	}
 	const directProgress = details?.progress;
 	if (!Array.isArray(directProgress)) return [];
 	return directProgress.flatMap((value): ForegroundEntry[] => {
@@ -481,7 +530,8 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 			control: "foreground",
 			mode: "foreground",
 			state,
-			agent: label,
+			agent:
+				typeof progress.agent === "string" ? progress.agent : label,
 			steps: [],
 			startedAt: item.startedAt ?? item.timestamp,
 			lastUpdate:
@@ -494,6 +544,10 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 					: undefined,
 			currentTool:
 				typeof progress.currentTool === "string" ? progress.currentTool : undefined,
+			currentToolStartedAt:
+				typeof progress.currentToolStartedAt === "number"
+					? progress.currentToolStartedAt
+					: undefined,
 			activityState:
 				typeof progress.activityState === "string" ? progress.activityState : state,
 			currentPath:
@@ -601,12 +655,10 @@ export function subagentTargets(
 				step.sessionFile ?? child.sessionFile ?? childStep?.sessionFile;
 			const transcriptPath =
 				step.transcriptPath ?? child.transcriptPath ?? childStep?.transcriptPath;
-			if (
-				sessionFile === step.sessionFile &&
-				transcriptPath === step.transcriptPath
-			)
+			if (!childStep && sessionFile === step.sessionFile && transcriptPath === step.transcriptPath)
 				return step;
-			return { ...step, sessionFile, transcriptPath };
+			const enrichedStep = childStep ? { ...childStep, ...step } : step;
+			return { ...enrichedStep, sessionFile, transcriptPath };
 		});
 		if (enrichedSteps.some((step, index) => step !== parent.steps[index])) {
 			enrichedWorkflowParents.set(parent.runId, {
@@ -805,31 +857,57 @@ export function subagentTargets(
 							target.childRunId === trace.childRunId &&
 							target.parentWorkflowRunId === trace.parentWorkflowRunId,
 					);
-		let match = candidates.length === 1 ? candidates[0] : undefined;
+		let match = candidates
+			.sort((a, b) => compareTargetRichness(b, a) || a.key.localeCompare(b.key))[0];
 		if (!match && trace.workflowKey !== undefined) {
 			candidates = available(
 				(target) =>
 					target.workflowKey === trace.workflowKey &&
 					target.parentWorkflowRunId === trace.parentWorkflowRunId,
 			);
-			match = candidates.length === 1 ? candidates[0] : undefined;
+			match = candidates
+				.sort((a, b) => compareTargetRichness(b, a) || a.key.localeCompare(b.key))[0];
 		}
 		if (!match) continue;
 		matched.add(match);
+		const mergedStep = match.step
+			? {
+					...match.step,
+					status: trace.state,
+					...(trace.run.model !== undefined ? { model: trace.run.model } : {}),
+					...(trace.run.thinking !== undefined ? { thinking: trace.run.thinking } : {}),
+					...(trace.run.lastActivityAt !== undefined ? { lastActivityAt: trace.run.lastActivityAt } : {}),
+					...(trace.run.currentTool !== undefined ? { currentTool: trace.run.currentTool } : {}),
+					...(trace.run.currentToolStartedAt !== undefined ? { currentToolStartedAt: trace.run.currentToolStartedAt } : {}),
+					...(trace.run.turnCount !== undefined ? { turnCount: trace.run.turnCount } : {}),
+					...(trace.run.toolCount !== undefined ? { toolCount: trace.run.toolCount } : {}),
+				}
+			: undefined;
 		const merged: SubagentTarget = {
 			...match,
-			...(match.step ? { step: { ...match.step, status: trace.state } } : {}),
+			...(mergedStep ? { step: mergedStep } : {}),
 			key: trace.key,
 			state: trace.state,
 			active: trace.active,
 			canSteer: trace.canSteer,
 			toolCallId: trace.toolCallId,
+			lastUpdate: trace.lastUpdate ?? match.lastUpdate,
+			model: trace.model ?? match.model,
+			thinking: trace.thinking ?? match.thinking,
+			childRunId: trace.childRunId ?? match.childRunId,
 			run: {
 				...match.run,
 				state: trace.run.state,
-				...(trace.run.activityState !== undefined
-					? { activityState: trace.run.activityState }
-					: {}),
+				...(trace.run.lastUpdate !== undefined ? { lastUpdate: trace.run.lastUpdate } : {}),
+				...(trace.run.lastActivityAt !== undefined ? { lastActivityAt: trace.run.lastActivityAt } : {}),
+				...(trace.run.activityState !== undefined ? { activityState: trace.run.activityState } : {}),
+				...(trace.run.model !== undefined ? { model: trace.run.model } : {}),
+				...(trace.run.thinking !== undefined ? { thinking: trace.run.thinking } : {}),
+				...(trace.run.currentTool !== undefined ? { currentTool: trace.run.currentTool } : {}),
+				...(trace.run.currentToolStartedAt !== undefined ? { currentToolStartedAt: trace.run.currentToolStartedAt } : {}),
+				...(trace.run.turnCount !== undefined ? { turnCount: trace.run.turnCount } : {}),
+				...(trace.run.toolCount !== undefined ? { toolCount: trace.run.toolCount } : {}),
+				...(trace.run.totalTokens !== undefined ? { totalTokens: trace.run.totalTokens } : {}),
 			},
 		};
 		const index = result.indexOf(match);
@@ -842,15 +920,8 @@ export function subagentTargets(
 	for (const target of result) {
 		const identity = subagentTargetIdentity(target);
 		const existing = deduped.get(identity);
-		if (
-			!existing ||
-			(target.active && !existing.active) ||
-			(target.active === existing.active &&
-				(target.lastUpdate ?? target.startedAt ?? 0) >
-					(existing.lastUpdate ?? existing.startedAt ?? 0))
-		) {
+		if (!existing || compareTargetRichness(target, existing) > 0)
 			deduped.set(identity, target);
-		}
 	}
 	return [...deduped.values()].sort((a, b) => {
 		// Most recently started subagent run first, so the latest activity
@@ -868,6 +939,20 @@ function record(value: unknown): Record<string, unknown> | undefined {
 	return value && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
 		: undefined;
+}
+
+function compareTargetRichness(a: SubagentTarget, b: SubagentTarget): number {
+	const fileBacked = Number(Boolean(a.transcriptPath || a.sessionFile));
+	const otherFileBacked = Number(Boolean(b.transcriptPath || b.sessionFile));
+	if (fileBacked !== otherFileBacked) return fileBacked - otherFileBacked;
+	const model = Number(Boolean(a.model));
+	const otherModel = Number(Boolean(b.model));
+	if (model !== otherModel) return model - otherModel;
+	const step = Number(Boolean(a.step));
+	const otherStep = Number(Boolean(b.step));
+	if (step !== otherStep) return step - otherStep;
+	if (a.active !== b.active) return Number(a.active) - Number(b.active);
+	return (a.lastUpdate ?? 0) - (b.lastUpdate ?? 0);
 }
 
 export function subagentRunIdFromTool(item: ToolItem): string | undefined {

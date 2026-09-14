@@ -60,7 +60,8 @@ import type {
 	SubagentRun,
 } from "../src/types.ts";
 import type { CodexUsage } from "../src/integrations/codex-usage.ts";
-import type { CodexUsageStats } from "../src/integrations/codex-usage-history.ts";
+import type { OpencodeUsage } from "../src/integrations/opencode-usage.ts";
+import type { UsageStats } from "../src/integrations/codex-usage-history.ts";
 import { registerBundledParsers } from "../src/ui/parsers.ts";
 import {
 	CommandSuggestions,
@@ -2450,7 +2451,7 @@ describe("OpenTUI components", () => {
 				},
 			],
 		};
-		const codexUsageStats: Record<number, CodexUsageStats> = {
+		const codexUsageStats: Record<number, UsageStats> = {
 			604800: { remainingPercent: 70, ratePercentPerHour: 2, rateSpanHours: 1 },
 		};
 		const setup = await mount(
@@ -2470,6 +2471,39 @@ describe("OpenTUI components", () => {
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("avg");
 		expect(frame).toContain("%/day");
+	});
+	test("renders and hides the OpenCode Go usage block", async () => {
+		const usage: OpencodeUsage = {
+			windows: [
+				{
+					usedPercent: 1,
+					windowSeconds: 18_000,
+					resetAfterSeconds: 120,
+					resetAt: 1_000,
+				},
+				{
+					usedPercent: 1,
+					windowSeconds: 604_800,
+					resetAfterSeconds: 120,
+					resetAt: 1_000,
+				},
+				{
+					usedPercent: 61,
+					windowSeconds: 2_592_000,
+					resetAfterSeconds: 120,
+					resetAt: 1_000,
+				},
+			],
+		};
+		const withUsage = await mount(() => <Sidebar runs={[]} opencodeUsage={usage} />, 42, 40);
+		const frame = withUsage.captureCharFrame();
+		expect(frame).toContain("OpenCode Go");
+		expect(frame).toContain("5h:");
+		expect(frame).toContain("7d:");
+		expect(frame).toContain("30d:");
+
+		const withoutUsage = await mount(() => <Sidebar runs={[]} />, 42, 40);
+		expect(withoutUsage.captureCharFrame()).not.toContain("OpenCode Go");
 	});
 
 	test("renders live assistant output as stable plain text and tool timing", async () => {
@@ -2999,6 +3033,40 @@ describe("OpenTUI components", () => {
 		expect(activeFrame).toContain("▤provider/child");
 		expect(activeFrame).toContain("8.2k ctx");
 		expect(activeFrame).toContain("◆high");
+	});
+
+	test("sanitizes subagent inspector metadata before terminal rendering", async () => {
+		const evil = "\u001b[31mevil\u001b[0m";
+		const thinking = "\u001b]8;;https://evil.example\u0007evil\u001b]8;;\u0007";
+		const step = {
+			index: 0,
+			agent: evil,
+			status: evil,
+			thinking,
+		};
+		const run: SubagentRun = {
+			runId: "inspector-sanitize",
+			mode: evil,
+			state: "running",
+			agent: evil,
+			steps: [step],
+		};
+		const target = {
+			key: "inspector-sanitize-target",
+			run,
+			step,
+			label: evil,
+			state: evil,
+			active: true,
+			canSteer: true,
+			thinking,
+		};
+		const setup = await mount(
+			() => <SubagentInspector target={target} items={[]} now={2_000} />,
+			100,
+			24,
+		);
+		expect(setup.captureCharFrame()).not.toContain("\u001b");
 	});
 
 	test("shows inspector actions only for applicable file-backed targets", async () => {
