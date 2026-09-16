@@ -7,7 +7,7 @@ import type {
 	ToolItem,
 	NotificationRecord,
 } from "../types.ts";
-import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
+import { subagentTargets, targetContextUsage, type SubagentTarget } from "../subagents/targets.ts";
 import { formatDuration } from "./duration.ts";
 import type { RequestPerformance } from "../tabs/request-metrics.ts";
 import {
@@ -280,8 +280,13 @@ function targetToolUsage(target: SubagentTarget): string {
 	const parts: string[] = [];
 	const toolCount = target.step?.toolCount ?? target.run.toolCount;
 	if (toolCount !== undefined) parts.push(`${toolCount} tools`);
-	const tokens = targetTokens(target);
-	if (tokens !== undefined) parts.push(`${formatTokens(tokens)} tok`);
+	const contextUsage = targetContextUsage(target);
+	if (contextUsage) {
+		parts.push(contextUsage);
+	} else {
+		const tokens = targetTokens(target);
+		if (tokens !== undefined) parts.push(`${formatTokens(tokens)} tok`);
+	}
 	return parts.length > 0 ? parts.join(" · ") : "starting…";
 }
 

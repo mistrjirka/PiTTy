@@ -351,6 +351,43 @@ describe("subagent controls", () => {
 		expect(parsed?.steps[0]?.runId).toBe("workflow-child-run");
 	});
 
+	test("parses live context window fields for subagent context-usage display", () => {
+		// The sidebar/inspector show `used / limit` from the live context window,
+		// so readSubagentRun must ingest window/windowPeak and per-step contextWindow.
+		const target = run();
+		fs.writeFileSync(
+			path.join(target.asyncDir!, "status.json"),
+			JSON.stringify({
+				lifecycleArtifactVersion: 1,
+				runId: "run-1",
+				sessionId: "session-1",
+				mode: "single",
+				state: "running",
+				startedAt: 1000,
+				lastUpdate: 2000,
+				currentTool: "bash",
+				// Run-level window is ingested from the totalTokens breakdown object.
+				totalTokens: { input: 100, output: 50, total: 150, window: 168187, windowPeak: 168187 },
+				steps: [
+					{
+						agent: "worker",
+						status: "running",
+						runId: "step-run",
+						model: "provider/child",
+						contextWindow: 1048576,
+						currentTool: "edit",
+						tokens: { input: 40, output: 20, total: 60, window: 168187, windowPeak: 168187 },
+					},
+				],
+			}),
+		);
+		const parsed = readSubagentRun(target.asyncDir!);
+		expect(parsed?.tokens?.window).toBe(168187);
+		expect(parsed?.tokens?.windowPeak).toBe(168187);
+		expect(parsed?.steps[0]?.contextWindow).toBe(1048576);
+		expect(parsed?.steps[0]?.tokens?.window).toBe(168187);
+	});
+
 	test("extracts child run ids only from child session file layouts", () => {
 		expect(childRunIdFromSessionFile("/a/b/c/run-0/session.jsonl")).toBe("c");
 		expect(childRunIdFromSessionFile("/a/b/c/run-2/session.jsonl")).toBe("c");

@@ -281,6 +281,8 @@ export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
           ...(number(tokenRecord.total) !== undefined ? { total: number(tokenRecord.total) } : {}),
           ...(number(tokenRecord.input) !== undefined ? { input: number(tokenRecord.input) } : {}),
           ...(number(tokenRecord.output) !== undefined ? { output: number(tokenRecord.output) } : {}),
+          ...(number(tokenRecord.window) !== undefined ? { window: number(tokenRecord.window) } : {}),
+          ...(number(tokenRecord.windowPeak) !== undefined ? { windowPeak: number(tokenRecord.windowPeak) } : {}),
         }
       : typeof step.tokens === "number" ? { total: number(step.tokens) } : undefined;
     const built: SubagentStep = {
@@ -378,6 +380,22 @@ export function readSubagentRun(asyncDir: string): SubagentRun | undefined {
     ...(number(record.toolCount) !== undefined ? { toolCount: number(record.toolCount) } : {}),
     ...(number(record.steerCount) !== undefined ? { steerCount: number(record.steerCount) } : {}),
     ...(number(record.totalTokens) !== undefined ? { totalTokens: number(record.totalTokens) } : totalTokensRecord && number(totalTokensRecord.total) !== undefined ? { totalTokens: number(totalTokensRecord.total) } : {}),
+    ...(totalTokensRecord &&
+      (number(totalTokensRecord.total) !== undefined ||
+        number(totalTokensRecord.input) !== undefined ||
+        number(totalTokensRecord.output) !== undefined ||
+        number(totalTokensRecord.window) !== undefined ||
+        number(totalTokensRecord.windowPeak) !== undefined)
+      ? {
+          tokens: {
+            ...(number(totalTokensRecord.total) !== undefined ? { total: number(totalTokensRecord.total) } : {}),
+            ...(number(totalTokensRecord.input) !== undefined ? { input: number(totalTokensRecord.input) } : {}),
+            ...(number(totalTokensRecord.output) !== undefined ? { output: number(totalTokensRecord.output) } : {}),
+            ...(number(totalTokensRecord.window) !== undefined ? { window: number(totalTokensRecord.window) } : {}),
+            ...(number(totalTokensRecord.windowPeak) !== undefined ? { windowPeak: number(totalTokensRecord.windowPeak) } : {}),
+          },
+        }
+      : {}),
     ...(number(record.totalCost) !== undefined ? { totalCost: number(record.totalCost) } : totalCostRecord && number(totalCostRecord.costUsd) !== undefined ? { totalCost: number(totalCostRecord.costUsd) } : {}),
     ...(number(record.timeoutMs) !== undefined ? { timeoutMs: number(record.timeoutMs) } : {}),
     ...(number(record.deadlineAt) !== undefined ? { deadlineAt: number(record.deadlineAt) } : {}),

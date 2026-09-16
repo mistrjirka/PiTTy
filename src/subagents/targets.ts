@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { SubagentRun, SubagentStep, ToolItem } from "../types.ts";
 import { subagentActivityAt } from "./transcript.ts";
 import { childRunIdFromSessionFile } from "./artifacts.ts";
+import { compactTokenCount } from "../state/compaction-telemetry.ts";
 
 export type SubagentTarget = {
 	key: string;
@@ -1123,4 +1124,28 @@ export function targetsForTool(
 		candidates.set(target.run.runId, group);
 	}
 	return candidates.size === 1 ? ([...candidates.values()][0] ?? []) : [];
+}
+
+/**
+ * Format how much of the context window is currently used, as `used / limit`
+ * (e.g. `168K / 1M`). Returns undefined when either side is unknown so callers
+ * can fall back to another representation rather than showing a misleading value.
+ */
+function formatContextUsage(used: number | undefined, limit: number | undefined): string | undefined {
+	if (used === undefined || limit === undefined) return undefined;
+	const usedRounded = Math.round(used);
+	const limitRounded = Math.round(limit);
+	if (!Number.isFinite(usedRounded) || !Number.isFinite(limitRounded) || limitRounded <= 0) return undefined;
+	return `${compactTokenCount(Math.max(0, usedRounded))} / ${compactTokenCount(limitRounded)}`;
+}
+
+/**
+ * Current context-window usage for a target, preferring the active step and
+ * falling back to the run. Uses the live `window` (current context) rather than
+ * the cumulative token total, which otherwise re-counts re-sent context.
+ */
+export function targetContextUsage(target: SubagentTarget): string | undefined {
+	const used = target.step?.tokens?.window ?? target.run.tokens?.window;
+	const limit = target.step?.contextWindow ?? target.run.contextWindow;
+	return formatContextUsage(used, limit);
 }

@@ -80,6 +80,17 @@ export type CustomItem = {
 
 export type ConversationItem = UserItem | AssistantItem | ToolItem | SystemItem | CustomItem;
 
+/** Token accounting for a subagent run or step, including the live context-window size. */
+export type SubagentTokenBreakdown = {
+	total?: number | undefined;
+	input?: number | undefined;
+	output?: number | undefined;
+	/** Current context size (input + cache-read tokens of the latest turn). */
+	window?: number | undefined;
+	/** Largest window observed in this scope. */
+	windowPeak?: number | undefined;
+};
+
 export type SubagentStep = {
 	index: number;
 	agent: string;
@@ -108,13 +119,7 @@ export type SubagentStep = {
 	turnCount?: number | undefined;
 	toolCount?: number | undefined;
 	durationMs?: number | undefined;
-	tokens?:
-		| {
-				total?: number | undefined;
-				input?: number | undefined;
-				output?: number | undefined;
-		  }
-		| undefined;
+	tokens?: SubagentTokenBreakdown | undefined;
 	sessionFile?: string | undefined;
 	error?: string | undefined;
 };
@@ -154,6 +159,7 @@ export type SubagentRun = {
 	toolCount?: number | undefined;
 	steerCount?: number | undefined;
 	totalTokens?: number | undefined;
+	tokens?: SubagentTokenBreakdown | undefined;
 	totalCost?: number | undefined;
 	timeoutMs?: number | undefined;
 	deadlineAt?: number | undefined;

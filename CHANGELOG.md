@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.18
+
+### Subagent context-window usage
+
+- Running and finished subagents now show how much of the context window is used (`168K / 1M`) in both the sidebar and the subagent inspector, replacing the cumulative token total. The cumulative total re-counts every re-sent turn, so it overstated usage; the figure shown is the live `window` (input + cache-read tokens of the latest turn), preferring the active step over the run.
+- When the context window or its limit is unknown (older runs without that data), both views fall back to the cumulative token count rather than hiding the number.
+
+### Compaction lane keeps its tail
+
+- A long streaming summary inside the compaction lane no longer pushes the lane tail off the bottom of the pane: each streamed line now renders as its own fixed-height row, so the last few lane rows stay visible.
+
+### Consistent token formatting
+
+- Token counts now use one shared formatter, so a million renders as `1M` instead of `1.0M`, and the compaction and subagent views agree.
+
+Full suite: 391 tests — 391 pass, 1 skip.
+
 ## 0.6.17
 
 ### Compact sidebar

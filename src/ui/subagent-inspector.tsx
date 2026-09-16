@@ -6,7 +6,7 @@ import type {
 } from "@opentui/core";
 import type { ConversationItem, SubagentRun } from "../types.ts";
 import type { PendingSteerEntry } from "../state/input-continuity.ts";
-import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
+import { subagentTargets, targetContextUsage, type SubagentTarget } from "../subagents/targets.ts";
 import { colors } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
 import { formatContextWindow } from "./model-selector.tsx";
@@ -55,6 +55,7 @@ export function SubagentInspector(props: {
 		return "Ctrl+Shift+A stop";
 	};
 	const step = () => target().step;
+	const contextUsage = () => targetContextUsage(target());
 	const elapsed = () =>
 		target().startedAt
 			? (step()?.endedAt ?? run().endedAt ?? props.now) - target().startedAt!
@@ -293,7 +294,7 @@ export function SubagentInspector(props: {
 							{cleanTerminalText(`⚙${currentTool() ?? "working"}${toolElapsed() !== undefined ? ` ${formatDuration(toolElapsed())}` : ""}`)}
 							{run().toolCount !== undefined ? ` · ${run().toolCount} tools` : ""}
 							{run().turnCount !== undefined ? ` · ${run().turnCount} turns` : ""}
-							{run().totalTokens !== undefined ? ` · ${run().totalTokens} tok` : ""}
+							{contextUsage() ? ` · ${contextUsage()}` : run().totalTokens !== undefined ? ` · ${run().totalTokens} tok` : ""}
 						</text>
 					</Show>
 				</Show>

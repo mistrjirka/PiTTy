@@ -435,7 +435,7 @@ export function countCompactionMessages(
 export function compactTokenCount(value: number): string {
 	if (value >= 1_000_000) {
 		const millions = value / 1_000_000;
-		return `${millions >= 10 ? Math.round(millions) : millions.toFixed(1)}M`;
+		return `${millions >= 10 ? Math.round(millions) : millions.toFixed(1).replace(/\.0$/, "")}M`;
 	}
 	if (value >= 1_000) return `${Math.round(value / 1_000)}K`;
 	return String(Math.round(value));

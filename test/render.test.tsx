@@ -1092,6 +1092,60 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("line one");
 	});
 
+	test("bounds live one-round lane text to fixed terminal rows at narrow width", async () => {
+		// A long wrapping logical line must not monopolize the fixed 3-row lane
+		// window: the tail (newest streamed lines) has to stay visible, and the
+		// fixed rows below the lane must stay at their bounded locations.
+		const intent = `${"x".repeat(200)}\nmid line\nCLOSING_MARKER_ZETA`;
+		const setup = await mount(
+			() => (
+				<box flexDirection="column" width="100%" height="100%">
+					<CompactionPanel
+						telemetry={{ version: 1, phase: "preparing", reason: "manual", startedAt: 1_000 }}
+						now={4_000}
+						spinner="◐"
+						frame={1}
+						oneRoundProgress={{
+							v: 1,
+							runId: "run-1",
+							seq: 3,
+							phase: "streaming",
+							mode: "normal",
+							reason: "manual",
+							elapsedMs: 3000,
+							retainedTurns: 2,
+							estimatedRetainedTokens: 30_000,
+							keepRecentTokens: 32_000,
+							boundaryMode: "whole-turn",
+							lanes: {
+								intent: { role: "intent", state: "streaming", chars: 900, elapsedMs: 2500 },
+								execution: { role: "execution", state: "queued", chars: 0 },
+							},
+						}}
+						laneTexts={{ runId: "run-1", intent, execution: "" }}
+					/>
+					<text>MARKER_AFTER_PANEL</text>
+				</box>
+			),
+			40,
+			30,
+		);
+		const frame = setup.captureCharFrame();
+		const lines = frame.split("\n");
+		const executionRow = lines.findIndex((line) => line.includes("execution · queued"));
+		const markerRow = lines.findIndex((line) => line.includes("MARKER_AFTER_PANEL"));
+		// Collapsed lane window: header(1) + intent lane(1) + 3 lane rows, so the
+		// execution lane must stay on row 5 and never be pushed down by wrapping.
+		expect(executionRow).toBe(5);
+		expect(markerRow).toBeGreaterThanOrEqual(0);
+		expect(markerRow).toBeLessThanOrEqual(10);
+		expect(frame).toContain("MARKER_AFTER_PANEL");
+		// The lane is a tail window: the newest streamed lines must win the fixed
+		// terminal rows instead of being crowded out by one wrapping head line.
+		expect(frame).toContain("CLOSING_MARKER_ZETA");
+		expect(frame).toContain("mid line");
+	});
+
 	test("updates the mounted compaction panel when live progress arrives", async () => {
 		const [revision, setRevision] = createSignal(0);
 		const runtime: {
@@ -2387,6 +2441,85 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("🟢 implementer");
 		expect(frame).toContain("bash");
 		expect(frame).not.toContain("Selected");
+	});
+
+	test("shows subagent context-window usage instead of cumulative tokens", async () => {
+		// The live context window (168187) against the 1048576 limit, not the
+		// cumulative input+output total (497506) which re-counts re-sent context.
+		const runs: SubagentRun[] = [
+			{
+				runId: "run-1",
+				asyncDir: "/tmp/run-1",
+				mode: "single",
+				state: "running",
+				agent: "implementer",
+				totalTokens: 497506,
+				tokens: { total: 497506, input: 480012, output: 17494, window: 168187, windowPeak: 168187 },
+				currentTool: "bash",
+				steps: [
+					{
+						index: 0,
+						agent: "implementer",
+						status: "running",
+						contextWindow: 1048576,
+						tokens: { total: 497506, input: 480012, output: 17494, window: 168187, windowPeak: 168187 },
+					},
+				],
+			},
+		];
+		const setup = await mount(
+			() => <Sidebar runs={runs} selectedRunId="run-1" />,
+			42,
+			28,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("168K / 1M");
+		expect(frame).not.toContain("497K tok");
+	});
+
+	test("falls back to cumulative tokens when context window is unknown", async () => {
+		const runs: SubagentRun[] = [
+			{
+				runId: "run-1",
+				asyncDir: "/tmp/run-1",
+				mode: "single",
+				state: "running",
+				agent: "implementer",
+				totalTokens: 4200,
+				currentTool: "bash",
+				steps: [],
+			},
+		];
+		const setup = await mount(
+			() => <Sidebar runs={runs} selectedRunId="run-1" />,
+			42,
+			28,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("4K tok");
+	});
+
+	test("inspector falls back to cumulative tokens when context window is unknown", async () => {
+		// The inspector must keep the sidebar's fallback: for a run without window
+		// data it shows the cumulative total again rather than a bare tool/turn line.
+		const run: SubagentRun = {
+			runId: "run-1",
+			asyncDir: "/tmp/run-1",
+			mode: "single",
+			state: "running",
+			agent: "implementer",
+			totalTokens: 4200,
+			currentTool: "bash",
+			steps: [],
+		};
+		const target = subagentTargets([run])[0]!;
+		const inspector = await mount(
+			() => <SubagentInspector target={target} items={[]} now={2_000} />,
+			100,
+			24,
+		);
+		const frame = inspector.captureCharFrame();
+		expect(frame).toContain("4200 tok");
 	});
 
 	test("renders all six mission-backed workflow children in the subagent sidebar", async () => {

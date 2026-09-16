@@ -175,20 +175,24 @@ export function CompactionPanel(props: {
 						{laneLine(props.oneRoundProgress.lanes.intent)}
 					</text>
 					<Show when={(props.laneTexts?.intent ?? "").length > 0}>
-						<box height={laneTextLines()} overflow="hidden" paddingLeft={2} flexShrink={0}>
-							<text fg={colors.muted} wrapMode="word">
-								{laneTailLines(props.laneTexts?.intent ?? "", laneTextLines()).join("\n")}
-							</text>
+						<box height={laneTextLines()} overflow="hidden" paddingLeft={2} flexShrink={0} flexDirection="column">
+							{laneTailLines(props.laneTexts?.intent ?? "", laneTextLines()).map((line) => (
+								<text height={1} fg={colors.muted} wrapMode="none" flexShrink={0}>
+									{line}
+								</text>
+							))}
 						</box>
 					</Show>
 					<text height={1} fg={colors.subtle} wrapMode="none">
 						{laneLine(props.oneRoundProgress.lanes.execution)}
 					</text>
 					<Show when={(props.laneTexts?.execution ?? "").length > 0}>
-						<box height={laneTextLines()} overflow="hidden" paddingLeft={2} flexShrink={0}>
-							<text fg={colors.muted} wrapMode="word">
-								{laneTailLines(props.laneTexts?.execution ?? "", laneTextLines()).join("\n")}
-							</text>
+						<box height={laneTextLines()} overflow="hidden" paddingLeft={2} flexShrink={0} flexDirection="column">
+							{laneTailLines(props.laneTexts?.execution ?? "", laneTextLines()).map((line) => (
+								<text height={1} fg={colors.muted} wrapMode="none" flexShrink={0}>
+									{line}
+								</text>
+							))}
 						</box>
 					</Show>
 				</>
