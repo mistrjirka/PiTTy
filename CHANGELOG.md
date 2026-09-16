@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.17
+
+### Compact sidebar
+
+- The Codex and OpenCode Go usage blocks now use one row per window (`7d 10% · resets 6d 5h`). The separate reset row, the redundant `(NN% left)` percentage, and the `avg 0.0%/day` filler rows are gone.
+- The runout row appears only when a runout is predicted, and warns with `⚠ runs out 2h` when it would land before the window resets; the daily pace row appears only when meaningful (`+10.0%/day`).
+- The sidebar pane is 38 columns instead of 42 (content clip 32 instead of 36), returning four columns to the conversation.
+
+### Collapsed thinking shows the tail
+
+- A collapsed thinking block now previews the end of the thought instead of the beginning. The preview is sized to the visible conversation width (reserving the sidebar on wide terminals), so the terminal's right-edge clipping can no longer hide the tail.
+
 ## 0.6.16
 
 ### Live subagent progress

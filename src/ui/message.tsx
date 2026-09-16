@@ -5,6 +5,7 @@ import type {
 	TextRenderable,
 	ScrollBoxRenderable,
 } from "@opentui/core";
+import { useTerminalDimensions } from "@opentui/solid";
 import stripAnsi from "strip-ansi";
 import type { ConversationItem, CustomItem, ToolItem } from "../types.ts";
 import type { SubagentTarget } from "../subagents/targets.ts";
@@ -153,10 +154,12 @@ function thinkingLineCount(value: string): number {
 	return clean ? clean.split(/\r?\n/).length : 0;
 }
 
-function collapsedThinkingPreview(value: string): string {
+function collapsedThinkingPreview(value: string, maxChars: number): string {
 	const clean = value.replace(/\s+/g, " ").trim();
 	if (!clean) return "";
-	return clean.length > 180 ? `${clean.slice(0, 177)}…` : clean;
+	const max = Math.max(24, Math.floor(maxChars));
+	if (clean.length <= max) return clean;
+	return `…${clean.slice(clean.length - (max - 1))}`;
 }
 
 function supervisorArgs(args: unknown): Record<string, unknown> | undefined {
@@ -630,6 +633,15 @@ export function MessageView(props: {
 		const value = currentItem();
 		return value.kind === "assistant" ? value.status : "done";
 	});
+	const terminalDimensions = useTerminalDimensions();
+	// The preview is one non-wrapping line; terminals clip its right edge,
+	// so it is sized to the visible conversation width to keep the true tail
+	// of the thought on screen. Wide terminals reserve the 38-column
+	// sidebar and the conversation padding.
+	const thinkingPreviewMax = () => {
+		const width = terminalDimensions().width;
+		return Math.max(24, width - (width >= 104 ? 38 : 0) - 6);
+	};
 	const thinkingIsExpanded = () =>
 		typeof props.thinkingExpanded === "function"
 			? props.thinkingExpanded()
@@ -680,7 +692,7 @@ export function MessageView(props: {
 			}`;
 		}
 		if (thinkingPreview) {
-			thinkingPreview.content = collapsedThinkingPreview(thought);
+			thinkingPreview.content = collapsedThinkingPreview(thought, thinkingPreviewMax());
 			thinkingPreview.visible = !expanded;
 		}
 		if (thinkingMarkdown) {
@@ -807,7 +819,7 @@ export function MessageView(props: {
 							selectable
 							wrapMode="none"
 						>
-							{collapsedThinkingPreview(thinking())}
+							{collapsedThinkingPreview(thinking(), thinkingPreviewMax())}
 						</text>
 						<text
 							id={`${item.id}-thinking-stream`}

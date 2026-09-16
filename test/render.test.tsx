@@ -2469,8 +2469,36 @@ describe("OpenTUI components", () => {
 			40,
 		);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("avg");
-		expect(frame).toContain("%/day");
+		expect(frame).toContain("+48.0%/day");
+	});
+
+	test("shows the tail of long collapsed thinking instead of its beginning", async () => {
+		const thought =
+			"opening marker alpha: restate the task, weigh the alternatives, and trace the data flow through the sidebar and the app state before deciding anything, " +
+			"middle filler: several paragraphs of analysis about tradeoffs, reset epochs, and the history buffer accumulate here so the preview must choose an end, " +
+			"the plan converges on compact rows and a focused render test, so closing marker zeta";
+		const assistant: ConversationItem = {
+			kind: "assistant",
+			id: "tail-thinking",
+			text: "done",
+			thinking: thought,
+			timestamp: 1,
+			status: "done",
+		};
+		const setup = await mount(
+			() => (
+				<MessageView
+					item={assistant}
+					showThinking
+					thinkingExpanded={false}
+					toolExpanded={false}
+				/>
+			),
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("closing marker zeta");
+		expect(frame).not.toContain("opening marker alpha");
+		expect(frame).toContain("▶ Thinking");
 	});
 	test("renders and hides the OpenCode Go usage block", async () => {
 		const usage: OpencodeUsage = {
@@ -2498,9 +2526,9 @@ describe("OpenTUI components", () => {
 		const withUsage = await mount(() => <Sidebar runs={[]} opencodeUsage={usage} />, 42, 40);
 		const frame = withUsage.captureCharFrame();
 		expect(frame).toContain("OpenCode Go");
-		expect(frame).toContain("5h:");
-		expect(frame).toContain("7d:");
-		expect(frame).toContain("30d:");
+		expect(frame).toContain("5h 1%");
+		expect(frame).toContain("7d 1%");
+		expect(frame).toContain("30d 61%");
 
 		const withoutUsage = await mount(() => <Sidebar runs={[]} />, 42, 40);
 		expect(withoutUsage.captureCharFrame()).not.toContain("OpenCode Go");
@@ -3246,7 +3274,7 @@ describe("OpenTUI components", () => {
 			kind: "assistant",
 			id: "thinking-toggle",
 			text: "Done.",
-			thinking: `${"Inspect the files carefully and compare every relevant behavior. ".repeat(4)}\nUNIQUE_EXPANDED_DETAIL`,
+			thinking: `HEAD_MARKER_ALPHA ${"neutral filler about file inspection ".repeat(8)}\nUNIQUE_EXPANDED_DETAIL`,
 			timestamp: 2,
 			status: "done",
 		};
@@ -3260,9 +3288,9 @@ describe("OpenTUI components", () => {
 		));
 		const collapsedFrame = collapsed.captureCharFrame();
 		expect(collapsedFrame).toContain("▶ Thinking");
-		expect(collapsedFrame).toContain("Inspect the files carefully");
+		expect(collapsedFrame).toContain("UNIQUE_EXPANDED_DETAIL");
 		expect(collapsedFrame).toContain("expand");
-		expect(collapsedFrame).not.toContain("UNIQUE_EXPANDED_DETAIL");
+		expect(collapsedFrame).not.toContain("HEAD_MARKER_ALPHA");
 
 		const expanded = await mount(() => (
 			<MessageView

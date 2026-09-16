@@ -30,7 +30,7 @@ import {
 	type UsageWindows,
 } from "../integrations/codex-usage-history.ts";
 
-const CONTENT_WIDTH = 36;
+const CONTENT_WIDTH = 32;
 
 export type SidebarPanelVisibility = {
 	subagents: boolean;
@@ -130,34 +130,6 @@ export function allocateSidebarPanels(
 	return allocation;
 }
 
-function formatSignedPercent(value: number): string {
-	return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
-}
-
-function usageWindowSummaryLine(
-	usedPercent: number,
-	stats: UsageStats | undefined,
-): string {
-	const remaining = stats?.remainingPercent ?? Math.max(0, 100 - usedPercent);
-	const delta =
-		stats?.lastHourDeltaPercent !== undefined
-			? `, ${formatSignedPercent(stats.lastHourDeltaPercent)}/h`
-			: "";
-	return `${Math.round(usedPercent)}% used (${Math.round(remaining)}% left${delta})`;
-}
-
-function usageWindowResetLine(
-	resetAfterSeconds: number,
-	stats: UsageStats | undefined,
-): string {
-	const resetIn = formatResetIn(resetAfterSeconds);
-	if (!stats?.predictedRunoutAt) return `resets ${resetIn}`;
-	const runoutIn = formatRunoutIn(stats.predictedRunoutAt);
-	return stats.runsOutBeforeReset
-		? `resets ${resetIn} · ⚠ runs out ${runoutIn}`
-		: `resets ${resetIn} · runs out ${runoutIn}`;
-}
-
 function usageWindowPaceLine(
 	stats: UsageStats | undefined,
 ): string | undefined {
@@ -167,11 +139,8 @@ function usageWindowPaceLine(
 	)
 		return undefined;
 	const perDay = stats.ratePercentPerHour * 24;
-	const spanLabel =
-		stats.rateSpanHours >= 24
-			? `${(stats.rateSpanHours / 24).toFixed(1)}d`
-			: `${Math.round(stats.rateSpanHours)}h`;
-	return `avg ${perDay.toFixed(1)}%/day (last ${spanLabel})`;
+	if (Math.abs(perDay) < 0.1) return undefined;
+	return `${perDay >= 0 ? "+" : ""}${perDay.toFixed(1)}%/day`;
 }
 
 function usageRowCount(
@@ -181,8 +150,9 @@ function usageRowCount(
 	if (!usage?.windows.length) return 0;
 	let rows = 2;
 	for (const window of usage.windows) {
-		rows += 2;
-		if (usageWindowPaceLine(stats?.[window.windowSeconds])) rows += 1;
+		rows += 1;
+		const windowStats = stats?.[window.windowSeconds];
+		if (windowStats?.runsOutBeforeReset || usageWindowPaceLine(windowStats)) rows += 1;
 	}
 	return rows;
 }
@@ -204,30 +174,30 @@ function UsageWindowRows(props: UsageWindowRowsProps) {
 		<For each={windows() ?? []}>
 			{(window) => {
 				const windowStats = () => stats()?.[window.windowSeconds];
-				const pace = () => usageWindowPaceLine(windowStats());
+				const detail = () => {
+					const stats = windowStats();
+					const parts: string[] = [];
+					if (stats?.runsOutBeforeReset && stats.predictedRunoutAt !== undefined)
+						parts.push(`⚠ runs out ${formatRunoutIn(stats.predictedRunoutAt)}`);
+					const paceText = usageWindowPaceLine(stats);
+					if (paceText) parts.push(paceText);
+					return parts.length ? `  ${parts.join(" · ")}` : undefined;
+				};
 				return (
 					<>
 						<text width="100%" height={1} fg={colors.muted} wrapMode="none">
 							{clip(
-								`${formatWindowLabel(window.windowSeconds)}: ${usageWindowSummaryLine(window.usedPercent, windowStats())}`,
+								`${formatWindowLabel(window.windowSeconds)} ${Math.round(window.usedPercent)}% · resets ${formatResetIn(window.resetAfterSeconds)}`,
 							)}
 						</text>
-						<text
-							width="100%"
-							height={1}
-							fg={windowStats()?.runsOutBeforeReset ? colors.yellow : colors.subtle}
-							wrapMode="none"
-						>
-							{clip(`  ${usageWindowResetLine(window.resetAfterSeconds, windowStats())}`)}
-						</text>
-						<Show when={pace()}>
+						<Show when={detail()}>
 							<text
 								width="100%"
 								height={1}
-								fg={colors.subtle}
+								fg={windowStats()?.runsOutBeforeReset ? colors.yellow : colors.subtle}
 								wrapMode="none"
 							>
-								{clip(`  ${pace()}`)}
+								{clip(detail()!)}
 							</text>
 						</Show>
 					</>
@@ -494,8 +464,8 @@ export function Sidebar(props: {
 
 	return (
 		<box
-			width={42}
-			minWidth={42}
+			width={38}
+			minWidth={38}
 			height="100%"
 			flexDirection="column"
 			paddingLeft={2}
