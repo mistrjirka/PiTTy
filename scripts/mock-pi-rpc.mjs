@@ -48,9 +48,14 @@ if (process.env.MOCK_SCREENSHOT_RICH === "1" && process.env.MOCK_SCREENSHOT_SCEN
 // read as working. The spawn calls themselves complete immediately, as they do
 // in Pi, while the children keep running.
 if (process.env.MOCK_SUBAGENT_ROOT) {
+  const subagentRoot = process.env.MOCK_SUBAGENT_ROOT;
+  // Ids and tree id come from the fixture root's own name, exactly as the
+  // screenshot script derives them, so two fixture roots can never collide.
+  const suffix = subagentRoot.split("/").pop() ?? "";
+  const treeId = `tree-screenshot-${suffix}`;
   const children = [
-    { id: "spawn-yui", agent: "explore", agentId: "yui", label: "map the release workflow", task: "Map the release workflow and flag the risky steps." },
-    { id: "spawn-vic", agent: "impl-check-contracts", agentId: "vic", label: "audit installer contracts", task: "Audit the installer contracts and report the gaps." },
+    { id: `spawn-yui-${suffix}`, agent: "explore", agentId: "yui", label: "map the release workflow", task: "Map the release workflow and flag the risky steps." },
+    { id: `spawn-vic-${suffix}`, agent: "impl-check-contracts", agentId: "vic", label: "audit installer contracts", task: "Audit the installer contracts and report the gaps." },
   ];
   history.push({
     role: "assistant",
@@ -69,8 +74,8 @@ if (process.env.MOCK_SUBAGENT_ROOT) {
       content: [{ type: "text", text: `Spawned @${child.agentId}.` }],
       details: {
         runtime: "profiled-subagents",
-        controlDir: `${process.env.MOCK_SUBAGENT_ROOT}/${child.id}`,
-        treeId: "tree-screenshot",
+        controlDir: `${subagentRoot}/${child.id}`,
+        treeId,
         agentId: child.agentId,
         profile: child.agent,
         label: child.label,

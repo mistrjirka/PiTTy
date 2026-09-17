@@ -21,6 +21,13 @@ const surfaceHeight = 1028;
 const transientNotificationWaitMs = 7_500;
 const expectedEmptyPrompt = "Ask Pi anything… (/help for commands)";
 const executable = join(import.meta.dir, "mock-pi-rpc.mjs");
+/**
+ * A Wayland compositor only captures windows it renders itself, and an XWayland
+ * terminal's contents come back blank. So on a Wayland session the capture
+ * terminal runs natively and the frame comes from the desktop portal; on X11
+ * nothing changes.
+ */
+const waylandNative = Boolean(process.env.WAYLAND_DISPLAY);
 const states: ScreenshotState[] = [
   { name: "conversation", scenario: "rich", expected: ["supervisor: release review complete", "Subagents (2 active)", "@yui · explore", "ctrl+p models"] },
   { name: "model-selector", scenario: "model-selector", expected: ["Select model", "tok/s", "TTFT", "ready"], keys: ["C-p"] },
@@ -57,6 +64,42 @@ function ansiToHtml(value: string): string {
   return html;
 }
 function requireTool(command: string, args: string[], label: string): void { runNativeCommand(command, args, label); }
+/**
+ * A captured TUI frame carries text and colour, so it has real variance; an
+ * unpainted or half-painted window does not.
+ */
+const minimumFrameStandardDeviation = 2_000;
+function pngStandardDeviation(png: string): number {
+  const result = spawnSync("identify", ["-format", "%[standard-deviation]", png], { encoding: "utf8", timeout: 15_000 });
+  return result.status === 0 ? Number(result.stdout.trim()) : 0;
+}
+/**
+ * Capture the terminal to `png`. ImageMagick reads a window's own contents and is
+ * the X11 path. A Wayland compositor owns window size, placement and visibility,
+ * so there the frame comes from the desktop portal's active-window grab, cropped
+ * to the capture surface. Both paths are validated: a window that has not painted
+ * is retried, and an empty grab fails, because an empty image must never be
+ * written out as a screenshot.
+ */
+function captureNativePng(windowId: number | undefined, png: string, label: string): void {
+  if (windowId !== undefined) {
+    spawnSync("import", ["-window", String(windowId), png], { encoding: "utf8", timeout: 20_000 });
+    if (pngStandardDeviation(png) >= minimumFrameStandardDeviation) return;
+  }
+  let failure = "no capture attempt was made";
+  for (let attempt = 0; attempt < 6; attempt++) {
+    if (attempt > 0) sleep(1_500);
+    const viaPortal = spawnSync("spectacle", ["-b", "-n", "-a", "-o", png], { encoding: "utf8", timeout: 60_000 });
+    if (viaPortal.status !== 0) {
+      failure = viaPortal.stderr.trim() || `spectacle exit ${viaPortal.status}`;
+      continue;
+    }
+    spawnSync("magick", [png, "-crop", `${surfaceWidth}x${surfaceHeight}+0+0`, "+repage", png], { encoding: "utf8", timeout: 30_000 });
+    if (pngStandardDeviation(png) >= minimumFrameStandardDeviation) return;
+    failure = `the captured frame is empty (standard deviation ${pngStandardDeviation(png)})`;
+  }
+  throw new Error(`${label}: ${failure}`);
+}
 function hasValidEmptyPrompt(captured: string): boolean {
   const plain = captured.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
   return plain.split("\n").filter((line) => line.trim() === expectedEmptyPrompt).length === 1;
@@ -67,10 +110,15 @@ const prerequisites: Array<[string, string[], string]> = [
   ["tmux", ["-V"], "tmux is required"],
   ["kitty", ["--version"], "kitty is required for native PNG capture"],
   ["xdotool", ["-v"], "xdotool is required for native PNG capture"],
-  ["import", ["-version"], "ImageMagick import is required for native PNG capture"],
   ["identify", ["-version"], "ImageMagick identify is required"],
 ];
 for (const [command, args, label] of prerequisites) requireTool(command, args, label);
+// ImageMagick captures X11 windows; spectacle captures the active Wayland window.
+const hasCapture = (command: string) =>
+  ["--version", "-version"].some((flag) => spawnSync(command, [flag], { encoding: "utf8", timeout: 5_000 }).status === 0);
+if (!hasCapture("import") && !hasCapture("spectacle")) {
+  throw new Error("native PNG capture requires ImageMagick import (X11) or spectacle (Wayland)");
+}
 
 const userId = process.getuid?.();
 if (userId === undefined) throw new Error("native screenshot capture requires a Unix user id");
@@ -83,11 +131,18 @@ const homeDir = join(temporaryDir, "home");
 // heartbeat is what keeps each row reading as working. They are rewritten before
 // every capture so a snapshot never shows an aged-out child.
 const profiledRoot = join(tmpdir(), `${PROFILED_RUNTIME_ROOT_PREFIX}uid-${userId}-screenshot-${process.pid}`);
+// The fixture derives its child ids and tree id from its own root name, and the
+// mock derives the same ones from MOCK_SUBAGENT_ROOT. Two fixture roots must
+// never collide on an id: the app merges runs by id, so a leftover root would
+// silently replace this run's live children with its own stale copy.
+const profiledSuffix = profiledRoot.split("/").pop() ?? "";
+const profiledTreeId = `tree-screenshot-${profiledSuffix}`;
+const profiledChildren = [
+  { id: `spawn-yui-${profiledSuffix}`, agentId: "yui", profile: "explore", label: "map the release workflow", currentTool: "glob" },
+  { id: `spawn-vic-${profiledSuffix}`, agentId: "vic", profile: "impl-check-contracts", label: "audit installer contracts", currentTool: "read" },
+];
 function writeProfiledFixtures(): void {
-  for (const child of [
-    { id: "spawn-yui", agentId: "yui", profile: "explore", label: "map the release workflow", currentTool: "glob" },
-    { id: "spawn-vic", agentId: "vic", profile: "impl-check-contracts", label: "audit installer contracts", currentTool: "read" },
-  ]) {
+  for (const child of profiledChildren) {
     const controlDir = join(profiledRoot, child.id);
     mkdirSync(controlDir, { recursive: true });
     const now = Date.now();
@@ -98,7 +153,7 @@ function writeProfiledFixtures(): void {
       agentId: child.agentId,
       profile: child.profile,
       label: child.label,
-      treeId: "tree-screenshot",
+      treeId: profiledTreeId,
       parentAgentId: "root",
       state: "running",
       mode: "background",
@@ -161,7 +216,13 @@ function captureState(state: ScreenshotState): void {
     const canRestoreFocus = activeWindowPid?.status === 0 && activeWindowPid.stdout.trim().length > 0;
     runNativeCommand("tmux", ["-L", socket, "new-session", "-d", "-x", String(columns), "-y", String(rows), "-s", session, "env", `HOME=${homeDir}`, "MOCK_SCREENSHOT_RICH=1", `MOCK_SCREENSHOT_SCENARIO=${state.scenario}`, `XDG_STATE_HOME=${performanceHome}`, `MOCK_SUBAGENT_ROOT=${profiledRoot}`, "bun", "run", "src/index.tsx", "--pi", executable], `unable to start production PiTTy for ${state.name}`);
     runNativeCommand("tmux", ["-L", socket, "set-option", "-t", session, "status", "off"], `unable to hide tmux chrome for ${state.name}`);
-    runNativeCommand("kitty", ["--detach", `--listen-on=unix:${kittySocket}`, `--class=${kittyClass}`, "--start-as=hidden", "--override", "allow_remote_control=socket-only", "--override", "linux_display_server=x11", "--override", "font_family=Noto Sans Mono", "--override", "font_size=10", "--override", "window_padding_width=0", "--override", "hide_window_decorations=yes", "--override", "initial_window_width=140c", "--override", "initial_window_height=44c", "--override", "background=#10131a", "--override", "foreground=#d8dee9", "--", "tmux", "-L", socket, "attach-session", "-t", session], `unable to launch native terminal for ${state.name}`);
+    runNativeCommand("kitty", ["--detach", `--listen-on=unix:${kittySocket}`, `--class=${kittyClass}`,
+      // A hidden window is invisible to a compositor capture, so only the X11
+      // path starts hidden and maps itself afterwards.
+      ...(waylandNative ? [] : ["--start-as=hidden"]),
+      "--override", "allow_remote_control=socket-only",
+      ...(waylandNative ? [] : ["--override", "linux_display_server=x11"]),
+      "--override", "font_family=Noto Sans Mono", "--override", "font_size=10", "--override", "window_padding_width=0", "--override", "hide_window_decorations=yes", "--override", "initial_window_width=140c", "--override", "initial_window_height=44c", "--override", "background=#10131a", "--override", "foreground=#d8dee9", "--", "tmux", "-L", socket, "attach-session", "-t", session], `unable to launch native terminal for ${state.name}`);
     for (let attempt = 0; attempt < 40 && windowId === undefined; attempt++) {
       sleep(100);
       const found = spawnSync("xdotool", ["search", "--class", kittyClass], { encoding: "utf8", timeout: 2_000 });
@@ -173,33 +234,36 @@ function captureState(state: ScreenshotState): void {
         }
       }
     }
-    if (windowId === undefined) throw new Error(`native Kitty window was not discoverable for ${state.name}`);
-    sleep(300);
-    let resized = false;
-    for (let attempt = 0; attempt < 40 && !resized; attempt++) {
-      const geometry = spawnSync("xdotool", ["getwindowgeometry", String(windowId)], { encoding: "utf8", timeout: 2_000 });
-      if (geometry.status === 0) {
-        const result = spawnSync("xdotool", ["windowsize", String(windowId), String(surfaceWidth), String(surfaceHeight)], { encoding: "utf8", timeout: 2_000 });
-        resized = result.status === 0;
+    if (windowId === undefined) {
+      // A native Wayland terminal has no X11 window to size, place or map: the
+      // compositor owns all three. Pin the session grid instead, so the app still
+      // renders the capture surface's cells in the window's top-left region, and
+      // let the portal capture keep that region.
+      runNativeCommand("tmux", ["-L", socket, "set-option", "-t", session, "window-size", "manual"], `unable to pin the session grid for ${state.name}`);
+      runNativeCommand("tmux", ["-L", socket, "resize-window", "-t", session, "-x", String(columns), "-y", String(rows)], `unable to size the session grid for ${state.name}`);
+      sleep(500);
+    } else {
+      sleep(300);
+      let resized = false;
+      for (let attempt = 0; attempt < 40 && !resized; attempt++) {
+        const geometry = spawnSync("xdotool", ["getwindowgeometry", String(windowId)], { encoding: "utf8", timeout: 2_000 });
+        if (geometry.status === 0) {
+          const result = spawnSync("xdotool", ["windowsize", String(windowId), String(surfaceWidth), String(surfaceHeight)], { encoding: "utf8", timeout: 2_000 });
+          resized = result.status === 0;
+        }
+        if (!resized) sleep(100);
       }
-      if (!resized) sleep(100);
+      if (!resized) {
+        const diag = spawnSync("tmux", ["-L", socket, "list-sessions"], { encoding: "utf8" });
+        const pane = spawnSync("tmux", ["-L", socket, "capture-pane", "-p", "-t", session], { encoding: "utf8" });
+        const windows = spawnSync("xdotool", ["search", "--class", kittyClass], { encoding: "utf8" });
+        writeFileSync(join(tmpdir(), `${state.name}.resize-failure.txt`), `windowId=${windowId}\nlist-sessions:\n${diag.stdout}${diag.stderr}\npane:\n${pane.stdout}${pane.stderr}\nsearch:\n${windows.stdout}${windows.stderr}\n`);
+        throw new Error(`unable to set native terminal size for ${state.name}: Kitty window disappeared`);
+      }
+      runNativeCommand("xdotool", ["windowmove", String(windowId), "0", "0"], `unable to position native terminal for ${state.name}`);
+      runNativeCommand("xdotool", ["windowmap", String(windowId)], `unable to map native terminal for ${state.name}`);
     }
-    if (!resized) {
-      const diag = spawnSync("tmux", ["-L", socket, "list-sessions"], { encoding: "utf8" });
-      const pane = spawnSync("tmux", ["-L", socket, "capture-pane", "-p", "-t", session], { encoding: "utf8" });
-      const windows = spawnSync("xdotool", ["search", "--class", kittyClass], { encoding: "utf8" });
-      writeFileSync(join(tmpdir(), `${state.name}.resize-failure.txt`), `windowId=${windowId}\nlist-sessions:\n${diag.stdout}${diag.stderr}\npane:\n${pane.stdout}${pane.stderr}\nsearch:\n${windows.stdout}${windows.stderr}\n`);
-      throw new Error(`unable to set native terminal size for ${state.name}: Kitty window disappeared`);
-    }
-    runNativeCommand("xdotool", ["windowmove", String(windowId), "0", "0"], `unable to position native terminal for ${state.name}`);
     runNativeCommand("tmux", ["-L", socket, "select-pane", "-t", session, "-d"], `unable to disable native terminal input for ${state.name}`);
-    runNativeCommand("xdotool", ["windowmap", String(windowId)], `unable to map native terminal for ${state.name}`);
-    if (canRestoreFocus) {
-      runNativeCommand("xdotool", ["windowactivate", "--sync", activeWindow], `unable to restore active window for ${state.name}`);
-      runNativeCommand("xdotool", ["windowfocus", activeWindow], `unable to focus restored window for ${state.name}`);
-      const focusedWindow = runNativeCommand("xdotool", ["getactivewindow"], `unable to verify active window for ${state.name}`).stdout.trim();
-      if (focusedWindow === String(windowId)) throw new Error(`native terminal retained focus for ${state.name}`);
-    }
     let captured = runNativeCommand("tmux", ["-L", socket, "capture-pane", "-e", "-p", "-t", session], `unable to capture ${state.name}`).stdout;
     for (let attempt = 0; attempt < 60; attempt++) {
       if (state.name === "blank-session"
@@ -268,9 +332,18 @@ function captureState(state: ScreenshotState): void {
     // ImageMagick's X capture reads the window's own contents. There is no
     // fallback: a screen grab under a Wayland compositor returns the desktop,
     // and grabbing the XWayland window itself returns an empty frame.
-    runNativeCommand("import", ["-window", String(windowId), png], `unable to capture native PNG for ${state.name}`);
+    // ImageMagick for an X11 window, the desktop portal for a Wayland one.
+    captureNativePng(windowId, png, `unable to capture native PNG for ${state.name}`);
     const dimensions = runNativeCommand("identify", ["-format", "%w %h", png], `unable to inspect native PNG for ${state.name}`).stdout.trim().split(/\s+/).map(Number);
     if (dimensions[0] !== surfaceWidth || dimensions[1] !== surfaceHeight) throw new Error(`native PNG is ${dimensions[0]}x${dimensions[1]}, expected ${surfaceWidth}x${surfaceHeight}`);
+    // Restoring the previous window happens last: the portal reads the active
+    // window, so the terminal has to stay active until the frame is taken.
+    if (canRestoreFocus) {
+      runNativeCommand("xdotool", ["windowactivate", "--sync", activeWindow], `unable to restore active window for ${state.name}`);
+      runNativeCommand("xdotool", ["windowfocus", activeWindow], `unable to focus restored window for ${state.name}`);
+      const focusedWindow = runNativeCommand("xdotool", ["getactivewindow"], `unable to verify active window for ${state.name}`).stdout.trim();
+      if (focusedWindow === String(windowId)) throw new Error(`native terminal retained focus for ${state.name}`);
+    }
   } finally {
     spawnSync("tmux", ["-L", socket, "kill-session", "-t", session], { encoding: "utf8" });
     if (windowId !== undefined) spawnSync("xdotool", ["windowclose", String(windowId)], { encoding: "utf8", timeout: 2_000 });
