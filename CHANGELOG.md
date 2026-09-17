@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.6.22
+
+### Profile-driven subagent identity and telemetry
+
+- Profile-driven (`mistrjirka/pi-subagent`) children now show their identity wherever they appear — the sidebar row, the inspector, and the `agent_spawn` tool header — as `@agentId — label` instead of the bare profile name or the raw tool name.
+- Context-window usage is read from the child session's newest assistant turn (`input + cacheRead + cacheWrite`) and shown as `used / limit` once the model catalogue is warm, falling back to a plain token count instead of `starting…`.
+- "Last activity" uses the child session's newest progress timestamp instead of the extension's ~200 ms `updatedAt` heartbeat, so it no longer renders `unknown`.
+- Session snapshots are memoized by path, mtime, and size, so a long child session is not re-read on every sidebar render.
+
+### Profile-driven subagent liveness
+
+- A profiled run is reported as live only while its status heartbeat is fresh (2 minutes) and its `status.json` still exists. Previously every finished child looked alive after a restart, because the extension removes its control directory when the hosting Pi process exits.
+- An abandoned run whose heartbeat has stopped is reported as `stale` instead of `running` or a fabricated `completed`, and the subagent selector groups it separately.
+
+### Subagent notifications in chat
+
+- A `subagent-notification` completion renders as a bounded card — identity, status, model and usage, a one-line result preview with an `N more lines` hint, and the session path — instead of dumping the whole JSON payload (capped at 2000 lines / 50 KB) into the transcript.
+
+### Conversation tabs
+
+- The close button on the initial conversation tab now works once a second tab exists. It was rendered but silently ignored, so the first `×` a user ever saw did nothing.
+
+Validation: typecheck passed; focused tabs/subagent/UI suite passed with 208 tests and 0 failures; the complete local suite passed with 401 tests, 1 skipped, 0 failures.
+
 ## 0.6.21
 
 ### Current one-round compaction protocol
