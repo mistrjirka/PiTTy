@@ -120,12 +120,13 @@ PiTTy remains fully usable without these packages:
 ```bash
 pi install git:github.com/mistrjirka/pi-subagent
 # Legacy runtime also supported: pi install npm:pi-subagents
+pi install git:github.com/mistrjirka/pi-one-round-compaction
+# Alternative compaction engine: pi install npm:pi-smart-compact
 pi install npm:@juicesharp/rpiv-todo
 pi install npm:pi-mcp-adapter
-pi install npm:pi-smart-compact
 ```
 
-`@mistrjirka/pi-subagent` adds profile-driven child-agent and nested-tree inspection, waiting-state visibility, steering, and stop controls. Legacy `pi-subagents` remains supported and additionally exposes its pause/resume controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-mcp-adapter` enables standard MCP config changes, and `pi-smart-compact` reports coarse compaction progress in PiTTy's existing surface.
+`@mistrjirka/pi-subagent` adds profile-driven child-agent and nested-tree inspection, waiting-state visibility, steering, and stop controls. Legacy `pi-subagents` remains supported and additionally exposes its pause/resume controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-mcp-adapter` enables standard MCP config changes, and `pi-one-round-compaction` adds one-round parallel compaction with streamed lane progress. `pi-smart-compact` remains supported as an alternative compaction engine and reports coarse compaction progress in PiTTy's existing surface.
 
 ## Updates and upgrades
 

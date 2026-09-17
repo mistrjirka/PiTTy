@@ -61,7 +61,7 @@ irm https://raw.githubusercontent.com/mistrjirka/PiTTy/main/install.ps1 -OutFile
 
 Requirements: Node.js 22.19 or newer, npm, and the Pi CLI. The installer downloads a versioned release, verifies its SHA-256 against the release `SHA256SUMS`, installs PiTTy's local Bun runtime, and creates the `pitty` and `pitty-resume` launchers.
 
-The installer can also install recommended Pi packages (subagents, Todo, MCP adapter, Smart Compact) with `--with-plugins` / `-WithPlugins`. Uninstalling PiTTy leaves Pi and those packages alone.
+The installer can also install recommended Pi packages (subagent, one-round compaction, Todo, MCP adapter) with `--with-plugins` / `-WithPlugins`. Uninstalling PiTTy leaves Pi and those packages alone.
 
 <details>
 <summary><strong>Installer flags, upgrades, and running from source</strong></summary>
@@ -107,16 +107,19 @@ PiTTy works without extra packages. These add specialized panels when installed:
 | Package | Adds |
 | --- | --- |
 | `git:github.com/mistrjirka/pi-subagent` | Profile-driven child-agent tree, live inspection, waiting-state visibility, steer/stop |
-| `npm:pi-subagents` | Legacy workflow child-agent support, including pause/resume and queued steering |
+| `git:github.com/mistrjirka/pi-one-round-compaction` | One-round parallel compaction with streamed lane progress |
 | `npm:@juicesharp/rpiv-todo` | Active and completed Todo panels |
 | `npm:pi-mcp-adapter` | Standard MCP config activation from Settings |
-| `npm:pi-smart-compact` | Smart Compact progress on the compaction surface |
+| `npm:pi-subagents` | Legacy workflow child-agent support, including pause/resume and queued steering |
+| `npm:pi-smart-compact` | Smart Compact progress on the compaction surface (alternative compaction engine) |
 
 ```bash
-pi install git:github.com/mistrjirka/pi-subagent npm:@juicesharp/rpiv-todo npm:pi-mcp-adapter npm:pi-smart-compact
+pi install git:github.com/mistrjirka/pi-subagent git:github.com/mistrjirka/pi-one-round-compaction npm:@juicesharp/rpiv-todo npm:pi-mcp-adapter
 
 # Legacy pi-subagents remains supported; do not install both runtimes unless you intentionally want both.
 # pi install npm:pi-subagents
+# pi-smart-compact is a competing compaction engine; install it instead of pi-one-round-compaction only if you prefer it.
+# pi install npm:pi-smart-compact
 ```
 
 ## Platform support

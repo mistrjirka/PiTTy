@@ -176,10 +176,10 @@ PI_LIST=""
 if [ "$PLUGIN_MODE" = "ask" ] || [ "$PLUGIN_MODE" = "yes" ]; then
   PI_LIST="$(pi list 2>/dev/null || true)"
   MISSING_PLUGINS=""
-  printf '%s\n' "$PI_LIST" | grep -F "pi-subagents" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-subagents"
+  printf '%s\n' "$PI_LIST" | grep -F "github.com/mistrjirka/pi-subagent" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS @mistrjirka/pi-subagent"
   printf '%s\n' "$PI_LIST" | grep -F "@juicesharp/rpiv-todo" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS @juicesharp/rpiv-todo"
   printf '%s\n' "$PI_LIST" | grep -F "pi-mcp-adapter" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-mcp-adapter"
-  printf '%s\n' "$PI_LIST" | grep -F "pi-smart-compact" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-smart-compact"
+  printf '%s\n' "$PI_LIST" | grep -F "github.com/mistrjirka/pi-one-round-compaction" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-one-round-compaction"
 fi
 if [ "$PLUGIN_MODE" = "ask" ] && [ -z "$MISSING_PLUGINS" ]; then
   say "Recommended Pi packages are already installed; skipping plugin prompt."
@@ -217,10 +217,18 @@ install_plugin() {
 }
 
 if [ "$PLUGIN_MODE" = "yes" ]; then
-  install_plugin "npm:pi-subagents" "pi-subagents"
+  if printf '%s\n' "$PI_LIST" | grep -F "pi-subagents" >/dev/null 2>&1 || pi list 2>/dev/null | grep -F "pi-subagents" >/dev/null 2>&1; then
+    say "Skipping git:github.com/mistrjirka/pi-subagent: legacy pi-subagents is already installed"
+  else
+    install_plugin "git:github.com/mistrjirka/pi-subagent" "github.com/mistrjirka/pi-subagent"
+  fi
   install_plugin "npm:@juicesharp/rpiv-todo" "@juicesharp/rpiv-todo"
   install_plugin "npm:pi-mcp-adapter" "pi-mcp-adapter"
-  install_plugin "npm:pi-smart-compact" "pi-smart-compact"
+  if printf '%s\n' "$PI_LIST" | grep -F "pi-smart-compact" >/dev/null 2>&1 || pi list 2>/dev/null | grep -F "pi-smart-compact" >/dev/null 2>&1; then
+    say "Skipping git:github.com/mistrjirka/pi-one-round-compaction: pi-smart-compact is already installed"
+  else
+    install_plugin "git:github.com/mistrjirka/pi-one-round-compaction" "github.com/mistrjirka/pi-one-round-compaction"
+  fi
 else
   say "Skipping optional Pi packages. PiTTy will hide their panels and continue normally."
 fi

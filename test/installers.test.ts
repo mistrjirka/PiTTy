@@ -11,10 +11,10 @@ describe("public installers", () => {
     const script = fs.readFileSync(path.join(root, "install.sh"), "utf8");
     expect(script).toContain("--with-plugins");
     expect(script).toContain("--without-plugins");
-    expect(script).toContain("npm:pi-subagents");
+    expect(script).toContain("git:github.com/mistrjirka/pi-subagent");
+    expect(script).toContain("git:github.com/mistrjirka/pi-one-round-compaction");
     expect(script).toContain("npm:@juicesharp/rpiv-todo");
     expect(script).toContain("npm:pi-mcp-adapter");
-    expect(script).toContain("npm:pi-smart-compact");
     expect(script).toContain("pi-mcp-adapter");
     expect(script).toContain("exit code:");
     expect(script).toContain("log:");
@@ -28,10 +28,10 @@ describe("public installers", () => {
     const script = fs.readFileSync(path.join(root, "install.ps1"), "utf8");
     expect(script).toContain("[switch]$WithPlugins");
     expect(script).toContain("[switch]$WithoutPlugins");
-    expect(script).toContain("npm:pi-subagents");
+    expect(script).toContain("git:github.com/mistrjirka/pi-subagent");
+    expect(script).toContain("git:github.com/mistrjirka/pi-one-round-compaction");
     expect(script).toContain("npm:@juicesharp/rpiv-todo");
     expect(script).toContain("npm:pi-mcp-adapter");
-    expect(script).toContain("npm:pi-smart-compact");
     expect(script).toContain("pi-mcp-adapter");
     expect(script).toContain("exit code:");
     expect(script).toContain("log:");
