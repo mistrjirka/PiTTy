@@ -38,11 +38,9 @@ function readJsonStrings(file: string): string[] {
 
 function hasPackage(haystack: string, packageName: string): boolean {
 	const normalized = haystack.toLowerCase();
-	const unscoped = packageName.replace(/^@[^/]+\//, "").toLowerCase();
-	return (
-		normalized.includes(packageName.toLowerCase()) ||
-		normalized.includes(unscoped)
-	);
+	const exact = packageName.toLowerCase();
+	if (packageName.startsWith("@")) return normalized.includes(exact);
+	return normalized.includes(exact);
 }
 
 type IntegrationOptions = { piExecutable?: string; cwd?: string };
@@ -163,6 +161,9 @@ export function detectOptionalIntegrations(
 	];
 	const filesystemChecks: Record<string, string[]> = {
 		"pi-subagents": moduleRoots.map((root) => path.join(root, "pi-subagents")),
+		"@mistrjirka/pi-subagent": moduleRoots.map((root) =>
+			path.join(root, "@mistrjirka", "pi-subagent"),
+		),
 		"@juicesharp/rpiv-todo": moduleRoots.map((root) =>
 			path.join(root, "@juicesharp", "rpiv-todo"),
 		),
@@ -174,9 +175,10 @@ export function detectOptionalIntegrations(
 		),
 	};
 
-	const detect = (packageName: string): OptionalIntegration => {
+	const detect = (packageName: string, aliases: readonly string[] = []): OptionalIntegration => {
+		const needles = [packageName, ...aliases];
 		const detectedBy = sources
-			.filter((source) => hasPackage(source.text, packageName))
+			.filter((source) => needles.some((needle) => hasPackage(source.text, needle)))
 			.map((source) => source.name);
 		for (const candidate of filesystemChecks[packageName] ?? []) {
 			try {
@@ -190,7 +192,20 @@ export function detectOptionalIntegrations(
 		};
 	};
 
-	let subagents = detect("pi-subagents");
+	const detectProfiledSubagents = () =>
+		detect("@mistrjirka/pi-subagent", [
+			"git:github.com/mistrjirka/pi-subagent",
+			"github.com/mistrjirka/pi-subagent",
+		]);
+
+	let legacySubagents = detect("pi-subagents");
+	let profiledSubagents = detectProfiledSubagents();
+	const mergedSubagents = (): OptionalIntegration => ({
+		packageName: "pi-subagents or @mistrjirka/pi-subagent",
+		installed: legacySubagents.installed || profiledSubagents.installed,
+		detectedBy: [...new Set([...legacySubagents.detectedBy, ...profiledSubagents.detectedBy])],
+	});
+	let subagents = mergedSubagents();
 	let todos = detect("@juicesharp/rpiv-todo");
 	let mcpAdapter = detect("pi-mcp-adapter");
 	let memory = detect("pi-hermes-memory");
@@ -216,7 +231,9 @@ export function detectOptionalIntegrations(
 			const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
 			if (result.status === 0) {
 				sources.push({ name: "pi list", text });
-				subagents = detect("pi-subagents");
+				legacySubagents = detect("pi-subagents");
+				profiledSubagents = detectProfiledSubagents();
+				subagents = mergedSubagents();
 				todos = detect("@juicesharp/rpiv-todo");
 				mcpAdapter = detect("pi-mcp-adapter");
 				memory = detect("pi-hermes-memory");

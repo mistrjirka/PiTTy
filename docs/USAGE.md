@@ -79,9 +79,9 @@ Type `/` to open command suggestions. PiTTy merges its local commands with exten
 | `Ctrl+O` | Expand or collapse tool and thinking details globally |
 | `Ctrl+I` / click a subagent | Open or close the subagent inspector |
 | `F6` / `Shift+F6` | Select the next or previous subagent |
-| `Ctrl+A` | Pause the selected running file-controlled subagent |
-| Click `▶ Resume` | Resume the selected paused file-controlled subagent |
-| `Ctrl+Shift+A` | Stop the selected active file-controlled subagent |
+| `Ctrl+A` | Pause a selected running legacy `pi-subagents` child |
+| Click `▶ Resume` | Resume a selected paused legacy `pi-subagents` child |
+| `Ctrl+Shift+A` | Stop the selected active controllable subagent (both supported runtimes) |
 | `Ctrl+Shift+L` | Create a diagnostics bundle |
 | `Esc` | Close the active dialog/inspector or abort the current Pi turn |
 | `Ctrl+C` twice from an empty draft | Exit PiTTy |
@@ -118,13 +118,14 @@ Items already sent to Pi through RPC can be displayed but cannot be edited after
 PiTTy remains fully usable without these packages:
 
 ```bash
-pi install npm:pi-subagents
+pi install git:github.com/mistrjirka/pi-subagent
+# Legacy runtime also supported: pi install npm:pi-subagents
 pi install npm:@juicesharp/rpiv-todo
 pi install npm:pi-mcp-adapter
 pi install npm:pi-smart-compact
 ```
 
-`pi-subagents` adds child-agent selection, live transcript inspection, steering, pause, resume, and stop controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-mcp-adapter` enables standard MCP config changes, and `pi-smart-compact` reports coarse compaction progress in PiTTy's existing surface.
+`@mistrjirka/pi-subagent` adds profile-driven child-agent and nested-tree inspection, waiting-state visibility, steering, and stop controls. Legacy `pi-subagents` remains supported and additionally exposes its pause/resume controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-mcp-adapter` enables standard MCP config changes, and `pi-smart-compact` reports coarse compaction progress in PiTTy's existing surface.
 
 ## Updates and upgrades
 

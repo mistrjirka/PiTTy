@@ -98,7 +98,7 @@ pitty --session /path/to/file.jsonl
 pitty-resume -C /path/to/project   # open the session picker immediately
 ```
 
-Inside PiTTy, the essentials are: `Enter` sends (or accepts a slash suggestion), `Shift+Enter` adds a newline, `Ctrl+P` picks a model, `Ctrl+X` opens Settings, `Ctrl+S` toggles the sidebar, `Ctrl+O` expands or collapses tool and thinking details, `Ctrl+I` opens the selected subagent, `Ctrl+A` pauses it, `Ctrl+Shift+A` stops it, and `Esc` closes a dialog or aborts the current turn. `/help` lists everything; the full [usage and controls guide](docs/USAGE.md) has the details.
+Inside PiTTy, the essentials are: `Enter` sends (or accepts a slash suggestion), `Shift+Enter` adds a newline, `Ctrl+P` picks a model, `Ctrl+X` opens Settings, `Ctrl+S` toggles the sidebar, `Ctrl+O` expands or collapses tool and thinking details, `Ctrl+I` opens the selected subagent, `Ctrl+Shift+A` stops a controllable subagent, and `Esc` closes a dialog or aborts the current turn. Legacy `pi-subagents` runs also support pause/resume controls. `/help` lists everything; the full [usage and controls guide](docs/USAGE.md) has the details.
 
 ## Optional integrations
 
@@ -106,13 +106,17 @@ PiTTy works without extra packages. These add specialized panels when installed:
 
 | Package | Adds |
 | --- | --- |
-| `npm:pi-subagents` | Parallel child-agent list, live transcript inspection, pause/stop, queued steering |
+| `git:github.com/mistrjirka/pi-subagent` | Profile-driven child-agent tree, live inspection, waiting-state visibility, steer/stop |
+| `npm:pi-subagents` | Legacy workflow child-agent support, including pause/resume and queued steering |
 | `npm:@juicesharp/rpiv-todo` | Active and completed Todo panels |
 | `npm:pi-mcp-adapter` | Standard MCP config activation from Settings |
 | `npm:pi-smart-compact` | Smart Compact progress on the compaction surface |
 
 ```bash
-pi install npm:pi-subagents npm:@juicesharp/rpiv-todo npm:pi-mcp-adapter npm:pi-smart-compact
+pi install git:github.com/mistrjirka/pi-subagent npm:@juicesharp/rpiv-todo npm:pi-mcp-adapter npm:pi-smart-compact
+
+# Legacy pi-subagents remains supported; do not install both runtimes unless you intentionally want both.
+# pi install npm:pi-subagents
 ```
 
 ## Platform support

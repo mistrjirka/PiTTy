@@ -1056,10 +1056,20 @@ export function MessageView(props: {
 							<Show when={item.kind === "custom"}>
 				{(() => {
 					if (item.kind !== "custom") return null;
-					const question = item.customType === "subagent_supervisor_request";
-					const parts = customQuestionParts(item);
-					const agent = customDetail(item, "agent") || "subagent";
-					const reason = customDetail(item, "reason") || "question";
+					const legacyQuestion = item.customType === "subagent_supervisor_request";
+					const profiledQuestion = item.customType === "subagent-question";
+					const question = legacyQuestion || profiledQuestion;
+					const context = profiledQuestion ? customDetail(item, "context") : "";
+					const parts = profiledQuestion
+						? {
+							body: customDetail(item, "question") || item.text,
+							hint: context ? `Context: ${context}` : "",
+						}
+						: customQuestionParts(item);
+					const agent = profiledQuestion
+						? customDetail(item, "profile") || customDetail(item, "label") || customDetail(item, "agentId") || "subagent"
+						: customDetail(item, "agent") || "subagent";
+					const reason = legacyQuestion ? customDetail(item, "reason") || "question" : "";
 					return question ? (
 						<box
 							id={item.id}
@@ -1072,7 +1082,7 @@ export function MessageView(props: {
 							borderColor={colors.purple}
 						>
 							<text fg={colors.purple} attributes={1}>
-								◇ Child question · {agent} · {reason}
+								◇ Child question · {agent}{reason ? ` · ${reason}` : ""}
 							</text>
 							<text fg={colors.textBright} selectable wrapMode="word">{parts.body}</text>
 							<Show when={parts.hint}>

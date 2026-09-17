@@ -38,18 +38,23 @@ export function SubagentInspector(props: {
 	const target = () =>
 		(props.target ?? (props.run ? subagentTargets([props.run])[0] : undefined))!;
 	const run = () => target().run;
-	// Pause/resume/stop are file-backed controls, not steering, so they stay
-	// available while a run is paused (canSteer is false for paused runs).
+	// Legacy pi-subagents supports pause/resume through its file-control inbox.
+	// Profiled subagents deliberately expose only steer/stop; do not invent a
+	// pause state that the resident Pi RPC child does not have.
+	const profiled = () => run().control === "profiled";
 	const controlState = () => {
 		const state = run().state;
-		return state === "running" || state === "paused" || state === "queued";
+		return profiled()
+			? ["running", "queued", "waiting", "idle"].includes(state)
+			: state === "running" || state === "paused" || state === "queued";
 	};
 	const canControl = () =>
 		controlState() &&
-		(target().canSteer || run().state === "paused") &&
-		Boolean(run().asyncDir) &&
+		(target().canSteer || (!profiled() && run().state === "paused")) &&
+		Boolean(profiled() ? run().controlDir : run().asyncDir) &&
 		run().control !== "foreground";
 	const controlHint = () => {
+		if (profiled()) return "Steer below · Ctrl+Shift+A stop";
 		if (run().state === "running") return "Ctrl+A pause · Ctrl+Shift+A stop";
 		if (run().state === "paused") return "Resume via click · Ctrl+Shift+A stop";
 		return "Ctrl+Shift+A stop";
@@ -161,7 +166,7 @@ export function SubagentInspector(props: {
 					when={canControl()}
 				>
 					<box flexDirection="row" height={1} minHeight={1} flexShrink={0}>
-						<Show when={run().state === "running"}>
+						<Show when={!profiled() && run().state === "running"}>
 							<text
 								id="subagent-pause"
 								fg={colors.yellow}
@@ -176,7 +181,7 @@ export function SubagentInspector(props: {
 								⏸ Pause
 							</text>
 						</Show>
-						<Show when={run().state === "paused"}>
+						<Show when={!profiled() && run().state === "paused"}>
 							<text
 								id="subagent-resume"
 								fg={colors.green}
@@ -191,7 +196,11 @@ export function SubagentInspector(props: {
 								▶ Resume
 							</text>
 						</Show>
-						<Show when={["running", "paused", "queued"].includes(run().state)}>
+						<Show
+							when={profiled()
+								? ["running", "queued", "waiting", "idle"].includes(run().state)
+								: ["running", "paused", "queued"].includes(run().state)}
+						>
 							<text
 								id="subagent-stop"
 								marginLeft={2}

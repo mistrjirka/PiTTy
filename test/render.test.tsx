@@ -1607,6 +1607,20 @@ describe("OpenTUI components", () => {
 			},
 			{
 				kind: "custom",
+				id: "profiled-question",
+				customType: "subagent-question",
+				text: '{"agent_id":"@max","question":"Which behavior should I preserve?"}',
+				details: {
+					agentId: "max",
+					profile: "implementer",
+					label: "backend",
+					question: "Which behavior should I preserve?",
+					context: "The task and existing tests disagree.",
+				},
+				timestamp: 2,
+			},
+			{
+				kind: "custom",
 				id: "notice",
 				customType: "other_event",
 				text: "visible notice",
@@ -1636,6 +1650,9 @@ describe("OpenTUI components", () => {
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("◇ Child question · worker · need decision");
 		expect(frame).toContain("Choose the safer approach.");
+		expect(frame).toContain("◇ Child question · implementer");
+		expect(frame).toContain("Which behavior should I preserve?");
+		expect(frame).toContain("Context: The task and existing tests disagree.");
 		expect(frame).toContain("Reply with: subagent_supervisor");
 		expect(frame).toContain("other_event: visible notice");
 		expect(frame).toContain("TOOL · → reply worker");

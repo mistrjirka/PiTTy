@@ -60,6 +60,23 @@ function run(): SubagentRun {
 	};
 }
 
+function profiledFixture() {
+	const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-profiled-subagents-test-"));
+	roots.push(runtimeRoot);
+	const treeId = `tree-${Date.now()}-${Math.random()}`;
+	const writeAgent = (name: string, value: Record<string, unknown>) => {
+		const controlDir = fs.mkdtempSync(path.join(runtimeRoot, `${name}-`));
+		fs.mkdirSync(path.join(controlDir, "control", "steer-requests"), { recursive: true });
+		fs.mkdirSync(path.join(controlDir, "control", "acks"), { recursive: true });
+		const statusPath = path.join(controlDir, "status.json");
+		fs.writeFileSync(statusPath, JSON.stringify({
+			version: 1, runtime: "profiled-subagents", treeId, updatedAt: Date.now(), ...value,
+		}));
+		return { controlDir, statusPath };
+	};
+	return { runtimeRoot, treeId, writeAgent };
+}
+
 const MISSION_CHILD_KEYS = [
 	"logic",
 	"types",
@@ -110,6 +127,56 @@ function writeMissionFixture(root: string, name: string, value: unknown): void {
 }
 
 describe("subagent controls", () => {
+	test("discovers profiled root and nested agents from one tree without duplicating the spawn", () => {
+		const fixture = profiledFixture();
+		const startedAt = Date.now();
+		const rootAgent = fixture.writeAgent("root-agent", {
+			agentId: "max", profile: "implementer", parentAgentId: "root", label: "backend", state: "running", startedAt,
+			model: "provider/model", thinking: "medium", sessionPath: path.join(fixture.runtimeRoot, "max.jsonl"),
+		});
+		fixture.writeAgent("nested-agent", {
+			agentId: "zoe", profile: "explore", parentAgentId: "max", label: "explore", state: "waiting", startedAt: startedAt + 1,
+			sessionPath: path.join(fixture.runtimeRoot, "zoe.jsonl"), waitingForParent: true,
+		});
+		const tool: ToolItem = {
+			kind: "tool", id: "spawn-tool", toolCallId: "call-spawn", name: "agent_spawn",
+			args: { agent: "implementer", prompt: "implement it" }, output: "Started background agent @max.",
+			details: {
+				runtime: "profiled-subagents", treeId: fixture.treeId, parentAgentId: "root", agentId: "max", profile: "implementer",
+				label: "backend", controlDir: rootAgent.controlDir, statusPath: rootAgent.statusPath, state: "running", startedAt,
+			},
+			timestamp: startedAt, status: "done", isError: false,
+		};
+		const targets = subagentTargets([], [tool]);
+		expect(targets).toHaveLength(2);
+		expect(targets.map((target) => [target.run.profile, target.run.parentAgentId, target.state]).sort()).toEqual([
+			["explore", "max", "waiting"],
+			["implementer", "root", "running"],
+		]);
+		expect(targets.every((target) => target.run.control === "profiled" && target.canSteer)).toBe(true);
+	});
+
+	test("profiled controls support steer/stop but deliberately reject pause/resume", () => {
+		const fixture = profiledFixture();
+		const agent = fixture.writeAgent("agent", {
+			agentId: "max", profile: "implementer", parentAgentId: "root", label: "implementer", state: "running", startedAt: Date.now(),
+		});
+		const target: SubagentRun = {
+			runId: "profiled:test", control: "profiled", runtime: "profiled-subagents", controlDir: agent.controlDir, statusPath: agent.statusPath,
+			mode: "profiled", state: "running", agent: "implementer", profile: "implementer", agentId: "max", treeId: fixture.treeId, parentAgentId: "root", steps: [],
+		};
+		const steer = steerSubagent(target, "focus on the compiler error");
+		const steerDir = path.join(agent.controlDir, "control", "steer-requests");
+		const requestFiles = fs.readdirSync(steerDir);
+		expect(requestFiles).toHaveLength(1);
+		expect(JSON.parse(fs.readFileSync(path.join(steerDir, requestFiles[0]!), "utf8")).message).toBe("focus on the compiler error");
+		expect(steer.requestId.length).toBeGreaterThan(0);
+		stopSubagent(target);
+		expect(JSON.parse(fs.readFileSync(path.join(agent.controlDir, "control", "stop.json"), "utf8")).type).toBe("stop");
+		expect(() => pauseSubagent(target)).toThrow("Pause/resume is not supported by profiled subagents");
+		expect(() => resumeSubagent(target)).toThrow("Pause/resume is not supported by profiled subagents");
+	});
+
 	test("projects the captured mission shape into six scoped read-only children", () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-mission-test-"));
 		roots.push(root);

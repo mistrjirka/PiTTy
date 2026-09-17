@@ -4,6 +4,7 @@ import type { SubagentRun, SubagentStep, ToolItem } from "../types.ts";
 import { subagentActivityAt } from "./transcript.ts";
 import { childRunIdFromSessionFile } from "./artifacts.ts";
 import { compactTokenCount } from "../state/compaction-telemetry.ts";
+import { isProfiledSubagentTool, profiledSubagentRunsFromTools } from "./profiled.ts";
 
 export type SubagentTarget = {
 	key: string;
@@ -610,9 +611,10 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 }
 
 export function subagentTargets(
-	runs: readonly SubagentRun[],
+	baseRuns: readonly SubagentRun[],
 	tools: readonly ToolItem[] = [],
 ): SubagentTarget[] {
+	const runs = [...baseRuns, ...profiledSubagentRunsFromTools(tools)];
 	const result: SubagentTarget[] = [];
 	const requestedByArtifactId = new Map<string, RequestedMetadata[]>();
 	const emptyWorkflowIds = new Set<string>();
@@ -710,6 +712,7 @@ export function subagentTargets(
 		}
 	}
 	for (const item of tools) {
+		if (isProfiledSubagentTool(item)) continue;
 		const details = record(item.details);
 		const identifiers = [
 			details?.runId,
@@ -802,18 +805,28 @@ export function subagentTargets(
 		)
 			continue;
 
-		const active = activeState(run.activityState) || activeState(run.state);
+		const profiled = run.control === "profiled";
+		const active = profiled
+			? ["running", "queued", "waiting", "idle"].includes(run.state)
+			: activeState(run.activityState) || activeState(run.state);
+		const profiledLabel = run.profile
+			? run.label && run.label !== run.profile
+				? `${run.profile} · ${run.label}`
+				: run.profile
+			: undefined;
 		result.push({
 			key: run.runId,
 			run,
-			label: targetLabel(
+			label: profiledLabel ?? targetLabel(
 				run,
 				undefined,
 				requested?.length === 1 ? requested[0] : undefined,
 			),
 			state: run.state,
 			active,
-			canSteer: active && Boolean(run.asyncDir),
+			canSteer: profiled
+				? active && Boolean(run.controlDir)
+				: active && Boolean(run.asyncDir),
 			transcriptPath: run.transcriptPath,
 			sessionFile: run.sessionFile,
 			childRunId: run.runId,

@@ -22,6 +22,38 @@ describe("optional integration detection", () => {
     }
   });
 
+  test("detects the profiled subagent fork without requiring legacy pi-subagents", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-profiled-subagents-"));
+    try {
+      fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+      fs.writeFileSync(
+        path.join(cwd, ".pi", "settings.json"),
+        JSON.stringify({ packages: ["npm:@mistrjirka/pi-subagent"] }),
+      );
+      const result = detectOptionalIntegrations({ piExecutable: "definitely-not-a-real-pi-binary", cwd });
+      expect(result.subagents.installed).toBe(true);
+      expect(result.subagents.packageName).toContain("@mistrjirka/pi-subagent");
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("detects the profiled subagent fork when installed directly from GitHub", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-profiled-subagents-git-"));
+    try {
+      fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+      fs.writeFileSync(
+        path.join(cwd, ".pi", "settings.json"),
+        JSON.stringify({ packages: ["git:github.com/mistrjirka/pi-subagent"] }),
+      );
+      const result = detectOptionalIntegrations({ piExecutable: "definitely-not-a-real-pi-binary", cwd });
+      expect(result.subagents.installed).toBe(true);
+      expect(result.subagents.packageName).toContain("@mistrjirka/pi-subagent");
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("detects project-local package settings", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-integrations-"));
     try {

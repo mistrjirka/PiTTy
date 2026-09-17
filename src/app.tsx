@@ -2959,7 +2959,7 @@ export function App(props: AppOptions) {
 		}
 		const missingIntegrations = [
 			!props.integrations.subagents.installed
-				? "pi-subagents (live subagent inspection and steering)"
+				? "a supported subagent runtime (@mistrjirka/pi-subagent or pi-subagents)"
 				: undefined,
 			!props.integrations.todos.installed
 				? "@juicesharp/rpiv-todo (Todo panel)"
@@ -3243,15 +3243,19 @@ export function App(props: AppOptions) {
 	const subagentControlGuard = (): { target?: SubagentTarget; run?: SubagentRun } => {
 		if (!inspectSubagent()) return {};
 		if (!subagentsAvailable()) {
-			toast("Install pi-subagents to control child agents", "info", 5000);
+			toast("Install a supported subagent runtime to control child agents", "info", 5000);
 			return {};
 		}
 		const target = selectedSubagentTarget();
 		const run = target?.run;
-		const controllableState = run?.state === "running" || run?.state === "paused" || run?.state === "queued";
-		const controllable = controllableState && (target?.canSteer || run?.state === "paused");
-		if (!target || !controllable || !run?.asyncDir || run.control === "foreground") {
-			toast("No steerable file-controlled subagent selected", "warning");
+		const profiled = run?.control === "profiled";
+		const controllableState = profiled
+			? ["running", "queued", "waiting", "idle"].includes(run?.state ?? "")
+			: run?.state === "running" || run?.state === "paused" || run?.state === "queued";
+		const controllable = controllableState && (target?.canSteer || (!profiled && run?.state === "paused"));
+		const hasControlPath = profiled ? Boolean(run?.controlDir) : Boolean(run?.asyncDir);
+		if (!target || !run || !controllable || !hasControlPath || run.control === "foreground") {
+			toast("No steerable subagent selected", "warning");
 			return {};
 		}
 		return { target, run };
@@ -3260,6 +3264,10 @@ export function App(props: AppOptions) {
 	const requestPauseSubagent = () => {
 		const { run } = subagentControlGuard();
 		if (!run) return;
+		if (run.control === "profiled") {
+			toast("Profiled subagents support steer/stop, not pause/resume", "info");
+			return;
+		}
 		if (run.state !== "running") {
 			toast("Only running subagents can be paused", "warning");
 			return;
@@ -3277,6 +3285,10 @@ export function App(props: AppOptions) {
 	const requestResumeSubagent = () => {
 		const { run } = subagentControlGuard();
 		if (!run) return;
+		if (run.control === "profiled") {
+			toast("Profiled subagents support steer/stop, not pause/resume", "info");
+			return;
+		}
 		if (run.state !== "paused") {
 			toast("Only paused subagents can be resumed", "warning");
 			return;
@@ -3294,8 +3306,11 @@ export function App(props: AppOptions) {
 	const requestStopSubagent = () => {
 		const { run } = subagentControlGuard();
 		if (!run) return;
-		if (run.state !== "running" && run.state !== "paused" && run.state !== "queued") {
-			toast("No active file-controlled subagent selected", "warning");
+		const stoppable = run.control === "profiled"
+			? ["running", "queued", "waiting", "idle"].includes(run.state)
+			: ["running", "paused", "queued"].includes(run.state);
+		if (!stoppable) {
+			toast("No active controllable subagent selected", "warning");
 			return;
 		}
 		try {
@@ -3455,7 +3470,7 @@ export function App(props: AppOptions) {
 				const targets = availableSubagentTargets();
 				if (!subagentsAvailable())
 					toast(
-						"Install pi-subagents to inspect and steer child agents",
+						"Install a supported subagent runtime to inspect and steer child agents",
 						"info",
 						5000,
 					);
@@ -3656,7 +3671,7 @@ export function App(props: AppOptions) {
 			}
 			if (!subagentsAvailable())
 				return toast(
-					"Install pi-subagents to inspect and steer child agents",
+					"Install a supported subagent runtime to inspect and steer child agents",
 					"info",
 					5000,
 				);

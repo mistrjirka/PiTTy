@@ -128,9 +128,18 @@ export type SubagentRun = {
 	runId: string;
 	asyncId?: string | undefined;
 	asyncDir?: string | undefined;
+	/** Direct-control directory exposed by @mistrjirka/pi-subagent. */
+	controlDir?: string | undefined;
+	statusPath?: string | undefined;
+	runtime?: "profiled-subagents" | undefined;
+	treeId?: string | undefined;
+	parentAgentId?: string | undefined;
+	agentId?: string | undefined;
+	profile?: string | undefined;
+	label?: string | undefined;
 	workflowKey?: string | undefined;
 	parentWorkflowRunId?: string | undefined;
-	control?: "file" | "foreground" | "mission" | undefined;
+	control?: "file" | "foreground" | "mission" | "profiled" | undefined;
 	sessionId?: string | undefined;
 	sessionFile?: string | undefined;
 	mode: string;
