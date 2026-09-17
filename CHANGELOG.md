@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.19
+
+### Profile-driven subagents
+
+- Added first-class PiTTy support for `mistrjirka/pi-subagent`, including root and nested child discovery, live status, waiting-on-parent state, transcript/session metadata, steering, and stop controls.
+- Profile-driven children intentionally do not expose PiTTy's legacy pause/resume actions because that runtime does not implement those semantics.
+- Detection recognizes both a future `@mistrjirka/pi-subagent` npm install and the current `git:github.com/mistrjirka/pi-subagent` package source.
+
+### Legacy compatibility
+
+- Existing `pi-subagents` support remains intact, including workflow/mission child reconstruction and pause/resume/steer/stop controls.
+- Documented that the old and new subagent runtimes should be enabled one at a time rather than loaded together.
+
 ## 0.6.18
 
 ### Subagent context-window usage
