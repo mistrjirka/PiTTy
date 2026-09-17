@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.20
+
+### macOS profiled-subagent control paths
+
+- Fixed profile-driven subagent discovery and steer/stop controls on macOS, where the system temp directory can resolve through an OS alias such as `/var` → `/private/var` or `/tmp` → `/private/tmp`.
+- The safety boundary remains strict: only a temp-root alias is accepted; symlinked `pi-profiled-subagents-*` runtime roots and symlinked control directories are still rejected, and control directories must remain direct children of the expected runtime root.
+
+Validation: focused PiTTy integration/UI/subagent suite passed (202 tests, 0 failures), and the full CI matrix passed on Ubuntu, Windows, and macOS.
+
 ## 0.6.19
 
 ### Profile-driven subagents
