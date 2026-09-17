@@ -518,12 +518,12 @@ export function Sidebar(props: {
 									flexShrink={0}
 									flexDirection="row"
 								>
-									<text fg={colors.textBright} attributes={1}>
+									<text flexShrink={0} fg={colors.textBright} attributes={1}>
 										Subagents ({active().length} active)
 									</text>
 									<box flexGrow={1} />
 									<Show when={targets().length > 0}>
-										<text fg={colors.subtle}>
+										<text fg={colors.subtle} wrapMode="none">
 											Ctrl+I · Ctrl+Down inspect
 										</text>
 									</Show>

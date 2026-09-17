@@ -5187,6 +5187,29 @@ describe("duration and sidebar repaint regressions", () => {
 		expect(box.height).toBe(2);
 	});
 
+	test("sidebar keeps the active count visible next to the inspect hint", async () => {
+		const now = Date.now();
+		const run: SubagentRun = {
+			runId: "profiled:count",
+			control: "profiled",
+			mode: "profiled",
+			state: "running",
+			agentId: "ron",
+			profile: "implementer",
+			label: "pitty-install-plugins",
+			profiledStatusBacked: true,
+			lastUpdate: now,
+			startedAt: now - 1_000,
+			steps: [],
+		};
+		const setup = await mount(() => <Sidebar runs={[run]} now={now} />, 42, 30);
+		const frame = setup.captureCharFrame();
+		// The count and the navigation hint share one row. The count is the
+		// information, so it must survive the squeeze and the hint is what clips.
+		expect(frame).toContain("Subagents (1 active)");
+		expect(frame).toContain("Ctrl+I");
+	});
+
 	test("heartbeat-dead children read unresponsive on every surface, never stale", async () => {
 		const run: SubagentRun = {
 			runId: "dead-run",
