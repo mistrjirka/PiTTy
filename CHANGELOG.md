@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.28
+
+### The inspector header takes one row instead of five
+
+- Context, Model and Thinking were stacked as a label row plus a value row each, so three short fields cost five rows above the transcript — and the model name was clipped to 32 characters while most of every row sat empty. The shared `ModelContextRows` gained a layout variant: the sidebar keeps the stacked form its narrow column needs, and the inspector renders one row, `Context <value> · N% used`, `Model <value>`, `Thinking: <value>`, with per-field caps so one long value cannot crowd out the others.
+- A field with no value is omitted rather than shown as a dash, so a child with no window data collapses the whole block instead of spending rows on `—`. The sidebar keeps its existing placeholders and its rendered output is unchanged.
+
+Validation: 469 tests, 1 skipped, 0 failures; typecheck clean; type-escape scan clean.
+
 ## 0.6.27
 
 ### Subagent rows tell the truth about time and life
