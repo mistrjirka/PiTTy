@@ -87,6 +87,15 @@ export function targetToolActivity(target: SubagentTarget): string {
 	return `${tool ?? friendlyTargetState(target.state)}${path ? ` · ${path}` : ""}`;
 }
 
+/**
+ * A resident (`idle`) or parent-waiting (`waiting`) child is live-but-idle:
+ * its status-file timestamp is not an age of anything the user did, so rows
+ * for these states omit the age and name the state on its own.
+ */
+export function isResidentTargetState(state: string): boolean {
+	return state === "idle" || state === "waiting";
+}
+
 export function targetFreshness(target: SubagentTarget, now: number): string {
 	const lastUpdate = target.lastUpdate;
 	if (lastUpdate === undefined) return "unknown";

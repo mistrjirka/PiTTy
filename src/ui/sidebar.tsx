@@ -19,6 +19,7 @@ import {
 	ModelContextRows,
 	clip,
 	formatTokens,
+	isResidentTargetState,
 	stateColor,
 	stateIcon,
 	targetFreshness,
@@ -228,7 +229,8 @@ function notificationToneIcon(tone: NotificationRecord["tone"]): string {
 	return "🔔";
 }
 
-// `targetToolActivity`, `targetFreshness` and `targetToolUsage` live in
+// `targetToolActivity`, `targetFreshness`, `targetToolUsage` and
+// `isResidentTargetState` live in
 // `./model-context.tsx` so the sidebar, the grouped spawn card and the inline
 // spawn block all render from the same helpers. Re-exported here so existing
 // `sidebar.tsx` import sites keep working.
@@ -408,7 +410,13 @@ export function Sidebar(props: {
 					</text>
 					<text width="100%" height={1} fg={colors.text} wrapMode="none">
 						{clip(
-							`${targetFreshness(target, now())} · ${targetToolActivity(target)}`,
+							// A resident (`idle`) or parent-waiting (`waiting`) child is
+							// live-but-idle: the status-file timestamp is not an age of
+							// anything the user did, so the row names the state on its
+							// own. Working rows keep the age (last activity).
+							isResidentTargetState(target.state)
+								? targetToolActivity(target)
+								: `${targetFreshness(target, now())} · ${targetToolActivity(target)}`,
 							31,
 						)}
 					</text>

@@ -145,6 +145,64 @@ function parseStatus(controlDir: string, statusPath?: string): ProfiledStatus | 
 
 /** The extension updates status.json about every 200 ms; a heartbeat older than the max age means it is gone. */
 export const PROFILED_HEARTBEAT_MAX_AGE_MS = 120_000;
+
+/**
+ * How long a `process.kill(pid, 0)` ownership probe stays cached. Well under
+ * `PROFILED_HEARTBEAT_MAX_AGE_MS` so the heartbeat still bounds liveness;
+ * pid reuse can only make the check briefly optimistic, never extend it.
+ */
+const PROFILED_OWNER_PID_CACHE_TTL_MS = 5_000;
+const profiledOwnerPidCache = new Map<number, { alive: boolean; at: number }>();
+
+/** Owning pid from a `<owning-pid>-<agent>-<random>` control directory name. */
+function parseProfiledOwnerPid(controlDir: string | undefined): number | undefined {
+  if (!controlDir) return undefined;
+  const match = /^(\d+)-/.exec(path.basename(controlDir));
+  if (!match) return undefined;
+  const pid = Number(match[1]);
+  if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  return pid;
+}
+
+/**
+ * Whether the process that owns a control directory still exists.
+ * `ESRCH` means gone; `EPERM` means alive but owned by someone else.
+ * Any failed check reads as not alive rather than throwing.
+ */
+function profiledOwnerPidAlive(pid: number): boolean {
+  const cached = profiledOwnerPidCache.get(pid);
+  const at = Date.now();
+  if (cached && at - cached.at < PROFILED_OWNER_PID_CACHE_TTL_MS) return cached.alive;
+  let alive = false;
+  try {
+    process.kill(pid, 0);
+    alive = true;
+  } catch (error) {
+    alive = (error as NodeJS.ErrnoException | undefined)?.code === "EPERM";
+  }
+  profiledOwnerPidCache.set(pid, { alive, at });
+  while (profiledOwnerPidCache.size > 256) {
+    const oldest = profiledOwnerPidCache.keys().next().value;
+    if (typeof oldest !== "number") break;
+    profiledOwnerPidCache.delete(oldest);
+  }
+  return alive;
+}
+
+/**
+ * A child cannot outlive the Pi process that spawned it, but its heartbeat
+ * stays fresh for up to `PROFILED_HEARTBEAT_MAX_AGE_MS` after that process
+ * dies. The control directory name carries the owning pid, so require it to
+ * still exist. Directories without a pid segment carry no signal and fall
+ * back to the heartbeat alone. This closes the window for children of a dead
+ * Pi; it does not replace the heartbeat, which still bounds liveness.
+ */
+function profiledOwnerIsAlive(run: SubagentRun): boolean {
+  const controlDir = run.controlDir ?? (run.statusPath ? path.dirname(run.statusPath) : undefined);
+  const pid = parseProfiledOwnerPid(controlDir);
+  if (pid === undefined) return true;
+  return profiledOwnerPidAlive(pid);
+}
 const PROFILED_SESSION_TAIL_BYTES = 200 * 1024;
 const PROFILED_NON_TERMINAL_STATES = ["running", "queued", "waiting", "idle"];
 
@@ -224,21 +282,25 @@ function profiledSessionSnapshot(sessionPath: string | undefined): ProfiledSessi
 
 export function profiledRunIsLive(run: SubagentRun, now = Date.now()): boolean {
   if (!PROFILED_NON_TERMINAL_STATES.includes(run.state)) return false;
-  if (run.profiledStatusBacked) return run.lastUpdate !== undefined && now - run.lastUpdate < PROFILED_HEARTBEAT_MAX_AGE_MS;
-  if (run.statusPath) {
+  let heartbeat: boolean;
+  if (run.profiledStatusBacked) heartbeat = run.lastUpdate !== undefined && now - run.lastUpdate < PROFILED_HEARTBEAT_MAX_AGE_MS;
+  else if (run.statusPath) {
     try {
       const stat = fs.statSync(run.statusPath);
       if (!stat.isFile()) return false;
-      return run.lastUpdate !== undefined && now - run.lastUpdate < PROFILED_HEARTBEAT_MAX_AGE_MS;
+      heartbeat = run.lastUpdate !== undefined && now - run.lastUpdate < PROFILED_HEARTBEAT_MAX_AGE_MS;
     } catch {
       return false;
     }
+  } else {
+    // A status-less run has no heartbeat: a frozen spawn-time `details.state`
+    // alone must never read live. It may only claim liveness while its spawn
+    // tool item is still in flight AND its own timestamp is fresh
+    // (`lastUpdate` is `item.endedAt ?? item.timestamp`).
+    heartbeat = run.profiledToolInFlight === true && run.lastUpdate !== undefined && now - run.lastUpdate < PROFILED_HEARTBEAT_MAX_AGE_MS;
   }
-  // A status-less run has no heartbeat: a frozen spawn-time `details.state`
-  // alone must never read live. It may only claim liveness while its spawn
-  // tool item is still in flight AND its own timestamp is fresh
-  // (`lastUpdate` is `item.endedAt ?? item.timestamp`).
-  return run.profiledToolInFlight === true && run.lastUpdate !== undefined && now - run.lastUpdate < PROFILED_HEARTBEAT_MAX_AGE_MS;
+  if (!heartbeat) return false;
+  return profiledOwnerIsAlive(run);
 }
 
 function statusDirectoriesForTrees(treeIds: ReadonlySet<string>): Array<{ controlDir: string; status: ProfiledStatus }> {

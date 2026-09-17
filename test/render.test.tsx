@@ -5133,10 +5133,19 @@ describe("duration and sidebar repaint regressions", () => {
 		expect(spawnGroupRowText(finished, 2_000)).toBe(
 			`⚪ @done-1 — helper · finished · 1s ago`,
 		);
+		// A resident (`idle`) child is live-but-idle: the status-file timestamp
+		// is not an age of anything the user did, so the row names the state
+		// on its own. A waiting child reads the same way.
 		const resident = child("res-1", "idle");
 		expect(spawnGroupRowText(resident, 2_000)).toBe(
-			`⚪ @res-1 — helper · resident · 1s ago`,
+			`⚪ @res-1 — helper · resident`,
 		);
+		expect(spawnGroupRowText(resident, 2_000)).not.toContain("ago");
+		const waiting = child("wait-1", "waiting");
+		expect(spawnGroupRowText(waiting, 2_000)).toBe(
+			`⚪ @wait-1 — helper · waiting for parent`,
+		);
+		expect(spawnGroupRowText(waiting, 2_000)).not.toContain("ago");
 		const unresponsive = child("st-1", "unresponsive");
 		expect(spawnGroupRowText(unresponsive, 2_000)).toBe(
 			`⚪ @st-1 — helper · unresponsive · 1s ago`,
@@ -5177,10 +5186,13 @@ describe("duration and sidebar repaint regressions", () => {
 			30,
 		);
 		const frame = setup.captureCharFrame();
-		// The state word appears once (freshness/activity row); the usage
-		// line stays empty instead of restating it. (The sidebar Session
-		// header's own "starting…" placeholder is unrelated.)
-		expect(frame).toContain("ago · resident");
+		// A resident child is live-but-idle: the status-file timestamp is not
+		// an age of anything the user did, so the row names the state on its
+		// own and prints no age. The usage line stays empty instead of
+		// restating the state. (The sidebar Session header's own "starting…"
+		// placeholder is unrelated.)
+		expect(frame).toContain("resident");
+		expect(frame).not.toContain("ago");
 		expect(frame.split("resident").length - 1).toBe(1);
 		const box = setup.renderer.root.findDescendantById(
 			"subagent-resident-child",

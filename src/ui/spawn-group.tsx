@@ -5,6 +5,7 @@ import type { SubagentTarget } from "../subagents/targets.ts";
 import { colors } from "./theme.ts";
 import {
 	friendlyTargetState,
+	isResidentTargetState,
 	stateIcon,
 	targetFreshness,
 	targetToolUsage,
@@ -155,7 +156,10 @@ export function spawnGroupSummary(targets: readonly SubagentTarget[]): string {
 
 /**
  * One grouped row per child: `{icon} {label} · {friendly} · {freshness} ·
- * {usage}`. Freshness and usage come from the same shared helpers as the
+ * {usage}`, except a resident (`idle`) or parent-waiting (`waiting`) child
+ * which omits the age (`{icon} {label} · {friendly}[ · {usage}]`) because the
+ * status-file timestamp is not an age of anything the user did. Freshness
+ * and usage come from the same shared helpers as the
  * sidebar rows; an empty usage (`""`) is omitted so the state word never
  * prints twice, and `starting…` is never printed for a non-working state (a
  * defensive omit — `targetToolUsage` already restricts it to
@@ -171,9 +175,15 @@ export function spawnGroupRowText(
 		usage === "" || (usage === "starting…" && friendly !== "working")
 			? undefined
 			: usage;
+	// A resident (`idle`) or parent-waiting (`waiting`) child is live-but-idle:
+	// the status-file timestamp is not an age of anything the user did, so the
+	// row names the state on its own. Working rows keep the age (last activity).
+	const middle = isResidentTargetState(target.state)
+		? `${friendly}`
+		: `${friendly} · ${targetFreshness(target, now)}`;
 	return (
-		`${stateIcon(target.state)} ${target.label} · ${friendly} · ` +
-		`${targetFreshness(target, now)}` +
+		`${stateIcon(target.state)} ${target.label} · ` +
+		`${middle}` +
 		(visibleUsage ? ` · ${visibleUsage}` : "")
 	);
 }

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -207,6 +208,55 @@ describe("profiled liveness and usage", () => {
 		expect(target!.lastUpdate).toBeDefined();
 	});
 });
+
+	test("fresh-heartbeat runs owned by a dead Pi read unresponsive, not resident", () => {
+		const fixture = profiledFixture();
+		const now = Date.now();
+		// A spawned-and-exited helper owns a pid that is certainly dead (barring
+		// reuse, which the heartbeat still bounds), while the current process's
+		// own pid is certainly alive.
+		const helper = spawnSync(process.execPath, ["-e", ""]);
+		if (typeof helper.pid !== "number") throw new Error("expected a helper pid");
+		const deadPid = helper.pid;
+		const writePidAgent = (pid: number, name: string, state: string) => {
+			// Control directories are `<owning-pid>-<agent>-<random>`; mkdtemp
+			// appends the random suffix while keeping the pid segment.
+			const controlDir = fs.mkdtempSync(path.join(fixture.runtimeRoot, `${pid}-${name}-`));
+			const statusPath = path.join(controlDir, "status.json");
+			fs.writeFileSync(statusPath, JSON.stringify({
+				version: 1, runtime: "profiled-subagents", treeId: fixture.treeId,
+				agentId: name, profile: "explore", parentAgentId: "root", label: name,
+				state, startedAt: now, updatedAt: now,
+			}));
+			return { controlDir, statusPath };
+		};
+		const writeTool = (agent: { controlDir: string; statusPath: string }, agentId: string): ToolItem => ({
+			kind: "tool", id: `spawn-${agentId}`, toolCallId: `spawn-${agentId}-call`, name: "agent_spawn",
+			args: { agent: "explore" }, output: "", details: {
+				runtime: "profiled-subagents", treeId: fixture.treeId, parentAgentId: "root", agentId, profile: "explore",
+				label: agentId, state: "idle", controlDir: agent.controlDir, statusPath: agent.statusPath,
+			}, timestamp: now, status: "done", isError: false,
+		});
+		const deadAgent = writePidAgent(deadPid, "dead-orphan", "idle");
+		const liveAgent = writePidAgent(process.pid, "live-child", "idle");
+		const deadRun: SubagentRun = {
+			runId: "profiled:dead", mode: "profiled", state: "idle", steps: [],
+			profiledStatusBacked: true, lastUpdate: now,
+			controlDir: deadAgent.controlDir, statusPath: deadAgent.statusPath,
+		};
+		expect(profiledRunIsLive(deadRun, now)).toBe(false);
+		expect(profiledRunIsLive({
+			...deadRun, runId: "profiled:live",
+			controlDir: liveAgent.controlDir, statusPath: liveAgent.statusPath,
+		}, now)).toBe(true);
+		const deadTarget = subagentTargets([], [writeTool(deadAgent, "dead-orphan")]).find((target) => target.run.agentId === "dead-orphan");
+		expect(deadTarget?.state).toBe("unresponsive");
+		expect(deadTarget?.run.activityState).toBe("unresponsive");
+		expect(deadTarget?.active).toBe(false);
+		const liveTarget = subagentTargets([], [writeTool(liveAgent, "live-child")]).find((target) => target.run.agentId === "live-child");
+		expect(liveTarget?.state).toBe("idle");
+		expect(liveTarget?.active).toBe(true);
+	});
 
 	test("keeps deleted-control history inactive and fresh status-backed runs active", () => {
 		const fixture = profiledFixture();
