@@ -5494,3 +5494,58 @@ describe("batch A data truth", () => {
 		expect(toolTiming(tool, 500)).toContain("took");
 	});
 });
+
+describe("batch B render layer", () => {
+	test("thinking/answer pairs keep exactly one alternative visible", async () => {
+		const streaming: ConversationItem = {
+			kind: "assistant",
+			id: "pair-1",
+			text: "draft reply",
+			thinking: "considering it",
+			timestamp: 1,
+			status: "streaming",
+		};
+		const [item, setItem] = createSignal<ConversationItem>(streaming);
+		const [expanded, setExpanded] = createSignal(true);
+		const setup = await mount(
+			() => (
+				<box width="100%" height="100%" flexDirection="column">
+					<MessageView item={item} showThinking thinkingExpanded={expanded} toolExpanded={false} now={2_000} />
+				</box>
+			),
+			100,
+			30,
+		);
+		const visible = (id: string): boolean | undefined =>
+			(setup.renderer.root.findDescendantById(id) as { visible?: boolean } | undefined)?.visible;
+		// Streaming + expanded: the streaming text shows, its markdown
+		// replacement stays hidden — never both, never neither.
+		expect(visible("pair-1-thinking-stream")).toBe(true);
+		expect(visible("pair-1-thinking-markdown")).toBe(false);
+		expect(visible("pair-1-answer-stream")).toBe(true);
+		expect(visible("pair-1-answer-markdown")).toBe(false);
+		// Streaming -> done: exactly one alternative flips per pair.
+		setItem({ ...streaming, status: "done" });
+		await setup.flush();
+		await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
+		expect(visible("pair-1-thinking-stream")).toBe(false);
+		expect(visible("pair-1-thinking-markdown")).toBe(true);
+		expect(visible("pair-1-answer-stream")).toBe(false);
+		expect(visible("pair-1-answer-markdown")).toBe(true);
+	 // No frame duplicates the thought or the reply across the pair.
+		const frame = setup.captureCharFrame();
+		expect(frame.split("considering it").length - 1).toBe(1);
+		expect(frame.split("draft reply").length - 1).toBe(1);
+		// Collapsed -> expanded flip on the settled item: preview hides as
+		// the markdown shows, still exactly one.
+		setExpanded(false);
+		await setup.flush();
+		await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
+		expect(visible("pair-1-thinking-markdown")).toBe(false);
+		setExpanded(true);
+		await setup.flush();
+		await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
+		expect(visible("pair-1-thinking-markdown")).toBe(true);
+		expect(setup.captureCharFrame().split("considering it").length - 1).toBe(1);
+	});
+});

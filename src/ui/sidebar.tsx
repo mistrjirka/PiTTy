@@ -359,14 +359,16 @@ export function Sidebar(props: {
 			(!selectedKey() && target === targets()[0]);
 		// The usage line is empty when there is nothing to report (the state
 		// word already appears in the row above); collapse the box instead of
-		// leaving a blank third row.
-		const usage = targetToolUsage(target);
-		const rows = target.active ? (usage ? 3 : 2) : 1;
+		// leaving a blank third row. Both stay accessors so the reserved
+		// height always follows the usage line instead of freezing at the
+		// values captured when the row was created.
+		const usage = () => targetToolUsage(target);
+		const rows = () => (target.active ? (usage() ? 3 : 2) : 1);
 		return (
 			<box
 				id={`subagent-${target.key}`}
-				height={rows}
-				minHeight={rows}
+				height={rows()}
+				minHeight={rows()}
 				flexShrink={0}
 				flexDirection="column"
 				paddingLeft={1}
@@ -410,9 +412,9 @@ export function Sidebar(props: {
 							31,
 						)}
 					</text>
-					<Show when={usage}>
+					<Show when={usage()}>
 						<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
-							{clip(usage, 31)}
+							{clip(usage(), 31)}
 						</text>
 					</Show>
 				</Show>

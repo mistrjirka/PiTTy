@@ -685,14 +685,11 @@ export function MessageView(props: {
 		typeof props.thinkingExpanded === "function"
 			? props.thinkingExpanded()
 			: props.thinkingExpanded !== false;
-	let thinkingWrapper: BoxRenderable | undefined;
-	let thinkingTitle: TextRenderable | undefined;
-	let thinkingCount: TextRenderable | undefined;
-	let thinkingPreview: TextRenderable | undefined;
+	// Only the markdown nodes keep refs (theme sync above, content writes
+	// below); every other thinking/answer property is bound declaratively in
+	// JSX — see the note above for why there must be no imperative mirror for
+	// `visible`.
 	let thinkingMarkdown: MarkdownRenderable | undefined;
-	let thinkingStreamText: TextRenderable | undefined;
-	let answerWrapper: BoxRenderable | undefined;
-	let streamingAnswer: TextRenderable | undefined;
 	let finalAnswer: MarkdownRenderable | undefined;
 
 	createEffect(() => {
@@ -710,56 +707,30 @@ export function MessageView(props: {
 		});
 	};
 
+	// NOTE: visibility for the thinking/answer pair below is bound
+	// declaratively in JSX with no imperative mirror. An earlier revision also
+	// drove `.visible` from this effect, and the two writers disagreed for a
+	// frame on every transition (both the streaming text and its markdown
+	// replacement visible, or neither). One owner per property: JSX owns
+	// `visible`; the effect below owns markdown `content` (+ the `streaming`
+	// flag), which the markdown renderable requires as an imperative
+	// write-update cycle in order to re-parse its blocks — a declarative
+	// `content` prop alone updates the property but never repaints.
 	createEffect(() => {
 		const value = currentItem();
 		if (value.kind !== "assistant") return;
-		const thought = thinking();
-		const response = answer();
 		const streaming = value.status === "streaming";
-		const showThinking = props.showThinking && Boolean(thought.trim());
 		const expanded = thinkingIsExpanded();
-		if (thinkingWrapper) {
-			thinkingWrapper.visible = showThinking;
-			thinkingWrapper.marginBottom = response.trim() ? 1 : 0;
-		}
-		if (thinkingTitle)
-			thinkingTitle.content = expanded ? "▼ Thinking" : "▶ Thinking";
-		if (thinkingCount) {
-			const lines = thinkingLineCount(thought);
-			thinkingCount.content = `${lines} line${lines === 1 ? "" : "s"} · ${
-				expanded ? "collapse" : "expand"
-			}`;
-		}
-		if (thinkingPreview) {
-			thinkingPreview.content = collapsedThinkingPreview(thought, thinkingPreviewMax());
-			thinkingPreview.visible = !expanded;
-		}
 		if (thinkingMarkdown) {
-			thinkingMarkdown.visible = expanded && !streaming;
 			if (expanded && !streaming) {
 				if (!thinkingMarkdown.streaming) thinkingMarkdown.streaming = true;
-				thinkingMarkdown.content = thought;
+				thinkingMarkdown.content = thinking();
 			}
 		}
-		if (thinkingStreamText) {
-			thinkingStreamText.visible = expanded && streaming;
-			if (expanded && streaming) thinkingStreamText.content = thought || "▍";
-		}
-
-		const showAnswer =
-			Boolean(response.trim()) ||
-			(value.status === "streaming" && !thought.trim());
-		if (answerWrapper) answerWrapper.visible = showAnswer;
-		if (streamingAnswer) {
-			streamingAnswer.content = response || "▍";
-			streamingAnswer.visible = value.status === "streaming";
-		}
 		if (finalAnswer) {
-			const final = value.status !== "streaming";
-			finalAnswer.visible = final;
-			if (final) {
+			if (!streaming) {
 				if (!finalAnswer.streaming) finalAnswer.streaming = true;
-				finalAnswer.content = response || "▍";
+				finalAnswer.content = answer() || "▍";
 			}
 		}
 	});
@@ -810,9 +781,6 @@ export function MessageView(props: {
 					borderColor={colors.cyan}
 				>
 					<box
-						ref={(value) => {
-							thinkingWrapper = value;
-						}}
 						id={`${item.id}-thinking`}
 						visible={props.showThinking && Boolean(thinking().trim())}
 						flexDirection="column"
@@ -830,9 +798,6 @@ export function MessageView(props: {
 							}}
 						>
 							<text
-								ref={(value) => {
-									thinkingTitle = value;
-								}}
 								fg={colors.purple}
 								attributes={1}
 							>
@@ -840,9 +805,6 @@ export function MessageView(props: {
 							</text>
 							<box flexGrow={1} />
 							<text
-								ref={(value) => {
-									thinkingCount = value;
-								}}
 								fg={colors.subtle}
 							>
 								{thinkingLineCount(thinking())} line
@@ -850,9 +812,6 @@ export function MessageView(props: {
 							</text>
 						</box>
 						<text
-							ref={(value) => {
-								thinkingPreview = value;
-							}}
 							visible={!thinkingIsExpanded()}
 							fg={colors.subtle}
 							selectable
@@ -862,10 +821,7 @@ export function MessageView(props: {
 						</text>
 						<text
 							id={`${item.id}-thinking-stream`}
-							ref={(value) => {
-								thinkingStreamText = value;
-							}}
-							visible={false}
+							visible={thinkingIsExpanded() && assistantStatus() === "streaming"}
 							fg={colors.muted}
 							selectable
 							wrapMode="word"
@@ -877,7 +833,7 @@ export function MessageView(props: {
 							ref={(value) => {
 								thinkingMarkdown = value;
 							}}
-							visible={thinkingIsExpanded()}
+							visible={thinkingIsExpanded() && assistantStatus() !== "streaming"}
 							syntaxStyle={getThinkingMarkdownStyle()}
 							fg={colors.muted}
 							conceal
@@ -891,9 +847,6 @@ export function MessageView(props: {
 						/>
 					</box>
 					<box
-						ref={(value) => {
-							answerWrapper = value;
-						}}
 						id={`${item.id}-answer`}
 						visible={
 							Boolean(answer().trim()) ||
@@ -903,9 +856,7 @@ export function MessageView(props: {
 						paddingRight={1}
 					>
 						<text
-							ref={(value) => {
-								streamingAnswer = value;
-							}}
+							id={`${item.id}-answer-stream`}
 							visible={assistantStatus() === "streaming"}
 							fg={colors.textBright}
 							selectable
