@@ -12,9 +12,14 @@ import {
 	parseOneRoundProgress,
 	applyOneRoundLaneDeltas,
 	ONE_ROUND_LANE_TEXT_CAP,
+	ONE_ROUND_PROGRESS_KEY,
+	ONE_ROUND_LEGACY_PROGRESS_KEY,
 	parseSmartCompactProgress,
 	type OneRoundDetails,
+	type OneRoundDetailsV6,
 	type OneRoundProgress,
+	type OneRoundProgressV1,
+	type OneRoundProgressV2,
 } from "../src/state/compaction-telemetry.ts";
 
 describe("compaction telemetry boundary", () => {
@@ -213,6 +218,42 @@ describe("pi-one-round-compaction details", () => {
 		},
 	};
 
+	const detailsV6: OneRoundDetailsV6 = {
+		plugin: "pi-one-round-compaction",
+		version: 6,
+		lanes: [
+			{ lane: "audit", model: "opencode-go/muse-spark-1.3-contributor", thinkingLevel: "medium", durationMs: 3100, usage: v4Usage },
+			{ lane: "execution", model: "opencode-go/muse-spark-1.3-contributor", thinkingLevel: "low", durationMs: 4200, usage: v4Usage },
+		],
+		wallTimeMs: 4300,
+		keepRecentTokens: 32_000,
+		boundaryMode: "whole-turn",
+		retainedTurns: 4,
+		estimatedRetainedTokens: 18_500,
+		targetPostCompactTokens: 40_000,
+		effectiveRecentTokenBudget: 30_250,
+		laneOutputBudgetTokens: 20_500,
+		estimatedTokensAfter: 24_100,
+		targetExceeded: false,
+		isSplitTurn: false,
+		readFiles: ["src/a.ts"],
+		modifiedFiles: ["src/b.ts"],
+		traceReadFiles: ["src/a.ts"],
+		traceEditedFiles: ["src/b.ts"],
+		userMessages: [{ timestamp: 1_000, text: "keep this requirement", originalChars: 21, trimmed: false }],
+		knownUserArtifactIds: ["U0001"],
+		knownUserArtifacts: [{ id: "U0001", sourceSessionId: "session-a" }],
+		durableUserReferences: [{ id: "U0001", sourceSessionId: "session-a", state: "active", misses: 0, kind: "plan", authority: "governing", semanticNote: "implementation plan" }],
+		renderBudgets: {
+			gitStateChars: 4000,
+			editedFilesChars: 6000,
+			readFilesChars: 1000,
+			userMessagesChars: 16000,
+			userArtifactReferencesChars: 4000,
+		},
+		git: { root: "/repo", branch: "main", head: "def456", dirty: [], truncated: false },
+	};
+
 	test("parses a valid version-2 details object", () => {
 		expect(parseOneRoundDetails(details)).toEqual(details);
 	});
@@ -230,6 +271,24 @@ describe("pi-one-round-compaction details", () => {
 		}));
 		expect(parseOneRoundDetails({ ...detailsV4, extra: true })).toBeUndefined();
 		expect(parseOneRoundDetails({ ...detailsV4, lanes: invalidUsage })).toBeUndefined();
+		expect(parseOneRoundDetails({
+			...detailsV4,
+			durableUserReferences: [{ id: "U0001", sourceSessionId: "new-only", state: "active", misses: 0 }],
+		})).toBeUndefined();
+	});
+
+	test("parses current version-6 audit/execution details and exposes current budgeting metadata", () => {
+		expect(parseOneRoundDetails(detailsV6)).toEqual(detailsV6);
+		const completion = compactionCompletionFromResult({ details: detailsV6 });
+		expect(completion.plugin).toBe("pi-one-round-compaction");
+		expect(completion.lanes?.map((lane) => lane.lane)).toEqual(["audit", "execution"]);
+		expect(completion.laneOutputBudgetTokens).toBe(20_500);
+		expect(completion.targetPostCompactTokens).toBe(40_000);
+		expect(completion.effectiveRecentTokenBudget).toBe(30_250);
+		expect(completion.estimatedTokensAfter).toBe(24_100);
+		expect(completion.intentWorkflow).toBeUndefined();
+		expect(parseOneRoundDetails({ ...detailsV6, intentWorkflow: { active: false } })).toBeUndefined();
+		expect(parseOneRoundDetails({ ...detailsV6, lanes: [{ ...detailsV6.lanes[0], lane: "intent" }, detailsV6.lanes[1]] })).toBeUndefined();
 	});
 
 	test("accepts every plugin boundary mode and preserves split-turn details", () => {
@@ -341,7 +400,7 @@ describe("pi-one-round-compaction details", () => {
 });
 
 describe("pi-one-round-compaction live progress", () => {
-	const progress: OneRoundProgress = {
+	const progress: OneRoundProgressV1 = {
 		v: 1,
 		runId: "run-1",
 		seq: 7,
@@ -360,6 +419,60 @@ describe("pi-one-round-compaction live progress", () => {
 		},
 	};
 
+	const parseLegacyProgress = (value: unknown): OneRoundProgressV1 => {
+		const parsed = parseOneRoundProgress(value);
+		if (!parsed || parsed.v !== 1) throw new Error("expected legacy v1 progress");
+		return parsed;
+	};
+
+	const progressV2: OneRoundProgressV2 = {
+		v: 2,
+		runId: "run-v2",
+		seq: 4,
+		phase: "streaming",
+		reason: "threshold",
+		elapsedMs: 1800,
+		retainedTurns: 4,
+		estimatedRetainedTokens: 18_500,
+		keepRecentTokens: 32_000,
+		targetPostCompactTokens: 40_000,
+		effectiveRecentTokenBudget: 30_250,
+		boundaryMode: "whole-turn",
+		lanes: {
+			audit: { role: "audit", state: "streaming", chars: 900, delta: "audit text", elapsedMs: 1700 },
+			execution: { role: "execution", state: "streaming", chars: 1200, delta: "execution text", elapsedMs: 1750 },
+		},
+	};
+
+	test("uses the current v2 status key while retaining the legacy key for old plugin sessions", () => {
+		expect(ONE_ROUND_PROGRESS_KEY).toBe("pi-one-round-compaction.progress.v2");
+		expect(ONE_ROUND_LEGACY_PROGRESS_KEY).toBe("pi-one-round-compaction.progress.v1");
+	});
+
+	test("parses current v2 audit/execution progress without legacy mode or intent workflow", () => {
+		expect(parseOneRoundProgress(progressV2)).toEqual(progressV2);
+		expect(parseOneRoundProgress(JSON.stringify(progressV2))).toEqual(progressV2);
+		expect(parseOneRoundProgress({ ...progressV2, mode: "normal" })).toBeUndefined();
+		expect(parseOneRoundProgress({ ...progressV2, intentWorkflow: { active: true } })).toBeUndefined();
+		expect(parseOneRoundProgress({ ...progressV2, lanes: { intent: progressV2.lanes.audit, execution: progressV2.lanes.execution } })).toBeUndefined();
+		expect(parseOneRoundProgress({ ...progress, lanes: { ...progress.lanes, intent: { ...progress.lanes.intent, role: "audit" } } })).toBeUndefined();
+	});
+
+	test("accumulates current audit and execution deltas independently", () => {
+		const first = applyOneRoundLaneDeltas(undefined, progressV2);
+		expect(first).toEqual({ runId: "run-v2", intent: "", audit: "audit text", execution: "execution text" });
+		const next = parseOneRoundProgress({
+			...progressV2,
+			seq: 5,
+			lanes: {
+				audit: { ...progressV2.lanes.audit, chars: 905, delta: " more" },
+				execution: { ...progressV2.lanes.execution, delta: undefined },
+			},
+		});
+		if (!next || next.v !== 2) throw new Error("expected v2 progress");
+		expect(applyOneRoundLaneDeltas(first, next)).toEqual({ runId: "run-v2", intent: "", audit: "audit text more", execution: "execution text" });
+	});
+
 	test("parses a valid live progress frame", () => {
 		expect(parseOneRoundProgress(progress)).toEqual(progress);
 	});
@@ -374,7 +487,7 @@ describe("pi-one-round-compaction live progress", () => {
 	});
 
 	test("accepts split-turn in the plugin live progress frame", () => {
-		const splitProgress: OneRoundProgress = {
+		const splitProgress: OneRoundProgressV1 = {
 			...progress,
 			boundaryMode: "split-turn",
 		};
@@ -384,9 +497,9 @@ describe("pi-one-round-compaction live progress", () => {
 
 	test("accepts normal mode without intent workflow", () => {
 		const { mode: _mode, intentWorkflow: _iw, ...rest } = progress;
-		const parsed = parseOneRoundProgress({ ...rest, mode: "normal" });
-		expect(parsed?.mode).toBe("normal");
-		expect(parsed?.intentWorkflow).toBeUndefined();
+		const parsed = parseLegacyProgress({ ...rest, mode: "normal" });
+		expect(parsed.mode).toBe("normal");
+		expect(parsed.intentWorkflow).toBeUndefined();
 	});
 
 	test("rejects malformed frames", () => {
@@ -410,32 +523,32 @@ describe("pi-one-round-compaction live progress", () => {
 	test("drops delta from the parsed payload when absent", () => {
 		const { lanes: { intent: _i, ...lanesOuter }, ...rest } = progress as any;
 		const { delta: _d, ...intent } = progress.lanes.intent as any;
-		const parsed = parseOneRoundProgress({ ...rest, lanes: { ...lanesOuter, intent } });
-		expect(parsed?.lanes.intent.delta).toBeUndefined();
+		const parsed = parseLegacyProgress({ ...rest, lanes: { ...lanesOuter, intent } });
+		expect(parsed.lanes.intent.delta).toBeUndefined();
 	});
 	test("accumulates per-lane deltas for the active run", () => {
-		const frame1 = parseOneRoundProgress(progress)!;
+		const frame1 = parseLegacyProgress(progress);
 		const afterFirst = applyOneRoundLaneDeltas(undefined, frame1);
-		expect(afterFirst).toEqual({ runId: "run-1", intent: " new text", execution: "" });
+		expect(afterFirst).toEqual({ runId: "run-1", intent: " new text", audit: "", execution: "" });
 
-		const frame2 = parseOneRoundProgress({ ...frame1, seq: 8, lanes: { intent: { ...frame1.lanes.intent, chars: 1304, delta: " more" }, execution: { ...frame1.lanes.execution, delta: "evidence text" } } })!;
+		const frame2 = parseLegacyProgress({ ...frame1, seq: 8, lanes: { intent: { ...frame1.lanes.intent, chars: 1304, delta: " more" }, execution: { ...frame1.lanes.execution, delta: "evidence text" } } });
 		const afterSecond = applyOneRoundLaneDeltas(afterFirst, frame2);
 		expect(afterSecond.intent).toBe(" new text more");
 		expect(afterSecond.execution).toBe("evidence text");
 	});
 
 	test("resets accumulation when the run id changes", () => {
-		const first = applyOneRoundLaneDeltas(undefined, parseOneRoundProgress(progress)!);
-		const nextRun = parseOneRoundProgress({ ...progress, runId: "run-2", lanes: { intent: { role: "intent", state: "streaming", chars: 5, delta: "fresh" }, execution: { role: "execution", state: "queued", chars: 0 } } })!;
+		const first = applyOneRoundLaneDeltas(undefined, parseLegacyProgress(progress));
+		const nextRun = parseLegacyProgress({ ...progress, runId: "run-2", lanes: { intent: { role: "intent", state: "streaming", chars: 5, delta: "fresh" }, execution: { role: "execution", state: "queued", chars: 0 } } });
 		const after = applyOneRoundLaneDeltas(first, nextRun);
-		expect(after).toEqual({ runId: "run-2", intent: "fresh", execution: "" });
+		expect(after).toEqual({ runId: "run-2", intent: "fresh", audit: "", execution: "" });
 	});
 
 	test("keeps only the tail of long lane text", () => {
-		let state = applyOneRoundLaneDeltas(undefined, parseOneRoundProgress(progress)!);
+		let state = applyOneRoundLaneDeltas(undefined, parseLegacyProgress(progress));
 		const chunk = "x".repeat(ONE_ROUND_LANE_TEXT_CAP);
 		for (let i = 0; i < 3; i++) {
-			const frame = parseOneRoundProgress({ ...progress, seq: 10 + i, lanes: { ...progress.lanes, intent: { ...progress.lanes.intent, chars: (i + 1) * ONE_ROUND_LANE_TEXT_CAP, delta: chunk } } })!;
+			const frame = parseLegacyProgress({ ...progress, seq: 10 + i, lanes: { ...progress.lanes, intent: { ...progress.lanes.intent, chars: (i + 1) * ONE_ROUND_LANE_TEXT_CAP, delta: chunk } } });
 			state = applyOneRoundLaneDeltas(state, frame);
 		}
 		expect(state.intent).toHaveLength(ONE_ROUND_LANE_TEXT_CAP);
@@ -446,7 +559,7 @@ describe("pi-one-round-compaction live progress", () => {
 		// surrogate must be dropped instead of displayed as a replacement char.
 		const emoji = "\ud83d\ude00"; // 😀 astral character
 		const delta = "a" + emoji + "c".repeat(ONE_ROUND_LANE_TEXT_CAP - 1);
-		const frame = parseOneRoundProgress({ ...progress, lanes: { intent: { ...progress.lanes.intent, chars: delta.length, delta }, execution: { ...progress.lanes.execution } } })!;
+		const frame = parseLegacyProgress({ ...progress, lanes: { intent: { ...progress.lanes.intent, chars: delta.length, delta }, execution: { ...progress.lanes.execution } } });
 		const state = applyOneRoundLaneDeltas(undefined, frame);
 		expect(state.intent).toBe("c".repeat(ONE_ROUND_LANE_TEXT_CAP - 1));
 		const first = state.intent.charCodeAt(0);
@@ -454,8 +567,8 @@ describe("pi-one-round-compaction live progress", () => {
 	});
 
 	test("keeps prior text when a frame carries no deltas", () => {
-		const first = applyOneRoundLaneDeltas(undefined, parseOneRoundProgress(progress)!);
-		const quiet = parseOneRoundProgress({ ...progress, seq: 9, lanes: { intent: { ...progress.lanes.intent, delta: undefined }, execution: { ...progress.lanes.execution } } })!;
+		const first = applyOneRoundLaneDeltas(undefined, parseLegacyProgress(progress));
+		const quiet = parseLegacyProgress({ ...progress, seq: 9, lanes: { intent: { ...progress.lanes.intent, delta: undefined }, execution: { ...progress.lanes.execution } } });
 		expect(applyOneRoundLaneDeltas(first, quiet)).toEqual(first);
 	});
 });

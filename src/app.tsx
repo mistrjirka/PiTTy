@@ -38,6 +38,7 @@ import { ConversationModel, initialItems } from "./state/conversation.ts";
 import {
 	COMPACTION_STATUS_KEY,
 	ONE_ROUND_PROGRESS_KEY,
+	ONE_ROUND_LEGACY_PROGRESS_KEY,
 	SMART_COMPACT_PROGRESS_KEY,
 	compactionCompletionFromResult,
 	compactionSuccessText,
@@ -798,7 +799,7 @@ export function App(props: AppOptions) {
 			}
 			if (
 				event.method === "setStatus" &&
-				event.statusKey === ONE_ROUND_PROGRESS_KEY
+				(event.statusKey === ONE_ROUND_PROGRESS_KEY || event.statusKey === ONE_ROUND_LEGACY_PROGRESS_KEY)
 			) {
 				const progress =
 					typeof event.statusText === "string"

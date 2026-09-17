@@ -1050,23 +1050,24 @@ describe("OpenTUI components", () => {
 					spinner="◐"
 					frame={1}
 					oneRoundProgress={{
-						v: 1,
+						v: 2,
 						runId: "run-1",
 						seq: 3,
 						phase: "streaming",
-						mode: "normal",
 						reason: "manual",
 						elapsedMs: 3000,
 						retainedTurns: 2,
 						estimatedRetainedTokens: 30_000,
 						keepRecentTokens: 32_000,
+						targetPostCompactTokens: 40_000,
+						effectiveRecentTokenBudget: 30_250,
 						boundaryMode: "whole-turn",
 						lanes: {
-							intent: { role: "intent", state: "streaming", chars: 900, elapsedMs: 2500 },
+							audit: { role: "audit", state: "streaming", chars: 900, elapsedMs: 2500 },
 							execution: { role: "execution", state: "queued", chars: 0 },
 						},
 					}}
-					laneTexts={{ runId: "run-1", intent: "line one\nline two\nline three\nline four", execution: "" }}
+					laneTexts={{ runId: "run-1", intent: "", audit: "line one\nline two\nline three\nline four", execution: "" }}
 					expanded={expanded}
 					onToggle={() => setExpanded((value) => !value)}
 				/>
@@ -1075,7 +1076,7 @@ describe("OpenTUI components", () => {
 			14,
 		);
 		let frame = setup.captureCharFrame();
-		expect(frame).toContain("◐ intent · streaming · 900 chars");
+		expect(frame).toContain("◐ audit · streaming · 900 chars");
 		expect(frame).toContain("line three");
 		expect(frame).toContain("line four");
 		expect(frame).not.toContain("line one");
@@ -1096,7 +1097,7 @@ describe("OpenTUI components", () => {
 		// A long wrapping logical line must not monopolize the fixed 3-row lane
 		// window: the tail (newest streamed lines) has to stay visible, and the
 		// fixed rows below the lane must stay at their bounded locations.
-		const intent = `${"x".repeat(200)}\nmid line\nCLOSING_MARKER_ZETA`;
+		const audit = `${"x".repeat(200)}\nmid line\nCLOSING_MARKER_ZETA`;
 		const setup = await mount(
 			() => (
 				<box flexDirection="column" width="100%" height="100%">
@@ -1106,23 +1107,24 @@ describe("OpenTUI components", () => {
 						spinner="◐"
 						frame={1}
 						oneRoundProgress={{
-							v: 1,
+							v: 2,
 							runId: "run-1",
 							seq: 3,
 							phase: "streaming",
-							mode: "normal",
 							reason: "manual",
 							elapsedMs: 3000,
 							retainedTurns: 2,
 							estimatedRetainedTokens: 30_000,
 							keepRecentTokens: 32_000,
+							targetPostCompactTokens: 40_000,
+							effectiveRecentTokenBudget: 30_250,
 							boundaryMode: "whole-turn",
 							lanes: {
-								intent: { role: "intent", state: "streaming", chars: 900, elapsedMs: 2500 },
+								audit: { role: "audit", state: "streaming", chars: 900, elapsedMs: 2500 },
 								execution: { role: "execution", state: "queued", chars: 0 },
 							},
 						}}
-						laneTexts={{ runId: "run-1", intent, execution: "" }}
+						laneTexts={{ runId: "run-1", intent: "", audit, execution: "" }}
 					/>
 					<text>MARKER_AFTER_PANEL</text>
 				</box>
@@ -1134,7 +1136,7 @@ describe("OpenTUI components", () => {
 		const lines = frame.split("\n");
 		const executionRow = lines.findIndex((line) => line.includes("execution · queued"));
 		const markerRow = lines.findIndex((line) => line.includes("MARKER_AFTER_PANEL"));
-		// Collapsed lane window: header(1) + intent lane(1) + 3 lane rows, so the
+		// Collapsed lane window: header(1) + audit lane(1) + 3 lane rows, so the
 		// execution lane must stay on row 5 and never be pushed down by wrapping.
 		expect(executionRow).toBe(5);
 		expect(markerRow).toBeGreaterThanOrEqual(0);
@@ -1170,19 +1172,20 @@ describe("OpenTUI components", () => {
 		});
 		const publish = () => setRevision((value) => value + 1);
 		const progress: OneRoundProgress = {
-			v: 1,
+			v: 2,
 			runId: "run-1",
 			seq: 1,
 			phase: "streaming",
-			mode: "normal",
 			reason: "manual",
 			elapsedMs: 500,
 			retainedTurns: 1,
 			estimatedRetainedTokens: 10_000,
 			keepRecentTokens: 12_000,
+			targetPostCompactTokens: 40_000,
+			effectiveRecentTokenBudget: 30_250,
 			boundaryMode: "whole-turn",
 			lanes: {
-				intent: { role: "intent", state: "streaming", chars: 10 },
+				audit: { role: "audit", state: "streaming", chars: 10 },
 				execution: { role: "execution", state: "queued", chars: 0 },
 			},
 		};
@@ -1209,7 +1212,7 @@ describe("OpenTUI components", () => {
 		publish();
 		await setup.flush();
 		frame = setup.captureCharFrame();
-		expect(frame).toContain("intent · streaming · 10 chars");
+		expect(frame).toContain("audit · streaming · 10 chars");
 		expect(frame).not.toContain("Activity [");
 		runtime.telemetry = undefined;
 		runtime.oneRoundProgress = undefined;

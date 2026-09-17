@@ -129,10 +129,11 @@ export function CompactionPanel(props: {
 	const isExpanded = () => props.expanded?.() ?? false;
 	const laneTextLines = () => (isExpanded() ? EXPANDED_LANE_TEXT_LINES : LANE_TEXT_LINES);
 	const phaseLine = () => {
-		if (!props.oneRoundProgress) return "";
-		const mode =
-			props.oneRoundProgress.mode === "workflow" ? "intent workflow" : "normal";
-		return ` · ${mode} · ${props.oneRoundProgress.phase}`;
+		const progress = props.oneRoundProgress;
+		if (!progress) return "";
+		if (progress.v === 2) return ` · ${progress.phase}`;
+		const mode = progress.mode === "workflow" ? "intent workflow" : "normal";
+		return ` · ${mode} · ${progress.phase}`;
 	};
 
 	return (
@@ -169,34 +170,39 @@ export function CompactionPanel(props: {
 					</text>
 				</box>
 			</box>
-			{props.oneRoundProgress ? (
-				<>
-					<text height={1} fg={colors.subtle} wrapMode="none">
-						{laneLine(props.oneRoundProgress.lanes.intent)}
-					</text>
-					<Show when={(props.laneTexts?.intent ?? "").length > 0}>
-						<box height={laneTextLines()} overflow="hidden" paddingLeft={2} flexShrink={0} flexDirection="column">
-							{laneTailLines(props.laneTexts?.intent ?? "", laneTextLines()).map((line) => (
-								<text height={1} fg={colors.muted} wrapMode="none" flexShrink={0}>
-									{line}
-								</text>
-							))}
-						</box>
-					</Show>
-					<text height={1} fg={colors.subtle} wrapMode="none">
-						{laneLine(props.oneRoundProgress.lanes.execution)}
-					</text>
-					<Show when={(props.laneTexts?.execution ?? "").length > 0}>
-						<box height={laneTextLines()} overflow="hidden" paddingLeft={2} flexShrink={0} flexDirection="column">
-							{laneTailLines(props.laneTexts?.execution ?? "", laneTextLines()).map((line) => (
-								<text height={1} fg={colors.muted} wrapMode="none" flexShrink={0}>
-									{line}
-								</text>
-							))}
-						</box>
-					</Show>
-				</>
-			) : (
+			{props.oneRoundProgress ? (() => {
+				const progress = props.oneRoundProgress;
+				const primaryLane = progress.v === 2 ? progress.lanes.audit : progress.lanes.intent;
+				const primaryText = progress.v === 2 ? (props.laneTexts?.audit ?? "") : (props.laneTexts?.intent ?? "");
+				return (
+					<>
+						<text height={1} fg={colors.subtle} wrapMode="none">
+							{laneLine(primaryLane)}
+						</text>
+						<Show when={primaryText.length > 0}>
+							<box height={laneTextLines()} overflow="hidden" paddingLeft={2} flexShrink={0} flexDirection="column">
+								{laneTailLines(primaryText, laneTextLines()).map((line) => (
+									<text height={1} fg={colors.muted} wrapMode="none" flexShrink={0}>
+										{line}
+									</text>
+								))}
+							</box>
+						</Show>
+						<text height={1} fg={colors.subtle} wrapMode="none">
+							{laneLine(progress.lanes.execution)}
+						</text>
+						<Show when={(props.laneTexts?.execution ?? "").length > 0}>
+							<box height={laneTextLines()} overflow="hidden" paddingLeft={2} flexShrink={0} flexDirection="column">
+								{laneTailLines(props.laneTexts?.execution ?? "", laneTextLines()).map((line) => (
+									<text height={1} fg={colors.muted} wrapMode="none" flexShrink={0}>
+										{line}
+									</text>
+								))}
+							</box>
+						</Show>
+					</>
+				);
+			})() : (
 				<text height={1} fg={colors.subtle} wrapMode="none">
 					Activity [{indeterminateCompactionBar(props.frame)}] indeterminate{props.smartCompactProgress ? ` · ${props.smartCompactProgress}` : ""}
 				</text>

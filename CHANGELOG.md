@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Current one-round compaction protocol
+
+- Updated the `pi-one-round-compaction` integration for progress v2 and completion details v6: live compaction now shows `audit` + `execution`, preserves the plugin's derived output-budget metadata, and no longer lets v2 machine-readable status JSON fall through to the generic status line.
+- Historical progress v1 and details v2/v4 remain readable for older sessions, isolated behind their original wire versions.
+
 ## 0.6.20
 
 ### macOS profiled-subagent control paths
