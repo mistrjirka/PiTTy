@@ -6,6 +6,7 @@ export type CommandChoice = {
 	name: string;
 	description?: string | undefined;
 	source?: string | undefined;
+	location?: string | undefined;
 };
 
 function clip(value: string, width = 86): string {

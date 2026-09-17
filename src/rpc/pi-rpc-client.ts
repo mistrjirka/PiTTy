@@ -294,10 +294,22 @@ export class PiRpcClient extends EventEmitter {
 	}
 
 	async getCommands(): Promise<
-		Array<{ name: string; description?: string; source: string }>
+		Array<{
+			name: string;
+			description?: string;
+			source: string;
+			location?: unknown;
+			path?: unknown;
+		}>
 	> {
 		const data = this.data<{
-			commands: Array<{ name: string; description?: string; source: string }>;
+			commands: Array<{
+				name: string;
+				description?: string;
+				source: string;
+				location?: unknown;
+				path?: unknown;
+			}>;
 		}>(await this.request({ type: "get_commands" }));
 		return data.commands;
 	}

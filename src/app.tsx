@@ -111,6 +111,7 @@ import {
 	type ModelChoice,
 } from "./ui/model-selector.tsx";
 import { SessionSelector } from "./ui/session-selector.tsx";
+import { SkillSelector } from "./ui/skill-selector.tsx";
 
 let availableModelsCache: ModelChoice[] | undefined;
 let availableModelsFetch: Promise<ModelChoice[]> | undefined;
@@ -358,6 +359,11 @@ const localCommandChoices: CommandChoice[] = [
 		description: "List Pi extension, template, and skill commands",
 		source: "ui",
 	},
+	{
+		name: "skills",
+		description: "Browse and send skill commands",
+		source: "ui",
+	},
 	{ name: "sessions", description: "Browse and resume sessions", source: "ui" },
 	{ name: "resume", description: "Alias for /sessions", source: "ui" },
 	{
@@ -423,17 +429,29 @@ const localCommandChoices: CommandChoice[] = [
 ];
 
 function mergeCommandChoices(
-	remote: Array<{ name: string; description?: string; source: string }>,
+	remote: Array<{
+		name: string;
+		description?: string;
+		source: string;
+		location?: unknown;
+	}>,
 ): CommandChoice[] {
 	const map = new Map<string, CommandChoice>();
 	for (const command of [...localCommandChoices, ...remote]) {
 		const name = command.name.replace(/^\/+/, "").trim();
 		if (!name) continue;
 		const previous = map.get(name);
+		// The RPC payload is untrusted: only a non-blank string location
+		// survives; anything else falls back to the previous value.
+		const location =
+			typeof command.location === "string" && command.location.trim()
+				? command.location
+				: previous?.location;
 		map.set(name, {
 			name,
 			description: command.description ?? previous?.description,
 			source: command.source ?? previous?.source,
+			location,
 		});
 	}
 	return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -633,6 +651,7 @@ export function App(props: AppOptions) {
 	const [modelOptions, setModelOptions] = createSignal<ModelChoice[]>([]);
 	const [modelSelectorLoading, setModelSelectorLoading] = createSignal(false);
 	const [sessionSelectorOpen, setSessionSelectorOpen] = createSignal(false);
+	const [skillSelectorOpen, setSkillSelectorOpen] = createSignal(false);
 	const [forkPickerOpen, setForkPickerOpen] = createSignal(false);
 	const [forkPickerOptionsSignal, setForkPickerOptions] = createSignal<ForkPickerOption[]>([]);
 	let draftSwitchGuard = false;
@@ -2122,6 +2141,9 @@ export function App(props: AppOptions) {
 				await refreshState(runtime);
 				addSystem(`Session named “${argument}”.`, "success");
 				return true;
+			case "skills":
+				setSkillSelectorOpen(true);
+				return true;
 			case "commands": {
 				const commands = await runtime.client.getCommands();
 				const rows = commands.map(
@@ -2384,6 +2406,7 @@ export function App(props: AppOptions) {
 			memoryBrowserOpen() ||
 			subagentSelectorOpen() ||
 			forkPickerOpen() ||
+			skillSelectorOpen() ||
 			inspectSubagent() ||
 			settingsRoute() !== "closed"
 		)
@@ -2397,6 +2420,7 @@ export function App(props: AppOptions) {
 				!promptMapOpen() &&
 				!memoryBrowserOpen() &&
 				!subagentSelectorOpen() &&
+				!skillSelectorOpen() &&
 				!inspectSubagent()
 			)
 				prompt?.focus();
@@ -3483,7 +3507,7 @@ export function App(props: AppOptions) {
 			}
 			return;
 		}
-		if (sessionSelectorOpen() || modelSelectorOpen() || memoryBrowserOpen() || forkPickerOpen())
+		if (sessionSelectorOpen() || modelSelectorOpen() || memoryBrowserOpen() || forkPickerOpen() || skillSelectorOpen())
 			return;
 		if (promptMapOpen()) {
 			if (event.name === "escape") {
@@ -4475,6 +4499,23 @@ export function App(props: AppOptions) {
 					selectedKey={selectedTargetKey()}
 					onSelect={selectSubagentTarget}
 					onCancel={() => setSubagentSelectorOpen(false)}
+				/>
+			</Show>
+			<Show when={skillSelectorOpen()}>
+				<SkillSelector
+					commands={commandChoices}
+					onSelect={(invocation) => {
+						// Behave exactly as if the user typed the invocation:
+						// close first, then run it through the normal submit path.
+						setSkillSelectorOpen(false);
+						syncMainDraft(invocation);
+						focusMainPrompt();
+						void submit();
+					}}
+					onCancel={() => {
+						setSkillSelectorOpen(false);
+						focusMainPrompt();
+					}}
 				/>
 			</Show>
 			<Show when={dialog()}>
