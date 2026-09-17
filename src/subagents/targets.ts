@@ -4,7 +4,7 @@ import type { SubagentRun, SubagentStep, ToolItem } from "../types.ts";
 import { subagentActivityAt } from "./transcript.ts";
 import { childRunIdFromSessionFile } from "./artifacts.ts";
 import { compactTokenCount } from "../state/compaction-telemetry.ts";
-import { isProfiledSubagentTool, profiledSubagentRunsFromTools } from "./profiled.ts";
+import { isProfiledSubagentTool, profiledRunIsLive, profiledSubagentRunsFromTools, type ProfiledSubagentOptions } from "./profiled.ts";
 
 export type SubagentTarget = {
 	key: string;
@@ -613,8 +613,9 @@ function foregroundTargets(item: ToolItem): SubagentTarget[] {
 export function subagentTargets(
 	baseRuns: readonly SubagentRun[],
 	tools: readonly ToolItem[] = [],
+	options: ProfiledSubagentOptions = {},
 ): SubagentTarget[] {
-	const runs = [...baseRuns, ...profiledSubagentRunsFromTools(tools)];
+	const runs = [...baseRuns, ...profiledSubagentRunsFromTools(tools, options)];
 	const result: SubagentTarget[] = [];
 	const requestedByArtifactId = new Map<string, RequestedMetadata[]>();
 	const emptyWorkflowIds = new Set<string>();
@@ -807,12 +808,12 @@ export function subagentTargets(
 
 		const profiled = run.control === "profiled";
 		const active = profiled
-			? ["running", "queued", "waiting", "idle"].includes(run.state)
+			? profiledRunIsLive(run)
 			: activeState(run.activityState) || activeState(run.state);
 		const profiledLabel = run.profile
 			? run.label && run.label !== run.profile
-				? `${run.profile} · ${run.label}`
-				: run.profile
+				? `@${run.agentId ?? run.profile} — ${run.label}`
+				: `@${run.agentId ?? run.profile} · ${run.profile}`
 			: undefined;
 		result.push({
 			key: run.runId,
@@ -831,7 +832,7 @@ export function subagentTargets(
 			sessionFile: run.sessionFile,
 			childRunId: run.runId,
 			startedAt: run.startedAt,
-			lastUpdate: subagentActivityAt(run),
+			lastUpdate: subagentActivityAt(run) ?? run.lastUpdate,
 			model:
 				run.model ?? (requested?.length === 1 ? requested[0]?.model : undefined),
 			thinking:

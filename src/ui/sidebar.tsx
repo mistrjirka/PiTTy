@@ -259,6 +259,7 @@ function stateIcon(state: string): string {
 function targetTokens(target: SubagentTarget): number | undefined {
 	return (
 		target.step?.tokens?.total ??
+		target.run.tokens?.window ??
 		(target.run.steps.length <= 1 ? target.run.totalTokens : undefined)
 	);
 }
@@ -297,6 +298,7 @@ export function Sidebar(props: {
 	timingHistory?: RequestTiming[] | Accessor<RequestTiming[]> | undefined;
 	runs: SubagentRun[] | Accessor<SubagentRun[]>;
 	tools?: ToolItem[] | Accessor<ToolItem[]> | undefined;
+	contextWindowForModel?: (model: string | undefined) => number | undefined;
 	selectedTargetKey?: string | undefined;
 	selectedRunId?: string | undefined;
 	now?: number | undefined;
@@ -368,7 +370,11 @@ export function Sidebar(props: {
 		),
 	);
 	const hasNotifications = () => orderedNotifications().length > 0;
-	const targets = () => subagentTargets(runs(), tools());
+	const targets = () => subagentTargets(
+		runs(),
+		tools(),
+		props.contextWindowForModel ? { contextWindowForModel: props.contextWindowForModel } : {},
+	);
 	const active = () => targets().filter((target) => target.active);
 	const selectedKey = () =>
 		props.selectedTargetKey ??

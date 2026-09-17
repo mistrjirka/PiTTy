@@ -38,9 +38,7 @@ function number(value: unknown): number | undefined {
 }
 
 function toolState(item: ToolItem, details: Record<string, unknown>): string {
-  const direct = text(details.state);
-  if (direct) return direct;
-  if (item.status === "streaming" || item.status === "pending") return "running";
+  if (item.status === "streaming" || item.status === "pending") return text(details.state) ?? "running";
   if (item.status === "error") return "failed";
   return "completed";
 }
@@ -122,6 +120,98 @@ function parseStatus(controlDir: string, statusPath?: string): ProfiledStatus | 
   };
 }
 
+/** The extension updates status.json about every 200 ms; a stale heartbeat means it is gone. */
+export const PROFILED_HEARTBEAT_MAX_AGE_MS = 120_000;
+const PROFILED_SESSION_TAIL_BYTES = 200 * 1024;
+const PROFILED_NON_TERMINAL_STATES = ["running", "queued", "waiting", "idle"];
+
+export type ProfiledSubagentOptions = {
+  contextWindowForModel?: (model: string | undefined) => number | undefined;
+};
+
+type ProfiledSessionSnapshot = {
+  window?: number;
+  lastActivityAt?: number;
+};
+
+	type ProfiledSessionCacheEntry = {
+	  mtimeMs: number;
+	  size: number;
+	  snapshot: ProfiledSessionSnapshot;
+	};
+
+	const profiledSessionCache = new Map<string, ProfiledSessionCacheEntry>();
+	const MAX_PROFILED_SESSION_CACHE_ENTRIES = 128;
+
+function profiledSessionSnapshot(sessionPath: string | undefined): ProfiledSessionSnapshot {
+  if (!sessionPath) return {};
+  let stat: fs.Stats;
+  let content: string;
+  try {
+    stat = fs.statSync(sessionPath);
+    if (!stat.isFile()) return {};
+    const cached = profiledSessionCache.get(sessionPath);
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.snapshot;
+    const fd = fs.openSync(sessionPath, "r");
+    try {
+      const length = Math.min(stat.size, PROFILED_SESSION_TAIL_BYTES);
+      const buffer = Buffer.alloc(length);
+      const bytes = fs.readSync(fd, buffer, 0, length, Math.max(0, stat.size - length));
+      content = buffer.subarray(0, bytes).toString("utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return {};
+  }
+  let window: number | undefined;
+  let lastActivityAt: number | undefined = stat.mtimeMs;
+  for (const line of content.split("\n").reverse()) {
+    if (!line.trim()) continue;
+    try {
+      const value = record(JSON.parse(line));
+      const timestamp = typeof value?.timestamp === "string"
+        ? Date.parse(value.timestamp)
+        : number(value?.ts);
+      if (timestamp !== undefined && Number.isFinite(timestamp) && (lastActivityAt === undefined || timestamp > lastActivityAt)) lastActivityAt = timestamp;
+      const message = record(value?.message);
+      const usage = record(message?.usage);
+      if (window !== undefined || message?.role !== "assistant" || !usage) continue;
+      const input = number(usage.input) ?? 0;
+      const cacheRead = number(usage.cacheRead) ?? 0;
+      const cacheWrite = number(usage.cacheWrite) ?? 0;
+      window = input + cacheRead + cacheWrite;
+    } catch {
+      // Ignore malformed or incomplete JSONL records.
+    }
+  }
+  // Reverse order finds the newest assistant usage first; the full bounded scan still finds the newest timestamp.
+  const snapshot = { ...(window !== undefined ? { window } : {}), ...(lastActivityAt !== undefined ? { lastActivityAt } : {}) };
+  profiledSessionCache.delete(sessionPath);
+  profiledSessionCache.set(sessionPath, { mtimeMs: stat.mtimeMs, size: stat.size, snapshot });
+  while (profiledSessionCache.size > MAX_PROFILED_SESSION_CACHE_ENTRIES) {
+    const oldest = profiledSessionCache.keys().next().value;
+    if (typeof oldest !== "string") break;
+    profiledSessionCache.delete(oldest);
+  }
+  return snapshot;
+}
+
+export function profiledRunIsLive(run: SubagentRun, now = Date.now()): boolean {
+  if (!PROFILED_NON_TERMINAL_STATES.includes(run.state)) return false;
+  if (run.profiledStatusBacked) return run.lastUpdate !== undefined && now - run.lastUpdate < PROFILED_HEARTBEAT_MAX_AGE_MS;
+  if (run.statusPath) {
+    try {
+      const stat = fs.statSync(run.statusPath);
+      if (!stat.isFile()) return false;
+      return run.lastUpdate !== undefined && now - run.lastUpdate < PROFILED_HEARTBEAT_MAX_AGE_MS;
+    } catch {
+      return false;
+    }
+  }
+  return run.profiledToolInFlight === true;
+}
+
 function statusDirectoriesForTrees(treeIds: ReadonlySet<string>): Array<{ controlDir: string; status: ProfiledStatus }> {
   if (treeIds.size === 0) return [];
   const rows: Array<{ controlDir: string; status: ProfiledStatus }> = [];
@@ -142,13 +232,16 @@ function statusDirectoriesForTrees(treeIds: ReadonlySet<string>): Array<{ contro
   return rows;
 }
 
-function runFromStatus(controlDir: string, status: ProfiledStatus): SubagentRun {
-  return {
+function runFromStatus(controlDir: string, status: ProfiledStatus, options: ProfiledSubagentOptions = {}): SubagentRun {
+  const session = profiledSessionSnapshot(status.sessionPath);
+  const contextWindow = options.contextWindowForModel?.(status.model);
+  const run: SubagentRun = {
     runId: `profiled:${path.basename(controlDir)}`,
     control: "profiled",
     runtime: RUNTIME,
     controlDir,
     statusPath: path.join(controlDir, "status.json"),
+    profiledStatusBacked: true,
     treeId: status.treeId,
     parentAgentId: status.parentAgentId,
     agentId: status.agentId,
@@ -158,45 +251,58 @@ function runFromStatus(controlDir: string, status: ProfiledStatus): SubagentRun 
     state: status.state,
     startedAt: status.startedAt,
     lastUpdate: status.updatedAt,
+    lastActivityAt: session.lastActivityAt ?? status.updatedAt,
     activityState: status.state,
     agent: status.profile,
     model: status.model,
     thinking: status.thinking,
+    ...(session.window !== undefined ? { tokens: { window: session.window } } : {}),
+    ...(contextWindow !== undefined ? { contextWindow } : {}),
     sessionFile: status.sessionPath,
     steps: [],
   };
+  return profiledRunIsLive(run) ? run : { ...run, state: "stale", activityState: "stale" };
 }
 
-function runFromTool(item: ToolItem, details: Record<string, unknown>): SubagentRun | undefined {
+function runFromTool(item: ToolItem, details: Record<string, unknown>, options: ProfiledSubagentOptions = {}): SubagentRun | undefined {
   if (details.runtime !== RUNTIME) return undefined;
   const controlDirRaw = text(details.controlDir);
   const controlDir = controlDirRaw ? safeControlDir(controlDirRaw) : undefined;
   const status = controlDir ? parseStatus(controlDir, text(details.statusPath)) : undefined;
-  if (status && controlDir) return runFromStatus(controlDir, status);
+  if (status && controlDir) return runFromStatus(controlDir, status, options);
 
   const agentId = text(details.agentId);
   const treeId = text(details.treeId);
   if (!agentId || !treeId) return undefined;
-  const profile = text(details.profile) ?? text(record(item.args)?.agent) ?? "agent";
-  const label = text(details.label) ?? profile;
+  const profile = text(details.profile) ?? text(record(item.args)?.agent);
+  const label = text(details.label) ?? profile ?? agentId ?? "agent";
   const parentAgentId = text(details.parentAgentId) ?? "root";
   const startedAt = number(details.startedAt) ?? item.startedAt ?? item.timestamp;
   return {
     runId: controlDir ? `profiled:${path.basename(controlDir)}` : `profiled:${item.toolCallId}:${agentId}`,
     control: controlDir ? "profiled" : "foreground",
     runtime: RUNTIME,
-    ...(controlDir ? { controlDir, statusPath: text(details.statusPath) } : {}),
+    ...(controlDir ? { controlDir, ...(status ? { statusPath: text(details.statusPath) } : {}) } : {}),
     treeId,
     parentAgentId,
     agentId,
-    profile,
+    ...(profile ? { profile } : {}),
     label,
     mode: parentAgentId === "root" ? "profiled" : "nested",
     state: toolState(item, details),
     startedAt,
     lastUpdate: item.endedAt ?? item.timestamp,
     activityState: toolState(item, details),
-    agent: profile,
+    agent: profile ?? agentId ?? label,
+    profiledToolInFlight: item.status === "streaming" || item.status === "pending",
+    ...(() => {
+      const session = profiledSessionSnapshot(text(details.sessionPath));
+      return session.window !== undefined ? { tokens: { window: session.window } } : {};
+    })(),
+    ...(() => {
+      const contextWindow = options.contextWindowForModel?.(text(details.model));
+      return contextWindow !== undefined ? { contextWindow } : {};
+    })(),
     model: text(details.model),
     thinking: text(details.thinking),
     sessionFile: text(details.sessionPath),
@@ -208,14 +314,14 @@ function runFromTool(item: ToolItem, details: Record<string, unknown>): Subagent
  * Discover this fork's children from agent_spawn tool details, then use the
  * shared tree id to add nested descendants from their direct status records.
  */
-export function profiledSubagentRunsFromTools(tools: readonly ToolItem[]): SubagentRun[] {
+export function profiledSubagentRunsFromTools(tools: readonly ToolItem[], options: ProfiledSubagentOptions = {}): SubagentRun[] {
   const seeds: SubagentRun[] = [];
   const treeIds = new Set<string>();
   for (const item of tools) {
     if (item.name !== "agent_spawn") continue;
     const details = record(item.details);
     if (!details || details.runtime !== RUNTIME) continue;
-    const run = runFromTool(item, details);
+    const run = runFromTool(item, details, options);
     if (run) seeds.push(run);
     const treeId = text(details.treeId);
     if (treeId) treeIds.add(treeId);
@@ -225,7 +331,7 @@ export function profiledSubagentRunsFromTools(tools: readonly ToolItem[]): Subag
   const byRunId = new Map<string, SubagentRun>();
   for (const run of seeds) byRunId.set(run.runId, run);
   for (const { controlDir, status } of statusDirectoriesForTrees(treeIds)) {
-    const run = runFromStatus(controlDir, status);
+    const run = runFromStatus(controlDir, status, options);
     byRunId.set(run.runId, run);
   }
   return [...byRunId.values()].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));

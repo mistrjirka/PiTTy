@@ -9,6 +9,7 @@ import { useTerminalDimensions } from "@opentui/solid";
 import stripAnsi from "strip-ansi";
 import type { ConversationItem, CustomItem, ToolItem } from "../types.ts";
 import type { SubagentTarget } from "../subagents/targets.ts";
+import { isProfiledSubagentTool } from "../subagents/profiled.ts";
 import {
 	colors,
 	getMarkdownStyle,
@@ -204,11 +205,41 @@ function customQuestionParts(item: CustomItem): { body: string; hint: string } {
 	return { body: lines.slice(0, hintIndex).join("\n").trimEnd(), hint: lines[hintIndex]!.trim() };
 }
 
+function objectRecordValue(value: unknown): Record<string, unknown> | undefined {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: undefined;
+}
+
+function customDetailsRecord(item: CustomItem): Record<string, unknown> | undefined {
+	return objectRecordValue(item.details);
+}
+
 function customDetail(item: CustomItem, key: string): string {
-	const details = item.details;
-	if (!details || typeof details !== "object" || Array.isArray(details)) return "";
-	const value = (details as Record<string, unknown>)[key];
+	const value = customDetailsRecord(item)?.[key];
 	return typeof value === "string" && value.trim() ? value : "";
+}
+
+function customDetailObject(item: CustomItem, key: string): Record<string, unknown> | undefined {
+	const value = customDetailsRecord(item)?.[key];
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: undefined;
+}
+
+function parsedNotification(item: CustomItem): Record<string, unknown> {
+	let parsed: Record<string, unknown> = {};
+	try {
+		const value: unknown = JSON.parse(item.text);
+		if (value && typeof value === "object" && !Array.isArray(value)) parsed = value as Record<string, unknown>;
+	} catch {
+		// Details can still provide a valid notification when the text is not JSON.
+	}
+	return { ...parsed, ...customDetailsRecord(item) };
+}
+
+function notificationText(value: unknown): string {
+	return typeof value === "string" ? value : "";
 }
 
 function toolTiming(item: ToolItem, now: number): string {
@@ -914,7 +945,8 @@ export function MessageView(props: {
 						return (
 							name === "subagent" ||
 							name === "workflow" ||
-							name.endsWith("_subagent")
+							name.endsWith("_subagent") ||
+							isProfiledSubagentTool(item)
 						);
 					};
 					const terminal = () =>
@@ -925,8 +957,18 @@ export function MessageView(props: {
 									toolTiming(item, props.now ?? Date.now()),
 								)
 							: undefined;
-					const subagentLabel = () =>
-						subagentFamily() ? summarizeSubagentArgs(item.args) : undefined;
+					const subagentLabel = () => {
+						if (!subagentFamily()) return undefined;
+						if (isProfiledSubagentTool(item)) {
+							const details = objectRecordValue(item.details);
+							const agentId = typeof details?.agentId === "string" ? details.agentId : "";
+							const label = typeof details?.label === "string" ? details.label : "";
+							const profile = typeof details?.profile === "string" ? details.profile : "";
+							if (agentId && label) return `@${agentId} — ${label}`;
+							if (agentId && profile) return `@${agentId} · ${profile}`;
+						}
+						return summarizeSubagentArgs(item.args);
+					};
 					const subagentGist = () =>
 						subagentFamily() ? taskGist(item.args) : undefined;
 					const children = () =>
@@ -955,7 +997,7 @@ export function MessageView(props: {
 										terminal() ? ` · ${terminal()}` : ""
 									}`}
 								</text>
-								<Show when={item.args !== undefined && !subagentGist()}>
+								<Show when={item.args !== undefined && !subagentGist() && !isProfiledSubagentTool(item)}>
 									<text fg={colors.muted} selectable wrapMode="word">
 										{supervisorLabel()
 											? `  ${supervisorMessage(item.args)}`
@@ -1056,6 +1098,38 @@ export function MessageView(props: {
 							<Show when={item.kind === "custom"}>
 				{(() => {
 					if (item.kind !== "custom") return null;
+					if (item.customType === "subagent-notification") {
+						const payload = parsedNotification(item);
+						const agentId = notificationText(payload.agent_id) || customDetail(item, "agent_id");
+						const rawLabel = notificationText(payload.label) || customDetail(item, "label");
+						const identity = rawLabel.startsWith("@")
+							? rawLabel
+							: agentId
+								? `@${agentId}${rawLabel ? ` — ${rawLabel}` : ""}`
+								: "subagent";
+						const status = notificationText(payload.status) || customDetail(item, "status") || "completed";
+						const usage = customDetailObject(item, "usage") ?? objectRecordValue(payload.usage);
+						const usageParts = [
+							typeof usage?.tokens === "number" ? `${usage.tokens} tokens` : "",
+							typeof usage?.toolUses === "number" ? `${usage.toolUses} tools` : "",
+							typeof usage?.durationMs === "number" ? formatDuration(usage.durationMs, "") : "",
+						].filter(Boolean);
+						const result = notificationText(payload.result) || customDetail(item, "result") || (customDetailsRecord(item) ? "" : item.text);
+						const cleanedResult = cleanTerminalText(result).trim();
+						const resultLines = cleanedResult ? cleanedResult.split(/\r?\n/) : [];
+						const more = resultLines.length > 1
+							? `${resultLines.length - 1} more lines`
+							: cleanedResult.length > 100 ? "more content" : "";
+						const sessionPath = customDetail(item, "sessionPath") || customDetail(item, "session_path");
+						return (
+							<box id={item.id} flexDirection="column" backgroundColor={colors.toolAgentBg} paddingLeft={1} paddingRight={1} marginBottom={1} border={["left"]} borderColor={colors.purple}>
+								<text fg={colors.purple} attributes={1}>◆ subagent · {identity} · {status}</text>
+								<Show when={usageParts.length > 0}><text fg={colors.muted} wrapMode="none">{usageParts.join(" · ")}</text></Show>
+								<text fg={colors.textBright} selectable wrapMode="none">{collapsedPreview(cleanedResult) || "No result preview"}{more ? ` · ${more}` : ""}</text>
+								<Show when={sessionPath}><text fg={colors.subtle} wrapMode="none">{clampDiffPath(sessionPath, 72)}</text></Show>
+							</box>
+						);
+					}
 					const legacyQuestion = item.customType === "subagent_supervisor_request";
 					const profiledQuestion = item.customType === "subagent-question";
 					const question = legacyQuestion || profiledQuestion;

@@ -31,11 +31,13 @@ import {
 } from "../src/subagents/transcript.ts";
 import { createSubagentTranscriptCache } from "../src/subagents/transcript-cache.ts";
 import { safeProfiledControlDir } from "../src/subagents/profiled-paths.ts";
+import { PROFILED_HEARTBEAT_MAX_AGE_MS, profiledRunIsLive } from "../src/subagents/profiled.ts";
 import {
 	ownedSubagentTargetsForItems,
 	reconcileSubagentSelection,
 	subagentTargets,
 	targetsForTool,
+	targetContextUsage,
 	type SubagentTarget,
 } from "../src/subagents/targets.ts";
 import { initialItems } from "../src/state/conversation.ts";
@@ -167,6 +169,76 @@ describe("profiled subagent control paths", () => {
 		expect(safeProfiledControlDir(linkedControl, tmp)).toBeUndefined();
 	});
 });
+
+
+describe("profiled liveness and usage", () => {
+	test("uses fresh heartbeats, rejects stale or terminal runs, and reads session usage", () => {
+		const fixture = profiledFixture();
+		const now = Date.now();
+		const statusPath = path.join(fixture.runtimeRoot, "status.json");
+		fs.writeFileSync(statusPath, "{}");
+		const base: SubagentRun = { runId: "profiled:test", mode: "profiled", state: "running", steps: [], statusPath };
+		expect(profiledRunIsLive({ ...base, state: "completed" }, now)).toBe(false);
+		expect(profiledRunIsLive({ ...base, lastUpdate: now - 1_000 }, now)).toBe(true);
+		expect(profiledRunIsLive({ ...base, lastUpdate: now - PROFILED_HEARTBEAT_MAX_AGE_MS - 1 }, now)).toBe(false);
+		expect(profiledRunIsLive({ ...base, statusPath: undefined, profiledToolInFlight: false }, now)).toBe(false);
+
+		const sessionPath = path.join(fixture.runtimeRoot, "child.jsonl");
+		fs.writeFileSync(sessionPath, JSON.stringify({ timestamp: new Date(now).toISOString(), type: "message", message: {
+			role: "assistant", usage: { input: 100, cacheRead: 20, cacheWrite: 5 },
+		} }) + "\n");
+		const agent = fixture.writeAgent("usage-agent", {
+			agentId: "jett", profile: "explore", parentAgentId: "root", label: "bounded usage", state: "running",
+			startedAt: now, sessionPath, model: "provider/model",
+		});
+		const tool: ToolItem = {
+			kind: "tool", id: "profiled-usage", toolCallId: "profiled-usage-call", name: "agent_spawn",
+			args: { agent: "explore" }, output: "", details: {
+				runtime: "profiled-subagents", treeId: fixture.treeId, parentAgentId: "root", agentId: "jett", profile: "explore",
+				label: "bounded usage", controlDir: agent.controlDir, statusPath: agent.statusPath,
+			}, timestamp: now, status: "done", isError: false,
+		};
+		const target = subagentTargets([], [tool], { contextWindowForModel: () => 1_000 }).find((entry) => entry.run.agentId === "jett");
+		expect(target).toBeDefined();
+		expect(targetContextUsage(target!)).toBe("125 / 1K");
+		expect(target!.lastUpdate).toBeDefined();
+	});
+});
+
+	test("keeps deleted-control history inactive and fresh status-backed runs active", () => {
+		const fixture = profiledFixture();
+		const now = Date.now();
+		const writeTool = (agent: { controlDir: string; statusPath: string }, agentId: string): ToolItem => ({
+			kind: "tool", id: `spawn-${agentId}`, toolCallId: `spawn-${agentId}-call`, name: "agent_spawn",
+			args: { agent: "explore" }, output: "", details: {
+				runtime: "profiled-subagents", treeId: fixture.treeId, parentAgentId: "root", agentId, profile: "explore",
+				label: agentId, state: "running", controlDir: agent.controlDir, statusPath: agent.statusPath,
+			}, timestamp: now, status: "done", isError: false,
+		});
+
+		const historyAgent = fixture.writeAgent("history-agent", {
+			agentId: "history", profile: "explore", parentAgentId: "root", label: "history", state: "running", startedAt: now,
+		});
+		fs.rmSync(historyAgent.statusPath);
+		const historyTarget = subagentTargets([], [writeTool(historyAgent, "history")]).find((target) => target.run.agentId === "history");
+		expect(historyTarget).toBeDefined();
+		expect(historyTarget?.active).toBe(false);
+
+		const freshAgent = fixture.writeAgent("fresh-agent", {
+			agentId: "fresh", profile: "explore", parentAgentId: "root", label: "fresh", state: "running", startedAt: now, updatedAt: now,
+		});
+		const freshTarget = subagentTargets([], [writeTool(freshAgent, "fresh")]).find((target) => target.run.agentId === "fresh");
+		expect(freshTarget?.active).toBe(true);
+		expect(freshTarget?.state).toBe("running");
+
+		const staleAgent = fixture.writeAgent("stale-agent", {
+			agentId: "stale", profile: "explore", parentAgentId: "root", label: "stale", state: "running", startedAt: now,
+			updatedAt: now - PROFILED_HEARTBEAT_MAX_AGE_MS - 1,
+		});
+		const staleTarget = subagentTargets([], [writeTool(staleAgent, "stale")]).find((target) => target.run.agentId === "stale");
+		expect(staleTarget?.active).toBe(false);
+		expect(staleTarget?.state).toBe("stale");
+	});
 
 describe("subagent controls", () => {
 	test("discovers profiled root and nested agents from one tree without duplicating the spawn", () => {

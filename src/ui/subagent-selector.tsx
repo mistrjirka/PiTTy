@@ -6,7 +6,7 @@ import { colors } from "./theme.ts";
 
 function description(target: SubagentTarget): string {
   const elapsed = target.startedAt ? formatDuration((target.run.endedAt ?? Date.now()) - target.startedAt) : "";
-  const group = target.active ? "ACTIVE" : "FINISHED";
+  const group = target.active ? "ACTIVE" : target.state === "stale" ? "STALE" : "FINISHED";
   return [group, target.state, target.run.mode, elapsed].filter(Boolean).join(" · ");
 }
 

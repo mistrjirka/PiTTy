@@ -68,10 +68,13 @@ export class TabManager {
 		return true;
 	}
 
+	canClose(id: string): boolean {
+		return this.state.tabs.length > 1 && this.state.tabs.some((tab) => tab.id === id);
+	}
+
 	close(id: string): boolean {
-		if (this.state.tabs.length <= 1) return false;
+		if (!this.canClose(id)) return false;
 		const index = this.state.tabs.findIndex((tab) => tab.id === id);
-		if (index < 0) return false;
 		const tabs = this.state.tabs.filter((tab) => tab.id !== id);
 		const activeId = id === this.state.activeId
 			? (tabs[index]?.id ?? tabs.at(-1)?.id ?? this.state.activeId)

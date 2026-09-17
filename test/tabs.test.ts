@@ -13,6 +13,16 @@ describe("TabManager", () => {
 		expect(manager.close("one")).toBe(false);
 	});
 
+	test("reports which tabs can close", () => {
+		const manager = new TabManager(tab("one"));
+		expect(manager.canClose("one")).toBe(false);
+		expect(manager.canClose("missing")).toBe(false);
+		manager.create(tab("two"));
+		expect(manager.canClose("one")).toBe(true);
+		expect(manager.canClose("two")).toBe(true);
+		expect(manager.canClose("missing")).toBe(false);
+	});
+
 	test("resolves explicit, prompt, and blank titles", () => {
 		expect(resolveTabTitle({ sessionName: " Named ", firstPrompt: "ignored" })).toBe("Named");
 		expect(resolveTabTitle({ firstPrompt: "hello\nworld" })).toBe("hello world");

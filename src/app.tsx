@@ -114,6 +114,7 @@ import { SessionSelector } from "./ui/session-selector.tsx";
 
 let availableModelsCache: ModelChoice[] | undefined;
 let availableModelsFetch: Promise<ModelChoice[]> | undefined;
+
 import {
 	SettingsHub,
 	type SettingsSectionDescriptor,
@@ -246,6 +247,13 @@ export type AppOptions = {
 	themeController?: ThemeController;
 };
 
+
+function contextWindowForModel(modelName: string | undefined): number | undefined {
+	if (!modelName || !availableModelsCache) return undefined;
+	const exact = availableModelsCache.find((model) => `${model.provider}/${model.id}` === modelName);
+	if (exact) return exact.contextWindow;
+	return availableModelsCache.find((model) => model.id === modelName)?.contextWindow;
+}
 const spinnerFrames = ["◐", "◓", "◑", "◒"] as const;
 const NOTIFICATION_HISTORY_CAP = 100;
 const SESSION_LOAD_REQUEST_TIMEOUT_MS = 120_000;
@@ -970,7 +978,7 @@ export function App(props: AppOptions) {
 	};
 	const closeTab = (id: string) => {
 		const runtime = runtimeMap().get(id);
-		if (!runtime || id === "main") return;
+		if (!runtime || !tabManager.canClose(id)) return;
 		const wasActive = activeTabId() === id;
 		if (dialogOwnerRuntimeId() === id) {
 			setDialog(undefined);
@@ -1164,7 +1172,7 @@ export function App(props: AppOptions) {
 	let lastCtrlC = 0;
 
 	const reconcileSteers = (nextRuns: readonly SubagentRun[]) => {
-		const nextTargets = subagentTargets(nextRuns, subagentTools());
+		const nextTargets = subagentTargets(nextRuns, subagentTools(), { contextWindowForModel });
 		setPendingSteers((entries) =>
 			reconcilePendingSteers(
 				entries,
@@ -1455,7 +1463,7 @@ export function App(props: AppOptions) {
 		),
 	);
 	const availableSubagentTargets = createMemo(() =>
-		subagentTargets(runs(), subagentTools()),
+		subagentTargets(runs(), subagentTools(), { contextWindowForModel }),
 	);
 	const ownedVisibleSubagentTargets = createMemo(() =>
 		ownedSubagentTargetsForItems(
@@ -1573,7 +1581,7 @@ export function App(props: AppOptions) {
 		if (digest !== lastRunsDigest) {
 			lastRunsDigest = digest;
 			setRuns(nextRuns);
-			const nextTargets = subagentTargets(nextRuns, subagentTools());
+			const nextTargets = subagentTargets(nextRuns, subagentTools(), { contextWindowForModel });
 			setSelectedTargetKey(
 				reconcileSubagentSelection(
 					selectedTargetKey(),
@@ -3054,6 +3062,7 @@ export function App(props: AppOptions) {
 				startupRuntime.sessionState = state;
 				rememberThinkingLevel(startupRuntime);
 				startupRuntime.startupResolved = true;
+				void fetchAvailableModels().catch(() => undefined);
 				startupRuntime.conversation.isStreaming = state.isStreaming;
 				setStartupPhase({ kind: "ready" });
 				setStatus(state.isStreaming ? "working" : "ready");
@@ -4128,6 +4137,7 @@ export function App(props: AppOptions) {
 						timingHistory={requestTimingHistory()}
 						runs={runs}
 						tools={subagentTools}
+						contextWindowForModel={contextWindowForModel}
 						selectedTargetKey={selectedTargetKey()}
 						now={clockNow()}
 						onSelectTarget={setSelectedTargetKey}

@@ -1598,6 +1598,44 @@ describe("OpenTUI components", () => {
 		expect(expandedFrame).toContain("new value");
 	});
 
+	test("renders profiled notifications as bounded identity cards", async () => {
+		const result = `${"visible-result\n".repeat(20)}UNIQUE_TAIL`;
+		const setup = await mount(
+			() => (
+				<MessageView
+					item={{
+						kind: "custom", id: "profiled-notification", customType: "subagent-notification",
+						text: JSON.stringify({ agent_id: "jett", status: "completed", result }), timestamp: 1,
+						details: { label: "@jett — bounded task", model: "provider/model", thinking: "high", usage: { tokens: 42, toolUses: 3, durationMs: 1200 }, sessionPath: "/tmp/very-long-session-path.jsonl" },
+					}}
+					showThinking
+					toolExpanded={false}
+				/>
+			),
+			120,
+			8,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("@jett — bounded task");
+		expect(frame).toContain("42 tokens");
+		expect(frame).not.toContain("UNIQUE_TAIL");
+		expect(frame).toContain("20 more lines");
+		expect(frame.split("\n").length).toBeLessThanOrEqual(9);
+
+		const fallback = await mount(
+			() => <MessageView item={{ kind: "custom", id: "fallback-notification", customType: "subagent-notification", text: JSON.stringify({ agent_id: "zoe", status: "failed", result: "fallback result" }), timestamp: 1 }} showThinking toolExpanded={false} />,
+			60,
+			8,
+		);
+		expect(fallback.captureCharFrame()).toContain("@zoe");
+		const spawn = await mount(
+			() => <MessageView item={{ kind: "tool", id: "spawn", toolCallId: "spawn-call", name: "agent_spawn", args: { agent: "explore", prompt: "secret prompt" }, output: "", details: { runtime: "profiled-subagents", agentId: "jett", profile: "explore", label: "launch task" }, timestamp: 1, status: "done", isError: false }} showThinking toolExpanded={false} />,
+			80,
+			8,
+		);
+		expect(spawn.captureCharFrame()).toContain("@jett — launch task");
+	});
+
 	test("renders supervisor questions, custom notices, and supervisor tool labels", async () => {
 		const items: ConversationItem[] = [
 			{

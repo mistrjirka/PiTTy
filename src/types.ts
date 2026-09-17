@@ -150,6 +150,10 @@ export type SubagentRun = {
 	pid?: number | undefined;
 	cwd?: string | undefined;
 	agent?: string | undefined;
+	/** True only while a status-less profiled spawn tool call is in flight. */
+	profiledToolInFlight?: boolean | undefined;
+	/** True when the run was read from a currently existing profiled status file. */
+	profiledStatusBacked?: boolean | undefined;
 	agents?: string[] | undefined;
 	model?: string | undefined;
 	thinking?: string | undefined;
