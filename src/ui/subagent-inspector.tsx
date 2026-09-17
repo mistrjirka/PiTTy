@@ -6,10 +6,21 @@ import type {
 } from "@opentui/core";
 import type { ConversationItem, SubagentRun } from "../types.ts";
 import type { PendingSteerEntry } from "../state/input-continuity.ts";
-import { subagentTargets, targetContextUsage, type SubagentTarget } from "../subagents/targets.ts";
+import {
+	subagentTargets,
+	targetContextPercent,
+	targetContextUsage,
+	type SubagentTarget,
+} from "../subagents/targets.ts";
 import { colors } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
-import { formatContextWindow } from "./model-selector.tsx";
+import {
+	ModelContextRows,
+	friendlyTargetState,
+	stateColor,
+	stateIcon,
+} from "./model-context.tsx";
+import { spinnerFrames } from "./spinner.ts";
 import { cleanTerminalText, MessageView } from "./message.tsx";
 
 export function SubagentInspector(props: {
@@ -24,6 +35,8 @@ export function SubagentInspector(props: {
 	onStop?: () => void;
 	onChooseTarget?: () => void;
 	targetCount?: number;
+	/** Current shared spinner glyph from the main conversation's 250 ms tick. */
+	spinner?: string | undefined;
 	draft?: (() => string) | undefined;
 	onDraftChange?: (message: string) => void;
 	onSteer?: (message: string) => void;
@@ -60,7 +73,47 @@ export function SubagentInspector(props: {
 		return "Ctrl+Shift+A stop";
 	};
 	const step = () => target().step;
-	const contextUsage = () => targetContextUsage(target());
+	const spinnerGlyph = () => props.spinner ?? spinnerFrames[0] ?? "◐";
+	const childContextUsage = () => targetContextUsage(target());
+	const childContextPercent = () => targetContextPercent(target());
+	// `active` is not "working": profiled `idle`/`waiting` children are live
+	// (resident / blocked on the parent) but must not show the spinner.
+	const isWorkingState = (state: string): boolean =>
+		state === "running" ||
+		state === "queued" ||
+		state === "active" ||
+		state === "working";
+	const presenceText = (): string | undefined => {
+		const state = target().state;
+		if (isWorkingState(state)) return `${spinnerGlyph()} Working…`;
+		if (state === "waiting") return "⏸ waiting for parent";
+		if (state === "idle") return "◆ resident · idle";
+		return undefined;
+	};
+	const activityText = () => {
+		const parts: string[] = [];
+		const presence = presenceText();
+		if (presence) parts.push(presence);
+		const tool = currentTool();
+		const path = currentPath();
+		if (tool ?? path) {
+			parts.push(
+				`⚙${cleanTerminalText(tool ?? "working")}${toolElapsed() !== undefined ? ` ${formatDuration(toolElapsed())}` : ""}${path ? ` · ${cleanTerminalText(path)}` : ""}`,
+			);
+		}
+		return parts.join(" · ");
+	};
+	const itemNow = (item: ConversationItem): number => {
+		if (target().active) return props.now;
+		if (
+			item.kind === "tool" &&
+			(item.status === "streaming" || item.status === "pending")
+		)
+			return props.now;
+		if (item.kind === "tool")
+			return item.endedAt ?? item.startedAt ?? item.timestamp;
+		return 0;
+	};
 	const elapsed = () =>
 		target().startedAt
 			? (step()?.endedAt ?? run().endedAt ?? props.now) - target().startedAt!
@@ -240,13 +293,15 @@ export function SubagentInspector(props: {
 							minHeight={1}
 							flexShrink={0}
 							wrapMode="none"
-							fg={colors.muted}
+							fg={stateColor(target().state)}
 						>
-							{who} · {cleanTerminalText(run().mode)}/{cleanTerminalText(currentStep?.status ?? target().state)} · {timing}
+							{stateIcon(target().state)} {who} ·{" "}
+							{cleanTerminalText(friendlyTargetState(target().state))} ·{" "}
+							{timing}
 						</text>
 					);
 				})()}
-				<Show when={currentTool() || currentPath()}>
+				<Show when={activityText()}>
 					<text
 						height={1}
 						minHeight={1}
@@ -254,22 +309,15 @@ export function SubagentInspector(props: {
 						wrapMode="none"
 						fg={colors.cyan}
 					>
-						⚙{cleanTerminalText(currentTool() ?? "working")}
-						{toolElapsed() !== undefined ? ` ${formatDuration(toolElapsed())}` : ""}
-						{currentPath() ? ` · ${cleanTerminalText(currentPath()!)}` : ""}
+						{activityText()}
 					</text>
 				</Show>
-				<text
-					height={1}
-					minHeight={1}
-					flexShrink={0}
-					wrapMode="none"
-					fg={colors.subtle}
-				>
-					▤{cleanTerminalText(target().model ?? "unknown")} ·{" "}
-					{formatContextWindow(target().contextWindow) || "ctx?"} · ◆
-					{cleanTerminalText(target().thinking ?? "unknown")}
-				</text>
+				<ModelContextRows
+					contextText={childContextUsage() ?? "— / —"}
+					percentUsed={childContextPercent()}
+					modelText={target().model ?? "—"}
+					thinkingText={target().thinking ?? "—"}
+				/>
 				<Show when={target().error}>
 					<text
 						height={1}
@@ -303,7 +351,6 @@ export function SubagentInspector(props: {
 							{cleanTerminalText(`⚙${currentTool() ?? "working"}${toolElapsed() !== undefined ? ` ${formatDuration(toolElapsed())}` : ""}`)}
 							{run().toolCount !== undefined ? ` · ${run().toolCount} tools` : ""}
 							{run().turnCount !== undefined ? ` · ${run().turnCount} turns` : ""}
-							{contextUsage() ? ` · ${contextUsage()}` : run().totalTokens !== undefined ? ` · ${run().totalTokens} tok` : ""}
 						</text>
 					</Show>
 				</Show>
@@ -322,14 +369,7 @@ export function SubagentInspector(props: {
 								item.kind === "tool" ? (props.diffExpanded?.(item.id) ?? false) : false
 							}
 							{...(props.onToggleDiff ? { onToggleDiff: props.onToggleDiff } : {})}
-							now={
-								item.kind === "tool" &&
-								(item.status === "streaming" || item.status === "pending")
-									? props.now
-									: item.kind === "tool"
-										? (item.endedAt ?? item.startedAt ?? item.timestamp)
-										: 0
-							}
+							now={itemNow(item)}
 						/>
 					)}
 				</For>

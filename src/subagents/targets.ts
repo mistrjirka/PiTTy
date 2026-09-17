@@ -1158,8 +1158,32 @@ function formatContextUsage(used: number | undefined, limit: number | undefined)
  * falling back to the run. Uses the live `window` (current context) rather than
  * the cumulative token total, which otherwise re-counts re-sent context.
  */
-export function targetContextUsage(target: SubagentTarget): string | undefined {
+type TargetContextNumbers = {
+	used: number;
+	limit: number;
+};
+
+/**
+ * Single lookup behind both `targetContextUsage` and `targetContextPercent`
+ * so the `used / limit` text and the `{pct}% used` line can never drift.
+ */
+function targetContextNumbers(
+	target: SubagentTarget,
+): TargetContextNumbers | undefined {
 	const used = target.step?.tokens?.window ?? target.run.tokens?.window;
 	const limit = target.step?.contextWindow ?? target.run.contextWindow;
-	return formatContextUsage(used, limit);
+	if (used === undefined || limit === undefined) return undefined;
+	return { used, limit };
+}
+
+export function targetContextUsage(target: SubagentTarget): string | undefined {
+	const numbers = targetContextNumbers(target);
+	if (!numbers) return undefined;
+	return formatContextUsage(numbers.used, numbers.limit);
+}
+
+export function targetContextPercent(target: SubagentTarget): number | undefined {
+	const numbers = targetContextNumbers(target);
+	if (!numbers || numbers.limit <= 0) return undefined;
+	return Math.round((numbers.used / numbers.limit) * 100);
 }

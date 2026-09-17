@@ -173,6 +173,7 @@ import {
 import { Sidebar } from "./ui/sidebar.tsx";
 import { NotificationDialog } from "./ui/notification-dialog.tsx";
 import { SubagentInspector } from "./ui/subagent-inspector.tsx";
+import { spinnerFrames } from "./ui/spinner.ts";
 import { resolveLiveChildTranscriptPath } from "./subagents/artifacts.ts";
 import { SubagentSelectorDialog } from "./ui/subagent-selector.tsx";
 import {
@@ -254,7 +255,6 @@ function contextWindowForModel(modelName: string | undefined): number | undefine
 	if (exact) return exact.contextWindow;
 	return availableModelsCache.find((model) => model.id === modelName)?.contextWindow;
 }
-const spinnerFrames = ["◐", "◓", "◑", "◒"] as const;
 const NOTIFICATION_HISTORY_CAP = 100;
 const SESSION_LOAD_REQUEST_TIMEOUT_MS = 120_000;
 const STARTUP_DEADLINE_MS = 180_000;
@@ -3752,6 +3752,7 @@ export function App(props: AppOptions) {
 								target={inspectedTarget()}
 								items={inspectedTranscript()}
 								now={clockNow()}
+								spinner={spinnerFrames[spinnerIndex()] ?? "◐"}
 								scrollRef={(value) => {
 									subagentScroll = value;
 								}}

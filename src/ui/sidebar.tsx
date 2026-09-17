@@ -1,5 +1,4 @@
 import { For, Show, createMemo, type Accessor } from "solid-js";
-import stripAnsi from "strip-ansi";
 import type {
 	RpcSessionState,
 	SessionStats,
@@ -16,6 +15,13 @@ import {
 } from "../tabs/request-timing.ts";
 import { colors } from "./theme.ts";
 import { TodoPanel, type TodoViewItem } from "./todos.tsx";
+import {
+	ModelContextRows,
+	clip,
+	formatTokens,
+	stateColor,
+	stateIcon,
+} from "./model-context.tsx";
 import { appVersion } from "../version.ts";
 import {
 	formatResetIn,
@@ -29,8 +35,6 @@ import {
 	type UsageWindow,
 	type UsageWindows,
 } from "../integrations/codex-usage-history.ts";
-
-const CONTENT_WIDTH = 32;
 
 export type SidebarPanelVisibility = {
 	subagents: boolean;
@@ -207,26 +211,6 @@ function UsageWindowRows(props: UsageWindowRowsProps) {
 	);
 }
 
-function formatTokens(value: number | undefined): string {
-	if (value === undefined) return "—";
-	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-	if (value >= 1_000) return `${Math.round(value / 1_000)}K`;
-	return String(value);
-}
-
-function cleanInline(value: string): string {
-	return stripAnsi(value)
-		.replace(/[\u0000-\u001f\u007f]/g, " ")
-		.replace(/\s+/g, " ")
-		.trim();
-}
-
-function clip(value: string, width = CONTENT_WIDTH): string {
-	const clean = cleanInline(value);
-	if (clean.length <= width) return clean;
-	return `${clean.slice(0, Math.max(1, width - 1))}…`;
-}
-
 function notificationToneColor(tone: NotificationRecord["tone"]): string {
 	if (tone === "error") return colors.red;
 	if (tone === "warning") return colors.yellow;
@@ -239,21 +223,6 @@ function notificationToneIcon(tone: NotificationRecord["tone"]): string {
 	if (tone === "warning") return "⚠️";
 	if (tone === "success") return "✅";
 	return "🔔";
-}
-
-function stateColor(state: string): string {
-	if (["running", "active", "working"].includes(state)) return colors.green;
-	if (["queued", "paused", "needs_attention"].includes(state))
-		return colors.yellow;
-	if (["failed", "error", "timed_out"].includes(state)) return colors.red;
-	return colors.borderStrong;
-}
-
-function stateIcon(state: string): string {
-	if (["running", "active", "working"].includes(state)) return "🟢";
-	if (["queued", "paused", "needs_attention"].includes(state)) return "🟡";
-	if (["failed", "error", "timed_out"].includes(state)) return "🔴";
-	return "⚪";
 }
 
 function targetTokens(target: SubagentTarget): number | undefined {
@@ -494,38 +463,17 @@ export function Sidebar(props: {
 				PiTTy v{appVersion}
 			</text>
 			<box height={1} />
-			<text width="100%" height={1} fg={colors.textBright} attributes={1}>
-				Context
-			</text>
-			<text width="100%" height={1} fg={colors.muted} wrapMode="none">
-				{clip(
-					`${formatTokens(props.stats?.contextUsage?.tokens ?? undefined)} / ${formatTokens(props.stats?.contextUsage?.contextWindow ?? props.state?.model?.contextWindow)}`,
-				)}
-			</text>
-			<Show
-				when={
-					props.stats?.contextUsage?.percent !== undefined &&
-					props.stats?.contextUsage?.percent !== null
-				}
-			>
-				<text width="100%" height={1} fg={colors.muted}>
-					{Math.round(props.stats?.contextUsage?.percent ?? 0)}% used
-				</text>
-			</Show>
-			<box height={1} />
-			<text width="100%" height={1} fg={colors.textBright} attributes={1}>
-				Model
-			</text>
-			<text width="100%" height={1} fg={colors.muted} wrapMode="none">
-				{clip(
+			<ModelContextRows
+				contextText={`${formatTokens(props.stats?.contextUsage?.tokens ?? undefined)} / ${formatTokens(props.stats?.contextUsage?.contextWindow ?? props.state?.model?.contextWindow)}`}
+				percentUsed={props.stats?.contextUsage?.percent ?? undefined}
+				modelText={
 					props.state?.model
 						? `${props.state.model.provider}/${props.state.model.id}`
-						: "—",
-				)}
-			</text>
-			<text width="100%" height={1} fg={colors.muted}>
-				Thinking: {clip(props.state?.thinkingLevel ?? "—")}
-			</text>
+						: "—"
+				}
+				thinkingText={props.state?.thinkingLevel ?? "—"}
+			/>
+			<box height={1} />
 			<Show when={props.lastRequestPerformance}>
 				{(performance) => (
 					<text width="100%" height={1} fg={colors.subtle} wrapMode="none">

@@ -41,6 +41,7 @@ import { PromptMapDialog } from "../src/ui/prompt-map.tsx";
 import { MemoryBrowserDialog } from "../src/ui/memory-browser.tsx";
 import type { MemorySnapshot } from "../src/integrations/memory-store.ts";
 import { allocateSidebarPanels, Sidebar } from "../src/ui/sidebar.tsx";
+import { friendlyTargetState } from "../src/ui/model-context.tsx";
 import {
 	REQUEST_TIMING_VERSION,
 	type RequestTiming,
@@ -2557,9 +2558,12 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("4K tok");
 	});
 
-	test("inspector falls back to cumulative tokens when context window is unknown", async () => {
-		// The inspector must keep the sidebar's fallback: for a run without window
-		// data it shows the cumulative total again rather than a bare tool/turn line.
+	test("inspector shows shared model/context rows instead of duplicating usage strings", async () => {
+		// With no window data the shared Context row renders the same "— / —"
+		// placeholder the parent sidebar shows. The empty-transcript block keeps
+		// the tool/turn counts but must not duplicate the Model/Context rows, so
+		// the old cumulative "4200 tok" usage string is gone (the sidebar's own
+		// "4K tok" fallback row is pinned separately and unchanged).
 		const run: SubagentRun = {
 			runId: "run-1",
 			asyncDir: "/tmp/run-1",
@@ -2577,7 +2581,12 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		const frame = inspector.captureCharFrame();
-		expect(frame).toContain("4200 tok");
+		expect(frame).toContain("— / —");
+		expect(frame).toContain("Thinking:");
+		expect(frame).toContain("⚙bash");
+		expect(frame).not.toContain("4200 tok");
+		expect(frame).not.toContain("▤");
+		expect(frame).not.toContain("◆");
 	});
 
 	test("renders all six mission-backed workflow children in the subagent sidebar", async () => {
@@ -3203,9 +3212,14 @@ describe("OpenTUI components", () => {
 		);
 		const inspectorFrame = inspector.captureCharFrame();
 		expect(inspectorFrame).toContain("Steering input hidden");
-		expect(inspectorFrame).toContain("▤unknown");
-		expect(inspectorFrame).toContain("ctx?");
-		expect(inspectorFrame).toContain("◆unknown");
+		expect(inspectorFrame).toContain("— / —");
+		expect(inspectorFrame).toContain("Thinking:");
+		expect(inspectorFrame).toContain("reviewer #2");
+		expect(inspectorFrame).toContain("finished");
+		expect(inspectorFrame).not.toContain("parallel/completed");
+		expect(inspectorFrame).not.toContain("▤");
+		expect(inspectorFrame).not.toContain("◆");
+		expect(inspectorFrame).not.toContain("ctx?");
 		expect(inspectorFrame).not.toContain("Steer reviewer #2");
 		expect(inspectorFrame).not.toContain("Ctrl+A pause");
 		expect(inspectorFrame).not.toContain("Ctrl+Shift+A stop");
@@ -3249,9 +3263,14 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		const activeFrame = activeInspector.captureCharFrame();
-		expect(activeFrame).toContain("▤provider/child");
-		expect(activeFrame).toContain("8.2k ctx");
-		expect(activeFrame).toContain("◆high");
+		expect(activeFrame).toContain("provider/child");
+		expect(activeFrame).toContain("Thinking: high");
+		expect(activeFrame).toContain("Working…");
+		expect(activeFrame).toContain("working");
+		expect(activeFrame).not.toContain("parallel/running");
+		expect(activeFrame).not.toContain("▤");
+		expect(activeFrame).not.toContain("◆");
+		expect(activeFrame).not.toContain("8.2k ctx");
 	});
 
 	test("sanitizes subagent inspector metadata before terminal rendering", async () => {
@@ -3278,6 +3297,7 @@ describe("OpenTUI components", () => {
 			state: evil,
 			active: true,
 			canSteer: true,
+			model: evil,
 			thinking,
 		};
 		const setup = await mount(
@@ -3286,6 +3306,247 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		expect(setup.captureCharFrame()).not.toContain("\u001b");
+	});
+
+	test("inspector uses one friendly state vocabulary", async () => {
+		expect(friendlyTargetState("running")).toBe("working");
+		expect(friendlyTargetState("queued")).toBe("working");
+		expect(friendlyTargetState("waiting")).toBe("waiting for parent");
+		expect(friendlyTargetState("idle")).toBe("resident");
+		expect(friendlyTargetState("stale")).toBe("stale");
+		expect(friendlyTargetState("completed")).toBe("finished");
+		expect(friendlyTargetState("failed")).toBe("failed");
+		expect(friendlyTargetState("error")).toBe("failed");
+		expect(friendlyTargetState("paused")).toBe("paused");
+		expect(friendlyTargetState("mystery-state")).toBe("mystery-state");
+	});
+
+	test("inspector renders the profiled child's own model and context usage", async () => {
+		const run: SubagentRun = {
+			runId: "profiled-child",
+			control: "profiled",
+			controlDir: "/tmp/profiled-child",
+			mode: "profiled",
+			state: "running",
+			agent: "explore",
+			model: "anthropic/claude-opus",
+			thinking: "high",
+			contextWindow: 200_000,
+			tokens: {
+				total: 60_000,
+				input: 50_000,
+				output: 10_000,
+				window: 50_000,
+				windowPeak: 50_000,
+			},
+			profiledToolInFlight: true,
+			startedAt: 1_000,
+			steps: [],
+		};
+		const target = subagentTargets([run])[0]!;
+		const setup = await mount(
+			() => (
+				<SubagentInspector target={target} items={[]} now={2_000} spinner="◓" />
+			),
+			100,
+			24,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("50K / 200K");
+		expect(frame).toContain("25% used");
+		expect(frame).toContain("anthropic/claude-opus");
+		expect(frame).toContain("Thinking: high");
+		expect(frame).toContain("◓ Working…");
+		expect(frame).toContain("working");
+		expect(frame).not.toContain("profiled/running");
+		expect(frame).not.toContain("▤");
+		expect(frame).not.toContain("◆");
+	});
+
+	test("inspector model/context rows fall back when the child reports neither", async () => {
+		const run: SubagentRun = {
+			runId: "profiled-bare",
+			control: "profiled",
+			controlDir: "/tmp/profiled-bare",
+			mode: "profiled",
+			state: "idle",
+			agent: "explore",
+			profiledToolInFlight: true,
+			startedAt: 1_000,
+			steps: [],
+		};
+		const target = subagentTargets([run])[0]!;
+		const setup = await mount(
+			() => <SubagentInspector target={target} items={[]} now={2_000} />,
+			100,
+			24,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("— / —");
+		expect(frame).toContain("Thinking: —");
+		expect(frame).toContain("◆ resident · idle");
+		expect(frame).toContain("resident");
+		expect(frame).not.toContain("Working…");
+		expect(frame).not.toContain("◐");
+		expect(frame).not.toContain("◓");
+		expect(frame).not.toContain("◑");
+		expect(frame).not.toContain("◒");
+		expect(frame).not.toContain("% used");
+		expect(frame).not.toContain("profiled/idle");
+		expect(frame).not.toContain("▤");
+	});
+
+	test("inspector presence indicator follows state, not mere activity", async () => {
+		const makeProfiled = (suffix: string, state: string): SubagentRun => ({
+			runId: `presence-${suffix}`,
+			control: "profiled",
+			controlDir: `/tmp/presence-${suffix}`,
+			mode: "profiled",
+			state,
+			agent: "explore",
+			profiledToolInFlight: true,
+			startedAt: 1_000,
+			steps: [],
+		});
+		const frameFor = async (state: string) => {
+			const target = subagentTargets([makeProfiled(state, state)])[0]!;
+			const setup = await mount(
+				() => <SubagentInspector target={target} items={[]} now={2_000} />,
+				100,
+				24,
+			);
+			return setup.captureCharFrame();
+		};
+		const glyphs = ["◐", "◓", "◑", "◒"];
+		const queued = await frameFor("queued");
+		expect(queued).toContain("◐ Working…");
+		const waiting = await frameFor("waiting");
+		expect(waiting).toContain("⏸ waiting for parent");
+		expect(waiting).not.toContain("Working…");
+		for (const glyph of glyphs) expect(waiting).not.toContain(glyph);
+		const idle = await frameFor("idle");
+		expect(idle).toContain("◆ resident · idle");
+		expect(idle).not.toContain("Working…");
+		for (const glyph of glyphs) expect(idle).not.toContain(glyph);
+	});
+
+	test("shared model/context rows keep the sidebar 32-char truncation", async () => {
+		const full = "openai-codex/gpt-5.6-sol-very-long-model-identifier-xyz";
+		const state = {
+			sessionId: "session-1",
+			thinkingLevel: "high",
+			model: {
+				provider: "openai-codex",
+				id: "gpt-5.6-sol-very-long-model-identifier-xyz",
+				contextWindow: 400000,
+			},
+		} as RpcSessionState;
+		const stats = {
+			sessionFile: "/tmp/session.jsonl",
+			sessionId: "session-1",
+			contextUsage: { tokens: 33000, contextWindow: 400000, percent: 8.25 },
+		} as SessionStats;
+		const sidebar = await mount(
+			() => <Sidebar state={state} stats={stats} runs={[]} />,
+			42,
+			28,
+		);
+		const sidebarFrame = sidebar.captureCharFrame();
+		expect(sidebarFrame).toContain("…");
+		expect(sidebarFrame).not.toContain(full);
+		// Finished child, so no Working… line contributes its own ellipsis.
+		const run: SubagentRun = {
+			runId: "truncate-child",
+			mode: "single",
+			state: "completed",
+			agent: "worker",
+			model: full,
+			steps: [],
+		};
+		const target = subagentTargets([run])[0]!;
+		const inspector = await mount(
+			() => <SubagentInspector target={target} items={[]} now={2_000} />,
+			100,
+			24,
+		);
+		const inspectorFrame = inspector.captureCharFrame();
+		expect(inspectorFrame).toContain("…");
+		expect(inspectorFrame).not.toContain(full);
+	});
+
+	test("inspector passes live time to child items while the target is active", async () => {
+		const toolItem = {
+			kind: "tool" as const,
+			id: "live-tool",
+			toolCallId: "live-call",
+			name: "bash",
+			args: {},
+			output: "",
+			timestamp: 1_000,
+			startedAt: 1_000,
+			status: "done" as const,
+			isError: false,
+		};
+		const makeRun = (suffix: string, state: string): SubagentRun => ({
+			runId: `live-${suffix}`,
+			asyncDir: `/tmp/live-${suffix}`,
+			mode: "single",
+			state,
+			agent: "worker",
+			steps: [],
+		});
+		const activeTarget = subagentTargets([makeRun("active", "running")])[0]!;
+		const activeView = await mount(
+			() => (
+				<SubagentInspector target={activeTarget} items={[toolItem]} now={61_000} />
+			),
+			100,
+			30,
+		);
+		expect(activeView.captureCharFrame()).toContain("took 1m 0s");
+		const finishedTarget = subagentTargets([
+			makeRun("finished", "completed"),
+		])[0]!;
+		const finishedView = await mount(
+			() => (
+				<SubagentInspector
+					target={finishedTarget}
+					items={[toolItem]}
+					now={61_000}
+				/>
+			),
+			100,
+			30,
+		);
+		expect(finishedView.captureCharFrame()).toContain("took 0ms");
+	});
+
+	test("sidebar parent rows render context usage, model, and thinking level", async () => {
+		const state = {
+			sessionId: "session-1",
+			sessionName: "OpenCode UI work",
+			thinkingLevel: "high",
+			model: {
+				provider: "openai-codex",
+				id: "gpt-5.6-sol",
+				contextWindow: 400000,
+			},
+		} as RpcSessionState;
+		const stats = {
+			sessionFile: "/tmp/session.jsonl",
+			sessionId: "session-1",
+			contextUsage: { tokens: 33000, contextWindow: 400000, percent: 8.25 },
+		} as SessionStats;
+		const setup = await mount(
+			() => <Sidebar state={state} stats={stats} runs={[]} />,
+			42,
+			28,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("33K / 400K");
+		expect(frame).toContain("8% used");
+		expect(frame).toContain("openai-codex/gpt-5.6-sol");
+		expect(frame).toContain("Thinking: high");
 	});
 
 	test("shows inspector actions only for applicable file-backed targets", async () => {
