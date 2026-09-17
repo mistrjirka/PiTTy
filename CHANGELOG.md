@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.25
+
+### Subagent identity
+
+- A subagent's type is now visible everywhere its identity is shown. A profiled child with a custom label rendered as `@ron — pitty-install-plugins`, so its type (`implementer`) appeared nowhere and only runs without a custom label showed one. It now renders `@ron · implementer — pitty-install-plugins` in the sidebar, in spawn group rows, on the spawn cards, in the inspector header and in the subagent selector.
+- The type is the short prefix and the descriptive label follows it, so the sidebar's 31-character row clip truncates the label and never the type.
+- The spawn card had its own copy of that identity rule and dropped the type the same way; it now keeps it.
+
+### Sidebar header
+
+- `Subagents (N active)` no longer loses its count to the `Ctrl+I · Ctrl+Down inspect` hint sharing the row: the count is unshrinkable, so the hint is what clips, and the hint is single-line so it cannot wrap the fixed one-row header.
+
+### Screenshot fixture
+
+- The main screenshot's sidebar shows active subagents instead of "no async subagents", so the documented view matches what the sidebar shows while children work.
+
+Validation: typecheck passed; the complete local suite passed with 439 tests, 1 skipped, 0 failures; the new sidebar header test fails without its fix.
+
 ## 0.6.24
 
 ### One-round compaction stream window
