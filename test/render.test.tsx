@@ -1209,7 +1209,14 @@ describe("OpenTUI components", () => {
 	test("renders live one-round lane text as tail windows", async () => {
 		expect(laneTailLines("")).toEqual([]);
 		expect(laneTailLines("one\ntwo\nthree\n")).toEqual(["one", "two", "three"]);
-		expect(laneTailLines("l1\nl2\nl3\nl4\nl5")).toEqual(["…", "l4", "l5"]);
+		// The streamed window shows the newest 6 rows by default: an ellipsis row
+		// plus the newest 5 lines, so live text stays readable without overflowing.
+		expect(laneTailLines("l1\nl2\nl3\nl4\nl5")).toEqual(["l1", "l2", "l3", "l4", "l5"]);
+		expect(laneTailLines("l1\nl2\nl3\nl4\nl5", 3)).toEqual(["…", "l4", "l5"]);
+		expect(laneTailLines(Array.from({ length: 14 }, (_, i) => `line ${i + 1}`).join("\n"))).toEqual([
+			"…",
+			...Array.from({ length: 5 }, (_, i) => `line ${i + 10}`),
+		]);
 		expect(laneTailLines(Array.from({ length: 14 }, (_, i) => `line ${i + 1}`).join("\n"), 12)).toEqual([
 			"…",
 			...Array.from({ length: 11 }, (_, i) => `line ${i + 4}`),
@@ -1240,18 +1247,24 @@ describe("OpenTUI components", () => {
 							execution: { role: "execution", state: "queued", chars: 0 },
 						},
 					}}
-					laneTexts={{ runId: "run-1", intent: "", audit: "line one\nline two\nline three\nline four", execution: "" }}
+					laneTexts={{
+						runId: "run-1",
+						intent: "",
+						audit:
+							"line one\nline two\nline three\nline four\nline five\nline six\nline seven\nline eight\nline nine\nline ten",
+						execution: "",
+					}}
 					expanded={expanded}
 					onToggle={() => setExpanded((value) => !value)}
 				/>
 			),
 			100,
-			14,
+			30,
 		);
 		let frame = setup.captureCharFrame();
 		expect(frame).toContain("◐ audit · streaming · 900 chars");
-		expect(frame).toContain("line three");
-		expect(frame).toContain("line four");
+		expect(frame).toContain("line nine");
+		expect(frame).toContain("line ten");
 		expect(frame).not.toContain("line one");
 		expect(frame).toContain("execution · queued · 0 chars");
 		expect(frame).toContain("expand");
@@ -1267,7 +1280,7 @@ describe("OpenTUI components", () => {
 	});
 
 	test("bounds live one-round lane text to fixed terminal rows at narrow width", async () => {
-		// A long wrapping logical line must not monopolize the fixed 3-row lane
+		// A long wrapping logical line must not monopolize the fixed 6-row lane
 		// window: the tail (newest streamed lines) has to stay visible, and the
 		// fixed rows below the lane must stay at their bounded locations.
 		const audit = `${"x".repeat(200)}\nmid line\nCLOSING_MARKER_ZETA`;
@@ -1309,11 +1322,11 @@ describe("OpenTUI components", () => {
 		const lines = frame.split("\n");
 		const executionRow = lines.findIndex((line) => line.includes("execution · queued"));
 		const markerRow = lines.findIndex((line) => line.includes("MARKER_AFTER_PANEL"));
-		// Collapsed lane window: header(1) + audit lane(1) + 3 lane rows, so the
-		// execution lane must stay on row 5 and never be pushed down by wrapping.
-		expect(executionRow).toBe(5);
+		// Collapsed lane window: header(1) + audit lane(1) + 6 lane rows, so the
+		// execution lane must stay on row 8 and never be pushed down by wrapping.
+		expect(executionRow).toBe(8);
 		expect(markerRow).toBeGreaterThanOrEqual(0);
-		expect(markerRow).toBeLessThanOrEqual(10);
+		expect(markerRow).toBeLessThanOrEqual(13);
 		expect(frame).toContain("MARKER_AFTER_PANEL");
 		// The lane is a tail window: the newest streamed lines must win the fixed
 		// terminal rows instead of being crowded out by one wrapping head line.

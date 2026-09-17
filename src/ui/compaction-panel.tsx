@@ -65,8 +65,8 @@ function laneLine(lane: OneRoundLaneProgress): string {
 	return `${laneStateIcon(lane.state)} ${lane.role} · ${lane.state} · ${lane.chars.toLocaleString()} chars${elapsed}`;
 }
 
-const LANE_TEXT_LINES = 3;
-const EXPANDED_LANE_TEXT_LINES = 12;
+const LANE_TEXT_LINES = 6;
+const EXPANDED_LANE_TEXT_LINES = 18;
 
 /** Tail window of a streamed lane text; a leading ellipsis line marks clipped content above. */
 export function laneTailLines(
