@@ -965,7 +965,10 @@ export function MessageView(props: {
 							const agentId = typeof details?.agentId === "string" ? details.agentId : "";
 							const label = typeof details?.label === "string" ? details.label : "";
 							const profile = typeof details?.profile === "string" ? details.profile : "";
-							if (agentId && label) return `@${agentId} — ${label}`;
+							// Keep the short type before the descriptive label: the label is
+							// what truncates on narrow surfaces, never the type.
+							const type = profile ? ` · ${profile}` : "";
+							if (agentId && label) return `@${agentId}${type} — ${label}`;
 							if (agentId && profile) return `@${agentId} · ${profile}`;
 						}
 						return summarizeSubagentArgs(item.args);

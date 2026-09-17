@@ -1819,7 +1819,7 @@ describe("OpenTUI components", () => {
 			80,
 			8,
 		);
-		expect(spawn.captureCharFrame()).toContain("@jett — launch task");
+		expect(spawn.captureCharFrame()).toContain("@jett · explore — launch task");
 	});
 
 	test("renders supervisor questions, custom notices, and supervisor tool labels", async () => {
