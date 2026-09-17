@@ -1,8 +1,10 @@
 import {
 	CliRenderEvents,
+	type CliRenderer,
 	type KeyEvent,
 	type PasteEvent,
 	type ScrollBoxRenderable,
+	type Selection,
 	type TextareaRenderable,
 	type Renderable,
 } from "@opentui/core";
@@ -607,6 +609,58 @@ export function appendNotificationHistory(
 	return [...current.slice(-(NOTIFICATION_HISTORY_CAP - 1)), record];
 }
 
+export interface TranscriptSelectionCache {
+	getCopyText: () => string;
+	clear: () => void;
+	dispose: () => void;
+}
+
+/**
+ * Mitigation for stale transcript copies: opentui's `Selection` re-resolves
+ * stored per-node coordinates against the nodes' current positions at
+ * `getSelectedText()` time, so stream chunks or node swaps between mouse-up
+ * and Ctrl+C yield text from earlier content. Snapshot the text when a mouse
+ * selection finishes (the `selection` event fires after the final walk) and
+ * prefer the snapshot on the copy path.
+ */
+export function attachTranscriptSelectionCache(
+	renderer: Pick<CliRenderer, "getSelection" | "getSelectionContainer"> & {
+		on(
+			event: typeof CliRenderEvents.SELECTION,
+			listener: (selection: Selection) => void,
+		): void;
+		off(
+			event: typeof CliRenderEvents.SELECTION,
+			listener: (selection: Selection) => void,
+		): void;
+	},
+	isTranscriptContainer?: (container: Renderable | null) => boolean,
+): TranscriptSelectionCache {
+	let cached: string | null = null;
+	const handleSelection = (selection: Selection) => {
+		if (!selection || selection.isDragging) return;
+		if (
+			isTranscriptContainer &&
+			!isTranscriptContainer(renderer.getSelectionContainer())
+		) {
+			return;
+		}
+		const text = selection.getSelectedText();
+		cached = text ? text : null;
+	};
+	renderer.on(CliRenderEvents.SELECTION, handleSelection);
+	return {
+		getCopyText: () =>
+			cached ?? renderer.getSelection()?.getSelectedText() ?? "",
+		clear: () => {
+			cached = null;
+		},
+		dispose: () => {
+			renderer.off(CliRenderEvents.SELECTION, handleSelection);
+		},
+	};
+}
+
 export function App(props: AppOptions) {
 	const renderer = useRenderer();
 	const dimensions = useTerminalDimensions();
@@ -1194,6 +1248,27 @@ export function App(props: AppOptions) {
 	let sessionDiscoveryGeneration = 0;
 	let tabCounter = 0;
 	let lastCtrlC = 0;
+	// Snapshot of the last finished transcript mouse selection. Stream chunks
+	// or node swaps between mouse-up and Ctrl+C would otherwise make the live
+	// query resolve against mutated content.
+	const isTranscriptSelectionContainer = (
+		container: Renderable | null,
+	): boolean => {
+		let current: Renderable | null = container;
+		while (current) {
+			// The prompt editor owns its selection (prompt.getSelection()); never
+			// route it through the transcript cache.
+			if (prompt && current === prompt) return false;
+			if (current === scroll || current === subagentScroll) return true;
+			current = current.parent;
+		}
+		return false;
+	};
+	const transcriptSelectionCache = attachTranscriptSelectionCache(
+		renderer,
+		isTranscriptSelectionContainer,
+	);
+	onCleanup(() => transcriptSelectionCache.dispose());
 
 	const reconcileSteers = (nextRuns: readonly SubagentRun[]) => {
 		const nextTargets = subagentTargets(nextRuns, subagentTools(), { contextWindowForModel });
@@ -2382,11 +2457,15 @@ export function App(props: AppOptions) {
 	};
 
 	const copySelection = (): boolean => {
-		const selection = renderer.getSelection();
-		const text = selection?.getSelectedText() ?? "";
+		if (!renderer.getSelection()) {
+			transcriptSelectionCache.clear();
+			return false;
+		}
+		const text = transcriptSelectionCache.getCopyText();
 		if (!text) return false;
 		const copied = renderer.copyToClipboardOSC52(text);
 		renderer.clearSelection();
+		transcriptSelectionCache.clear();
 		toast(
 			copied ? "Copied selection" : "Terminal does not support OSC52 clipboard",
 			copied ? "success" : "warning",
@@ -3854,9 +3933,8 @@ export function App(props: AppOptions) {
 		}
 	});
 
-	renderer.on(CliRenderEvents.SELECTION, () => {
-		// Selection is intentionally retained until Ctrl+C or Escape.
-	});
+	// The transcript selection snapshot is captured via attachTranscriptSelectionCache
+	// above. The live selection is intentionally retained until Ctrl+C or Escape.
 
 	const MainContents = () => (
 		<box
