@@ -1,11 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.6.21
 
 ### Current one-round compaction protocol
 
 - Updated the `pi-one-round-compaction` integration for progress v2 and completion details v6: live compaction now shows `audit` + `execution`, preserves the plugin's derived output-budget metadata, and no longer lets v2 machine-readable status JSON fall through to the generic status line.
 - Historical progress v1 and details v2/v4 remain readable for older sessions, isolated behind their original wire versions.
+
+Validation: typecheck passed; focused compaction/UI coverage passed with 127 tests and 0 failures. The complete local suite retained two unrelated baseline failures that reproduce on untouched `origin/main` (POSIX installer fixture and RPC startup-timeout timing test).
 
 ## 0.6.20
 
