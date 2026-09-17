@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.27
+
+### Subagent rows tell the truth about time and life
+
+- A resident or parent-waiting child no longer prints an age. That timestamp was only when the child last wrote its status file, which reads as though it had just done something; these rows now name the state on their own. Working rows keep the age, where it means last activity next to the current tool, and the grouped spawn rows follow the same rule.
+- A child whose owning Pi process is gone no longer reads as live. A child cannot outlive the process that spawned it, but its heartbeat stays fresh for two minutes after that process dies, so after a restart some children read `resident` while their siblings read as finished. Liveness now also requires the owning process — the pid in the `<owning-pid>-<agent>-<random>` control directory name — to still exist, so orphans read `unresponsive` immediately. The heartbeat still bounds liveness, and a directory without a pid segment keeps the heartbeat-only behaviour.
+
+Validation: 468 tests, 1 skipped, 0 failures; typecheck clean; type-escape scan clean.
+
 ## 0.6.26
 
 Everything here comes from a review of the inspected-child path and the transcript, prompted by four user reports: copied text coming from the wrong message, a child's thinking never visible, tools rendered without their description, and overlapping text.
