@@ -2,9 +2,9 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { SubagentRun, ToolItem } from "../types.ts";
+import { PROFILED_RUNTIME_ROOT_PREFIX, safeProfiledControlDir } from "./profiled-paths.ts";
 
 const RUNTIME = "profiled-subagents" as const;
-const ROOT_PREFIX = "pi-profiled-subagents-";
 
 type ProfiledStatus = {
   version: 1;
@@ -53,7 +53,7 @@ function runtimeRoots(): string[] {
     return [];
   }
   return names
-    .filter((name) => name.startsWith(ROOT_PREFIX))
+    .filter((name) => name.startsWith(PROFILED_RUNTIME_ROOT_PREFIX))
     .map((name) => path.join(os.tmpdir(), name))
     .filter((candidate) => {
       try {
@@ -66,20 +66,7 @@ function runtimeRoots(): string[] {
 }
 
 function safeControlDir(candidate: string): string | undefined {
-  const resolved = path.resolve(candidate);
-  const tmp = path.resolve(os.tmpdir());
-  const relative = path.relative(tmp, resolved);
-  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return undefined;
-  const first = relative.split(path.sep)[0] ?? "";
-  if (!first.startsWith(ROOT_PREFIX)) return undefined;
-  try {
-    const real = fs.realpathSync(resolved);
-    const stat = fs.lstatSync(resolved);
-    if (!stat.isDirectory() || stat.isSymbolicLink() || real !== resolved) return undefined;
-  } catch {
-    return undefined;
-  }
-  return resolved;
+  return safeProfiledControlDir(candidate);
 }
 
 function safeStatusPath(controlDir: string, candidate?: string): string | undefined {

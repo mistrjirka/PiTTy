@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { asyncRunsRoot } from "./artifacts.ts";
 import type { SubagentRun } from "../types.ts";
+import { safeProfiledControlDir } from "./profiled-paths.ts";
 
 type FileControlTarget = {
   base: string;
@@ -92,31 +92,8 @@ function fileControlTarget(run: SubagentRun, ...parts: string[]): FileControlTar
 
 function requireProfiledControl(run: SubagentRun): string {
   if (!run.controlDir) throw new Error("Profiled subagent control directory is missing.");
-  const tmp = path.resolve(os.tmpdir());
-  const candidate = path.resolve(run.controlDir);
-  const relative = path.relative(tmp, candidate);
-  const first = relative.split(path.sep)[0] ?? "";
-  if (
-    !relative ||
-    relative === ".." ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative) ||
-    !first.startsWith("pi-profiled-subagents-")
-  ) {
-    throw new Error("Profiled subagent control directory is outside the runtime root.");
-  }
-  let stats: fs.Stats;
-  try {
-    stats = fs.lstatSync(candidate);
-  } catch (error) {
-    if (isMissingPath(error)) throw new Error("Profiled subagent control directory is missing.");
-    throw error;
-  }
-  if (stats.isSymbolicLink() || !stats.isDirectory()) {
-    throw new Error("Profiled subagent control directory is not a regular directory.");
-  }
-  const real = fs.realpathSync(candidate);
-  if (real !== candidate) throw new Error("Profiled subagent control directory is not canonical.");
+  const candidate = safeProfiledControlDir(run.controlDir);
+  if (!candidate) throw new Error("Profiled subagent control directory is outside the runtime root or is unsafe.");
   return candidate;
 }
 
