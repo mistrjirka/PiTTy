@@ -131,6 +131,8 @@ export type SubagentRun = {
 	/** Direct-control directory exposed by @mistrjirka/pi-subagent. */
 	controlDir?: string | undefined;
 	statusPath?: string | undefined;
+	/** Live event stream (`events.jsonl`) inside the profiled control directory. */
+	eventsPath?: string | undefined;
 	runtime?: "profiled-subagents" | undefined;
 	treeId?: string | undefined;
 	parentAgentId?: string | undefined;

@@ -240,6 +240,88 @@ describe("profiled liveness and usage", () => {
 		expect(staleTarget?.state).toBe("stale");
 	});
 
+	test("projects terminal profiled states truthfully across restart scenarios", () => {
+		const fixture = profiledFixture();
+		const now = Date.now();
+		const old = now - PROFILED_HEARTBEAT_MAX_AGE_MS - 1;
+		const writeTool = (
+			agent: { controlDir: string; statusPath: string },
+			agentId: string,
+			overrides: { status?: ToolItem["status"]; timestamp?: number } = {},
+		): ToolItem => ({
+			kind: "tool", id: `spawn-${agentId}`, toolCallId: `spawn-${agentId}-call`, name: "agent_spawn",
+			args: { agent: "explore" }, output: "", details: {
+				runtime: "profiled-subagents", treeId: fixture.treeId, parentAgentId: "root", agentId, profile: "explore",
+				label: agentId, state: "running", controlDir: agent.controlDir, statusPath: agent.statusPath,
+			}, timestamp: overrides.timestamp ?? now, status: overrides.status ?? "done", isError: false,
+		});
+		const find = (agentId: string, tools: ToolItem[]) =>
+			subagentTargets([], tools).find((target) => target.run.agentId === agentId);
+
+		// Scenario 1: status file present, state=completed, spawn tool done.
+		// A finished child must stay `completed` even with a dead heartbeat.
+		const completedAgent = fixture.writeAgent("completed-agent", {
+			agentId: "completed", profile: "explore", parentAgentId: "root", label: "completed",
+			state: "completed", startedAt: old, updatedAt: old,
+		});
+		const completed = find("completed", [writeTool(completedAgent, "completed")]);
+		expect(completed?.state).toBe("completed");
+		expect(completed?.run.activityState).toBe("completed");
+		expect(completed?.active).toBe(false);
+
+		// Terminal failure passes through untouched too (never `stale`).
+		const failedAgent = fixture.writeAgent("failed-agent", {
+			agentId: "failed", profile: "explore", parentAgentId: "root", label: "failed",
+			state: "failed", startedAt: old, updatedAt: old,
+		});
+		const failed = find("failed", [writeTool(failedAgent, "failed")]);
+		expect(failed?.state).toBe("failed");
+		expect(failed?.run.activityState).toBe("failed");
+		expect(failed?.active).toBe(false);
+
+		// Scenario 2: control dir deleted (extension removes it at Pi
+		// shutdown), spawn tool done.
+		const goneAgent = fixture.writeAgent("gone-agent", {
+			agentId: "gone", profile: "explore", parentAgentId: "root", label: "gone",
+			state: "running", startedAt: old,
+		});
+		fs.rmSync(goneAgent.controlDir, { recursive: true, force: true });
+		const gone = find("gone", [writeTool(goneAgent, "gone")]);
+		expect(gone?.state).toBe("completed");
+		expect(gone?.active).toBe(false);
+
+		// Scenario 3: control dir deleted, spawn tool still pending — the
+		// frozen spawn-time state must not read live.
+		const frozenAgent = fixture.writeAgent("frozen-agent", {
+			agentId: "frozen", profile: "explore", parentAgentId: "root", label: "frozen",
+			state: "running", startedAt: old,
+		});
+		fs.rmSync(frozenAgent.controlDir, { recursive: true, force: true });
+		const frozen = find("frozen", [writeTool(frozenAgent, "frozen", { status: "pending", timestamp: old })]);
+		expect(frozen?.active).toBe(false);
+		expect(frozen?.state).toBe("stale");
+
+		// Scenario 4: status file present with a stale heartbeat, tool pending.
+		const staleAgent = fixture.writeAgent("stale-pending-agent", {
+			agentId: "stale-pending", profile: "explore", parentAgentId: "root", label: "stale-pending",
+			state: "running", startedAt: old, updatedAt: old,
+		});
+		const stalePending = find("stale-pending", [writeTool(staleAgent, "stale-pending", { status: "pending", timestamp: old })]);
+		expect(stalePending?.state).toBe("stale");
+		expect(stalePending?.active).toBe(false);
+
+		// Freshness bound on the status-less branch: an in-flight spawn is
+		// live only while its own timestamp is fresh (foreground children).
+		const live: SubagentRun = {
+			runId: "profiled:fresh-foreground", mode: "profiled", state: "running", steps: [],
+			profiledToolInFlight: true, lastUpdate: now - 1_000,
+		};
+		expect(profiledRunIsLive(live, now)).toBe(true);
+		expect(profiledRunIsLive({ ...live, lastUpdate: old }, now)).toBe(false);
+		expect(profiledRunIsLive({ ...live, lastUpdate: undefined }, now)).toBe(false);
+		expect(profiledRunIsLive({ ...live, profiledToolInFlight: false }, now)).toBe(false);
+	});
+
 describe("subagent controls", () => {
 	test("discovers profiled root and nested agents from one tree without duplicating the spawn", () => {
 		const fixture = profiledFixture();
@@ -3404,5 +3486,181 @@ describe("subagent controls", () => {
 		expect(parsed?.contextWindow).toBe(1048576);
 		expect(parsed?.steps[0]?.contextWindow).toBe(8192);
 		expect(parsed?.steps[1]?.contextWindow).toBe(65536);
+	});
+});
+
+describe("profiled live event stream", () => {
+	function streamHarness() {
+		const fixture = profiledFixture();
+		const now = Date.now();
+		const writeEvents = (controlDir: string, lines: Array<Record<string, unknown> | string>) => {
+			let seq = 0;
+			const body = lines
+				.map((line) => typeof line === "string" ? line : JSON.stringify({ v: 1, seq: seq++, ts: now, runId: "stream-child", ...line }))
+				.join("\n") + "\n";
+			fs.writeFileSync(path.join(controlDir, "events.jsonl"), body);
+		};
+		const spawnTool = (agent: { controlDir: string; statusPath: string }, agentId: string, status: ToolItem["status"] = "done"): ToolItem => ({
+			kind: "tool", id: `spawn-${agentId}`, toolCallId: `spawn-${agentId}-call`, name: "agent_spawn",
+			args: { agent: "explore" }, output: "", details: {
+				runtime: "profiled-subagents", treeId: fixture.treeId, parentAgentId: "root", agentId, profile: "explore",
+				label: agentId, state: "running", controlDir: agent.controlDir, statusPath: agent.statusPath,
+			}, timestamp: now, status, isError: false,
+		});
+		const liveTarget = (agentId: string, tools: ToolItem[]) =>
+			subagentTargets([], tools).find((target) => target.run.agentId === agentId);
+		return { fixture, now, writeEvents, spawnTool, liveTarget };
+	}
+
+	function streamAgent(fixture: ReturnType<typeof profiledFixture>, name: string, agentId: string, extra: Record<string, unknown> = {}) {
+		return fixture.writeAgent(name, {
+			agentId, profile: "explore", parentAgentId: "root", label: agentId, state: "running", startedAt: Date.now(), ...extra,
+		});
+	}
+
+	test("accumulates consecutive same-block chunks into one streaming item", () => {
+		const { fixture, now, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "stream-agent", "streamer");
+		writeEvents(agent.controlDir, [
+			{ kind: "thinking", blockId: "think-1", text: "conside" },
+			{ kind: "thinking", blockId: "think-1", text: "ring it" },
+			{ kind: "text", blockId: "text-1", text: "draft" },
+			{ kind: "text", blockId: "text-1", text: " reply" },
+		]);
+		const target = liveTarget("streamer", [spawnTool(agent, "streamer")]);
+		expect(target?.active).toBe(true);
+		expect(target?.run.eventsPath).toBeDefined();
+		const items = readSubagentConversation(target!.run);
+		expect(items).toHaveLength(2);
+		const [thinkingItem, textItem] = items;
+		if (thinkingItem?.kind !== "assistant") throw new Error("expected a streaming thinking item");
+		expect(thinkingItem.status).toBe("streaming");
+		expect(thinkingItem.thinking).toBe("considering it");
+		expect(thinkingItem.text).toBe("");
+		if (textItem?.kind !== "assistant") throw new Error("expected a streaming text item");
+		expect(textItem.status).toBe("streaming");
+		expect(textItem.text).toBe("draft reply");
+		expect(now).toBeLessThanOrEqual(Date.now());
+	});
+
+	test("starts a new item when the block id changes", () => {
+		const { fixture, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "blocks-agent", "blocks");
+		writeEvents(agent.controlDir, [
+			{ kind: "text", blockId: "text-1", text: "one" },
+			{ kind: "text", blockId: "text-2", text: "two" },
+		]);
+		const target = liveTarget("blocks", [spawnTool(agent, "blocks")]);
+		const items = readSubagentConversation(target!.run);
+		expect(items).toHaveLength(2);
+		expect(items.map((item) => item.kind === "assistant" ? item.text : undefined)).toEqual(["one", "two"]);
+		expect(items.every((item) => item.kind === "assistant" && item.status === "streaming")).toBe(true);
+	});
+
+	test("matches tool_end by call id and keeps a dangling start streaming", () => {
+		const { fixture, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "tools-agent", "tools");
+		writeEvents(agent.controlDir, [
+			{ kind: "tool_start", toolName: "bash", toolCallId: "call-1" },
+			{ kind: "tool_start", toolName: "grep", toolCallId: "call-2" },
+			{ kind: "tool_end", toolName: "bash", toolCallId: "call-1" },
+			{ kind: "tool_end", toolName: "nope", toolCallId: "call-9" },
+		]);
+		const target = liveTarget("tools", [spawnTool(agent, "tools")]);
+		const items = readSubagentConversation(target!.run);
+		expect(items).toHaveLength(2);
+		const [bash, grep] = items;
+		if (bash?.kind !== "tool" || grep?.kind !== "tool") throw new Error("expected two tool items");
+		expect(bash.name).toBe("bash");
+		expect(bash.status).toBe("done");
+		expect(bash.endedAt).toBeDefined();
+		expect(grep.name).toBe("grep");
+		expect(grep.status).toBe("streaming");
+		expect(grep.endedAt).toBeUndefined();
+	});
+
+	test("ignores a torn trailing line, unknown kinds and unknown versions", () => {
+		const { fixture, now, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "torn-agent", "torn");
+		writeEvents(agent.controlDir, [
+			{ kind: "text", blockId: "text-1", text: "ok" },
+			{ kind: "mystery", blockId: "m-1", text: "?", futureField: [1, 2, 3] },
+			{ v: 2, kind: "text", blockId: "v2", text: "new" },
+			`{"v":1,"seq":99,"ts":${now},"runId":"stream-child","kind":"text","blockId":"torn","text":"oops`,
+		]);
+		const target = liveTarget("torn", [spawnTool(agent, "torn")]);
+		const items = readSubagentConversation(target!.run);
+		expect(items).toHaveLength(1);
+		if (items[0]?.kind !== "assistant") throw new Error("expected one assistant item");
+		expect(items[0].text).toBe("ok");
+		expect(items[0].status).toBe("streaming");
+	});
+
+	test("ignores the stream once the run is not live so content is not duplicated", () => {
+		const { fixture, now, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const old = now - PROFILED_HEARTBEAT_MAX_AGE_MS - 1;
+		const sessionPath = path.join(fixture.runtimeRoot, "child.jsonl");
+		fs.writeFileSync(sessionPath, JSON.stringify({
+			timestamp: new Date(now).toISOString(), type: "message",
+			message: { role: "assistant", content: [{ type: "text", text: "Hello world" }] },
+		}) + "\n");
+		const agent = streamAgent(fixture, "done-agent", "done-child", { state: "completed", startedAt: old, updatedAt: old, sessionPath });
+		writeEvents(agent.controlDir, [
+			{ kind: "text", blockId: "text-1", text: "Hello " },
+			{ kind: "text", blockId: "text-1", text: "world" },
+		]);
+		const target = liveTarget("done-child", [spawnTool(agent, "done-child")]);
+		expect(target?.state).toBe("completed");
+		expect(target?.active).toBe(false);
+		// The stream file is present — suppression comes from the liveness
+		// rule, not from a missing path.
+		expect(target?.run.eventsPath).toBeDefined();
+		const items = readSubagentConversation(target!.run);
+		expect(items).toHaveLength(1);
+		if (items[0]?.kind !== "assistant") throw new Error("expected the completed assistant message");
+		expect(items[0].status).toBe("done");
+		expect(items[0].text).toBe("Hello world");
+	});
+
+	test("exposes the stream on status-less runs and leaves it undefined when absent", () => {
+		const { fixture, now, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "bare-agent", "bare");
+		fs.rmSync(agent.statusPath);
+		writeEvents(agent.controlDir, [{ kind: "text", blockId: "text-1", text: "hi" }]);
+		const pending: ToolItem = { ...spawnTool(agent, "bare", "pending"), timestamp: now };
+		const target = liveTarget("bare", [pending]);
+		expect(target?.run.eventsPath).toBe(path.join(agent.controlDir, "events.jsonl"));
+		expect(target?.active).toBe(true);
+		const items = readSubagentConversation(target!.run);
+		expect(items).toHaveLength(1);
+		if (items[0]?.kind !== "assistant") throw new Error("expected a streaming item");
+		expect(items[0].text).toBe("hi");
+		expect(items[0].status).toBe("streaming");
+
+		const noStream = streamAgent(fixture, "nostream-agent", "nostream");
+		const plain = liveTarget("nostream", [spawnTool(noStream, "nostream")]);
+		expect(plain?.run.eventsPath).toBeUndefined();
+	});
+
+	test("invalidates the inspected transcript when the stream appends", () => {
+		const { fixture, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "cache-agent", "cached");
+		writeEvents(agent.controlDir, [{ kind: "text", blockId: "text-1", text: "one" }]);
+		const target = liveTarget("cached", [spawnTool(agent, "cached")]);
+		if (!target) throw new Error("expected a cached target");
+		const cache = createSubagentTranscriptCache();
+		expect(cache(undefined, true)).toEqual([]);
+		expect(cache(target, false)).toEqual([]);
+		const first = cache(target, true);
+		if (first[0]?.kind !== "assistant") throw new Error("expected a streaming item");
+		expect(first[0].text).toBe("one");
+		writeEvents(agent.controlDir, [
+			{ kind: "text", blockId: "text-1", text: "one" },
+			{ kind: "text", blockId: "text-1", text: " two" },
+		]);
+		const second = cache(target, true);
+		if (second[0]?.kind !== "assistant") throw new Error("expected an updated streaming item");
+		expect(second[0].text).toBe("one two");
+		expect(second).not.toBe(first);
 	});
 });

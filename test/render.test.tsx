@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
 	KeyEvent,
 	RGBA,
@@ -40,7 +43,7 @@ import {
 import { PromptMapDialog } from "../src/ui/prompt-map.tsx";
 import { MemoryBrowserDialog } from "../src/ui/memory-browser.tsx";
 import type { MemorySnapshot } from "../src/integrations/memory-store.ts";
-import { allocateSidebarPanels, Sidebar } from "../src/ui/sidebar.tsx";
+import { allocateSidebarPanels, Sidebar, targetToolActivity, targetToolUsage } from "../src/ui/sidebar.tsx";
 import { friendlyTargetState } from "../src/ui/model-context.tsx";
 import {
 	REQUEST_TIMING_VERSION,
@@ -52,13 +55,23 @@ import { ForkPicker } from "../src/ui/fork-picker.tsx";
 import { TabStrip } from "../src/ui/tab-strip.tsx";
 import { forkPickerOptions } from "../src/tabs/entry-index.ts";
 import { SubagentSelectorDialog } from "../src/ui/subagent-selector.tsx";
-import { subagentTargets } from "../src/subagents/targets.ts";
+import { subagentTargets, type SubagentTarget } from "../src/subagents/targets.ts";
+import {
+	computeSpawnGroups,
+	SPAWN_GROUP_ID_PREFIX,
+	spawnGroupId,
+	spawnGroupRowText,
+	spawnGroupSummary,
+	SpawnGroupCard,
+} from "../src/ui/spawn-group.tsx";
+import { readSubagentConversation } from "../src/subagents/transcript.ts";
 import type {
 	ConversationItem,
 	NotificationRecord,
 	RpcSessionState,
 	SessionStats,
 	SubagentRun,
+	ToolItem,
 } from "../src/types.ts";
 import type { CodexUsage } from "../src/integrations/codex-usage.ts";
 import type { OpencodeUsage } from "../src/integrations/opencode-usage.ts";
@@ -109,8 +122,10 @@ import {
 registerBundledParsers();
 
 const active: TestRendererSetup[] = [];
+const tempDirs: string[] = [];
 afterEach(() => {
 	for (const setup of active.splice(0)) setup.renderer.destroy();
+	for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
 async function mount(
@@ -3156,7 +3171,7 @@ describe("OpenTUI components", () => {
 		expect(frame).not.toContain("queued follow-up 11");
 	});
 
-	test("renders separate parallel subagents and hides steering input for finished children", async () => {
+	test("inspector, selector and sidebar keep their per-child views for parallel subagents", async () => {
 		const run: SubagentRun = {
 			runId: "parallel-run",
 			asyncDir: "/tmp/parallel-run",
@@ -3233,30 +3248,6 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		expect(sidebar.captureCharFrame()).toContain("1s ago · working");
-		const tool = await mount(
-			() => (
-				<MessageView
-					item={{
-						kind: "tool",
-						id: "tool",
-						toolCallId: "call",
-						name: "subagent",
-						args: {},
-						output: "",
-						timestamp: 1,
-						status: "done",
-						isError: false,
-					}}
-					showThinking={false}
-					toolExpanded={false}
-					subagentTargets={targets}
-					now={2_000}
-				/>
-			),
-			100,
-			24,
-		);
-		expect(tool.captureCharFrame()).toContain("last activity 1s ago");
 		const activeInspector = await mount(
 			() => <SubagentInspector target={active} items={[]} now={2_000} />,
 			100,
@@ -3428,6 +3419,128 @@ describe("OpenTUI components", () => {
 		expect(idle).toContain("◆ resident · idle");
 		expect(idle).not.toContain("Working…");
 		for (const glyph of glyphs) expect(idle).not.toContain(glyph);
+	});
+
+	test("sidebar never reports working/starting for finished children", () => {
+		const sidebarTarget = (state: string, runExtra: Partial<SubagentRun> = {}): SubagentTarget => {
+			const run: SubagentRun = { runId: `sidebar-${state}`, mode: "profiled", state, agent: "explore", steps: [], ...runExtra };
+			return { key: run.runId, run, label: "explore", state, active: false, canSteer: false };
+		};
+		// The usage line reports nothing when there is nothing to report —
+		// the activity row already names the state, so restating it would
+		// print the state word twice.
+		const cases: Array<[string, string]> = [
+			["completed", "finished"],
+			["failed", "failed"],
+			["idle", "resident"],
+			["waiting", "waiting for parent"],
+			["stale", "stale"],
+		];
+		for (const [state, activity] of cases) {
+			const target = sidebarTarget(state);
+			expect(targetToolActivity(target)).toBe(activity);
+			expect(targetToolUsage(target)).toBe("");
+			expect(targetToolActivity(target)).not.toMatch(/working|starting/);
+			expect(targetToolUsage(target)).not.toMatch(/working|starting/);
+		}
+		// Genuinely working states keep today's strings.
+		expect(targetToolActivity(sidebarTarget("running"))).toBe("working");
+		expect(targetToolActivity(sidebarTarget("queued"))).toBe("working");
+		expect(targetToolUsage(sidebarTarget("running"))).toBe("starting…");
+		expect(targetToolUsage(sidebarTarget("queued"))).toBe("starting…");
+		// A current tool still renders when present, even on a finished child.
+		expect(targetToolActivity(sidebarTarget("completed", { currentTool: "bash" }))).toBe("bash");
+		expect(targetToolActivity(sidebarTarget("running", { currentTool: "bash", currentPath: "src/a.ts" }))).toBe("bash · src/a.ts");
+		// Real usage numbers win over every fallback.
+		expect(targetToolUsage(sidebarTarget("completed", { toolCount: 3 }))).toBe("3 tools");
+		expect(targetToolUsage(sidebarTarget("running", { toolCount: 3 }))).toBe("3 tools");
+	});
+
+	test("sidebar renders live waiting/resident children without working or starting", async () => {
+		const now = Date.now();
+		const makeLive = (suffix: string, state: string): SubagentRun => ({
+			runId: `sidebar-live-${suffix}`,
+			control: "profiled",
+			mode: "profiled",
+			state,
+			agent: "explore",
+			profiledStatusBacked: true,
+			lastUpdate: now,
+			startedAt: now - 1_000,
+			steps: [],
+		});
+		const state = { sessionName: "stream-session" } as RpcSessionState;
+		const sidebar = await mount(
+			() => <Sidebar state={state} runs={[makeLive("waiting", "waiting"), makeLive("idle", "idle")]} now={now} />,
+			42,
+			30,
+		);
+		const frame = sidebar.captureCharFrame();
+		expect(frame).toContain("waiting for parent");
+		expect(frame).toContain("resident");
+		expect(frame).not.toContain("working");
+		expect(frame).not.toContain("starting");
+	});
+
+	test("profiled live child streams thinking, text and tool starts through MessageView", async () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-stream-render-"));
+		tempDirs.push(dir);
+		const now = Date.now();
+		const eventsPath = path.join(dir, "events.jsonl");
+		const lines = [
+			{ kind: "thinking", blockId: "think-1", text: "considering the API" },
+			{ kind: "thinking", blockId: "think-1", text: " surface" },
+			{ kind: "text", blockId: "text-1", text: "drafting the reply" },
+			{ kind: "tool_start", toolName: "bash", toolCallId: "call-t1" },
+		];
+		fs.writeFileSync(
+			eventsPath,
+			lines.map((line, seq) => JSON.stringify({ v: 1, seq, ts: now, runId: "stream-child", ...line })).join("\n") + "\n",
+		);
+		const run: SubagentRun = {
+			runId: "profiled:stream-child",
+			control: "profiled",
+			runtime: "profiled-subagents",
+			mode: "profiled",
+			state: "running",
+			agent: "explore",
+			profiledStatusBacked: true,
+			lastUpdate: now,
+			startedAt: now - 1_000,
+			eventsPath,
+			steps: [],
+		};
+		const items = readSubagentConversation(run);
+		expect(items).toHaveLength(3);
+		expect(items.map((item) => item.kind === "assistant" || item.kind === "tool" ? item.status : undefined)).toEqual([
+			"streaming",
+			"streaming",
+			"streaming",
+		]);
+		const setup = await mount(() => (
+			<box width="100%" height="100%" flexDirection="column">
+				{items.map((item) => (
+					<MessageView item={item} showThinking toolExpanded={false} now={now} />
+				))}
+			</box>
+		));
+		const frame = setup.captureCharFrame();
+		// Live thinking block, streaming answer text and streaming tool glyph.
+		expect(frame).toContain("considering the API surface");
+		expect(frame).toContain("drafting the reply");
+		expect(frame).toContain("Thinking");
+		expect(frame).toContain("◉");
+		// A block opened by the stream but still waiting for its first chunk
+		// (inside the writer's coalescing window) renders the cursor.
+		const cursor = await mount(() => (
+			<MessageView
+				item={{ kind: "assistant", id: "stream-cursor", text: "", thinking: "", timestamp: now, status: "streaming" }}
+				showThinking
+				toolExpanded={false}
+				now={now}
+			/>
+		));
+		expect(cursor.captureCharFrame()).toContain("▍");
 	});
 
 	test("shared model/context rows keep the sidebar 32-char truncation", async () => {
@@ -4546,5 +4659,370 @@ describe("duration and sidebar repaint regressions", () => {
 		expect(frame).toContain("impl-check-logic");
 		expect(frame).not.toContain("\u001b");
 		expect(frame).not.toContain("should/not/bleed/into/the/next/row.ts");
+	});
+
+	test("a single spawn card keeps its inline block for multiple children", async () => {
+		// One tool item owning two targets is a single spawn, not a group: it
+		// renders exactly today's card with the friendly inline-block rows.
+		const run: SubagentRun = {
+			runId: "parallel-run",
+			asyncDir: "/tmp/parallel-run",
+			mode: "parallel",
+			state: "running",
+			steps: [
+				{
+					index: 0,
+					agent: "implementer",
+					status: "running",
+					sessionFile: "/tmp/impl.jsonl",
+					model: "provider/child",
+					contextWindow: 8192,
+					thinking: "high",
+					lastActivityAt: 1_000,
+				},
+				{
+					index: 1,
+					agent: "reviewer",
+					status: "completed",
+					lastActivityAt: 500,
+				},
+			],
+		};
+		const targets = subagentTargets([run]);
+		const tool = await mount(
+			() => (
+				<MessageView
+					item={{
+						kind: "tool",
+						id: "tool",
+						toolCallId: "call",
+						name: "subagent",
+						args: {},
+						output: "",
+						timestamp: 1,
+						status: "done",
+						isError: false,
+					}}
+					showThinking={false}
+					toolExpanded={false}
+					subagentTargets={targets}
+					now={2_000}
+				/>
+			),
+			100,
+			24,
+		);
+		const frame = tool.captureCharFrame();
+		expect(frame).toContain("Subagents");
+		expect(frame).toContain("last activity 1s ago");
+		expect(frame).toContain("working");
+		expect(frame).toContain("finished");
+		expect(frame).not.toContain("◇ Agents ×");
+	});
+
+	test("groups a contiguous parallel spawn batch into one compact card", async () => {
+		const tools = ["spawn-1", "spawn-2", "spawn-3", "spawn-4"].map(
+			(id): ToolItem => ({
+				kind: "tool",
+				id,
+				toolCallId: `call-${id}`,
+				name: "agent_spawn",
+				args: { prompt: `do ${id}` },
+				output: "",
+				timestamp: 1,
+				status: "done",
+				isError: false,
+			}),
+		);
+		const targets: SubagentTarget[] = [
+			{ key: "w1", run: { runId: "w1", mode: "single", state: "running", agent: "explore", steps: [] }, label: "@w1 — worker one", state: "running", active: true, canSteer: false, lastUpdate: 1_000 },
+			{ key: "w2", run: { runId: "w2", mode: "single", state: "running", agent: "explore", steps: [] }, label: "@w2 — worker two", state: "running", active: true, canSteer: false, lastUpdate: 1_000 },
+			{ key: "f1", run: { runId: "f1", mode: "single", state: "completed", agent: "explore", steps: [] }, label: "@f1 — finisher one", state: "completed", active: false, canSteer: false, lastUpdate: 1_000 },
+			{ key: "f2", run: { runId: "f2", mode: "single", state: "completed", agent: "explore", steps: [] }, label: "@f2 — finisher two", state: "completed", active: false, canSteer: false, lastUpdate: 1_000 },
+		];
+		const owned = new Map<string, SubagentTarget[]>(
+			tools.map((tool, index) => [tool.id, [targets[index]!]]),
+		);
+		const groups = computeSpawnGroups(tools, owned);
+		expect(groups).toHaveLength(1);
+		const group = groups[0]!;
+		expect(group.memberIds).toEqual(tools.map((tool) => tool.id));
+		const setup = await mount(
+			() => (
+				<SpawnGroupCard
+					group={group}
+					expanded={false}
+					now={2_000}
+					onToggle={() => {}}
+					renderMember={() => null}
+				/>
+			),
+			100,
+			8,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("◇ Agents ×4 · 2 working · 2 finished");
+		expect(frame).toContain("▸ spawn cards");
+		for (const target of targets) expect(frame).toContain(target.label);
+		expect(frame).toContain("finished");
+		expect(frame).not.toContain("Subagents");
+		expect(frame.split("\n").length).toBeLessThanOrEqual(10);
+	});
+
+	test("expanding a spawn group reveals today's per-spawn cards", async () => {
+		const tools = ["spawn-1", "spawn-2", "spawn-3", "spawn-4"].map(
+			(id): ToolItem => ({
+				kind: "tool",
+				id,
+				toolCallId: `call-${id}`,
+				name: "agent_spawn",
+				args: { prompt: `do ${id}` },
+				output: "",
+				timestamp: 1,
+				status: "done",
+				isError: false,
+			}),
+		);
+		const targets: SubagentTarget[] = [
+			{ key: "w1", run: { runId: "w1", mode: "single", state: "running", agent: "explore", steps: [] }, label: "@w1 — worker one", state: "running", active: true, canSteer: false, lastUpdate: 1_000 },
+			{ key: "w2", run: { runId: "w2", mode: "single", state: "running", agent: "explore", steps: [] }, label: "@w2 — worker two", state: "running", active: true, canSteer: false, lastUpdate: 1_000 },
+			{ key: "f1", run: { runId: "f1", mode: "single", state: "completed", agent: "explore", steps: [] }, label: "@f1 — finisher one", state: "completed", active: false, canSteer: false, lastUpdate: 1_000 },
+			{ key: "f2", run: { runId: "f2", mode: "single", state: "completed", agent: "explore", steps: [] }, label: "@f2 — finisher two", state: "completed", active: false, canSteer: false, lastUpdate: 1_000 },
+		];
+		const owned = new Map<string, SubagentTarget[]>(
+			tools.map((tool, index) => [tool.id, [targets[index]!]]),
+		);
+		const byId = new Map(tools.map((tool) => [tool.id, tool] as const));
+		const group = computeSpawnGroups(tools, owned)[0]!;
+		const [expanded, setExpanded] = createSignal(false);
+		const setup = await mount(
+			() => (
+				<SpawnGroupCard
+					group={group}
+					expanded={expanded()}
+					now={2_000}
+					onToggle={() => setExpanded((value) => !value)}
+					onInspectSubagentTarget={() => {}}
+					renderMember={(memberId) => (
+						<MessageView
+							item={byId.get(memberId)!}
+							showThinking={false}
+							toolExpanded={false}
+							subagentTargets={owned.get(memberId) ?? []}
+							now={2_000}
+						/>
+					)}
+				/>
+			),
+			100,
+			60,
+		);
+		expect(setup.captureCharFrame()).not.toContain("Subagents");
+		setExpanded(true);
+		await setup.flush();
+		await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("▾ spawn cards");
+		expect(frame.split("Subagents").length - 1).toBe(4);
+		// The collapsed one-line rows are gone; each child now renders its
+		// own 3-row inline block.
+		for (const target of targets)
+			expect(frame).not.toContain(spawnGroupRowText(target, 2_000));
+	});
+
+	test("a non-spawn tool between spawns keeps two separate groups", async () => {
+		const spawn = (id: string): ToolItem => ({
+			kind: "tool",
+			id,
+			toolCallId: `call-${id}`,
+			name: "agent_spawn",
+			args: { prompt: `do ${id}` },
+			output: "",
+			timestamp: 1,
+			status: "done",
+			isError: false,
+		});
+		const left = [spawn("s1"), spawn("s2")];
+		const middle: ToolItem = { ...spawn("bash-1"), name: "bash", args: { command: "ls" } };
+		const right = [spawn("s3"), spawn("s4")];
+		const items: ConversationItem[] = [...left, middle, ...right];
+		const owned = new Map<string, SubagentTarget[]>(
+			[...left, ...right].map((tool) => [
+				tool.id,
+			[
+					{
+						key: tool.id,
+						run: { runId: tool.id, mode: "single", state: "running", agent: "explore", steps: [] },
+						label: `@${tool.id} — worker`,
+						state: "running",
+						active: true,
+						canSteer: false,
+						lastUpdate: 1_000,
+					},
+				],
+				]),
+		);
+		const groups = computeSpawnGroups(items, owned);
+		expect(groups).toHaveLength(2);
+		const setup = await mount(
+			() => (
+				<box width="100%" height="100%" flexDirection="column">
+					{groups.map((group) => (
+						<SpawnGroupCard
+							group={group}
+							expanded={false}
+							now={2_000}
+							onToggle={() => {}}
+							renderMember={() => null}
+						/>
+					))}
+				</box>
+			),
+			100,
+			12,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame.split("◇ Agents ×").length - 1).toBe(2);
+	});
+
+	test("a spawn owning no targets renders as a card, never grouped", async () => {
+		const spawn = (id: string): ToolItem => ({
+			kind: "tool",
+			id,
+			toolCallId: `call-${id}`,
+			name: "agent_spawn",
+			args: { prompt: `do ${id}` },
+			output: "",
+			timestamp: 1,
+				status: "done",
+				isError: false,
+			});
+		const first = spawn("g1");
+		const empty = spawn("g2");
+		const third = spawn("g3");
+		const child = (key: string, state: string): SubagentTarget => ({
+			key,
+			run: { runId: key, mode: "single", state, agent: "explore", steps: [] },
+			label: `@${key} — worker`,
+			state,
+			active: state === "running",
+			canSteer: false,
+			lastUpdate: 1_000,
+		});
+		const owned = new Map([
+			[first.id, [child("c1", "running")]],
+			[third.id, [child("c3", "completed")]],
+		]);
+		// The target-less spawn breaks the run both ways: two lone spawns,
+		// zero groups. Failures stay visible as plain cards.
+		expect(computeSpawnGroups([first, empty, third], owned)).toEqual([]);
+		const setup = await mount(
+			() => (
+				<MessageView
+					item={empty}
+					showThinking={false}
+					toolExpanded={false}
+					subagentTargets={[]}
+					now={2_000}
+				/>
+			),
+			100,
+			24,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("agent_spawn");
+		expect(frame).not.toContain("Subagents");
+		expect(frame).not.toContain("◇ Agents ×");
+	});
+
+	test("grouped rows use the friendly state vocabulary exactly once", async () => {
+		const child = (key: string, state: string, extra: Partial<SubagentTarget> = {}): SubagentTarget => ({
+			key,
+			run: { runId: key, mode: "single", state, agent: "explore", steps: [] },
+			label: `@${key} — helper`,
+			state,
+			active: state === "running",
+			canSteer: false,
+			lastUpdate: 1_000,
+			...extra,
+		});
+		// Working child with real usage: usage line shown after the state.
+		const working = child("w1", "running", { run: { runId: "w1", mode: "single", state: "running", agent: "explore", steps: [], toolCount: 3 } });
+		expect(spawnGroupRowText(working, 2_000)).toBe(
+			`🟢 @w1 — helper · working · 1s ago · 3 tools`,
+		);
+		// Working child without usage yet: honestly `starting…`, once.
+		const starting = child("w2", "running");
+		const startingRow = spawnGroupRowText(starting, 2_000);
+		expect(startingRow).toBe(`🟢 @w2 — helper · working · 1s ago · starting…`);
+		expect(startingRow.split("starting…").length - 1).toBe(1);
+		// Finished / resident / stale children: the state word appears exactly
+		// once — the usage line stays empty instead of restating it.
+		const finished = child("done-1", "completed");
+		expect(spawnGroupRowText(finished, 2_000)).toBe(
+			`⚪ @done-1 — helper · finished · 1s ago`,
+		);
+		const resident = child("res-1", "idle");
+		expect(spawnGroupRowText(resident, 2_000)).toBe(
+			`⚪ @res-1 — helper · resident · 1s ago`,
+		);
+		const stale = child("st-1", "stale");
+		expect(spawnGroupRowText(stale, 2_000)).toBe(
+			`⚪ @st-1 — helper · stale · 1s ago`,
+		);
+		for (const [row, word] of [
+			[spawnGroupRowText(finished, 2_000), "finished"],
+			[spawnGroupRowText(resident, 2_000), "resident"],
+			[spawnGroupRowText(stale, 2_000), "stale"],
+		] as const) {
+			expect(row.split(word).length - 1).toBe(1);
+		}
+		const finishedRow = spawnGroupRowText(finished, 2_000);
+		expect(finishedRow).not.toContain("completed");
+		expect(finishedRow).not.toContain("starting");
+		expect(finishedRow).not.toContain("working");
+		// Unknown states never leak raw into the header summary: counted in
+		// ×N only.
+		const odd: SubagentTarget = { ...finished, key: "odd-1", label: "@odd-1 — mystery", state: "bogus" };
+		expect(spawnGroupSummary([finished, odd])).toBe("1 finished");
+	});
+
+	test("sidebar collapses a resident child to two rows without repeating the state", async () => {
+		const now = Date.now();
+		const run: SubagentRun = {
+			runId: "resident-child",
+			control: "profiled",
+			mode: "profiled",
+			state: "idle",
+			agent: "explore",
+			profiledStatusBacked: true,
+			lastUpdate: now,
+			startedAt: now - 1_000,
+			steps: [],
+		};
+		const setup = await mount(
+			() => <Sidebar runs={[run]} now={now} />,
+			42,
+			30,
+		);
+		const frame = setup.captureCharFrame();
+		// The state word appears once (freshness/activity row); the usage
+		// line stays empty instead of restating it. (The sidebar Session
+		// header's own "starting…" placeholder is unrelated.)
+		expect(frame).toContain("ago · resident");
+		expect(frame.split("resident").length - 1).toBe(1);
+		const box = setup.renderer.root.findDescendantById(
+			"subagent-resident-child",
+			) as BoxRenderable;
+		expect(box.height).toBe(2);
+	});
+
+	test("spawn group keys cannot collide with real item ids", () => {
+		// Real item ids are `prefix-base36time-random` (history-tool-…, tool-…)
+		// and never contain a colon, so the `group:` prefix cannot match one.
+		expect(SPAWN_GROUP_ID_PREFIX).toContain(":");
+		expect(spawnGroupId("tool-abc-123")).toBe("group:tool-abc-123");
+		expect(spawnGroupId("history-tool-abc")).not.toBe("history-tool-abc");
+		expect(spawnGroupId("a")).not.toBe(spawnGroupId("b"));
 	});
 });

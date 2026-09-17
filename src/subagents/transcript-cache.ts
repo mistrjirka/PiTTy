@@ -59,6 +59,7 @@ function transcriptSignature(target: SubagentTarget): string {
 		target.sessionFile,
 		target.transcriptPath,
 		transcriptFileSignature(target.transcriptPath ?? target.sessionFile),
+		transcriptFileSignature(target.run.eventsPath),
 		target.lastUpdate,
 		step?.status,
 		step?.activityState,

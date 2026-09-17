@@ -82,6 +82,28 @@ function safeStatusPath(controlDir: string, candidate?: string): string | undefi
   return filePath;
 }
 
+/**
+ * Locate the live event stream exactly like the status file: a regular
+ * non-symlink file that is a DIRECT child of the validated control dir.
+ * Returns undefined when the file is absent (e.g. after a Pi restart the
+ * whole control dir — and the stream with it — is gone).
+ */
+function safeEventsPath(controlDir: string, candidate?: string): string | undefined {
+  const base = safeControlDir(controlDir);
+  if (!base) return undefined;
+  const filePath = path.resolve(candidate ?? path.join(base, "events.jsonl"));
+  const relative = path.relative(base, filePath);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return undefined;
+  if (relative.includes(path.sep)) return undefined;
+  try {
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink()) return undefined;
+  } catch {
+    return undefined;
+  }
+  return filePath;
+}
+
 function parseStatus(controlDir: string, statusPath?: string): ProfiledStatus | undefined {
   const safe = safeStatusPath(controlDir, statusPath);
   if (!safe) return undefined;
@@ -209,7 +231,11 @@ export function profiledRunIsLive(run: SubagentRun, now = Date.now()): boolean {
       return false;
     }
   }
-  return run.profiledToolInFlight === true;
+  // A status-less run has no heartbeat: a frozen spawn-time `details.state`
+  // alone must never read live. It may only claim liveness while its spawn
+  // tool item is still in flight AND its own timestamp is fresh
+  // (`lastUpdate` is `item.endedAt ?? item.timestamp`).
+  return run.profiledToolInFlight === true && run.lastUpdate !== undefined && now - run.lastUpdate < PROFILED_HEARTBEAT_MAX_AGE_MS;
 }
 
 function statusDirectoriesForTrees(treeIds: ReadonlySet<string>): Array<{ controlDir: string; status: ProfiledStatus }> {
@@ -235,12 +261,14 @@ function statusDirectoriesForTrees(treeIds: ReadonlySet<string>): Array<{ contro
 function runFromStatus(controlDir: string, status: ProfiledStatus, options: ProfiledSubagentOptions = {}): SubagentRun {
   const session = profiledSessionSnapshot(status.sessionPath);
   const contextWindow = options.contextWindowForModel?.(status.model);
+  const eventsPath = safeEventsPath(controlDir);
   const run: SubagentRun = {
     runId: `profiled:${path.basename(controlDir)}`,
     control: "profiled",
     runtime: RUNTIME,
     controlDir,
     statusPath: path.join(controlDir, "status.json"),
+    ...(eventsPath ? { eventsPath } : {}),
     profiledStatusBacked: true,
     treeId: status.treeId,
     parentAgentId: status.parentAgentId,
@@ -261,7 +289,20 @@ function runFromStatus(controlDir: string, status: ProfiledStatus, options: Prof
     sessionFile: status.sessionPath,
     steps: [],
   };
-  return profiledRunIsLive(run) ? run : { ...run, state: "stale", activityState: "stale" };
+  return withStaleFallback(run);
+}
+
+/**
+ * Only a NON-TERMINAL state that is not live may become `stale`.
+ * Terminal states (completed/failed/stopped/...) pass through untouched so a
+ * successfully finished child is never relabelled as if it had died.
+ * `activityState` follows `state` so the two cannot disagree.
+ */
+function withStaleFallback(run: SubagentRun): SubagentRun {
+  if (PROFILED_NON_TERMINAL_STATES.includes(run.state) && !profiledRunIsLive(run)) {
+    return { ...run, state: "stale", activityState: "stale" };
+  }
+  return run;
 }
 
 function runFromTool(item: ToolItem, details: Record<string, unknown>, options: ProfiledSubagentOptions = {}): SubagentRun | undefined {
@@ -278,11 +319,12 @@ function runFromTool(item: ToolItem, details: Record<string, unknown>, options: 
   const label = text(details.label) ?? profile ?? agentId ?? "agent";
   const parentAgentId = text(details.parentAgentId) ?? "root";
   const startedAt = number(details.startedAt) ?? item.startedAt ?? item.timestamp;
-  return {
+  const eventsPath = controlDir ? safeEventsPath(controlDir, text(details.eventsPath)) : undefined;
+  const run: SubagentRun = {
     runId: controlDir ? `profiled:${path.basename(controlDir)}` : `profiled:${item.toolCallId}:${agentId}`,
     control: controlDir ? "profiled" : "foreground",
     runtime: RUNTIME,
-    ...(controlDir ? { controlDir, ...(status ? { statusPath: text(details.statusPath) } : {}) } : {}),
+    ...(controlDir ? { controlDir, ...(status ? { statusPath: text(details.statusPath) } : {}), ...(eventsPath ? { eventsPath } : {}) } : {}),
     treeId,
     parentAgentId,
     agentId,
@@ -308,6 +350,9 @@ function runFromTool(item: ToolItem, details: Record<string, unknown>, options: 
     sessionFile: text(details.sessionPath),
     steps: [],
   };
+  // A frozen spawn-time `details.state` with no live heartbeat must not
+  // keep reading `running`: the same stale rule as status-backed runs.
+  return withStaleFallback(run);
 }
 
 /**

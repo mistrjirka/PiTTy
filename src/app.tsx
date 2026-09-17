@@ -184,6 +184,11 @@ import {
 } from "./subagents/targets.ts";
 import { colors } from "./ui/theme.ts";
 import {
+	computeSpawnGroups,
+	SpawnGroupCard,
+	type SpawnGroup,
+} from "./ui/spawn-group.tsx";
+import {
 	CommandSuggestions,
 	filterCommandChoices,
 	selectCommandChoice,
@@ -1750,6 +1755,102 @@ export function App(props: AppOptions) {
 			else next.add(toolId);
 			return next;
 		});
+	};
+
+	const inspectSubagentTarget = (targetKey: string) => {
+		setSelectedTargetKey(targetKey);
+		setInspectSubagent(true);
+		queueMicrotask(() =>
+			subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER),
+		);
+	};
+
+	// Contiguous parallel-spawn batches collapse into one grouped card (see
+	// `./ui/spawn-group.tsx`). Group keys are synthetic `group:<firstItemId>`
+	// ids that cannot collide with real item ids, so the existing per-runtime
+	// `expandedToolIds` plumbing (reset per session like the other expansion
+	// state) is reused without a second store.
+	const spawnGroups = createMemo(() =>
+		computeSpawnGroups(visibleItems(), ownedVisibleSubagentTargets()),
+	);
+	const spawnGroupByFirstId = createMemo(() => {
+		const map = new Map<string, SpawnGroup>();
+		for (const group of spawnGroups()) {
+			const first = group.memberIds[0];
+			if (first !== undefined) map.set(first, group);
+		}
+		return map;
+	});
+	const spawnGroupMemberIds = createMemo(() => {
+		const ids = new Set<string>();
+		for (const group of spawnGroups())
+			for (const memberId of group.memberIds.slice(1)) ids.add(memberId);
+		return ids;
+	});
+
+	// Today's per-item transcript path, shared by standalone items and by
+	// expanded group members so the raw cards stay exactly reachable.
+	const renderItemEntry = (itemId: string) => {
+		const item = createMemo(() =>
+			visibleItems().find((candidate) => candidate.id === itemId),
+		);
+		const compactionCompletion = createMemo(() =>
+			compactionCompletionForItem(
+				activeRuntime().conversation.items,
+				itemId,
+				lastCompactionCompletion(),
+			),
+		);
+		const tool = createMemo(() => {
+			const candidate = item();
+			return candidate?.kind === "tool" ? candidate : undefined;
+		});
+		const subagentTargetsForItem = createMemo(
+			() => ownedVisibleSubagentTargets().get(itemId) ?? [],
+		);
+		const initialItem = item();
+		if (!initialItem) return null;
+		const completion = compactionCompletion();
+		if (completion) {
+			return (
+				<CompactedSummary
+					completion={completion}
+					expanded={compactionSummaryExpanded}
+					onToggle={() => setCompactionSummaryExpanded((value) => !value)}
+				/>
+			);
+		}
+		const itemSource = () => item() ?? initialItem;
+		return (
+			<MessageView
+				item={() => itemSource()}
+				showThinking
+				thinkingExpanded={() => thinkingIsExpanded(itemId)}
+				onToggleThinking={() => toggleThinkingItem(itemId)}
+				toolExpanded={() =>
+					tool() !== undefined && toolExpanded(itemId)
+				}
+				onToggleTool={toggleTool}
+				diffExpanded={() =>
+				tool() !== undefined && diffExpanded(itemId)
+				}
+				onToggleDiff={toggleDiff}
+				canFork={!streaming()}
+				onFork={(entryId) => void forkAt(entryId, item())}
+				subagentTargets={subagentTargetsForItem()}
+				onInspectSubagentTarget={inspectSubagentTarget}
+				now={
+					tool()?.status === "streaming" ||
+					tool()?.status === "pending" ||
+					subagentTargetsForItem().some((target) => target.active)
+						? clockNow()
+						: (tool()?.endedAt ??
+								tool()?.startedAt ??
+								tool()?.timestamp ??
+								0)
+				}
+			/>
+		);
 	};
 
 	const addSystemToRuntime = (
@@ -3852,72 +3953,46 @@ export function App(props: AppOptions) {
 							</Show>
 							<For each={visibleMessageIds()}>
 								{(itemId) => {
-									const item = createMemo(() =>
-										visibleItems().find((candidate) => candidate.id === itemId),
-									);
-									const compactionCompletion = createMemo(() =>
-										compactionCompletionForItem(
-											activeRuntime().conversation.items,
-											itemId,
-											lastCompactionCompletion(),
-										),
-									);
-									const tool = createMemo(() => {
-										const candidate = item();
-										return candidate?.kind === "tool" ? candidate : undefined;
-									});
-									const subagentTargetsForItem = createMemo(
-										() => ownedVisibleSubagentTargets().get(itemId) ?? [],
-									);
-									const initialItem = item();
-									if (!initialItem) return null;
-									const completion = compactionCompletion();
-									if (completion) {
+									// Non-first group members render inside their group card.
+									if (spawnGroupMemberIds().has(itemId)) return null;
+									const group = spawnGroupByFirstId().get(itemId);
+									if (group) {
+										const memberTools = group.memberIds.map((memberId) =>
+											visibleItems().find((candidate) => candidate.id === memberId),
+										);
+										const live = memberTools.some(
+											(member) =>
+												member?.kind === "tool" &&
+												(member.status === "streaming" ||
+													member.status === "pending"),
+										);
 										return (
-											<CompactedSummary
-												completion={completion}
-												expanded={compactionSummaryExpanded}
-												onToggle={() => setCompactionSummaryExpanded((value) => !value)}
+											<SpawnGroupCard
+												group={group}
+												expanded={toolExpanded(group.id)}
+												now={
+													live ||
+													group.targets.some((target) => target.active)
+														? clockNow()
+														: Math.max(
+																0,
+															...memberTools.map((member) =>
+																member?.kind === "tool"
+																	? (member.endedAt ??
+																			member.startedAt ??
+																			member.timestamp ??
+																			0)
+																	: 0,
+																),
+														)
+												}
+												onToggle={toggleTool}
+											onInspectSubagentTarget={inspectSubagentTarget}
+											renderMember={(memberId) => renderItemEntry(memberId)}
 											/>
 										);
 									}
-									const itemSource = () => item() ?? initialItem;
-									return (
-										<MessageView
-											item={() => itemSource()}
-											showThinking
-											thinkingExpanded={() => thinkingIsExpanded(itemId)}
-											onToggleThinking={() => toggleThinkingItem(itemId)}
-											toolExpanded={() =>
-												tool() !== undefined && toolExpanded(itemId)
-											}
-											onToggleTool={toggleTool}
-											diffExpanded={() =>
-												tool() !== undefined && diffExpanded(itemId)
-											}
-											onToggleDiff={toggleDiff}
-											canFork={!streaming()}
-											onFork={(entryId) => void forkAt(entryId, item())}
-											subagentTargets={subagentTargetsForItem()}
-											onInspectSubagentTarget={(targetKey) => {
-												setSelectedTargetKey(targetKey);
-												setInspectSubagent(true);
-												queueMicrotask(() =>
-													subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER),
-												);
-											}}
-											now={
-												tool()?.status === "streaming" ||
-												tool()?.status === "pending" ||
-												subagentTargetsForItem().some((target) => target.active)
-													? clockNow()
-													: (tool()?.endedAt ??
-														tool()?.startedAt ??
-														tool()?.timestamp ??
-														0)
-											}
-										/>
-									);
+									return renderItemEntry(itemId);
 								}}
 							</For>
 							<Show when={compactionView().telemetry?.phase === "preparing"}>

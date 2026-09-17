@@ -1,7 +1,9 @@
 import * as fs from "node:fs";
 import { initialItems } from "../state/conversation.ts";
 import { normalizeResultDetails } from "../state/result-diff.ts";
+import { profiledRunIsLive } from "./profiled.ts";
 import type {
+  AssistantItem,
   ConversationItem,
   SubagentRun,
   SubagentStep,
@@ -10,6 +12,11 @@ import type {
 } from "../types.ts";
 
 export const MAX_SUBAGENT_SESSION_LINES = 700;
+
+/** Byte bound matching the producer's 2 MB cap on `events.jsonl`. */
+const PROFILED_STREAM_TAIL_BYTES = 2 * 1024 * 1024;
+/** Newest live-stream events kept per read; older ones are already in the session file. */
+const MAX_PROFILED_STREAM_EVENTS = 400;
 
 type ParsedTranscriptRecord = {
   record: Record<string, unknown>;
@@ -138,6 +145,199 @@ function parseJsonlTail(content: string): ParsedTranscriptRecord[] {
     }
   }
   return records;
+}
+
+type ProfiledStreamKind = "thinking" | "text" | "tool_start" | "tool_end";
+
+type ProfiledStreamEvent = {
+  kind: ProfiledStreamKind;
+  /** Accumulation key: `<runId>::<blockId>` (blockId falls back to kind). */
+  key: string;
+  text: string;
+  toolName: string;
+  toolCallId?: string | undefined;
+  ts: number;
+};
+
+type ProfiledStreamCacheEntry = {
+  mtimeMs: number;
+  size: number;
+  events: ProfiledStreamEvent[];
+};
+
+const profiledStreamCache = new Map<string, ProfiledStreamCacheEntry>();
+const MAX_PROFILED_STREAM_CACHE_ENTRIES = 64;
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function optionalStreamText(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
+/**
+ * Narrow one `events.jsonl` line. A torn final line (concurrent appender),
+ * unknown kinds and unknown fields are ignored; `seq` is never required to
+ * be contiguous (the producer drops lines under its size cap).
+ */
+function parseProfiledStreamEvent(line: string): ProfiledStreamEvent | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!isUnknownRecord(parsed) || parsed.v !== 1) return undefined;
+  const kind = parsed.kind;
+  if (kind !== "thinking" && kind !== "text" && kind !== "tool_start" && kind !== "tool_end") return undefined;
+  const runId = optionalStreamText(parsed.runId) ?? "";
+  const blockId = optionalStreamText(parsed.blockId) ?? kind;
+  const ts = typeof parsed.ts === "number" && Number.isFinite(parsed.ts) ? parsed.ts : Date.now();
+  return {
+    kind,
+    key: `${runId}::${blockId}`,
+    text: optionalStreamText(parsed.text) ?? "",
+    toolName: optionalStreamText(parsed.toolName) ?? "tool",
+    ...(optionalStreamText(parsed.toolCallId) ? { toolCallId: optionalStreamText(parsed.toolCallId) } : {}),
+    ts,
+  };
+}
+
+function readProfiledStreamEvents(eventsPath: string | undefined): ProfiledStreamEvent[] {
+  if (!eventsPath) return [];
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(eventsPath);
+    if (!stat.isFile()) return [];
+  } catch {
+    return [];
+  }
+  const cached = profiledStreamCache.get(eventsPath);
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.events;
+  let content: string;
+  try {
+    const fd = fs.openSync(eventsPath, "r");
+    try {
+      const length = Math.min(stat.size, PROFILED_STREAM_TAIL_BYTES);
+      const buffer = Buffer.alloc(length);
+      const bytes = fs.readSync(fd, buffer, 0, length, Math.max(0, stat.size - length));
+      content = buffer.subarray(0, bytes).toString("utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return [];
+  }
+  const lines = content.split("\n");
+  const events: ProfiledStreamEvent[] = [];
+  for (let index = Math.max(0, lines.length - MAX_PROFILED_STREAM_EVENTS); index < lines.length; index++) {
+    const line = lines[index];
+    if (line === undefined || !line.trim()) continue;
+    const event = parseProfiledStreamEvent(line);
+    if (event && (event.kind === "tool_start" || event.kind === "tool_end" || event.text)) events.push(event);
+  }
+  profiledStreamCache.delete(eventsPath);
+  profiledStreamCache.set(eventsPath, { mtimeMs: stat.mtimeMs, size: stat.size, events });
+  while (profiledStreamCache.size > MAX_PROFILED_STREAM_CACHE_ENTRIES) {
+    const oldest = profiledStreamCache.keys().next().value;
+    if (typeof oldest !== "string") break;
+    profiledStreamCache.delete(oldest);
+  }
+  return events;
+}
+
+/**
+ * Append in-flight live-stream items from the profiled `events.jsonl` file:
+ * consecutive `thinking`/`text` lines sharing `(runId, blockId)` accumulate
+ * into ONE synthetic assistant item with `status: "streaming"` (thinking
+ * goes to the item's `thinking`, text to its `text`); a new `blockId`
+ * starts a new item; `tool_start` creates a streaming `ToolItem` and the
+ * matching `tool_end` (by `toolCallId`, else by name) completes it.
+ *
+ * ONLY while the run is actually live (`profiledRunIsLive`). Once the run
+ * is not live the child session JSONL is authoritative — rendering both
+ * would show the completed message alongside its streamed chunks.
+ *
+ * Laziness: this runs inside `readSubagentConversation`, which the app only
+ * invokes for the inspected target while the detail pane is open
+ * (`inspectSubagent()` via `createSubagentTranscriptCache`); no second
+ * polling timer is added, the existing refresh path drives re-reads and the
+ * `(mtimeMs, size)` cache above bounds the IO.
+ */
+function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[]): void {
+  if (!run.eventsPath || !profiledRunIsLive(run)) return;
+  const events = readProfiledStreamEvents(run.eventsPath);
+  if (events.length === 0) return;
+  const streamToolByCallId = new Map<string, number[]>();
+  const streamToolByName = new Map<string, number[]>();
+  let currentKey: string | undefined;
+  let currentIndex: number | undefined;
+  let counter = 0;
+  for (const event of events) {
+    if (event.kind === "thinking" || event.kind === "text") {
+      let index = currentKey === event.key ? currentIndex : undefined;
+      if (index === undefined) {
+        counter += 1;
+        const fresh: AssistantItem = {
+          kind: "assistant",
+          id: `subagent-stream-${run.runId}-${counter}`,
+          text: "",
+          thinking: "",
+          timestamp: event.ts,
+          status: "streaming",
+        };
+        items.push(fresh);
+        index = items.length - 1;
+        currentKey = event.key;
+        currentIndex = index;
+      }
+      const current = items[index];
+      if (current?.kind === "assistant") {
+        if (event.kind === "thinking") current.thinking += event.text;
+        else current.text += event.text;
+        current.timestamp = event.ts;
+      }
+      continue;
+    }
+    currentKey = undefined;
+    currentIndex = undefined;
+    if (event.kind === "tool_start") {
+      counter += 1;
+      const callId = event.toolCallId ?? `subagent-stream-${run.runId}-${counter}-call`;
+      const item: ToolItem = {
+        kind: "tool",
+        id: `subagent-stream-${run.runId}-${counter}`,
+        toolCallId: callId,
+        name: event.toolName,
+        args: undefined,
+        output: "",
+        timestamp: event.ts,
+        startedAt: event.ts,
+        status: "streaming",
+        isError: false,
+      };
+      items.push(item);
+      const itemIndex = items.length - 1;
+      const byName = streamToolByName.get(item.name) ?? [];
+      byName.push(itemIndex);
+      streamToolByName.set(item.name, byName);
+      const byCall = streamToolByCallId.get(callId) ?? [];
+      byCall.push(itemIndex);
+      streamToolByCallId.set(callId, byCall);
+      continue;
+    }
+    const queue = event.toolCallId !== undefined
+      ? streamToolByCallId.get(event.toolCallId)
+      : streamToolByName.get(event.toolName);
+    const targetIndex = queue?.find((index) => {
+      const candidate = items[index];
+      return candidate?.kind === "tool" && candidate.status === "streaming" && candidate.endedAt === undefined;
+    });
+    if (targetIndex === undefined) continue;
+    const tool = items[targetIndex];
+    if (tool?.kind === "tool") items[targetIndex] = { ...tool, endedAt: event.ts, status: "done" };
+  }
 }
 
 function readSessionMessages(run: SubagentRun, stepIndex?: number): unknown[] {
@@ -294,7 +494,11 @@ export function readSubagentConversation(
   const artifactRecords = readRecords(run, stepIndex);
   if (artifactRecords.length === 0) {
     const sessionItems = initialItems(readSessionMessages(run, stepIndex));
-    if (sessionItems.length > 0) return sessionItems.slice(-maxItems);
+    if (sessionItems.length > 0) {
+      const tail = sessionItems.slice(-maxItems);
+      appendProfiledStreamItems(run, tail);
+      return tail.slice(-maxItems);
+    }
   }
   const pendingByName = new Map<string, number[]>();
   const pendingByCallId = new Map<string, number[]>();
@@ -471,6 +675,7 @@ export function readSubagentConversation(
     }
   }
 
+  appendProfiledStreamItems(run, items);
   return items.slice(-maxItems);
 }
 

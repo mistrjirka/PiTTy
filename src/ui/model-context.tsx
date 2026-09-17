@@ -2,6 +2,8 @@ import { Show } from "solid-js";
 import stripAnsi from "strip-ansi";
 import { compactTokenCount } from "../state/compaction-telemetry.ts";
 import { colors } from "./theme.ts";
+import { formatDuration } from "./duration.ts";
+import { targetContextUsage, type SubagentTarget } from "../subagents/targets.ts";
 
 /**
  * Shared Model/Context presentation, extracted from the sidebar so the
@@ -61,6 +63,56 @@ export function friendlyTargetState(state: string): string {
 	if (state === "completed") return "finished";
 	if (state === "failed" || state === "error") return "failed";
 	return state;
+}
+
+function targetTokens(target: SubagentTarget): number | undefined {
+	return (
+		target.step?.tokens?.total ??
+		target.run.tokens?.window ??
+		(target.run.steps.length <= 1 ? target.run.totalTokens : undefined)
+	);
+}
+
+/**
+ * Second per-target line (sidebar row 2, group-row activity). State-aware: a
+ * finished, resident, waiting or stale child with no current tool must not
+ * read `working` — it falls back to the shared `friendlyTargetState`
+ * vocabulary so the sidebar, the group card, the inline block, the subagent
+ * selector and the inspector cannot drift apart again.
+ */
+export function targetToolActivity(target: SubagentTarget): string {
+	const tool = target.step?.currentTool ?? target.run.currentTool;
+	const path = target.step?.currentPath ?? target.run.currentPath;
+	if (!tool && !path) return friendlyTargetState(target.state);
+	return `${tool ?? friendlyTargetState(target.state)}${path ? ` · ${path}` : ""}`;
+}
+
+export function targetFreshness(target: SubagentTarget, now: number): string {
+	const lastUpdate = target.lastUpdate;
+	if (lastUpdate === undefined) return "unknown";
+	return `${formatDuration(Math.max(0, now - lastUpdate))} ago`;
+}
+
+/**
+ * Third per-target line. `starting…` is only honest while the child is
+ * actually starting (running/queued with no usage yet); any other usage-less
+ * state reports nothing (`""`) because the sibling freshness/activity row
+ * already names the state — restating it would print the state word twice.
+ */
+export function targetToolUsage(target: SubagentTarget): string {
+	const parts: string[] = [];
+	const toolCount = target.step?.toolCount ?? target.run.toolCount;
+	if (toolCount !== undefined) parts.push(`${toolCount} tools`);
+	const contextUsage = targetContextUsage(target);
+	if (contextUsage) {
+		parts.push(contextUsage);
+	} else {
+		const tokens = targetTokens(target);
+		if (tokens !== undefined) parts.push(`${formatTokens(tokens)} tok`);
+	}
+	if (parts.length > 0) return parts.join(" · ");
+	if (target.state === "running" || target.state === "queued") return "starting…";
+	return "";
 }
 
 export type ModelContextRowsProps = {

@@ -6,7 +6,7 @@ import type {
 	ToolItem,
 	NotificationRecord,
 } from "../types.ts";
-import { subagentTargets, targetContextUsage, type SubagentTarget } from "../subagents/targets.ts";
+import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
 import { formatDuration } from "./duration.ts";
 import type { RequestPerformance } from "../tabs/request-metrics.ts";
 import {
@@ -21,6 +21,9 @@ import {
 	formatTokens,
 	stateColor,
 	stateIcon,
+	targetFreshness,
+	targetToolActivity,
+	targetToolUsage,
 } from "./model-context.tsx";
 import { appVersion } from "../version.ts";
 import {
@@ -225,40 +228,11 @@ function notificationToneIcon(tone: NotificationRecord["tone"]): string {
 	return "🔔";
 }
 
-function targetTokens(target: SubagentTarget): number | undefined {
-	return (
-		target.step?.tokens?.total ??
-		target.run.tokens?.window ??
-		(target.run.steps.length <= 1 ? target.run.totalTokens : undefined)
-	);
-}
-
-function targetToolActivity(target: SubagentTarget): string {
-	const tool = target.step?.currentTool ?? target.run.currentTool;
-	const path = target.step?.currentPath ?? target.run.currentPath;
-	if (!tool && !path) return "working";
-	return `${tool ?? "working"}${path ? ` · ${path}` : ""}`;
-}
-
-function targetFreshness(target: SubagentTarget, now: number): string {
-	const lastUpdate = target.lastUpdate;
-	if (lastUpdate === undefined) return "unknown";
-	return `${formatDuration(Math.max(0, now - lastUpdate))} ago`;
-}
-
-function targetToolUsage(target: SubagentTarget): string {
-	const parts: string[] = [];
-	const toolCount = target.step?.toolCount ?? target.run.toolCount;
-	if (toolCount !== undefined) parts.push(`${toolCount} tools`);
-	const contextUsage = targetContextUsage(target);
-	if (contextUsage) {
-		parts.push(contextUsage);
-	} else {
-		const tokens = targetTokens(target);
-		if (tokens !== undefined) parts.push(`${formatTokens(tokens)} tok`);
-	}
-	return parts.length > 0 ? parts.join(" · ") : "starting…";
-}
+// `targetToolActivity`, `targetFreshness` and `targetToolUsage` live in
+// `./model-context.tsx` so the sidebar, the grouped spawn card and the inline
+// spawn block all render from the same helpers. Re-exported here so existing
+// `sidebar.tsx` import sites keep working.
+export { targetToolActivity, targetToolUsage } from "./model-context.tsx";
 
 export function Sidebar(props: {
 	state?: RpcSessionState | undefined;
@@ -383,11 +357,16 @@ export function Sidebar(props: {
 		const selected = () =>
 			target.key === selectedKey() ||
 			(!selectedKey() && target === targets()[0]);
+		// The usage line is empty when there is nothing to report (the state
+		// word already appears in the row above); collapse the box instead of
+		// leaving a blank third row.
+		const usage = targetToolUsage(target);
+		const rows = target.active ? (usage ? 3 : 2) : 1;
 		return (
 			<box
 				id={`subagent-${target.key}`}
-				height={target.active ? 3 : 1}
-				minHeight={target.active ? 3 : 1}
+				height={rows}
+				minHeight={rows}
 				flexShrink={0}
 				flexDirection="column"
 				paddingLeft={1}
@@ -431,12 +410,11 @@ export function Sidebar(props: {
 							31,
 						)}
 					</text>
-					<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
-						{clip(
-							targetToolUsage(target),
-							31,
-						)}
-					</text>
+					<Show when={usage}>
+						<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
+							{clip(usage, 31)}
+						</text>
+					</Show>
 				</Show>
 			</box>
 		);
