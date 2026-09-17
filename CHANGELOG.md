@@ -13,6 +13,8 @@
 - Existing `pi-subagents` support remains intact, including workflow/mission child reconstruction and pause/resume/steer/stop controls.
 - Documented that the old and new subagent runtimes should be enabled one at a time rather than loaded together.
 
+Validation: PiTTy typecheck and focused integration/UI/subagent suite passed (199 tests, 0 failures); real Pi 0.85.1 foreground and nested `ask_parent`/resume smokes passed with only the new runtime enabled.
+
 ## 0.6.18
 
 ### Subagent context-window usage
