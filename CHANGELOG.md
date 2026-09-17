@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.6.26
+
+Everything here comes from a review of the inspected-child path and the transcript, prompted by four user reports: copied text coming from the wrong message, a child's thinking never visible, tools rendered without their description, and overlapping text.
+
+### Copying what you selected
+
+- Ctrl+C copied text from a different message, usually one above, when the answer was still streaming. opentui stores a selection as row/column coordinates and re-resolves them against the nodes' current buffers and positions, so a stream chunk, a markdown finalize, the streaming-to-final node swap or a collapse between mouse-up and Ctrl+C changed what the selection meant. The transcript now snapshots the selected text when the selection finishes (after the final selection walk) and the copy path prefers that snapshot, gated so the prompt editor keeps its own path. This is a mitigation; coordinate-based selection state belongs to opentui, and a chunk landing between the final walk and mouse-up can still be cached stale.
+
+### Child transcripts no longer reshuffle, and stop losing data
+
+- Item ids embedded the position inside the tail slice and fell back to `Date.now()`, so every poll invented new ids and every row was destroyed and recreated: scroll jumps, collapse flips and overlap while relaying out. Ids now derive from stable content fields, and stream text is keyed by its `(runId, blockId)` group instead of a counter that restarted on each read.
+- A stopped child's streamed thinking was discarded, even though it is the only plaintext reasoning that exists — most providers persist thinking as encrypted reasoning with empty plaintext. The stream is now read for stopped runs too, merging growth into the persisted items instead of rendering the same text twice.
+- Stream-created tools hardcoded empty arguments, so they rendered as a bare `TOOL · read`. Arguments and output are backfilled from the session file's tool call and result for the same tool call id.
+- "Is this a subagent tool?" existed in three copies that had drifted apart: a `task_*` tool rendered as an agent but owned no target, and a `workflow_*` tool grouped without the agent tone. One shared rule now answers for all three sites, and a family row with no derivable summary falls back to its arguments preview instead of showing neither.
+
+### Honest data
+
+- Parses were cached on modification time plus size, which serves a stale parse after a same-size rewrite; cache keys now mix the tail content.
+- Thinking deltas were deduplicated with `endsWith`, silently dropping legitimate repeats, and any event type merely containing `thinking` or `reasoning` was routed into the thought stream.
+- Non-tool inspector rows no longer resolve a clock of epoch 0, a `timeoutMs` value is no longer reinterpreted as seconds, and the children badge prefers the spawn arguments over coincidental JSON in the output.
+- The unchecked `as unknown as` casts at the event boundary are replaced with the file's existing record and field guards.
+
+### Overlapping text
+
+- Sidebar rows computed their usage line and height in closures, so both froze at creation: a child that began reporting tool activity kept the shorter height, and its third line overlapped the next row or left a blank slot. Both are reactive now.
+- `MessageView` set `visible` from an effect and from JSX; the two writers disagreed for a frame on every transition, so both alternatives could be visible at once or neither. JSX owns `visible` now, while the markdown nodes keep the imperative content update they need in order to re-parse their blocks.
+
+Validation: 467 tests, 1 skipped, 0 failures; typecheck clean; type-escape scan clean.
+
 ## 0.6.25
 
 ### Subagent identity
