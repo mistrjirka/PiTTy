@@ -124,7 +124,19 @@ export function targetToolUsage(target: SubagentTarget): string {
 	return "";
 }
 
+/** Per-field caps for the inline inspector row, so one long value cannot crowd out the others. */
+export const INLINE_CONTEXT_VALUE_WIDTH = 30;
+export const INLINE_MODEL_VALUE_WIDTH = 60;
+export const INLINE_THINKING_VALUE_WIDTH = 24;
+
 export type ModelContextRowsProps = {
+	/**
+	 * `"stacked"` (default) is the sidebar pattern: `Context` / value /
+	 * `% used` / `Model` / value / `Thinking: …` as separate full-width rows.
+	 * `"inline"` is the wide-inspector variant: one row with the known fields
+	 * side by side. An empty (after sanitising) value omits that field.
+	 */
+	layout?: "stacked" | "inline" | undefined;
 	/** Preformatted `used / limit` line (or `"— / —"` when unknown). */
 	contextText: string;
 	/** Renders `{pct}% used` when defined (null/undefined hide it). */
@@ -141,8 +153,54 @@ export type ModelContextRowsProps = {
 	clipWidth?: number | undefined;
 };
 
-/** Sidebar-pattern `Context` + `Model` rows shared by sidebar and inspector. */
+/**
+ * Sidebar-pattern `Context` + `Model` rows shared by sidebar and inspector.
+ *
+ * The inline layout renders one row (`Context <value>` then `Model <value>`
+ * then `Thinking: <value>`, percent appended to the Context field) for the
+ * wide inspector. Unknown fields are omitted by passing an empty value; the
+ * component stays dumb and the sidebar keeps its `"—"` placeholders.
+ */
 export function ModelContextRows(props: ModelContextRowsProps) {
+	if (props.layout === "inline") {
+		const percent = () => props.percentUsed ?? undefined;
+		const hasContext = () => cleanInline(props.contextText) !== "";
+		const hasModel = () => cleanInline(props.modelText) !== "";
+		const hasThinking = () => cleanInline(props.thinkingText) !== "";
+		if (!hasContext() && !hasModel() && !hasThinking()) return <></>;
+		return (
+			<box flexDirection="row" height={1} minHeight={1} flexShrink={0} width="100%">
+				<Show when={hasContext()}>
+					<text fg={colors.textBright} attributes={1} wrapMode="none">
+						Context{" "}
+					</text>
+					<text fg={colors.muted} wrapMode="none">
+						{clip(props.contextText, INLINE_CONTEXT_VALUE_WIDTH)}
+						{percent() !== undefined ? ` · ${Math.round(percent() ?? 0)}% used` : ""}
+					</text>
+				</Show>
+				<Show when={hasContext() && (hasModel() || hasThinking())}>
+					<box width={2} flexShrink={0} />
+				</Show>
+				<Show when={hasModel()}>
+					<text fg={colors.textBright} attributes={1} wrapMode="none">
+						Model{" "}
+					</text>
+					<text fg={colors.muted} wrapMode="none">
+						{clip(props.modelText, INLINE_MODEL_VALUE_WIDTH)}
+					</text>
+				</Show>
+				<Show when={hasModel() && hasThinking()}>
+					<box width={2} flexShrink={0} />
+				</Show>
+				<Show when={hasThinking()}>
+					<text fg={colors.muted} wrapMode="none">
+						Thinking: {clip(props.thinkingText, INLINE_THINKING_VALUE_WIDTH)}
+					</text>
+				</Show>
+			</box>
+		);
+	}
 	const width = () => props.clipWidth ?? 32;
 	const contextLine = () => clip(props.contextText, width());
 	const modelLine = () => clip(props.modelText, width());

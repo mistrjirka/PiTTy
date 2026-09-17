@@ -325,10 +325,11 @@ export function SubagentInspector(props: {
 					</text>
 				</Show>
 				<ModelContextRows
-					contextText={childContextUsage() ?? "— / —"}
+					layout="inline"
+					contextText={childContextUsage() ?? ""}
 					percentUsed={childContextPercent()}
-					modelText={target().model ?? "—"}
-					thinkingText={target().thinking ?? "—"}
+					modelText={target().model ?? ""}
+					thinkingText={target().thinking ?? ""}
 				/>
 				<Show when={target().error}>
 					<text

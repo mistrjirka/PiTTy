@@ -2745,11 +2745,12 @@ describe("OpenTUI components", () => {
 	});
 
 	test("inspector shows shared model/context rows instead of duplicating usage strings", async () => {
-		// With no window data the shared Context row renders the same "— / —"
-		// placeholder the parent sidebar shows. The empty-transcript block keeps
-		// the tool/turn counts but must not duplicate the Model/Context rows, so
-		// the old cumulative "4200 tok" usage string is gone (the sidebar's own
-		// "4K tok" fallback row is pinned separately and unchanged).
+		// With no window data there is nothing honest to show: the inspector's
+		// inline row omits unknown fields instead of rendering the sidebar's
+		// "— / —" placeholder (the sidebar keeps that placeholder; its own
+		// fallback rows are pinned separately and unchanged). The empty-transcript
+		// block keeps the tool/turn counts but must not duplicate the Model/Context
+		// rows, so the old cumulative "4200 tok" usage string is gone.
 		const run: SubagentRun = {
 			runId: "run-1",
 			asyncDir: "/tmp/run-1",
@@ -2767,8 +2768,10 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		const frame = inspector.captureCharFrame();
-		expect(frame).toContain("— / —");
-		expect(frame).toContain("Thinking:");
+		expect(frame).not.toContain("— / —");
+		expect(frame).not.toContain("Thinking:");
+		expect(frame).not.toContain("Context");
+		expect(frame).not.toContain("Model");
 		expect(frame).toContain("⚙bash");
 		expect(frame).not.toContain("4200 tok");
 		expect(frame).not.toContain("▤");
@@ -3398,8 +3401,12 @@ describe("OpenTUI components", () => {
 		);
 		const inspectorFrame = inspector.captureCharFrame();
 		expect(inspectorFrame).toContain("Steering input hidden");
-		expect(inspectorFrame).toContain("— / —");
-		expect(inspectorFrame).toContain("Thinking:");
+		// Unknown model/context/thinking are omitted from the inspector's inline
+		// row — no sidebar-style placeholders here.
+		expect(inspectorFrame).not.toContain("— / —");
+		expect(inspectorFrame).not.toContain("Thinking:");
+		expect(inspectorFrame).not.toContain("Context");
+		expect(inspectorFrame).not.toContain("Model");
 		expect(inspectorFrame).toContain("reviewer #2");
 		expect(inspectorFrame).toContain("finished");
 		expect(inspectorFrame).not.toContain("parallel/completed");
@@ -3525,7 +3532,7 @@ describe("OpenTUI components", () => {
 		expect(frame).not.toContain("◆");
 	});
 
-	test("inspector model/context rows fall back when the child reports neither", async () => {
+	test("inspector omits model/context rows when the child reports neither", async () => {
 		const run: SubagentRun = {
 			runId: "profiled-bare",
 			control: "profiled",
@@ -3544,8 +3551,12 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("— / —");
-		expect(frame).toContain("Thinking: —");
+		// The inline inspector row omits unknown fields instead of falling back
+		// to the sidebar's "— / —" / "Thinking: —" placeholders.
+		expect(frame).not.toContain("— / —");
+		expect(frame).not.toContain("Thinking:");
+		expect(frame).not.toContain("Context");
+		expect(frame).not.toContain("Model");
 		expect(frame).toContain("◆ resident · idle");
 		expect(frame).toContain("resident");
 		expect(frame).not.toContain("Working…");
@@ -3754,8 +3765,49 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		const inspectorFrame = inspector.captureCharFrame();
-		expect(inspectorFrame).toContain("…");
-		expect(inspectorFrame).not.toContain(full);
+		// The wide inspector uses the full width (per-field caps, no 32-column
+		// clip), so the long model renders in full on its single inline row.
+		// The sidebar half above still pins the 32-char truncation.
+		expect(inspectorFrame).toContain(full);
+		expect(inspectorFrame).not.toContain("…");
+	});
+
+	test("inspector renders context, model and thinking side by side on one row", async () => {
+		// 36 chars: longer than the sidebar's 32-column clip, so its presence
+		// in full proves the inline row uses the full available width.
+		const model = "opencode-go/muse-spark-1.3-extended";
+		expect(model.length).toBeGreaterThan(32);
+		const run: SubagentRun = {
+			runId: "inline-rows",
+			asyncDir: "/tmp/inline-rows",
+			mode: "single",
+			state: "running",
+			agent: "implementer",
+			model,
+			thinking: "medium",
+			tokens: { total: 40000, input: 33000, output: 7000, window: 33000, windowPeak: 33000 },
+			contextWindow: 400000,
+			currentTool: "bash",
+			steps: [],
+		};
+		const target = subagentTargets([run])[0]!;
+		const setup = await mount(
+			() => <SubagentInspector target={target} items={[]} now={2_000} />,
+			110,
+			30,
+		);
+		const frame = setup.captureCharFrame();
+		const detailLines = frame
+			.split("\n")
+			.filter((line) => line.includes("Context") || line.includes("Model") || line.includes("Thinking:"));
+		// One row, not five: Context, Model and Thinking share a single line,
+		// so the block above the transcript takes one row instead of five.
+		expect(detailLines).toHaveLength(1);
+		expect(detailLines[0]).toContain("Context 33K / 400K · 8% used");
+		expect(detailLines[0]).toContain(`Model ${model}`);
+		expect(detailLines[0]).toContain("Thinking: medium");
+		expect(frame).toContain(model);
+		expect(frame).not.toContain("— / —");
 	});
 
 	test("inspector passes live time to child items while the target is active", async () => {
