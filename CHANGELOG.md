@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.24
+
+### One-round compaction stream window
+
+- The live one-round compaction panel shows more of the streamed lane text: the collapsed window keeps 6 rows (an ellipsis row plus the newest 5 lines) instead of 3, and the expanded window 18 instead of 12.
+- The window still reserves exactly the rows it draws, keeps the newest lines and clips the remainder, so a taller box cannot overflow its lane.
+
+### Recommended packages
+
+- The installer's recommended Pi packages are now PiTTy's own: `git:github.com/mistrjirka/pi-subagent` and `git:github.com/mistrjirka/pi-one-round-compaction` replace `npm:pi-subagents` and `npm:pi-smart-compact`. Todo and MCP adapter are unchanged.
+- Each replacement is single-choice: the installer skips our package when its alternative is already installed, so no machine ends up with two competing child-agent runtimes or two compaction engines. The legacy runtime and the alternative compaction engine remain supported and documented with their install commands.
+
+Validation: typecheck passed; the complete local suite passed with 433 tests, 1 skipped, 0 failures; the installer fixture suite passed with 6 tests and 0 failures; `sh -n install.sh` reported no syntax errors.
+
 ## 0.6.23
 
 ### Truthful subagent state
