@@ -38,8 +38,49 @@ if (process.env.MOCK_SCREENSHOT_RICH === "1" && process.env.MOCK_SCREENSHOT_SCEN
     { role: "toolResult", toolCallId: "edit-1", content: [{ type: "text", text: "Updated src/app.tsx\n@@ -1 +1 @@\n- stale\n+ reactive" }], timestamp: 7 },
     { role: "assistant", content: [{ type: "toolCall", id: "subagent-1", toolCallId: "subagent-1", name: "subagent", arguments: { agent: "reviewer", model: "gpt-5.6", mode: "background", task: "Check tab state." } }], timestamp: 8, stopReason: "toolUse", usage: { input: 900, output: 120, cacheRead: 0, cacheWrite: 0, totalTokens: 1020, cost: 0 } },
     { role: "toolResult", toolCallId: "subagent-1", content: [{ type: "text", text: "Review complete: tab state remains isolated and reactive." }], timestamp: 9 },
-    { role: "custom", customType: "supervisor", content: [{ type: "text", text: `Supervisor: release review complete; no blockers. SCREENSHOT-${process.env.MOCK_SCREENSHOT_SCENARIO ?? "rich"}` }], timestamp: 10 }
+    { role: "custom", customType: "supervisor", content: [{ type: "text", text: "release review complete; no blockers." }], timestamp: 10 }
   );
+}
+
+// Live profiled children for the sidebar. The spawn results carry the tree id
+// and control directory the app uses to discover them, and the status records
+// the screenshot script writes next to those directories are what make the rows
+// read as working. The spawn calls themselves complete immediately, as they do
+// in Pi, while the children keep running.
+if (process.env.MOCK_SUBAGENT_ROOT) {
+  const children = [
+    { id: "spawn-yui", agent: "explore", agentId: "yui", label: "map the release workflow", task: "Map the release workflow and flag the risky steps." },
+    { id: "spawn-vic", agent: "impl-check-contracts", agentId: "vic", label: "audit installer contracts", task: "Audit the installer contracts and report the gaps." },
+  ];
+  history.push({
+    role: "assistant",
+    content: [
+      { type: "thinking", thinking: "Two independent checks can run while I finish the release review." },
+      ...children.map((child) => ({ type: "toolCall", id: child.id, toolCallId: child.id, name: "agent_spawn", arguments: { agent: child.agent, model: "gpt-5.6", mode: "background", task: child.task } })),
+    ],
+    timestamp: 11,
+    stopReason: "toolUse",
+    usage: { input: 820, output: 90, cacheRead: 0, cacheWrite: 0, totalTokens: 910, cost: 0 },
+  });
+  for (const child of children) {
+    history.push({
+      role: "toolResult",
+      toolCallId: child.id,
+      content: [{ type: "text", text: `Spawned @${child.agentId}.` }],
+      details: {
+        runtime: "profiled-subagents",
+        controlDir: `${process.env.MOCK_SUBAGENT_ROOT}/${child.id}`,
+        treeId: "tree-screenshot",
+        agentId: child.agentId,
+        profile: child.agent,
+        label: child.label,
+        parentAgentId: "root",
+        state: "running",
+        model: "gpt-5.6",
+      },
+      timestamp: 12,
+    });
+  }
 }
 
 if (process.env.MOCK_SCREENSHOT_SCENARIO === "long-diff") {
