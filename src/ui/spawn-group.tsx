@@ -101,13 +101,13 @@ export function computeSpawnGroups(
 	return groups;
 }
 
-type GroupBucket = "working" | "waiting" | "resident" | "stale" | "failed" | "finished";
+type GroupBucket = "working" | "waiting" | "resident" | "unresponsive" | "failed" | "finished";
 
 const BUCKET_ORDER: readonly GroupBucket[] = [
 	"working",
 	"waiting",
 	"resident",
-	"stale",
+	"unresponsive",
 	"failed",
 	"finished",
 ];
@@ -128,8 +128,8 @@ function bucketForState(state: string): GroupBucket | undefined {
 			return "waiting";
 		case "idle":
 			return "resident";
-		case "stale":
-			return "stale";
+		case "unresponsive":
+			return "unresponsive";
 		case "failed":
 		case "error":
 		case "timed_out":

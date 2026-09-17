@@ -172,7 +172,7 @@ describe("profiled subagent control paths", () => {
 
 
 describe("profiled liveness and usage", () => {
-	test("uses fresh heartbeats, rejects stale or terminal runs, and reads session usage", () => {
+	test("uses fresh heartbeats, rejects heartbeat-dead or terminal runs, and reads session usage", () => {
 		const fixture = profiledFixture();
 		const now = Date.now();
 		const statusPath = path.join(fixture.runtimeRoot, "status.json");
@@ -231,13 +231,14 @@ describe("profiled liveness and usage", () => {
 		expect(freshTarget?.active).toBe(true);
 		expect(freshTarget?.state).toBe("running");
 
-		const staleAgent = fixture.writeAgent("stale-agent", {
-			agentId: "stale", profile: "explore", parentAgentId: "root", label: "stale", state: "running", startedAt: now,
+		const unresponsiveAgent = fixture.writeAgent("unresponsive-agent", {
+			agentId: "unresponsive", profile: "explore", parentAgentId: "root", label: "unresponsive", state: "running", startedAt: now,
 			updatedAt: now - PROFILED_HEARTBEAT_MAX_AGE_MS - 1,
 		});
-		const staleTarget = subagentTargets([], [writeTool(staleAgent, "stale")]).find((target) => target.run.agentId === "stale");
-		expect(staleTarget?.active).toBe(false);
-		expect(staleTarget?.state).toBe("stale");
+		const unresponsiveTarget = subagentTargets([], [writeTool(unresponsiveAgent, "unresponsive")]).find((target) => target.run.agentId === "unresponsive");
+		expect(unresponsiveTarget?.active).toBe(false);
+		expect(unresponsiveTarget?.state).toBe("unresponsive");
+		expect(unresponsiveTarget?.run.activityState).toBe("unresponsive");
 	});
 
 	test("projects terminal profiled states truthfully across restart scenarios", () => {
@@ -269,7 +270,7 @@ describe("profiled liveness and usage", () => {
 		expect(completed?.run.activityState).toBe("completed");
 		expect(completed?.active).toBe(false);
 
-		// Terminal failure passes through untouched too (never `stale`).
+		// Terminal failure passes through untouched too (never `unresponsive`).
 		const failedAgent = fixture.writeAgent("failed-agent", {
 			agentId: "failed", profile: "explore", parentAgentId: "root", label: "failed",
 			state: "failed", startedAt: old, updatedAt: old,
@@ -299,16 +300,18 @@ describe("profiled liveness and usage", () => {
 		fs.rmSync(frozenAgent.controlDir, { recursive: true, force: true });
 		const frozen = find("frozen", [writeTool(frozenAgent, "frozen", { status: "pending", timestamp: old })]);
 		expect(frozen?.active).toBe(false);
-		expect(frozen?.state).toBe("stale");
+		expect(frozen?.state).toBe("unresponsive");
+		expect(frozen?.run.activityState).toBe("unresponsive");
 
-		// Scenario 4: status file present with a stale heartbeat, tool pending.
-		const staleAgent = fixture.writeAgent("stale-pending-agent", {
-			agentId: "stale-pending", profile: "explore", parentAgentId: "root", label: "stale-pending",
+		// Scenario 4: status file present with an expired heartbeat, tool pending.
+		const unresponsiveAgent = fixture.writeAgent("unresponsive-pending-agent", {
+			agentId: "unresponsive-pending", profile: "explore", parentAgentId: "root", label: "unresponsive-pending",
 			state: "running", startedAt: old, updatedAt: old,
 		});
-		const stalePending = find("stale-pending", [writeTool(staleAgent, "stale-pending", { status: "pending", timestamp: old })]);
-		expect(stalePending?.state).toBe("stale");
-		expect(stalePending?.active).toBe(false);
+		const unresponsivePending = find("unresponsive-pending", [writeTool(unresponsiveAgent, "unresponsive-pending", { status: "pending", timestamp: old })]);
+		expect(unresponsivePending?.state).toBe("unresponsive");
+		expect(unresponsivePending?.run.activityState).toBe("unresponsive");
+		expect(unresponsivePending?.active).toBe(false);
 
 		// Freshness bound on the status-less branch: an in-flight spawn is
 		// live only while its own timestamp is fresh (foreground children).

@@ -59,7 +59,7 @@ export function friendlyTargetState(state: string): string {
 	if (state === "running" || state === "queued") return "working";
 	if (state === "waiting") return "waiting for parent";
 	if (state === "idle") return "resident";
-	if (state === "stale") return "stale";
+	if (state === "unresponsive") return "unresponsive";
 	if (state === "completed") return "finished";
 	if (state === "failed" || state === "error") return "failed";
 	return state;
@@ -75,7 +75,7 @@ function targetTokens(target: SubagentTarget): number | undefined {
 
 /**
  * Second per-target line (sidebar row 2, group-row activity). State-aware: a
- * finished, resident, waiting or stale child with no current tool must not
+ * finished, resident, waiting or unresponsive child with no current tool must not
  * read `working` — it falls back to the shared `friendlyTargetState`
  * vocabulary so the sidebar, the group card, the inline block, the subagent
  * selector and the inspector cannot drift apart again.

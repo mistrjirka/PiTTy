@@ -3304,7 +3304,7 @@ describe("OpenTUI components", () => {
 		expect(friendlyTargetState("queued")).toBe("working");
 		expect(friendlyTargetState("waiting")).toBe("waiting for parent");
 		expect(friendlyTargetState("idle")).toBe("resident");
-		expect(friendlyTargetState("stale")).toBe("stale");
+		expect(friendlyTargetState("unresponsive")).toBe("unresponsive");
 		expect(friendlyTargetState("completed")).toBe("finished");
 		expect(friendlyTargetState("failed")).toBe("failed");
 		expect(friendlyTargetState("error")).toBe("failed");
@@ -3434,7 +3434,7 @@ describe("OpenTUI components", () => {
 			["failed", "failed"],
 			["idle", "resident"],
 			["waiting", "waiting for parent"],
-			["stale", "stale"],
+			["unresponsive", "unresponsive"],
 		];
 		for (const [state, activity] of cases) {
 			const target = sidebarTarget(state);
@@ -4956,8 +4956,8 @@ describe("duration and sidebar repaint regressions", () => {
 		const startingRow = spawnGroupRowText(starting, 2_000);
 		expect(startingRow).toBe(`🟢 @w2 — helper · working · 1s ago · starting…`);
 		expect(startingRow.split("starting…").length - 1).toBe(1);
-		// Finished / resident / stale children: the state word appears exactly
-		// once — the usage line stays empty instead of restating it.
+		// Finished / resident / unresponsive children: the state word appears
+		// exactly once — the usage line stays empty instead of restating it.
 		const finished = child("done-1", "completed");
 		expect(spawnGroupRowText(finished, 2_000)).toBe(
 			`⚪ @done-1 — helper · finished · 1s ago`,
@@ -4966,14 +4966,14 @@ describe("duration and sidebar repaint regressions", () => {
 		expect(spawnGroupRowText(resident, 2_000)).toBe(
 			`⚪ @res-1 — helper · resident · 1s ago`,
 		);
-		const stale = child("st-1", "stale");
-		expect(spawnGroupRowText(stale, 2_000)).toBe(
-			`⚪ @st-1 — helper · stale · 1s ago`,
+		const unresponsive = child("st-1", "unresponsive");
+		expect(spawnGroupRowText(unresponsive, 2_000)).toBe(
+			`⚪ @st-1 — helper · unresponsive · 1s ago`,
 		);
 		for (const [row, word] of [
 			[spawnGroupRowText(finished, 2_000), "finished"],
 			[spawnGroupRowText(resident, 2_000), "resident"],
-			[spawnGroupRowText(stale, 2_000), "stale"],
+			[spawnGroupRowText(unresponsive, 2_000), "unresponsive"],
 		] as const) {
 			expect(row.split(word).length - 1).toBe(1);
 		}
@@ -5015,6 +5015,77 @@ describe("duration and sidebar repaint regressions", () => {
 			"subagent-resident-child",
 			) as BoxRenderable;
 		expect(box.height).toBe(2);
+	});
+
+	test("heartbeat-dead children read unresponsive on every surface, never stale", async () => {
+		const run: SubagentRun = {
+			runId: "dead-run",
+			mode: "profiled",
+			state: "unresponsive",
+			agent: "explore",
+			steps: [],
+			lastUpdate: 1_500,
+			startedAt: 500,
+		};
+		const targets = subagentTargets([run]);
+		expect(targets).toHaveLength(1);
+		const dead = targets[0]!;
+		expect(dead.state).toBe("unresponsive");
+		expect(dead.active).toBe(false);
+		const spawn = (id: string): ToolItem => ({
+			kind: "tool",
+			id,
+			toolCallId: `call-${id}`,
+			name: "agent_spawn",
+			args: { prompt: `do ${id}` },
+			output: "",
+			timestamp: 1,
+			status: "done",
+			isError: false,
+		});
+		const tools = [spawn("d1"), spawn("d2")];
+		const owned = new Map<string, SubagentTarget[]>([
+			[tools[0]!.id, [dead]],
+			[tools[1]!.id, [dead]],
+		]);
+		const group = computeSpawnGroups(tools, owned)[0]!;
+		const card = await mount(
+			() => (
+				<SpawnGroupCard
+					group={group}
+					expanded={false}
+					now={2_000}
+					onToggle={() => {}}
+					renderMember={() => null}
+				/>
+			),
+			100,
+			8,
+		);
+		const selector = await mount(
+			() => (
+				<SubagentSelectorDialog
+					targets={targets}
+					selectedKey={dead.key}
+					onSelect={() => {}}
+					onCancel={() => {}}
+				/>
+			),
+			90,
+			24,
+		);
+		const sidebar = await mount(() => <Sidebar runs={[run]} now={2_000} />, 42, 30);
+		const cardFrame = card.captureCharFrame();
+		const selectorFrame = selector.captureCharFrame();
+		const sidebarFrame = sidebar.captureCharFrame();
+		// Wherever a state word is shown, it reads unresponsive…
+		expect(cardFrame).toContain("unresponsive");
+		expect(selectorFrame).toContain("UNRESPONSIVE");
+		// …and the old word appears in no rendered frame. (The inactive
+		// sidebar row shows icon + label only, so it names no state.)
+		for (const frame of [cardFrame, selectorFrame, sidebarFrame]) {
+			expect(frame).not.toMatch(/stale/i);
+		}
 	});
 
 	test("spawn group keys cannot collide with real item ids", () => {

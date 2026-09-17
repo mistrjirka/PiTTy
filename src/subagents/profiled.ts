@@ -142,7 +142,7 @@ function parseStatus(controlDir: string, statusPath?: string): ProfiledStatus | 
   };
 }
 
-/** The extension updates status.json about every 200 ms; a stale heartbeat means it is gone. */
+/** The extension updates status.json about every 200 ms; a heartbeat older than the max age means it is gone. */
 export const PROFILED_HEARTBEAT_MAX_AGE_MS = 120_000;
 const PROFILED_SESSION_TAIL_BYTES = 200 * 1024;
 const PROFILED_NON_TERMINAL_STATES = ["running", "queued", "waiting", "idle"];
@@ -289,18 +289,18 @@ function runFromStatus(controlDir: string, status: ProfiledStatus, options: Prof
     sessionFile: status.sessionPath,
     steps: [],
   };
-  return withStaleFallback(run);
+  return withUnresponsiveFallback(run);
 }
 
 /**
- * Only a NON-TERMINAL state that is not live may become `stale`.
+ * Only a NON-TERMINAL state that is not live may become `unresponsive`.
  * Terminal states (completed/failed/stopped/...) pass through untouched so a
  * successfully finished child is never relabelled as if it had died.
  * `activityState` follows `state` so the two cannot disagree.
  */
-function withStaleFallback(run: SubagentRun): SubagentRun {
+function withUnresponsiveFallback(run: SubagentRun): SubagentRun {
   if (PROFILED_NON_TERMINAL_STATES.includes(run.state) && !profiledRunIsLive(run)) {
-    return { ...run, state: "stale", activityState: "stale" };
+    return { ...run, state: "unresponsive", activityState: "unresponsive" };
   }
   return run;
 }
@@ -351,8 +351,8 @@ function runFromTool(item: ToolItem, details: Record<string, unknown>, options: 
     steps: [],
   };
   // A frozen spawn-time `details.state` with no live heartbeat must not
-  // keep reading `running`: the same stale rule as status-backed runs.
-  return withStaleFallback(run);
+  // keep reading `running`: the same unresponsive rule as status-backed runs.
+  return withUnresponsiveFallback(run);
 }
 
 /**
