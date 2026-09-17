@@ -4,7 +4,7 @@ import type { SubagentRun, SubagentStep, ToolItem } from "../types.ts";
 import { subagentActivityAt } from "./transcript.ts";
 import { childRunIdFromSessionFile } from "./artifacts.ts";
 import { compactTokenCount } from "../state/compaction-telemetry.ts";
-import { isProfiledSubagentTool, profiledRunIsLive, profiledSubagentRunsFromTools, type ProfiledSubagentOptions } from "./profiled.ts";
+import { isProfiledSubagentTool, isSubagentFamilyToolName, profiledRunIsLive, profiledSubagentRunsFromTools, type ProfiledSubagentOptions } from "./profiled.ts";
 
 export type SubagentTarget = {
 	key: string;
@@ -459,7 +459,7 @@ function foregroundEntries(item: ToolItem): readonly ForegroundEntry[] {
 }
 
 function foregroundTargets(item: ToolItem): SubagentTarget[] {
-	if (!/subagent|delegate|agent/i.test(item.name)) return [];
+	if (!isSubagentFamilyToolName(item.name)) return [];
 	const details = record(item.details);
 	const entries = foregroundEntries(item);
 	const requested = requestedChildren(item.args);
@@ -971,7 +971,7 @@ function compareTargetRichness(a: SubagentTarget, b: SubagentTarget): number {
 }
 
 export function subagentRunIdFromTool(item: ToolItem): string | undefined {
-	if (!/subagent|delegate|agent/i.test(item.name)) return undefined;
+	if (!isSubagentFamilyToolName(item.name)) return undefined;
 	const details = record(item.details);
 	for (const key of ["runId", "asyncId", "id"] as const) {
 		const value = details?.[key];
@@ -1096,7 +1096,7 @@ export function ownedSubagentTargetsForItems(
 		let bestItem: ToolItem | undefined;
 		let bestGap = NEAREST_RUN_WINDOW_MS;
 		for (const item of items) {
-			if (!/subagent|delegate|agent/i.test(item.name)) continue;
+			if (!isSubagentFamilyToolName(item.name)) continue;
 			if ((assigned.get(item.id) ?? []).length > 0) continue;
 			if (usedFallbackItems.has(item.id)) continue;
 			const gap = Math.abs(runStartedAt - item.timestamp);
@@ -1124,7 +1124,7 @@ export function targetsForTool(
 	// runId. Kept for direct callers/tests; the owner pass in
 	// `ownedSubagentTargetsForItems` uses a global nearest-match instead, which
 	// prevents a later run from attaching to an earlier unrelated tool call.
-	if (!/subagent|delegate|agent/i.test(item.name)) return [];
+	if (!isSubagentFamilyToolName(item.name)) return [];
 	const candidates = new Map<string, SubagentTarget[]>();
 	for (const target of targets) {
 		const startedAt = target.run.startedAt ?? target.startedAt;

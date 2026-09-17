@@ -33,3 +33,21 @@ describe("subagent formatting", () => {
 		expect(workflowChildrenSummary({}, "not json")).toBeUndefined();
 	});
 });
+
+describe("batch A data truth", () => {
+	test("a {task}-shaped tool has no arg summary but keeps its gist", () => {
+		// summarizeSubagentArgs cannot describe this shape (no agent/model/mode
+		// fields); the row must then fall back to the gist / generic preview
+		// instead of showing neither.
+		expect(summarizeSubagentArgs({ task: "do the thing" })).toBeUndefined();
+		expect(taskGist({ task: "do the thing" })).toBe("do the thing");
+	});
+
+	test("prefers args over output for the children badge", () => {
+		expect(workflowChildrenSummary({ results: [{ id: 1 }] }, { results: [1, 2, 3, 4] })).toBe("×1 children");
+		expect(workflowChildrenSummary({ details: { children: 2 } }, { results: [1, 2, 3] })).toBe("×2 children");
+		// Output is still consulted when args has no spawn shape.
+		expect(workflowChildrenSummary({ agent: "worker" }, { results: [1, 2] })).toBe("×2 children");
+		expect(workflowChildrenSummary({ agent: "worker" }, "not json")).toBeUndefined();
+	});
+});

@@ -23,6 +23,27 @@ import {
 import { spinnerFrames } from "./spinner.ts";
 import { cleanTerminalText, MessageView } from "./message.tsx";
 
+/**
+ * Clock value for one inspector row. Non-tool rows of an inactive child
+ * return undefined (never 0): `toolTiming` renders that as empty instead of
+ * an epoch-based "took …". Exported for unit tests.
+ */
+export function inspectorItemNow(
+	active: boolean,
+	item: ConversationItem,
+	now: number,
+): number | undefined {
+	if (active) return now;
+	if (
+		item.kind === "tool" &&
+		(item.status === "streaming" || item.status === "pending")
+	)
+		return now;
+	if (item.kind === "tool")
+		return item.endedAt ?? item.startedAt ?? item.timestamp;
+	return undefined;
+}
+
 export function SubagentInspector(props: {
 	target?: SubagentTarget | undefined;
 	run?: SubagentRun | undefined;
@@ -103,17 +124,8 @@ export function SubagentInspector(props: {
 		}
 		return parts.join(" · ");
 	};
-	const itemNow = (item: ConversationItem): number => {
-		if (target().active) return props.now;
-		if (
-			item.kind === "tool" &&
-			(item.status === "streaming" || item.status === "pending")
-		)
-			return props.now;
-		if (item.kind === "tool")
-			return item.endedAt ?? item.startedAt ?? item.timestamp;
-		return 0;
-	};
+	const itemNow = (item: ConversationItem): number | undefined =>
+		inspectorItemNow(target().active, item, props.now);
 	const elapsed = () =>
 		target().startedAt
 			? (step()?.endedAt ?? run().endedAt ?? props.now) - target().startedAt!
@@ -369,7 +381,10 @@ export function SubagentInspector(props: {
 								item.kind === "tool" ? (props.diffExpanded?.(item.id) ?? false) : false
 							}
 							{...(props.onToggleDiff ? { onToggleDiff: props.onToggleDiff } : {})}
-							now={itemNow(item)}
+							{...(() => {
+								const now = itemNow(item);
+								return now === undefined ? {} : { now };
+							})()}
 						/>
 					)}
 				</For>

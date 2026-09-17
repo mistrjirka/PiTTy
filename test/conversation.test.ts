@@ -512,3 +512,165 @@ describe("ConversationModel live repaint identity", () => {
 		);
 	});
 });
+
+describe("batch A data truth", () => {
+	test("appends a repeated identical delta instead of dropping it", () => {
+		const model = new ConversationModel();
+		model.apply(
+			event({
+				type: "message_start",
+				message: { role: "assistant", content: [{ type: "text", text: "" }], timestamp: 9 },
+			}),
+		);
+		model.apply(
+			event({
+				type: "message_update",
+				message: { role: "assistant", content: [{ type: "text", text: "ha" }], timestamp: 9 },
+				assistantMessageEvent: { type: "text_delta", delta: "ha" },
+			}),
+		);
+		// The snapshot lags behind the already-rendered delta and the next
+		// delta repeats the same token: both must be kept ("haha"), not
+		// swallowed by suffix dedup.
+		model.apply(
+			event({
+				type: "message_update",
+				message: { role: "assistant", content: [{ type: "text", text: "" }], timestamp: 9 },
+				assistantMessageEvent: { type: "text_delta", delta: "ha" },
+			}),
+		);
+		const item = model.items.find((entry) => entry.kind === "assistant");
+		if (item?.kind !== "assistant") throw new Error("expected an assistant item");
+		expect(item.text).toBe("haha");
+	});
+
+	test("appends a repeated identical thinking delta instead of dropping it", () => {
+		const model = new ConversationModel();
+		model.apply(
+			event({
+				type: "message_start",
+				message: { role: "assistant", content: [{ type: "thinking", thinking: "" }], timestamp: 9 },
+			}),
+		);
+		model.apply(
+			event({
+				type: "message_update",
+				message: { role: "assistant", content: [{ type: "thinking", thinking: "…" }], timestamp: 9 },
+				assistantMessageEvent: { type: "thinking_delta", delta: "…" },
+			}),
+		);
+		model.apply(
+			event({
+				type: "message_update",
+				message: { role: "assistant", content: [{ type: "thinking", thinking: "" }], timestamp: 9 },
+				assistantMessageEvent: { type: "thinking_delta", delta: "…" },
+			}),
+		);
+		const item = model.items.find((entry) => entry.kind === "assistant");
+		if (item?.kind !== "assistant") throw new Error("expected an assistant item");
+		expect(item.thinking).toBe("……");
+	});
+
+	test("does not route unrelated event types containing reasoning to thinking", () => {
+		const model = new ConversationModel();
+		model.apply(
+			event({
+				type: "message_start",
+				message: { role: "assistant", content: [{ type: "text", text: "" }], timestamp: 3 },
+			}),
+		);
+		model.apply(
+			event({
+				type: "message_update",
+				message: { role: "assistant", content: [{ type: "text", text: "" }], timestamp: 3 },
+				assistantMessageEvent: { type: "reasoning_trace", delta: "zzz" },
+			}),
+		);
+		expect(model.items.filter((entry) => entry.kind === "assistant")).toHaveLength(0);
+	});
+
+	test("reads timeoutMs as milliseconds without guessing seconds", () => {
+		const model = new ConversationModel();
+		model.apply(
+			event({
+				type: "tool_execution_start",
+				toolCallId: "quick",
+				toolName: "bash",
+				args: { command: "true", timeout: 500 },
+			}),
+		);
+		const item = model.items[0];
+		if (item?.kind !== "tool") throw new Error("expected a tool item");
+		expect(item.timeoutMs).toBe(500);
+	});
+
+	test("rejects malformed queue payloads instead of storing them", () => {
+		const model = new ConversationModel();
+		model.apply(event({ type: "queue_update", steering: "nope", followUp: [1] }));
+		expect(model.steering).toEqual([]);
+		expect(model.followUp).toEqual([]);
+		model.apply(event({ type: "queue_update", steering: ["a"], followUp: ["b"] }));
+		expect(model.steering).toEqual(["a"]);
+		expect(model.followUp).toEqual(["b"]);
+	});
+
+	test("treats non-boolean compaction flags and non-string errors as absent", () => {
+		const model = new ConversationModel();
+		model.apply(event({ type: "compaction_end", aborted: "yes" }));
+		expect(model.items.at(-1)?.kind === "system" && model.items.at(-1)).toMatchObject({
+			text: "Context compacted.",
+		});
+		model.apply(event({ type: "compaction_end", errorMessage: { code: 1 } }));
+		expect(model.items.at(-1)?.kind === "system" && model.items.at(-1)).toMatchObject({
+			text: "Context compacted.",
+		});
+	});
+
+	test("falls back to defaults for malformed retry and extension payloads", () => {
+		const model = new ConversationModel();
+		model.apply(event({ type: "auto_retry_start", attempt: "2", errorMessage: 42 }));
+		expect(model.items.at(-1)?.kind === "system" && model.items.at(-1)).toMatchObject({
+			text: "Retrying ?/?: transient error",
+		});
+		model.apply(event({ type: "extension_error", error: { detail: 1 }, extensionPath: 7 }));
+		expect(model.items.at(-1)?.kind === "system" && model.items.at(-1)).toMatchObject({
+			text: "Extension error: unknown error",
+		});
+	});
+
+	test("ignores non-record message payloads and mints an id for bad call ids", () => {
+		const model = new ConversationModel();
+		model.apply(event({ type: "message_update", message: "oops" }));
+		expect(model.items).toHaveLength(0);
+		model.apply(event({ type: "tool_execution_start", toolCallId: ["x"] }));
+		const item = model.items[0];
+		if (item?.kind !== "tool") throw new Error("expected a tool item");
+		expect(typeof item.toolCallId).toBe("string");
+	});
+
+	test("derives stable history ids from content when asked", () => {
+		const messages = [
+			{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: 1 },
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "hi" }],
+				timestamp: 2,
+			},
+			{
+				role: "assistant",
+				content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "x" } }],
+				timestamp: 3,
+			},
+			{ role: "toolResult", toolCallId: "call-1", toolName: "read", content: "contents", timestamp: 4 },
+		];
+		const first = initialItems(messages, { stableIds: true }).map((item) => item.id);
+		const second = initialItems(messages, { stableIds: true }).map((item) => item.id);
+		expect(second).toEqual(first);
+		expect(new Set(first).size).toBe(first.length);
+		const extended = initialItems(
+			[...messages, { role: "user", content: [{ type: "text", text: "more" }], timestamp: 5 }],
+			{ stableIds: true },
+		).map((item) => item.id);
+		expect(extended.slice(0, first.length)).toEqual(first);
+	});
+});

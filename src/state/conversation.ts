@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { createTwoFilesPatch } from "diff";
+import { stableHash } from "../subagents/cache-key.ts";
 import { normalizeResultDetails } from "./result-diff.ts";
 import type {
 	AssistantItem,
@@ -51,17 +52,25 @@ function messageRole(message: unknown): string | undefined {
 	return typeof role === "string" ? role : undefined;
 }
 
-function messageTimestamp(message: unknown): number {
-	if (!message || typeof message !== "object") return Date.now();
+function messageTimestamp(message: unknown, stable = false): number {
+	if (!message || typeof message !== "object") return stable ? 0 : Date.now();
 	const timestamp = (message as Record<string, unknown>).timestamp;
-	return typeof timestamp === "number" ? timestamp : Date.now();
+	if (typeof timestamp === "number") return timestamp;
+	// Stable mode (child-transcript reads) must not mint a fresh Date.now()
+	// per poll: it would defeat both item identity and the deep-compare cache.
+	return stable ? 0 : Date.now();
 }
 
 function normalizedText(value: string): string {
 	return value.trim().replace(/\s+/g, " ");
 }
 
-function customItemFromMessage(message: unknown, prefix: string): CustomItem | undefined {
+function customItemFromMessage(
+	message: unknown,
+	prefix: string,
+	makeId: (prefix: string, key?: string) => string = id,
+	stable = false,
+): CustomItem | undefined {
 	const record = objectRecord(message);
 	if (!record || record.display === false) return undefined;
 	const customType =
@@ -73,11 +82,14 @@ function customItemFromMessage(message: unknown, prefix: string): CustomItem | u
 	const text = extractText(message);
 	return {
 		kind: "custom",
-		id: typeof record.id === "string" && record.id.trim() ? record.id : id(prefix),
+		id:
+			typeof record.id === "string" && record.id.trim()
+				? record.id
+				: makeId(prefix, stable ? stableHash(`${customType}\u0000${text}`) : undefined),
 		customType,
 		text,
 		...(record.details !== undefined ? { details: record.details } : {}),
-		timestamp: messageTimestamp(message),
+		timestamp: messageTimestamp(message, stable),
 	};
 }
 
@@ -106,6 +118,24 @@ function objectRecord(value: unknown): Record<string, unknown> | undefined {
 	return value && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
 		: undefined;
+}
+
+/** Guarded field readers for the event boundary: a malformed payload must
+ * fall back to the default, never flow a wrong-typed value into state. */
+function stringField(record: Record<string, unknown> | undefined, key: string): string | undefined {
+	const value = record?.[key];
+	return typeof value === "string" ? value : undefined;
+}
+
+function numberField(record: Record<string, unknown> | undefined, key: string): number | undefined {
+	const value = record?.[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function stringArrayField(value: unknown): string[] {
+	return Array.isArray(value) && value.every((entry): entry is string => typeof entry === "string")
+		? [...value]
+		: [];
 }
 
 function mutationPath(args: unknown): string | undefined {
@@ -199,12 +229,9 @@ function eventDelta(event: Record<string, unknown>): {
 		typeof assistantEvent.delta === "string" ? assistantEvent.delta : "";
 	if (!delta) return { text: "", thinking: "" };
 	if (type === "text_delta") return { text: delta, thinking: "" };
-	if (
-		type === "thinking_delta" ||
-		type === "reasoning_delta" ||
-		type.includes("thinking") ||
-		type.includes("reasoning")
-	) {
+	// Exact protocol types only: substring matching routed unrelated future
+	// event types containing "thinking"/"reasoning" into the thought stream.
+	if (type === "thinking_delta" || type === "reasoning_delta") {
 		return { text: "", thinking: delta };
 	}
 	return { text: "", thinking: "" };
@@ -224,7 +251,12 @@ function mergeStreamingText(
 		if (existing.startsWith(full)) return existing;
 		if (full.length > existing.length) return full;
 	}
-	if (delta && !existing.endsWith(delta)) return existing + delta;
+	// The delta protocol carries no sequence/offset, so there is nothing to
+	// dedupe against: every delta is appended unconditionally. (The old
+	// `endsWith` check silently dropped a legitimate repeated delta, e.g.
+	// streaming a repeated token or "\u2026".) Snapshot overlap is handled by
+	// the `full` branch above, and the delta-only path below never dedupes.
+	if (delta) return existing + delta;
 	return existing;
 }
 
@@ -259,6 +291,53 @@ function persistedToolCallMetadata(
 	);
 }
 
+export type SessionToolCall = {
+	name: string;
+	args: unknown;
+	output?: string | undefined;
+};
+
+/**
+ * Session-file join table for stream tool items, keyed by toolCallId.
+ * `toolCall` blocks carry the arguments — present while the tool is still in
+ * flight, before any result exists — and `toolResult` messages carry the
+ * output. First invocation wins for args; results only fill the output.
+ */
+export function sessionToolCalls(messages: unknown[]): Map<string, SessionToolCall> {
+	const calls = new Map<string, SessionToolCall>();
+	for (const message of messages) {
+		for (const block of contentBlocks(message)) {
+			if (block.type !== "toolCall") continue;
+			const rawId =
+				typeof block.id === "string" && block.id.trim()
+					? block.id
+					: typeof block.toolCallId === "string" && block.toolCallId.trim()
+						? block.toolCallId
+						: undefined;
+			if (!rawId || typeof block.name !== "string" || !block.name.trim()) continue;
+			if (!("arguments" in block) || calls.has(rawId)) continue;
+			calls.set(rawId, { name: block.name, args: block.arguments });
+		}
+	}
+	for (const message of messages) {
+		const role = messageRole(message);
+		if (role !== "toolResult" && role !== "tool") continue;
+		const record = objectRecord(message);
+		const toolCallId =
+			typeof record?.toolCallId === "string" && record.toolCallId.trim() ? record.toolCallId : undefined;
+		if (!toolCallId) continue;
+		const previous = calls.get(toolCallId);
+		const toolName =
+			typeof record?.toolName === "string" && record.toolName.trim() ? record.toolName : undefined;
+		calls.set(toolCallId, {
+			name: previous?.name ?? toolName ?? "tool",
+			args: previous?.args,
+			output: toolOutput(message),
+		});
+	}
+	return calls;
+}
+
 function toolTimeoutMs(args: unknown): number | undefined {
 	if (!args || typeof args !== "object" || Array.isArray(args))
 		return undefined;
@@ -270,13 +349,27 @@ function toolTimeoutMs(args: unknown): number | undefined {
 				? record.timeout
 				: undefined;
 	if (raw === undefined || !Number.isFinite(raw) || raw <= 0) return undefined;
-	// If value is less than 1000, assume it's in seconds and convert to milliseconds
-	const ms = raw < 1000 ? raw * 1000 : raw;
-	return Math.floor(ms);
+	// The field is named `timeoutMs`: take the value as milliseconds. A bare
+	// small value is NOT converted from seconds — there is no evidence any
+	// producer mixes units, and guessing turned an honest 500 ms timeout into
+	// a fabricated 500 s one.
+	return Math.floor(raw);
 }
 
-export function initialItems(messages: unknown[]): ConversationItem[] {
+export function initialItems(messages: unknown[], options?: { stableIds?: boolean }): ConversationItem[] {
 	const items: ConversationItem[] = [];
+	const stable = options?.stableIds === true;
+	// Stable mode (child-transcript reads) derives ids from content so the
+	// same message keeps the same id across polls; `<For each>` then keeps
+	// rows instead of destroying/recreating them. Duplicate content gets a
+	// deterministic occurrence suffix, which is stable under appends.
+	const occurrences = new Map<string, number>();
+	const makeId = (prefix: string, key?: string): string => {
+		if (!stable || key === undefined) return id(prefix);
+		const seen = occurrences.get(key) ?? 0;
+		occurrences.set(key, seen + 1);
+		return seen === 0 ? `${prefix}-${key}` : `${prefix}-${key}-n${seen}`;
+	};
 	const toolCalls = new Map<string, PersistedToolCallMetadata>();
 	for (const message of messages) {
 		for (const call of persistedToolCallMetadata(message))
@@ -289,13 +382,13 @@ export function initialItems(messages: unknown[]): ConversationItem[] {
 			if (text)
 				items.push({
 					kind: "user",
-					id: id("history-user"),
+					id: makeId("history-user", stableHash(text)),
 					text,
-					timestamp: messageTimestamp(message),
+					timestamp: messageTimestamp(message, stable),
 					optimistic: false,
 				});
 		} else if (role === "custom") {
-			const custom = customItemFromMessage(message, "history-custom");
+			const custom = customItemFromMessage(message, "history-custom", makeId, stable);
 			if (custom) items.push(custom);
 		} else if (role === "assistant") {
 			const text = extractText(message);
@@ -303,39 +396,38 @@ export function initialItems(messages: unknown[]): ConversationItem[] {
 			if (text || thinking) {
 				items.push({
 					kind: "assistant",
-					id: id("history-assistant"),
+					id: makeId("history-assistant", stableHash(`${text}\u0000${thinking}`)),
 					text,
 					thinking,
-					timestamp: messageTimestamp(message),
+					timestamp: messageTimestamp(message, stable),
 					status: "done",
 				});
 			}
 		} else if (role === "toolResult" || role === "tool") {
 			const record = message as Record<string, unknown>;
 			const output = toolOutput(message);
+			const rawCallId =
+				typeof record.toolCallId === "string" && record.toolCallId.trim() ? record.toolCallId : undefined;
+			const toolName =
+				typeof record.toolName === "string" && record.toolName.trim() ? record.toolName : "tool";
 			const toolCallId =
-				typeof record.toolCallId === "string" && record.toolCallId.trim()
-					? record.toolCallId
-					: id("tool-call");
+				rawCallId ??
+				(stable ? `history-tool-call-${stableHash(`${toolName}\u0000${output}`)}` : id("tool-call"));
 			const call = toolCalls.get(toolCallId);
 			const normalizedResult = normalizeResultDetails(record.details);
 			items.push({
 				kind: "tool",
-				id: id("history-tool"),
+				id: makeId("history-tool", toolCallId),
 				toolCallId,
-				name:
-					call?.name ??
-					(typeof record.toolName === "string" && record.toolName.trim()
-						? record.toolName
-						: "tool"),
+				name: call?.name ?? toolName,
 				args: call?.arguments,
 				output,
 				...(normalizedResult.diff ? { diff: normalizedResult.diff } : {}),
 				...(normalizedResult.path ? { diffPath: normalizedResult.path } : {}),
 				details: record.details,
-				timestamp: messageTimestamp(message),
-				startedAt: messageTimestamp(message),
-				endedAt: messageTimestamp(message),
+				timestamp: messageTimestamp(message, stable),
+				startedAt: messageTimestamp(message, stable),
+				endedAt: messageTimestamp(message, stable),
 				status: "done",
 				isError: Boolean(record.isError),
 			});
@@ -440,69 +532,61 @@ export class ConversationModel {
 				return;
 			}
 			case "queue_update": {
-				// SAFETY: event.type is validated above; queue fields are optional protocol data.
-				const queue = event as unknown as {
-					steering?: readonly string[];
-					followUp?: readonly string[];
-				};
-				this.steering = queue.steering ?? [];
-				this.followUp = queue.followUp ?? [];
+				const queue = objectRecord(event);
+				this.steering = stringArrayField(queue?.steering);
+				this.followUp = stringArrayField(queue?.followUp);
 				return;
 			}
 			case "message_start":
 			case "message_end":
-			case "message_update":
-				// SAFETY: message event payload is normalized by applyMessageEvent.
-				this.applyMessageEvent(event as unknown as Record<string, unknown>);
+			case "message_update": {
+				const messageEvent = objectRecord(event);
+				if (messageEvent) this.applyMessageEvent(messageEvent);
 				return;
+			}
 			case "tool_execution_start":
 			case "tool_execution_update":
-			case "tool_execution_end":
-				// SAFETY: tool event payload is normalized by applyToolEvent.
-				this.applyToolEvent(event as unknown as Record<string, unknown>);
+			case "tool_execution_end": {
+				const toolEvent = objectRecord(event);
+				if (toolEvent) this.applyToolEvent(toolEvent);
 				return;
+			}
 			case "compaction_start":
 				this.isCompacting = true;
 				this.system("Compacting context…", "info");
 				return;
 			case "compaction_end": {
 				this.isCompacting = false;
-				// SAFETY: compaction event fields are optional protocol data.
-				const compact = event as unknown as {
-					aborted?: boolean;
-					errorMessage?: string;
-				};
+				const compact = objectRecord(event);
+				const errorMessage = stringField(compact, "errorMessage");
+				const aborted = compact?.aborted === true;
 				this.system(
-					compact.errorMessage
-						? `Compaction failed: ${compact.errorMessage}`
-						: compact.aborted
+					errorMessage
+						? `Compaction failed: ${errorMessage}`
+						: aborted
 							? "Compaction aborted."
 							: "Context compacted.",
-					compact.errorMessage ? "error" : "success",
+					errorMessage ? "error" : "success",
 				);
 				return;
 			}
 			case "auto_retry_start": {
-				// SAFETY: retry event fields are optional protocol data.
-				const retry = event as unknown as {
-					attempt?: number;
-					maxAttempts?: number;
-					errorMessage?: string;
-				};
+				const retry = objectRecord(event);
+				const attempt = numberField(retry, "attempt");
+				const maxAttempts = numberField(retry, "maxAttempts");
+				const errorMessage = stringField(retry, "errorMessage");
 				this.system(
-					`Retrying ${retry.attempt ?? "?"}/${retry.maxAttempts ?? "?"}: ${retry.errorMessage ?? "transient error"}`,
+					`Retrying ${attempt ?? "?"}/${maxAttempts ?? "?"}: ${errorMessage ?? "transient error"}`,
 					"warning",
 				);
 				return;
 			}
 			case "extension_error": {
-				// SAFETY: extension error fields are optional protocol data.
-				const ext = event as unknown as {
-					error?: string;
-					extensionPath?: string;
-				};
+				const ext = objectRecord(event);
+				const error = stringField(ext, "error");
+				const extensionPath = stringField(ext, "extensionPath");
 				this.system(
-					`Extension error${ext.extensionPath ? ` in ${ext.extensionPath}` : ""}: ${ext.error ?? "unknown error"}`,
+					`Extension error${extensionPath ? ` in ${extensionPath}` : ""}: ${error ?? "unknown error"}`,
 					"error",
 				);
 				return;

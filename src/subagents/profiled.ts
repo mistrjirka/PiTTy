@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { SubagentRun, ToolItem } from "../types.ts";
+import { fileContentKey } from "./cache-key.ts";
 import { PROFILED_RUNTIME_ROOT_PREFIX, safeProfiledControlDir } from "./profiled-paths.ts";
 
 const RUNTIME = "profiled-subagents" as const;
@@ -157,8 +158,7 @@ type ProfiledSessionSnapshot = {
 };
 
 	type ProfiledSessionCacheEntry = {
-	  mtimeMs: number;
-	  size: number;
+	  key: string;
 	  snapshot: ProfiledSessionSnapshot;
 	};
 
@@ -172,8 +172,6 @@ function profiledSessionSnapshot(sessionPath: string | undefined): ProfiledSessi
   try {
     stat = fs.statSync(sessionPath);
     if (!stat.isFile()) return {};
-    const cached = profiledSessionCache.get(sessionPath);
-    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.snapshot;
     const fd = fs.openSync(sessionPath, "r");
     try {
       const length = Math.min(stat.size, PROFILED_SESSION_TAIL_BYTES);
@@ -186,6 +184,9 @@ function profiledSessionSnapshot(sessionPath: string | undefined): ProfiledSessi
   } catch {
     return {};
   }
+  const key = fileContentKey(stat, content);
+  const cached = profiledSessionCache.get(sessionPath);
+  if (cached && cached.key === key) return cached.snapshot;
   let window: number | undefined;
   let lastActivityAt: number | undefined = stat.mtimeMs;
   for (const line of content.split("\n").reverse()) {
@@ -210,7 +211,9 @@ function profiledSessionSnapshot(sessionPath: string | undefined): ProfiledSessi
   // Reverse order finds the newest assistant usage first; the full bounded scan still finds the newest timestamp.
   const snapshot = { ...(window !== undefined ? { window } : {}), ...(lastActivityAt !== undefined ? { lastActivityAt } : {}) };
   profiledSessionCache.delete(sessionPath);
-  profiledSessionCache.set(sessionPath, { mtimeMs: stat.mtimeMs, size: stat.size, snapshot });
+  // Key on stat + content, not (mtimeMs, size): same-size rewrites inside one
+  // mtime tick must not serve the previous snapshot.
+  profiledSessionCache.set(sessionPath, { key: fileContentKey(stat, content), snapshot });
   while (profiledSessionCache.size > MAX_PROFILED_SESSION_CACHE_ENTRIES) {
     const oldest = profiledSessionCache.keys().next().value;
     if (typeof oldest !== "string") break;
@@ -384,4 +387,23 @@ export function profiledSubagentRunsFromTools(tools: readonly ToolItem[], option
 
 export function isProfiledSubagentTool(item: ToolItem): boolean {
   return item.name === "agent_spawn" && record(item.details)?.runtime === RUNTIME;
+}
+
+/**
+ * Single subagent-family tool rule shared by transcript tone (`toolVisual` in
+ * `src/ui/message.tsx`), spawn grouping (`isSpawnToolItem` in
+ * `src/ui/spawn-group.tsx`) and target ownership (`foregroundTargets` /
+ * `subagentRunIdFromTool` in `src/subagents/targets.ts`). The three copies
+ * drifted (`task_*` violet without ownership, `workflow_*` grouped without
+ * the violet tone), so every site must use this one predicate.
+ *
+ * `subagent_supervisor` is deliberately excluded: it is the control-plane
+ * tool for steering/answering child questions, it never spawns children, so
+ * it must neither group nor own targets. (message.tsx still renders it with
+ * the violet agent tone via its own explicit branch.)
+ */
+export function isSubagentFamilyToolName(name: string): boolean {
+  const normalized = name.toLowerCase();
+  if (normalized === "subagent_supervisor") return false;
+  return /subagent|task|agent|delegate|workflow/.test(normalized);
 }

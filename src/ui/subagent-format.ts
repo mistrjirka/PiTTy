@@ -46,17 +46,23 @@ export function terminalBadge(
 	return undefined;
 }
 
-export function workflowChildrenSummary(args: unknown, output: unknown): string | undefined {
-	const parsedOutput = typeof output === "string" ? parseObject(output) : output;
-	const record = argsRecord(parsedOutput) ?? argsRecord(args);
+function childrenSummary(record: SubagentArgs | undefined): string | undefined {
 	if (!record) return undefined;
 	const results = record.results;
 	if (Array.isArray(results)) return `×${results.length} children`;
-	const details = argsRecord(record.details) ?? argsRecord(argsRecord(args)?.details);
-	const children = details?.children;
+	const children = argsRecord(record.details)?.children;
 	return typeof children === "number" && Number.isFinite(children) && children >= 0
 		? `×${children} children`
 		: undefined;
+}
+
+export function workflowChildrenSummary(args: unknown, output: unknown): string | undefined {
+	// Prefer args: the spawn request is what the card did. Coincidental JSON
+	// in the output (echoed fixtures, pasted examples) must not fabricate a
+	// "×N children" badge on a card that spawned nothing — output is only
+	// consulted when args has no spawn shape at all.
+	const parsedOutput = typeof output === "string" ? parseObject(output) : argsRecord(output);
+	return childrenSummary(argsRecord(args)) ?? childrenSummary(parsedOutput);
 }
 
 function parseObject(value: string): SubagentArgs | undefined {

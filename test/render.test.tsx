@@ -5406,3 +5406,91 @@ describe("duration and sidebar repaint regressions", () => {
 		expect(spawnGroupId("a")).not.toBe(spawnGroupId("b"));
 	});
 });
+
+describe("batch A data truth", () => {
+	test("task-shaped tools render the derived description, not raw JSON", async () => {
+		const item: ConversationItem = {
+			kind: "tool",
+			id: "task-1",
+			toolCallId: "task-1-call",
+			name: "task_fetch",
+			args: { agent: "helper", task: "do it" },
+			output: "",
+			timestamp: 1,
+			startedAt: 1,
+			status: "done",
+			isError: false,
+		};
+		const setup = await mount(() => (
+			<box width="100%" height="100%" flexDirection="column">
+				<MessageView item={item} showThinking toolExpanded={false} now={2_000} />
+			</box>
+		));
+		const frame = setup.captureCharFrame();
+		// The unified family rule derives the label from args…
+		expect(frame).toContain("helper");
+		// …shows the task gist…
+		expect(frame).toContain("do it");
+		// …and hides the redundant raw-args preview.
+		expect(frame).not.toContain('"agent"');
+	});
+
+	test("subagent-family tools without a summary fall back to the args preview", async () => {
+		const item: ConversationItem = {
+			kind: "tool",
+			id: "task-2",
+			toolCallId: "task-2-call",
+			name: "task_custom",
+			args: { foo: "bar" },
+			output: "",
+			timestamp: 1,
+			startedAt: 1,
+			status: "done",
+			isError: false,
+		};
+		const setup = await mount(() => (
+			<box width="100%" height="100%" flexDirection="column">
+				<MessageView item={item} showThinking toolExpanded={false} now={2_000} />
+			</box>
+		));
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("task_custom");
+		expect(frame).toContain("bar");
+	});
+
+	test("inspector rows resolve an honest clock and timing renders empty without one", async () => {
+		const { inspectorItemNow } = await import("../src/ui/subagent-inspector.tsx");
+		const { toolTiming } = await import("../src/ui/message.tsx");
+		const tool: ConversationItem = {
+			kind: "tool",
+			id: "t",
+			toolCallId: "t-call",
+			name: "bash",
+			args: {},
+			output: "",
+			timestamp: 100,
+			startedAt: 100,
+			status: "done",
+			isError: false,
+		};
+		const assistant: ConversationItem = {
+			kind: "assistant",
+			id: "a",
+			text: "hi",
+			thinking: "",
+			timestamp: 100,
+			status: "done",
+		};
+		// Active children and in-flight tools use the live clock.
+		expect(inspectorItemNow(true, assistant, 500)).toBe(500);
+		// A finished tool of an inactive child keeps its own timestamps.
+		expect(inspectorItemNow(false, tool, 500)).toBe(100);
+		// Finished tools of an inactive child resolve to their own end…
+		expect(inspectorItemNow(false, { ...tool, endedAt: 250 }, 500)).toBe(250);
+		// …while non-tool rows of an inactive child resolve to undefined,
+		// never the epoch, and timing renders empty without a clock.
+		expect(inspectorItemNow(false, assistant, 500)).toBeUndefined();
+		expect(toolTiming(tool)).toBe("");
+		expect(toolTiming(tool, 500)).toContain("took");
+	});
+});

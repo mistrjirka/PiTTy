@@ -9,7 +9,7 @@ import { useTerminalDimensions } from "@opentui/solid";
 import stripAnsi from "strip-ansi";
 import type { ConversationItem, CustomItem, ToolItem } from "../types.ts";
 import type { SubagentTarget } from "../subagents/targets.ts";
-import { isProfiledSubagentTool } from "../subagents/profiled.ts";
+import { isProfiledSubagentTool, isSubagentFamilyToolName } from "../subagents/profiled.ts";
 import {
 	colors,
 	getMarkdownStyle,
@@ -38,7 +38,7 @@ function toolVisual(
 		return { accent: colors.orange, background: colors.toolShellBg, icon: "▣" };
 	if (normalized === "subagent_supervisor")
 		return { accent: colors.purple, background: colors.toolAgentBg, icon: "◇" };
-	if (/subagent|task|agent|delegate/.test(normalized))
+	if (isSubagentFamilyToolName(name))
 		return { accent: colors.purple, background: colors.toolAgentBg, icon: "◇" };
 	if (/read|grep|find|search|list|glob|web|fetch/.test(normalized))
 		return { accent: colors.accent, background: colors.toolReadBg, icon: "●" };
@@ -243,13 +243,20 @@ function notificationText(value: unknown): string {
 	return typeof value === "string" ? value : "";
 }
 
-function toolTiming(item: ToolItem, now: number): string {
+export function toolTiming(item: ToolItem, now?: number): string {
 	const startedAt = item.startedAt;
 	if (startedAt === undefined)
 		return item.timeoutMs
 			? `timeout ${formatDuration(item.timeoutMs, "")}`
 			: "";
-	const elapsed = Math.max(0, (item.endedAt ?? now) - startedAt);
+	const end = item.endedAt ?? now;
+	// No end and no clock (inactive child, non-tool row): render empty rather
+	// than an epoch-based duration.
+	if (end === undefined)
+		return item.timeoutMs
+			? `timeout ${formatDuration(item.timeoutMs, "")}`
+			: "";
+	const elapsed = Math.max(0, end - startedAt);
 	const duration = formatDuration(elapsed, "");
 	const timeout = formatDuration(item.timeoutMs, "");
 	if (item.status === "streaming" || item.status === "pending") {
@@ -941,15 +948,8 @@ export function MessageView(props: {
 						item.name.toLowerCase() === "subagent_supervisor";
 					const supervisorLabel = () =>
 						supervisor() ? supervisorToolLabel(item.args) : undefined;
-					const subagentFamily = () => {
-						const name = item.name.toLowerCase();
-						return (
-							name === "subagent" ||
-							name === "workflow" ||
-							name.endsWith("_subagent") ||
-							isProfiledSubagentTool(item)
-						);
-					};
+					const subagentFamily = () =>
+						isSubagentFamilyToolName(item.name) || isProfiledSubagentTool(item);
 					const terminal = () =>
 						subagentFamily()
 							? terminalBadge(
@@ -1001,7 +1001,7 @@ export function MessageView(props: {
 										terminal() ? ` · ${terminal()}` : ""
 									}`}
 								</text>
-								<Show when={item.args !== undefined && !subagentGist() && !isProfiledSubagentTool(item)}>
+								<Show when={item.args !== undefined && !subagentGist() && !isProfiledSubagentTool(item) && (!subagentFamily() || subagentLabel() === undefined)}>
 									<text fg={colors.muted} selectable wrapMode="word">
 										{supervisorLabel()
 											? `  ${supervisorMessage(item.args)}`

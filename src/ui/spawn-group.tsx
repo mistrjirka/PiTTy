@@ -1,6 +1,6 @@
 import { For, Show, type JSX } from "solid-js";
 import type { ConversationItem, ToolItem } from "../types.ts";
-import { isProfiledSubagentTool } from "../subagents/profiled.ts";
+import { isProfiledSubagentTool, isSubagentFamilyToolName } from "../subagents/profiled.ts";
 import type { SubagentTarget } from "../subagents/targets.ts";
 import { colors } from "./theme.ts";
 import {
@@ -46,17 +46,13 @@ export type SpawnGroup = {
 };
 
 /**
- * Whether a tool item is a subagent spawn (and therefore groupable). Mirrors
- * the purple agent tone in `toolVisual` (`src/ui/message.tsx`) minus the
- * `subagent_supervisor` control-plane tool, which never spawns children.
+ * Whether a tool item is a subagent spawn (and therefore groupable). Uses
+ * the shared `isSubagentFamilyToolName` rule so grouping agrees with the
+ * purple agent tone in `toolVisual` (`src/ui/message.tsx`) and with target
+ * ownership in `src/subagents/targets.ts`.
  */
 export function isSpawnToolItem(item: ToolItem): boolean {
-	const name = item.name.toLowerCase();
-	if (name === "subagent_supervisor") return false;
-	return (
-		/subagent|task|agent|delegate|workflow/.test(name) ||
-		isProfiledSubagentTool(item)
-	);
+	return isSubagentFamilyToolName(item.name) || isProfiledSubagentTool(item);
 }
 
 /**

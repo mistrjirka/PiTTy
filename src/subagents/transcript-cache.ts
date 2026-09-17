@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import type { ConversationItem, SubagentRun } from "../types.ts";
 import type { SubagentTarget } from "./targets.ts";
+import { fileTailKey, stableHash } from "./cache-key.ts";
 import { readSubagentConversation } from "./transcript.ts";
 
 export type SubagentConversationReader = (
@@ -43,7 +44,19 @@ function transcriptFileSignature(filePath: string | undefined): string {
 	if (!filePath) return "";
 	try {
 		const stat = fs.statSync(filePath);
-		return `${stat.mtimeMs}:${stat.size}`;
+		if (!stat.isFile()) return `notfile:${stableHash(filePath)}`;
+		// (mtimeMs, size) alone serves a stale transcript after a same-size
+		// rewrite inside one mtime tick: mix in a bounded tail hash.
+		return fileTailKey(stat, (length, position) => {
+			const fd = fs.openSync(filePath, "r");
+			try {
+				const buffer = Buffer.alloc(length);
+				const bytes = fs.readSync(fd, buffer, 0, length, position);
+				return buffer.subarray(0, bytes).toString("utf8");
+			} finally {
+				fs.closeSync(fd);
+			}
+		});
 	} catch {
 		return "missing";
 	}
