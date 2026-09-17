@@ -812,7 +812,7 @@ export function subagentTargets(
 			: activeState(run.activityState) || activeState(run.state);
 		const profiledLabel = run.profile
 			? run.label && run.label !== run.profile
-				? `@${run.agentId ?? run.profile} — ${run.label}`
+				? `@${run.agentId ?? run.profile} · ${run.profile} — ${run.label}`
 				: `@${run.agentId ?? run.profile} · ${run.profile}`
 			: undefined;
 		result.push({
