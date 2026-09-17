@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.23
+
+### Truthful subagent state
+
+- A finished child keeps its real state. Only a non-terminal run whose heartbeat has stopped becomes `unresponsive` (renamed from `stale`); terminal states pass through untouched, so a successful child reads `finished` instead of being relabelled as if it had died.
+- Liveness needs a fresh signal on both paths: a run with no status file may only claim to be live while its spawn tool item is genuinely in flight and recent. Previously a frozen spawn-time `running` could outlive the run, so every earlier child looked alive after a restart.
+- No view prints `working` or `starting…` for a state that is not working. A resident (idle) child reads `resident`, no longer shows a spinner, and no longer restates its state on the usage line; its sidebar row collapses to two rows instead of leaving a blank third.
+
+### Live child streaming
+
+- A running child's thinking, assistant text and tool calls stream into the subagent detail page, fed by the `events.jsonl` tail that `@mistrjirka/pi-subagent` 0.4.4+ publishes. The reader is liveness-gated, so once a child settles the session file is the sole authority and completed content never renders twice.
+- Reads are bounded to a tail and cached by modification time and size, and only happen while the detail page is open.
+
+### Parallel spawns grouped
+
+- A contiguous batch of two or more spawns collapses into one card — `◇ Agents ×N` plus a single row per child — with a `▸ spawn cards` toggle that expands it back to the individual cards. A four-way batch drops from roughly 36 rows of chrome to five.
+- A single spawn, a spawn owning no targets, and any non-spawn item between spawns keep the existing rendering, so failed spawns stay visible.
+
+### Skills
+
+- `/skills` lists every skill Pi reports with its description and origin, filters as you type, and sends the highlighted one on Enter; Esc closes without sending. `/commands` is unchanged.
+
+### Subagent detail page
+
+- The detail page shows the subagent's own model and its `used / limit` through the same Context/Model rows as the sidebar, the header uses one friendly state vocabulary with the shared animated working indicator, and a child's elapsed timers tick while it is active.
+
+### Compatibility
+
+- Live child streaming needs `@mistrjirka/pi-subagent` 0.4.4 or newer, the release that publishes the stream. Everything else is independent of the runtime, and legacy `pi-subagents` handling (workflow, mission, transcript, pause/resume/steer/stop) is unchanged.
+
+Validation: typecheck passed; focused subagent/UI suite passed with 256 tests and 0 failures; the complete local suite passed with 433 tests, 1 skipped, 0 failures.
+
 ## 0.6.22
 
 ### Profile-driven subagent identity and telemetry
