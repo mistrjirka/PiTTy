@@ -130,11 +130,13 @@ export function subagentTreeRows(
 			childCount: children.length,
 			descendantCount: subagentDescendants(target, targets).length,
 		});
+		const childContinuations =
+			depth === 0 ? [] : [...continuations, !isLast];
 		children.forEach((child, index) =>
 			visit(
 				child,
 				depth + 1,
-				[...continuations, !isLast],
+				childContinuations,
 				index === children.length - 1,
 				target,
 			),
