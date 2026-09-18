@@ -3120,8 +3120,9 @@ describe("OpenTUI components", () => {
 		);
 		const parentFrame = parentView.captureCharFrame();
 		expect(parentFrame).toContain("Main › @cai · implementer");
-		expect(parentFrame).toContain("Subagents");
 		expect(parentFrame).toContain("@theo · explore");
+		expect(parentFrame).toContain("inspect");
+		expect(parentFrame).not.toContain("\nSubagents\n");
 
 		const childView = await mount(
 			() => (
