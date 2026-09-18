@@ -1,4 +1,4 @@
-import { For, Show, createEffect } from "solid-js";
+import { For, Show, createEffect, createMemo } from "solid-js";
 import type {
 	MouseEvent,
 	ScrollBoxRenderable,
@@ -7,6 +7,8 @@ import type {
 import type { ConversationItem, SubagentRun } from "../types.ts";
 import type { PendingSteerEntry } from "../state/input-continuity.ts";
 import {
+	ownedSubagentTargetsForItems,
+	subagentTargetAncestors,
 	subagentTargets,
 	targetContextPercent,
 	targetContextUsage,
@@ -60,6 +62,8 @@ export function SubagentInspector(props: {
 	target?: SubagentTarget | undefined;
 	run?: SubagentRun | undefined;
 	items: ConversationItem[];
+	targets?: readonly SubagentTarget[] | undefined;
+	onInspectTarget?: ((targetKey: string) => void) | undefined;
 	now: number;
 	scrollRef?: (value: ScrollBoxRenderable) => void;
 	onClose?: () => void;
@@ -84,6 +88,18 @@ export function SubagentInspector(props: {
 	const target = () =>
 		(props.target ?? (props.run ? subagentTargets([props.run])[0] : undefined))!;
 	const run = () => target().run;
+	const allTargets = () => props.targets ?? [target()];
+	const ancestors = createMemo(() => subagentTargetAncestors(target(), allTargets()));
+	const parentTarget = () => ancestors().at(-1);
+	const shortTargetName = (candidate: SubagentTarget): string =>
+		candidate.run.agentId ? `@${candidate.run.agentId}` : candidate.run.profile ?? candidate.label;
+	const breadcrumb = createMemo(() =>
+		["Main", ...ancestors().map(shortTargetName), shortTargetName(target())].join(" › "));
+	const ownedNestedTargets = createMemo(() =>
+		ownedSubagentTargetsForItems(
+			props.items.filter((item): item is Extract<ConversationItem, { kind: "tool" }> => item.kind === "tool"),
+			allTargets(),
+		));
 	// Legacy pi-subagents supports pause/resume through its file-control inbox.
 	// Profiled subagents deliberately expose only steer/stop; do not invent a
 	// pause state that the resident Pi RPC child does not have.
@@ -231,6 +247,27 @@ export function SubagentInspector(props: {
 					>
 						← Main chat
 					</text>
+				</box>
+				<box height={1} minHeight={1} flexShrink={0} flexDirection="row">
+					<text flexShrink={1} fg={colors.subtle} wrapMode="none">{cleanTerminalText(breadcrumb())}</text>
+					<box flexGrow={1} />
+					<Show when={parentTarget()}>
+						{(parent) => (
+							<text
+								id="subagent-inspector-parent"
+								fg={colors.cyan}
+								attributes={1}
+								wrapMode="none"
+								onMouseDown={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									props.onInspectTarget?.(parent().key);
+								}}
+							>
+								← {cleanTerminalText(shortTargetName(parent()))}
+							</text>
+						)}
+					</Show>
 				</box>
 				<text
 					height={1}
@@ -390,7 +427,10 @@ export function SubagentInspector(props: {
 					</Show>
 				</Show>
 				<For each={props.items}>
-					{(item) => (
+					{(item) => {
+						const nestedTargets = () =>
+							item.kind === "tool" ? (ownedNestedTargets().get(item.id) ?? []) : [];
+						return (
 						<MessageView
 							item={item}
 							showThinking
@@ -404,12 +444,16 @@ export function SubagentInspector(props: {
 								item.kind === "tool" ? (props.diffExpanded?.(item.id) ?? false) : false
 							}
 							{...(props.onToggleDiff ? { onToggleDiff: props.onToggleDiff } : {})}
+							subagentTargets={nestedTargets()}
+							allSubagentTargets={allTargets()}
+							onInspectSubagentTarget={props.onInspectTarget}
 							{...(() => {
 								const now = itemNow(item);
 								return now === undefined ? {} : { now };
 							})()}
 						/>
-					)}
+						);
+					}}
 				</For>
 			</scrollbox>
 			<Show when={props.pendingSteers && props.pendingSteers.length > 0}>

@@ -6,7 +6,7 @@ import type {
 	ToolItem,
 	NotificationRecord,
 } from "../types.ts";
-import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
+import { subagentTargets, subagentTreeRows, type SubagentTreeRow } from "../subagents/targets.ts";
 import { formatDuration } from "./duration.ts";
 import type { RequestPerformance } from "../tabs/request-metrics.ts";
 import {
@@ -321,6 +321,7 @@ export function Sidebar(props: {
 		props.contextWindowForModel ? { contextWindowForModel: props.contextWindowForModel } : {},
 	);
 	const active = () => targets().filter((target) => target.active);
+	const treeRows = createMemo(() => subagentTreeRows(targets()));
 	const selectedKey = () =>
 		props.selectedTargetKey ??
 		targets().find((target) => target.run.runId === props.selectedRunId)?.key;
@@ -355,10 +356,12 @@ export function Sidebar(props: {
 	const todoHeight = () => panelAllocation().todos;
 	const notificationHeight = () => panelAllocation().notifications;
 
-	const renderTarget = (target: SubagentTarget) => {
+	const renderTarget = (row: SubagentTreeRow) => {
+		const target = row.target;
+		const treePrefix = () => row.depth > 0 ? "↳ " : "";
 		const selected = () =>
 			target.key === selectedKey() ||
-			(!selectedKey() && target === targets()[0]);
+			(!selectedKey() && target.key === treeRows()[0]?.target.key);
 		// The usage line is empty when there is nothing to report (the state
 		// word already appears in the row above); collapse the box instead of
 		// leaving a blank third row. Both stay accessors so the reserved
@@ -373,7 +376,7 @@ export function Sidebar(props: {
 				minHeight={rows()}
 				flexShrink={0}
 				flexDirection="column"
-				paddingLeft={1}
+				paddingLeft={1 + Math.min(row.depth, 4) * 2}
 				border={["left"]}
 				borderColor={stateColor(target.state)}
 				onMouseDown={(event) => {
@@ -395,7 +398,7 @@ export function Sidebar(props: {
 							attributes={selected() ? 1 : 0}
 							wrapMode="none"
 						>
-							{clip(`${stateIcon(target.state)} ${target.label}`, 31)}
+							{clip(`${treePrefix()}${stateIcon(target.state)} ${target.label}`, 31)}
 						</text>
 					}
 				>
@@ -406,7 +409,7 @@ export function Sidebar(props: {
 						attributes={selected() ? 1 : 0}
 						wrapMode="none"
 					>
-						{clip(`${stateIcon(target.state)} ${target.label}`, 31)}
+						{clip(`${treePrefix()}${stateIcon(target.state)} ${target.label}`, 31)}
 					</text>
 					<text width="100%" height={1} fg={colors.text} wrapMode="none">
 						{clip(
@@ -565,7 +568,7 @@ export function Sidebar(props: {
 											</text>
 										}
 									>
-										<For each={targets()}>{renderTarget}</For>
+										<For each={treeRows()}>{renderTarget}</For>
 									</Show>
 								</scrollbox>
 							</box>

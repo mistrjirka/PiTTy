@@ -8,7 +8,7 @@ import type {
 import { useTerminalDimensions } from "@opentui/solid";
 import stripAnsi from "strip-ansi";
 import type { ConversationItem, CustomItem, ToolItem } from "../types.ts";
-import type { SubagentTarget } from "../subagents/targets.ts";
+import { subagentTargetDescendants, type SubagentTarget } from "../subagents/targets.ts";
 import { isProfiledSubagentTool, isSubagentFamilyToolName } from "../subagents/profiled.ts";
 import {
 	colors,
@@ -644,7 +644,8 @@ export function MessageView(props: {
 	diffExpanded?: boolean | Accessor<boolean>;
 	onToggleDiff?: (toolId: string) => void;
 	subagentTargets?: SubagentTarget[] | undefined;
-	 onInspectSubagentTarget?: ((targetKey: string) => void) | undefined;
+	allSubagentTargets?: readonly SubagentTarget[] | undefined;
+	onInspectSubagentTarget?: ((targetKey: string) => void) | undefined;
 	onFork?: ((entryId: string) => void) | undefined;
 	canFork?: boolean;
 
@@ -988,7 +989,12 @@ export function MessageView(props: {
 										Subagents
 									</text>
 									<For each={props.subagentTargets ?? []}>
-										{(target) => (
+										{(target) => {
+											const descendantCount = () =>
+												props.allSubagentTargets
+													? subagentTargetDescendants(target, props.allSubagentTargets).length
+													: 0;
+											return (
 											<box
 												height={3}
 												minHeight={3}
@@ -1023,6 +1029,9 @@ export function MessageView(props: {
 												<text height={1} fg={colors.muted} wrapMode="none">
 													{friendlyTargetState(target.state)} · last activity{" "}
 													{targetFreshness(target, props.now ?? Date.now())}
+													{descendantCount() > 0
+														? ` · ↳ ${descendantCount()} descendant${descendantCount() === 1 ? "" : "s"}`
+														: ""}
 												</text>
 												<text height={1} fg={colors.subtle} wrapMode="none">
 													{target.step?.currentTool ??
@@ -1032,7 +1041,8 @@ export function MessageView(props: {
 														"click to inspect"}
 												</text>
 											</box>
-										)}
+											);
+										}}
 									</For>
 								</box>
 							</Show>
