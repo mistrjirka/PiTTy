@@ -65,6 +65,31 @@ export function workflowChildrenSummary(args: unknown, output: unknown): string 
 	return childrenSummary(argsRecord(args)) ?? childrenSummary(parsedOutput);
 }
 
+export function nestedDescendantSummary(details: unknown): string | undefined {
+	const nested = argsRecord(argsRecord(details)?.nested);
+	if (!nested) return undefined;
+	const count = (key: string): number => {
+		const value = nested[key];
+		return typeof value === "number" && Number.isFinite(value) && value > 0
+			? Math.floor(value)
+			: 0;
+	};
+	const total = count("total");
+	if (!total) return undefined;
+	const parts = [`↳ ${total} descendant${total === 1 ? "" : "s"}`];
+	for (const [key, label] of [
+		["running", "working"],
+		["idle", "resident"],
+		["done", "finished"],
+		["failed", "failed"],
+		["stopped", "stopped"],
+	] as const) {
+		const value = count(key);
+		if (value) parts.push(`${value} ${label}`);
+	}
+	return parts.join(" · ");
+}
+
 function parseObject(value: string): SubagentArgs | undefined {
 	try {
 		return argsRecord(JSON.parse(value));
