@@ -932,6 +932,10 @@ export function MessageView(props: {
 							? nestedDescendantSummary(item.details) ??
 								workflowChildrenSummary(item.args, item.output)
 							: undefined;
+					const singleProfiledTarget = () =>
+						isProfiledSubagentTool(item) && props.subagentTargets?.length === 1
+							? props.subagentTargets[0]
+							: undefined;
 					return (
 						<box
 							id={item.id}
@@ -962,6 +966,21 @@ export function MessageView(props: {
 									</text>
 								</Show>
 								<box flexGrow={1} />
+								<Show when={singleProfiledTarget()}>
+									{(target) => (
+										<text
+											fg={colors.cyan}
+											attributes={1}
+											onMouseDown={(event) => {
+												event.preventDefault();
+												event.stopPropagation();
+												props.onInspectSubagentTarget?.(target().key);
+											}}
+										>
+											inspect
+										</text>
+									)}
+								</Show>
 								<Show
 									when={
 										toolTiming(item, props.now ?? Date.now()) &&
@@ -978,7 +997,7 @@ export function MessageView(props: {
 									{subagentGist()}
 								</text>
 							</Show>
-							<Show when={(props.subagentTargets?.length ?? 0) > 0}>
+							<Show when={(props.subagentTargets?.length ?? 0) > 0 && !singleProfiledTarget()}>
 								<box
 									flexDirection="column"
 									marginTop={1}
