@@ -322,6 +322,7 @@ export function Sidebar(props: {
 		props.contextWindowForModel ? { contextWindowForModel: props.contextWindowForModel } : {},
 	);
 	const active = () => targets().filter((target) => target.active);
+	const treeRows = createMemo(() => subagentTreeRows(targets()));
 	const selectedKey = () =>
 		props.selectedTargetKey ??
 		targets().find((target) => target.run.runId === props.selectedRunId)?.key;
@@ -362,7 +363,7 @@ export function Sidebar(props: {
 	) => {
 		const selected = () =>
 			target.key === selectedKey() ||
-			(!selectedKey() && target === targets()[0]);
+			(!selectedKey() && target.key === treeRows()[0]?.target.key);
 		// The usage line is empty when there is nothing to report (the state
 		// word already appears in the row above); collapse the box instead of
 		// leaving a blank third row. Both stay accessors so the reserved
@@ -572,7 +573,7 @@ export function Sidebar(props: {
 											</text>
 										}
 									>
-										<For each={subagentTreeRows(targets())}>
+										<For each={treeRows()}>
 											{(row) => renderTarget(row.target, row.prefix)}
 										</For>
 									</Show>
