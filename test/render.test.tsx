@@ -3753,6 +3753,64 @@ describe("OpenTUI components", () => {
 		expect(frame).not.toContain("queued follow-up 11");
 	});
 
+	test("subagent selector follows recursive tree order instead of flat newest-first order", async () => {
+		const makeTarget = (
+			agentId: string,
+			parentAgentId: string,
+			startedAt: number,
+		): SubagentTarget => {
+			const run: SubagentRun = {
+				runId: `selector-${agentId}`,
+				control: "profiled",
+				runtime: "profiled-subagents",
+				treeId: "selector-tree",
+				parentAgentId,
+				agentId,
+				profile: "explore",
+				label: agentId,
+				mode: parentAgentId === "root" ? "profiled" : "nested",
+				state: "running",
+				startedAt,
+				steps: [],
+			};
+			return {
+				key: run.runId,
+				run,
+				label: `@${agentId} · explore`,
+				state: "running",
+				active: true,
+				canSteer: true,
+				startedAt,
+			};
+		};
+		const root = makeTarget("cai", "root", 1);
+		const child = makeTarget("theo", "cai", 2);
+		const grandchild = makeTarget("zoe", "theo", 3);
+		// This is the flat newest-first shape returned by the target layer.
+		const targets = [grandchild, child, root];
+		const selector = await mount(
+			() => (
+				<SubagentSelectorDialog
+					targets={targets}
+					selectedKey={root.key}
+					onSelect={() => {}}
+					onCancel={() => {}}
+				/>
+			),
+			90,
+			20,
+		);
+		const frame = selector.captureCharFrame();
+		const rootAt = frame.indexOf("@cai");
+		const childAt = frame.indexOf("@theo");
+		const grandchildAt = frame.indexOf("@zoe");
+		expect(rootAt).toBeGreaterThanOrEqual(0);
+		expect(rootAt).toBeLessThan(childAt);
+		expect(childAt).toBeLessThan(grandchildAt);
+		expect(frame).toContain("Tree order");
+		expect(frame).toContain("└─");
+	});
+
 	test("inspector, selector and sidebar keep their per-child views for parallel subagents", async () => {
 		const run: SubagentRun = {
 			runId: "parallel-run",

@@ -42,6 +42,7 @@ import {
 	targetContextUsage,
 	type SubagentTarget,
 } from "../src/subagents/targets.ts";
+import { directSubagentChildren, parentSubagentTarget, subagentTreeRows } from "../src/subagents/tree.ts";
 import { initialItems } from "../src/state/conversation.ts";
 import type { AssistantItem, ConversationItem, SubagentRun, SubagentStep, ToolItem } from "../src/types.ts";
 import { isSpawnToolItem, spawnGroupRowText } from "../src/ui/spawn-group.tsx";
@@ -4395,6 +4396,66 @@ describe("batch A data truth", () => {
 			},
 		});
 		expect(subagentTargets([], [supervisor])).toHaveLength(0);
+	});
+});
+
+describe("recursive subagent tree navigation consistency", () => {
+	function treeTarget(
+		agentId: string,
+		parentAgentId: string,
+		startedAt: number,
+	): SubagentTarget {
+		const run: SubagentRun = {
+			runId: `tree-${agentId}-${startedAt}`,
+			control: "profiled",
+			runtime: "profiled-subagents",
+			treeId: "tree-navigation",
+			parentAgentId,
+			agentId,
+			profile: "explore",
+			label: agentId,
+			mode: parentAgentId === "root" ? "profiled" : "nested",
+			state: "running",
+			startedAt,
+			steps: [],
+		};
+		return {
+			key: run.runId,
+			run,
+			label: `@${agentId} · explore`,
+			state: "running",
+			active: true,
+			canSteer: true,
+			startedAt,
+		};
+	}
+
+	test("ambiguous legacy same-id parents leave the child flat everywhere", () => {
+		const first = treeTarget("eva", "root", 1);
+		const second = treeTarget("eva", "root", 2);
+		const child = treeTarget("zoe", "eva", 3);
+		const targets = [first, second, child];
+
+		expect(parentSubagentTarget(child, targets)).toBeUndefined();
+		expect(directSubagentChildren(first, targets)).toEqual([]);
+		expect(directSubagentChildren(second, targets)).toEqual([]);
+		expect(subagentTreeRows(targets).map((row) => [row.target.key, row.depth])).toEqual([
+			[first.key, 0],
+			[second.key, 0],
+			[child.key, 0],
+		]);
+	});
+
+	test("fallback selection uses the same root-first tree order as the sidebar", () => {
+		const root = treeTarget("cai", "root", 1);
+		const child = treeTarget("theo", "cai", 2);
+		const newestFirst = [child, root];
+
+		expect(subagentTreeRows(newestFirst).map((row) => row.target.key)).toEqual([
+			root.key,
+			child.key,
+		]);
+		expect(reconcileSubagentSelection(undefined, [], newestFirst)).toBe(root.key);
 	});
 });
 
