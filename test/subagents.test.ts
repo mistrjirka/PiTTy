@@ -42,6 +42,12 @@ import {
 	targetContextUsage,
 	type SubagentTarget,
 } from "../src/subagents/targets.ts";
+import {
+	subagentParentTarget,
+	subagentShortLabel,
+	subagentTargetPath,
+	subagentTreeRows,
+} from "../src/subagents/tree.ts";
 import { initialItems } from "../src/state/conversation.ts";
 import type { AssistantItem, ConversationItem, SubagentRun, SubagentStep, ToolItem } from "../src/types.ts";
 import { isSpawnToolItem, spawnGroupRowText } from "../src/ui/spawn-group.tsx";
@@ -188,6 +194,106 @@ describe("profiled subagent control paths", () => {
 	});
 });
 
+
+describe("recursive profiled subagent presentation", () => {
+	function target(
+		id: string,
+		parentAgentId: string,
+		startedAt: number,
+		active = true,
+	): SubagentTarget {
+		const run: SubagentRun = {
+			runId: `profiled:${id}`,
+			runtime: "profiled-subagents",
+			control: "profiled",
+			controlDir: `/tmp/control-${id}`,
+			treeId: "tree-recursive",
+			agentId: id,
+			parentAgentId,
+			profile: id === "root-agent" ? "implementer" : "explore",
+			label: `task-${id}`,
+			mode: parentAgentId === "root" ? "profiled" : "nested",
+			state: active ? "running" : "completed",
+			startedAt,
+			steps: [],
+		};
+		return {
+			key: run.runId,
+			run,
+			label: `@${id} · ${run.profile} — ${run.label}`,
+			state: run.state,
+			active,
+			canSteer: active,
+			startedAt,
+		};
+	}
+
+	test("keeps descendants contiguous under their parent and derives breadcrumbs", () => {
+		const root = target("root-agent", "root", 100);
+		const child = target("child-agent", "root-agent", 200);
+		const grandchild = target("grandchild-agent", "child-agent", 300);
+		const sibling = target("sibling-agent", "root-agent", 250, false);
+		// Deliberately feed the current global-newest-first shape.
+		const rows = subagentTreeRows([grandchild, sibling, child, root]);
+		expect(rows.map((row) => [row.target.run.agentId, row.depth])).toEqual([
+			["root-agent", 0],
+			["child-agent", 1],
+			["grandchild-agent", 2],
+			["sibling-agent", 1],
+		]);
+		expect(rows[0]?.descendantCount).toBe(3);
+		expect(rows[0]?.activeDescendantCount).toBe(2);
+		expect(subagentParentTarget(grandchild, [grandchild, sibling, child, root])?.key).toBe(child.key);
+		expect(subagentTargetPath(grandchild, [grandchild, sibling, child, root]).map(subagentShortLabel)).toEqual([
+			"@root-agent · implementer",
+			"@child-agent · explore",
+			"@grandchild-agent · explore",
+		]);
+	});
+
+	test("root spawn cards do not steal nested descendants and nested spawn cards own their direct child", () => {
+		const root = target("root-agent", "root", 100);
+		const child = target("child-agent", "root-agent", 110);
+		const grandchild = target("grandchild-agent", "child-agent", 120);
+		const rootSpawn: ToolItem = {
+			kind: "tool",
+			id: "root-spawn",
+			toolCallId: "root-spawn-call",
+			name: "agent_spawn",
+			args: { agent: "implementer" },
+			output: "",
+			details: {
+				runtime: "profiled-subagents",
+				treeId: "tree-recursive",
+				parentAgentId: "root",
+				agentId: "root-agent",
+				controlDir: root.run.controlDir,
+			},
+			timestamp: 100,
+			status: "done",
+			isError: false,
+		};
+		const rootOwned = ownedSubagentTargetsForItems([rootSpawn], [grandchild, child, root]).get(rootSpawn.id) ?? [];
+		expect(rootOwned.map((entry) => entry.run.agentId)).toEqual(["root-agent"]);
+
+		const childSpawn: ToolItem = {
+			...rootSpawn,
+			id: "child-spawn",
+			toolCallId: "child-spawn-call",
+			args: { agent: "explore" },
+			details: {
+				runtime: "profiled-subagents",
+				treeId: "tree-recursive",
+				parentAgentId: "root-agent",
+				agentId: "child-agent",
+				controlDir: child.run.controlDir,
+			},
+			timestamp: 110,
+		};
+		const childOwned = ownedSubagentTargetsForItems([childSpawn], [grandchild, child, root]).get(childSpawn.id) ?? [];
+		expect(childOwned.map((entry) => entry.run.agentId)).toEqual(["child-agent"]);
+	});
+});
 
 describe("profiled liveness and usage", () => {
 	test("uses fresh heartbeats, rejects heartbeat-dead or terminal runs, and reads session usage", () => {
