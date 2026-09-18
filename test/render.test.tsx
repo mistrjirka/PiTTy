@@ -3052,6 +3052,95 @@ describe("OpenTUI components", () => {
 		expect(frame).not.toContain("◆");
 	});
 
+	test("inspector shows recursive child spawns inline and a parent breadcrumb", async () => {
+		const profiledTarget = (
+			agentId: string,
+			parentAgentId: string,
+			profile: string,
+			controlDir: string,
+		): SubagentTarget => ({
+			key: `profiled-${agentId}`,
+			run: {
+				runId: `profiled-${agentId}`,
+				runtime: "profiled-subagents",
+				control: "profiled",
+				controlDir,
+				treeId: "tree-inspector",
+				agentId,
+				parentAgentId,
+				profile,
+				label: profile,
+				mode: parentAgentId === "root" ? "profiled" : "nested",
+				state: "completed",
+				startedAt: 1,
+				steps: [],
+			},
+			label: `@${agentId} · ${profile}`,
+			state: "completed",
+			active: false,
+			canSteer: false,
+			startedAt: 1,
+		});
+		const parent = profiledTarget("cai", "root", "implementer", "/tmp/cai");
+		const child = profiledTarget("theo", "cai", "explore", "/tmp/theo");
+		const nestedSpawn: ToolItem = {
+			kind: "tool",
+			id: "nested-spawn-card",
+			toolCallId: "nested-spawn-call",
+			name: "agent_spawn",
+			args: { agent: "explore", prompt: "Inspect the API." },
+			output: "",
+			details: {
+				runtime: "profiled-subagents",
+				treeId: "tree-inspector",
+				parentAgentId: "cai",
+				agentId: "theo",
+				profile: "explore",
+				label: "explore",
+				controlDir: "/tmp/theo",
+			},
+			timestamp: 2,
+			startedAt: 2,
+			endedAt: 3,
+			status: "done",
+			isError: false,
+		};
+		const parentView = await mount(
+			() => (
+				<SubagentInspector
+					target={parent}
+					allTargets={[parent, child]}
+					items={[nestedSpawn]}
+					now={4}
+					onInspectSubagentTarget={() => {}}
+				/>
+			),
+			100,
+			30,
+		);
+		const parentFrame = parentView.captureCharFrame();
+		expect(parentFrame).toContain("Main › @cai · implementer");
+		expect(parentFrame).toContain("Subagents");
+		expect(parentFrame).toContain("@theo · explore");
+
+		const childView = await mount(
+			() => (
+				<SubagentInspector
+					target={child}
+					allTargets={[parent, child]}
+					items={[]}
+					now={4}
+					onInspectSubagentTarget={() => {}}
+				/>
+			),
+			100,
+			24,
+		);
+		const childFrame = childView.captureCharFrame();
+		expect(childFrame).toContain("Main › @cai · implementer › @theo · explore");
+		expect(childFrame).toContain("← @cai · implementer parent");
+	});
+
 	test("renders all six mission-backed workflow children in the subagent sidebar", async () => {
 		const workflowRunId = "workflow-sidebar-call";
 		const run: SubagentRun = {
