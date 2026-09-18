@@ -370,8 +370,7 @@ export function Sidebar(props: {
 		// height always follows the usage line instead of freezing at the
 		// values captured when the row was created.
 		const usage = () => targetToolUsage(target);
-		const detailPrefix = () =>
-			" ".repeat(prefix.length + (descendantCount > 0 ? 2 : 0));
+		const detailPrefix = () => " ".repeat(prefix.length);
 		const rows = () => (target.active ? (usage() ? 3 : 2) : 1);
 		return (
 			<box
@@ -402,7 +401,7 @@ export function Sidebar(props: {
 							attributes={selected() ? 1 : 0}
 							wrapMode="none"
 						>
-							{clip(`${prefix}${descendantCount > 0 ? "▾ " : ""}${stateIcon(target.state)} ${target.label}`, 31)}
+							{clip(`${prefix}${stateIcon(target.state)} ${target.label}`, 31)}
 						</text>
 					}
 				>
@@ -413,7 +412,7 @@ export function Sidebar(props: {
 						attributes={selected() ? 1 : 0}
 						wrapMode="none"
 					>
-						{clip(`${prefix}${descendantCount > 0 ? "▾ " : ""}${stateIcon(target.state)} ${target.label}`, 31)}
+						{clip(`${prefix}${stateIcon(target.state)} ${target.label}`, 31)}
 					</text>
 					<text width="100%" height={1} fg={colors.text} wrapMode="none">
 						{clip(
