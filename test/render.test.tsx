@@ -3142,6 +3142,62 @@ describe("OpenTUI components", () => {
 		expect(childFrame).toContain("← @cai · implementer parent");
 	});
 
+	test("subagent chooser renders the same recursive hierarchy as the sidebar", async () => {
+		const target = (
+			agentId: string,
+			parentAgentId: string,
+			profile: string,
+			startedAt: number,
+		): SubagentTarget => ({
+			key: `selector-${agentId}`,
+			run: {
+				runId: `selector-${agentId}`,
+				runtime: "profiled-subagents",
+				control: "profiled",
+				controlDir: `/tmp/selector-${agentId}`,
+				treeId: "tree-selector",
+				agentId,
+				parentAgentId,
+				profile,
+				label: profile,
+				mode: parentAgentId === "root" ? "profiled" : "nested",
+				state: "completed",
+				startedAt,
+				steps: [],
+			},
+			label: `@${agentId} · ${profile}`,
+			state: "completed",
+			active: false,
+			canSteer: false,
+			startedAt,
+		});
+		const parent = target("cai", "root", "implementer", 100);
+		const first = target("theo", "cai", "explore", 110);
+		const second = target("aki", "cai", "explore", 120);
+		// Feed newest-first to prove the chooser derives the tree itself.
+		const selector = await mount(
+			() => (
+				<SubagentSelectorDialog
+					targets={[second, first, parent]}
+					selectedKey={parent.key}
+					onSelect={() => {}}
+					onCancel={() => {}}
+				/>
+			),
+			90,
+			24,
+		);
+		const frame = selector.captureCharFrame();
+		const parentAt = frame.indexOf("@cai · implementer");
+		const firstAt = frame.indexOf("├─ ○ @theo · explore");
+		const secondAt = frame.indexOf("└─ ○ @aki · explore");
+		expect(parentAt).toBeGreaterThanOrEqual(0);
+		expect(firstAt).toBeGreaterThan(parentAt);
+		expect(secondAt).toBeGreaterThan(firstAt);
+		expect(frame).toContain("Delegation tree");
+		expect(frame).not.toContain("Active first");
+	});
+
 	test("renders profiled descendants beneath their parent in the sidebar", async () => {
 		const profiledRun = (
 			agentId: string,
