@@ -1,4 +1,4 @@
-import { For, Show, createEffect } from "solid-js";
+import { For, Show, createEffect, createMemo } from "solid-js";
 import type {
 	MouseEvent,
 	ScrollBoxRenderable,
@@ -89,17 +89,17 @@ export function SubagentInspector(props: {
 		(props.target ?? (props.run ? subagentTargets([props.run])[0] : undefined))!;
 	const run = () => target().run;
 	const allTargets = () => props.targets ?? [target()];
-	const ancestors = () => subagentTargetAncestors(target(), allTargets());
+	const ancestors = createMemo(() => subagentTargetAncestors(target(), allTargets()));
 	const parentTarget = () => ancestors().at(-1);
 	const shortTargetName = (candidate: SubagentTarget): string =>
 		candidate.run.agentId ? `@${candidate.run.agentId}` : candidate.run.profile ?? candidate.label;
-	const breadcrumb = () =>
-		["Main", ...ancestors().map(shortTargetName), shortTargetName(target())].join(" › ");
-	const ownedNestedTargets = () =>
+	const breadcrumb = createMemo(() =>
+		["Main", ...ancestors().map(shortTargetName), shortTargetName(target())].join(" › "));
+	const ownedNestedTargets = createMemo(() =>
 		ownedSubagentTargetsForItems(
 			props.items.filter((item): item is Extract<ConversationItem, { kind: "tool" }> => item.kind === "tool"),
 			allTargets(),
-		);
+		));
 	// Legacy pi-subagents supports pause/resume through its file-control inbox.
 	// Profiled subagents deliberately expose only steer/stop; do not invent a
 	// pause state that the resident Pi RPC child does not have.
@@ -249,7 +249,7 @@ export function SubagentInspector(props: {
 					</text>
 				</box>
 				<box height={1} minHeight={1} flexShrink={0} flexDirection="row">
-					<text fg={colors.subtle} wrapMode="none">{cleanTerminalText(breadcrumb())}</text>
+					<text flexShrink={1} fg={colors.subtle} wrapMode="none">{cleanTerminalText(breadcrumb())}</text>
 					<box flexGrow={1} />
 					<Show when={parentTarget()}>
 						{(parent) => (
