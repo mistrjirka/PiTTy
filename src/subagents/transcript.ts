@@ -16,8 +16,6 @@ export const MAX_SUBAGENT_SESSION_LINES = 700;
 
 /** Byte bound matching the producer's 2 MB cap on `events.jsonl`. */
 const PROFILED_STREAM_TAIL_BYTES = 2 * 1024 * 1024;
-/** Newest live-stream events kept per read; older ones are already in the session file. */
-const MAX_PROFILED_STREAM_EVENTS = 400;
 
 type ParsedTranscriptRecord = {
   record: Record<string, unknown>;
@@ -274,7 +272,7 @@ function readProfiledStreamEvents(eventsPath: string | undefined): ProfiledStrea
   if (cached && cached.key === key) return cached.events;
   const lines = content.split("\n");
   const events: ProfiledStreamEvent[] = [];
-  for (let index = Math.max(0, lines.length - MAX_PROFILED_STREAM_EVENTS); index < lines.length; index++) {
+  for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
     if (line === undefined || !line.trim()) continue;
     const event = parseProfiledStreamEvent(line);
@@ -468,6 +466,10 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
   const streamToolByCallId = new Map<string, number[]>();
   const streamToolByName = new Map<string, number[]>();
   const toolFallbackCounts = new Map<string, number>();
+  const liveGroups: StreamTextGroup[] = [];
+  const liveWireOrderById = new Map<string, number>();
+  const liveToolStarts = new Map<string, { timestamp: number; order: number }>();
+  let liveWireOrder = 0;
   let current: StreamTextGroup | undefined;
   const flushCurrent = (): void => {
     const group = current;
@@ -475,7 +477,6 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
     if (!group || (!group.thinking && !group.text)) return;
     const id = streamTextGroupId(group.runId || run.runId, group);
     if (live) {
-      removeLivePersistedTwin(items, group);
       const fresh: AssistantItem = {
         kind: "assistant",
         id,
@@ -485,6 +486,8 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
         status: "streaming",
       };
       items.push(fresh);
+      liveGroups.push(group);
+      liveWireOrderById.set(id, liveWireOrder++);
     } else {
       mergeStreamGroup(items, group, id);
     }
@@ -513,13 +516,13 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
     }
     flushCurrent();
     if (event.kind === "tool_start") {
-      // The session row is authoritative for tools it already renders (it
-      // carries the final output/diff natively): a stream twin would render
-      // the same call twice — once at start, once at finish. Skip it live
-      // or stopped. While the session lacks the result there is no session
-      // row, so the stream row below is still created and transitions
-      // streaming→done; once the result lands, the next read renders the
-      // single session row instead.
+      const wireOrder = live ? liveWireOrder++ : undefined;
+      if (live && event.toolCallId !== undefined && wireOrder !== undefined) {
+        liveToolStarts.set(event.toolCallId, { timestamp: ts, order: wireOrder });
+      }
+      // A persisted session tool remains the rich row (output/diff/details),
+      // but its live position comes from this tool_start event. Re-anchor it
+      // after the stream fold instead of drawing a second stream row.
       if (event.toolCallId !== undefined && persistedToolCallIds.has(event.toolCallId)) continue;
       const backfill = event.toolCallId !== undefined ? getSessionTools().get(event.toolCallId) : undefined;
       const diffBackfill = event.toolCallId !== undefined ? getSessionDiffs().get(event.toolCallId) : undefined;
@@ -545,6 +548,7 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
         isError: false,
       };
       items.push(item);
+      if (live && wireOrder !== undefined) liveWireOrderById.set(item.id, wireOrder);
       const itemIndex = items.length - 1;
       const byName = streamToolByName.get(item.name) ?? [];
       byName.push(itemIndex);
@@ -579,6 +583,37 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
     }
   }
   flushCurrent();
+
+  if (live) {
+    // Deduplicate only after the stream fold is complete so removing a
+    // persisted assistant row cannot invalidate in-flight tool indexes.
+    for (const group of liveGroups) removeLivePersistedTwin(items, group);
+
+    // Session-backed tools carry the rich result payload, but their persisted
+    // timestamp is the result-completion time. Move them to the tool_start
+    // position from events.jsonl so thinking stays between the tools where it
+    // actually happened.
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      if (item?.kind !== "tool") continue;
+      const start = liveToolStarts.get(item.toolCallId);
+      if (!start) continue;
+      items[index] = { ...item, timestamp: start.timestamp, startedAt: start.timestamp };
+      liveWireOrderById.set(item.id, start.order);
+    }
+
+    // Timestamps place session-only task/steer/custom rows around the live
+    // stream; wire order breaks same-millisecond ties between stream-owned
+    // thinking/text/tool rows.
+    const stableOrder = new Map(items.map((item, index) => [item.id, index]));
+    items.sort((left, right) => {
+      if (left.timestamp !== right.timestamp) return left.timestamp - right.timestamp;
+      const leftWire = liveWireOrderById.get(left.id);
+      const rightWire = liveWireOrderById.get(right.id);
+      if (leftWire !== undefined && rightWire !== undefined) return leftWire - rightWire;
+      return (stableOrder.get(left.id) ?? 0) - (stableOrder.get(right.id) ?? 0);
+    });
+  }
 }
 
 function readSessionMessages(run: SubagentRun, stepIndex?: number): unknown[] {
