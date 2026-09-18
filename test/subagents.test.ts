@@ -4216,6 +4216,42 @@ describe("batch A data truth", () => {
 		expect(readSubagentConversation(run).map((item) => item.id)).toEqual(first);
 	});
 
+	test("one live thinking group removes every duplicate persisted snapshot", () => {
+		const thought =
+			"Verifying outbox persistence, RabbitMQ queue declarations, envelope schema, and publish-after-commit flow.";
+		const duplicate = {
+			message: {
+				role: "assistant",
+				content: [{ type: "thinking", thinking: thought }],
+				timestamp: 200,
+			},
+		};
+		const run = liveProfiledRun(
+			[duplicate, structuredClone(duplicate)],
+			[{ kind: "thinking", blockId: "think-live", text: thought }],
+		);
+		const thinking = readSubagentConversation(run).filter(
+			(item): item is AssistantItem => item.kind === "assistant" && Boolean(item.thinking),
+		);
+		expect(thinking).toHaveLength(1);
+		expect(thinking[0]?.thinking).toBe(thought);
+		expect(thinking[0]?.status).toBe("streaming");
+	});
+
+	test("exact adjacent live thinking twins render once even with different block ids", () => {
+		const thought =
+			"Extending verification to ticketing repository inserts, crash boundary, and remaining unsafe casts.";
+		const run = liveProfiledRun([], [
+			{ kind: "thinking", blockId: "think-a", text: thought },
+			{ kind: "thinking", blockId: "think-b", text: thought },
+		]);
+		const thinking = readSubagentConversation(run).filter(
+			(item): item is AssistantItem => item.kind === "assistant" && Boolean(item.thinking),
+		);
+		expect(thinking).toHaveLength(1);
+		expect(thinking[0]?.thinking).toBe(thought);
+	});
+
 	test("stream item ids derive from block identity, not read order", () => {
 		const run = liveProfiledRun([], [
 			{ kind: "thinking", blockId: "think-1", text: "consider " },

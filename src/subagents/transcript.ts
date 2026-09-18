@@ -382,10 +382,14 @@ function mergeStreamGroup(items: ConversationItem[], group: StreamTextGroup, id:
  * so legitimate repeated earlier messages stay visible.
  */
 function removeLivePersistedTwin(items: ConversationItem[], group: StreamTextGroup): void {
-  let thinking = normalized(group.thinking);
-  let text = normalized(group.text);
+  const thinking = normalized(group.thinking);
+  const text = normalized(group.text);
   if (!thinking && !text) return;
 
+  // Remove every exact persisted copy of the live fields, not just the first.
+  // Pi can occasionally expose the same completed assistant snapshot more than
+  // once while events.jsonl is still live; stopping after one match leaves a
+  // second identical Thinking/answer panel next to the canonical stream row.
   for (let index = items.length - 1; index >= 0; index--) {
     const item = items[index];
     if (item?.kind !== "assistant" || item.status === "streaming") continue;
@@ -401,10 +405,33 @@ function removeLivePersistedTwin(items: ConversationItem[], group: StreamTextGro
     };
     if (!next.thinking && !next.text) items.splice(index, 1);
     else items[index] = next;
+  }
+}
 
-    if (sameThinking) thinking = "";
-    if (sameText) text = "";
-    if (!thinking && !text) return;
+function dedupeAdjacentAssistantTwins(items: ConversationItem[]): void {
+  for (let index = 1; index < items.length; ) {
+    const previous = items[index - 1];
+    const current = items[index];
+    if (previous?.kind !== "assistant" || current?.kind !== "assistant") {
+      index += 1;
+      continue;
+    }
+    const sameThinking =
+      normalized(previous.thinking) === normalized(current.thinking);
+    const sameText = normalized(previous.text) === normalized(current.text);
+    const hasContent = Boolean(normalized(previous.thinking) || normalized(previous.text));
+    if (!sameThinking || !sameText || !hasContent) {
+      index += 1;
+      continue;
+    }
+
+    // Prefer the live stream row when one side is streamed: it owns wire
+    // position and can still grow. Otherwise keep the earlier stable row.
+    if (current.status === "streaming" && previous.status !== "streaming") {
+      items.splice(index - 1, 1);
+      continue;
+    }
+    items.splice(index, 1);
   }
 }
 
@@ -613,6 +640,7 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
       if (leftWire !== undefined && rightWire !== undefined) return leftWire - rightWire;
       return (stableOrder.get(left.id) ?? 0) - (stableOrder.get(right.id) ?? 0);
     });
+    dedupeAdjacentAssistantTwins(items);
   }
 }
 
