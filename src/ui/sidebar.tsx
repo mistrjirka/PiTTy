@@ -358,7 +358,7 @@ export function Sidebar(props: {
 
 	const renderTarget = (row: SubagentTreeRow) => {
 		const target = row.target;
-		const treePrefix = () => row.depth > 0 ? `${"  ".repeat(Math.min(row.depth - 1, 3))}└─ ` : "";
+		const treePrefix = () => row.depth > 0 ? `${"  ".repeat(Math.min(row.depth, 4))}↳ ` : "";
 		const selected = () =>
 			target.key === selectedKey() ||
 			(!selectedKey() && target === targets()[0]);
