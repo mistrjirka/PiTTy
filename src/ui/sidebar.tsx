@@ -370,6 +370,8 @@ export function Sidebar(props: {
 		// height always follows the usage line instead of freezing at the
 		// values captured when the row was created.
 		const usage = () => targetToolUsage(target);
+		const detailPrefix = () =>
+			" ".repeat(prefix.length + (descendantCount > 0 ? 2 : 0));
 		const rows = () => (target.active ? (usage() ? 3 : 2) : 1);
 		return (
 			<box
@@ -419,15 +421,17 @@ export function Sidebar(props: {
 							// live-but-idle: the status-file timestamp is not an age of
 							// anything the user did, so the row names the state on its
 							// own. Working rows keep the age (last activity).
-							isResidentTargetState(target.state)
-								? targetToolActivity(target)
-								: `${targetFreshness(target, now())} · ${targetToolActivity(target)}`,
+							`${detailPrefix()}${
+								isResidentTargetState(target.state)
+									? targetToolActivity(target)
+									: `${targetFreshness(target, now())} · ${targetToolActivity(target)}`
+							}`,
 							31,
 						)}
 					</text>
 					<Show when={usage()}>
 						<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
-							{clip(usage(), 31)}
+							{clip(`${detailPrefix()}${usage()}`, 31)}
 						</text>
 					</Show>
 				</Show>
