@@ -37,12 +37,16 @@ export function parentSubagentTarget(
 ): SubagentTarget | undefined {
 	const parentId = parentAgentId(target);
 	if (!parentId || parentId === "root") return undefined;
-	return targets.find(
+	const matches = targets.filter(
 		(candidate) =>
 			candidate !== target &&
 			sameProfiledTree(candidate, target) &&
 			agentId(candidate) === parentId,
 	);
+	// Whole-tree ids are unique on current pi-subagent. Older runtimes could
+	// collide; a flat fallback is safer than drawing the child under an
+	// arbitrary same-id run.
+	return matches.length === 1 ? matches[0] : undefined;
 }
 
 export function directSubagentChildren(
