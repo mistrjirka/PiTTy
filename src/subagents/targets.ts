@@ -1153,11 +1153,12 @@ export function reconcileSubagentSelection(
 		);
 		if (matches.length === 1) return matches[0]?.key;
 	}
-	// Previous target is gone: prefer a live/current run, else the most recent
-	// finished run (nextTargets is already most-recent-first). Never yanks a
-	// surviving selection — that case returned above.
+	// Previous target is gone: prefer a live/current run in the same tree order
+	// used by the sidebar/selector, else the first tree root/descendant row.
+	// Never yanks a surviving selection — that case returned above.
 	if (nextTargets.length === 0) return undefined;
-	return nextTargets.find((target) => target.active)?.key ?? nextTargets[0]?.key;
+	const ordered = subagentTreeRows(nextTargets).map((row) => row.target);
+	return ordered.find((target) => target.active)?.key ?? ordered[0]?.key;
 }
 
 export function subagentTargetIdentity(target: SubagentTarget): string {
