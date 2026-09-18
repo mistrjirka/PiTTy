@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.31
+
+### Live subagent chronology follows the actual wire
+
+- PiTTy no longer discards live stream history after 400 events. The stream is already byte-bounded, and early plaintext thinking may exist only there, so the first reasoning block now remains visible throughout normal long-running subagent work.
+- Completed session-backed tool rows are re-anchored to their live `tool_start` positions before rendering. Thinking/text from `events.jsonl` therefore stays between the tools where it actually happened instead of accumulating at the bottom of the inspector.
+- Same-millisecond live rows use stream wire order as the tie-breaker, while session-only task/steer/custom messages keep their timestamps and rich tool rows retain outputs, diffs, and details.
+- Exact persisted/live assistant twins are still deduplicated, but only after the stream fold completes so removal cannot invalidate in-flight tool indexes.
+- Added regressions for the reported task → thinking → tool → thinking → tool → thinking ordering and for a 450-event thinking block retaining its first chunk.
+
+Validation: typecheck and the complete unit suite pass on Linux, macOS, and Windows.
+
 ## 0.6.30
 
 ### Live subagent final answers render once
