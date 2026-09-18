@@ -4429,6 +4429,7 @@ describe("profiled recursive tree projection", () => {
 		const owned = ownedSubagentTargetsForItems([spawn], [grandchild, direct]).get(spawn.id) ?? [];
 		expect(owned.map((target) => target.key)).toEqual([direct.key]);
 		expect(targetsForTool(spawn, [grandchild, direct]).map((target) => target.key)).toEqual([direct.key]);
+		expect(spawnGroupRowText(direct, 1_100, [grandchild, direct])).toContain("↳ 1 descendant");
 	});
 });
 
