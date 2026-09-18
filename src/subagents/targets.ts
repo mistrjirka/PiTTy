@@ -29,6 +29,138 @@ export type SubagentTarget = {
 	error?: string | undefined;
 };
 
+export type SubagentTreeRow = {
+	target: SubagentTarget;
+	depth: number;
+	parent?: SubagentTarget | undefined;
+	directChildCount: number;
+	descendantCount: number;
+	activeDescendantCount: number;
+};
+
+function profiledTreeCoordinates(target: SubagentTarget): {
+	treeId: string;
+	agentId: string;
+	parentAgentId: string;
+} | undefined {
+	const run = target.run;
+	if (run.runtime !== "profiled-subagents" && run.control !== "profiled") return undefined;
+	const treeId = run.treeId?.trim();
+	const agentId = run.agentId?.trim();
+	const parentAgentId = run.parentAgentId?.trim();
+	if (!treeId || !agentId || !parentAgentId) return undefined;
+	return { treeId, agentId, parentAgentId };
+}
+
+export function subagentTargetParent(
+	target: SubagentTarget,
+	targets: readonly SubagentTarget[],
+): SubagentTarget | undefined {
+	const child = profiledTreeCoordinates(target);
+	if (!child || child.parentAgentId === "root") return undefined;
+	const candidates = targets.filter((candidate) => {
+		if (candidate === target) return false;
+		const parent = profiledTreeCoordinates(candidate);
+		return parent?.treeId === child.treeId && parent.agentId === child.parentAgentId;
+	});
+	if (candidates.length <= 1) return candidates[0];
+	const childStartedAt = target.startedAt ?? target.run.startedAt ?? Number.MAX_SAFE_INTEGER;
+	return candidates
+		.filter((candidate) => (candidate.startedAt ?? candidate.run.startedAt ?? 0) <= childStartedAt)
+		.sort(
+			(a, b) =>
+				(b.startedAt ?? b.run.startedAt ?? 0) -
+				(a.startedAt ?? a.run.startedAt ?? 0),
+		)[0] ?? candidates[0];
+}
+
+export function subagentTargetAncestors(
+	target: SubagentTarget,
+	targets: readonly SubagentTarget[],
+): SubagentTarget[] {
+	const ancestors: SubagentTarget[] = [];
+	const seen = new Set<string>([subagentTargetIdentity(target)]);
+	let current = subagentTargetParent(target, targets);
+	while (current) {
+		const identity = subagentTargetIdentity(current);
+		if (seen.has(identity)) break;
+		seen.add(identity);
+		ancestors.unshift(current);
+		current = subagentTargetParent(current, targets);
+	}
+	return ancestors;
+}
+
+export function subagentTreeRows(
+	targets: readonly SubagentTarget[],
+): SubagentTreeRow[] {
+	const parentByIdentity = new Map<string, SubagentTarget>();
+	const childrenByIdentity = new Map<string, SubagentTarget[]>();
+	for (const target of targets) {
+		const parent = subagentTargetParent(target, targets);
+		if (!parent) continue;
+		const identity = subagentTargetIdentity(target);
+		const parentIdentity = subagentTargetIdentity(parent);
+		parentByIdentity.set(identity, parent);
+		const children = childrenByIdentity.get(parentIdentity) ?? [];
+		children.push(target);
+		childrenByIdentity.set(parentIdentity, children);
+	}
+	for (const children of childrenByIdentity.values()) {
+		children.sort(
+			(a, b) =>
+				(a.startedAt ?? a.run.startedAt ?? 0) -
+				(b.startedAt ?? b.run.startedAt ?? 0) ||
+				a.key.localeCompare(b.key),
+		);
+	}
+
+	const counts = new Map<string, { descendants: number; active: number }>();
+	const countDescendants = (target: SubagentTarget, stack = new Set<string>()): { descendants: number; active: number } => {
+		const identity = subagentTargetIdentity(target);
+		const cached = counts.get(identity);
+		if (cached) return cached;
+		if (stack.has(identity)) return { descendants: 0, active: 0 };
+		const nextStack = new Set(stack);
+		nextStack.add(identity);
+		let descendants = 0;
+		let active = 0;
+		for (const child of childrenByIdentity.get(identity) ?? []) {
+			const nested = countDescendants(child, nextStack);
+			descendants += 1 + nested.descendants;
+			active += Number(child.active) + nested.active;
+		}
+		const value = { descendants, active };
+		counts.set(identity, value);
+		return value;
+	};
+
+	const rows: SubagentTreeRow[] = [];
+	const visited = new Set<string>();
+	const append = (target: SubagentTarget, depth: number, parent?: SubagentTarget) => {
+		const identity = subagentTargetIdentity(target);
+		if (visited.has(identity)) return;
+		visited.add(identity);
+		const children = childrenByIdentity.get(identity) ?? [];
+		const count = countDescendants(target);
+		rows.push({
+			target,
+			depth,
+			...(parent ? { parent } : {}),
+			directChildCount: children.length,
+			descendantCount: count.descendants,
+			activeDescendantCount: count.active,
+		});
+		for (const child of children) append(child, depth + 1, target);
+	};
+
+	for (const target of targets) {
+		if (!parentByIdentity.has(subagentTargetIdentity(target))) append(target, 0);
+	}
+	for (const target of targets) append(target, 0);
+	return rows;
+}
+
 type ChildArtifactMetadata = {
 	model?: string;
 	thinking?: string;
@@ -1034,10 +1166,36 @@ export type OwnedSubagentTargets = ReadonlyMap<string, SubagentTarget[]>;
 
 const NEAREST_RUN_WINDOW_MS = 30_000;
 
+function matchProfiledTargetForTool(
+	item: ToolItem,
+	targets: readonly SubagentTarget[],
+): SubagentTarget[] {
+	if (!isProfiledSubagentTool(item)) return [];
+	const details = record(item.details);
+	const treeId = typeof details?.treeId === "string" ? details.treeId.trim() : "";
+	const agentId = typeof details?.agentId === "string" ? details.agentId.trim() : "";
+	const parentAgentId =
+		typeof details?.parentAgentId === "string" ? details.parentAgentId.trim() : "";
+	const controlDir =
+		typeof details?.controlDir === "string" ? details.controlDir.trim() : "";
+	if (!treeId || !agentId) return [];
+	const matches = targets.filter((target) => {
+		const coordinates = profiledTreeCoordinates(target);
+		if (!coordinates || coordinates.treeId !== treeId || coordinates.agentId !== agentId)
+			return false;
+		if (parentAgentId && coordinates.parentAgentId !== parentAgentId) return false;
+		if (controlDir && target.run.controlDir && target.run.controlDir !== controlDir) return false;
+		return true;
+	});
+	return matches.sort((a, b) => compareTargetRichness(b, a)).slice(0, 1);
+}
+
 function matchByRunIdOrToolCallId(
 	item: ToolItem,
 	targets: readonly SubagentTarget[],
 ): SubagentTarget[] {
+	const profiled = matchProfiledTargetForTool(item, targets);
+	if (profiled.length > 0) return profiled;
 	const runId = subagentRunIdFromTool(item);
 	if (runId) {
 		const byRunId = targets.filter((target) => target.run.runId === runId);
