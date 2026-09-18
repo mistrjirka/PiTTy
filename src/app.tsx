@@ -1933,6 +1933,7 @@ export function App(props: AppOptions) {
 				canFork={!streaming()}
 				onFork={(entryId) => void forkAt(entryId, item())}
 				subagentTargets={subagentTargetsForItem()}
+				allSubagentTargets={availableSubagentTargets()}
 				onInspectSubagentTarget={inspectSubagentTarget}
 				now={
 					tool()?.status === "streaming" ||
@@ -3956,6 +3957,8 @@ export function App(props: AppOptions) {
 							<SubagentInspector
 								target={inspectedTarget()}
 								items={inspectedTranscript()}
+								targets={availableSubagentTargets()}
+								onInspectTarget={inspectSubagentTarget}
 								now={clockNow()}
 								spinner={spinnerFrames[spinnerIndex()] ?? "◐"}
 								scrollRef={(value) => {
