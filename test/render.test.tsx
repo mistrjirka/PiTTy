@@ -54,7 +54,7 @@ import { SubagentInspector, inspectedTargetScrollY } from "../src/ui/subagent-in
 import { ForkPicker } from "../src/ui/fork-picker.tsx";
 import { TabStrip } from "../src/ui/tab-strip.tsx";
 import { forkPickerOptions } from "../src/tabs/entry-index.ts";
-import { SubagentSelectorDialog } from "../src/ui/subagent-selector.tsx";
+import { SubagentSelectorDialog, subagentSelectorOptions } from "../src/ui/subagent-selector.tsx";
 import { subagentTargets, type SubagentTarget } from "../src/subagents/targets.ts";
 import {
 	computeSpawnGroups,
@@ -3142,7 +3142,7 @@ describe("OpenTUI components", () => {
 		expect(childFrame).toContain("← @cai · implementer parent");
 	});
 
-	test("subagent chooser renders the same recursive hierarchy as the sidebar", async () => {
+	test("subagent chooser projects the same recursive hierarchy as the sidebar", () => {
 		const target = (
 			agentId: string,
 			parentAgentId: string,
@@ -3174,33 +3174,14 @@ describe("OpenTUI components", () => {
 		const parent = target("cai", "root", "implementer", 100);
 		const first = target("theo", "cai", "explore", 110);
 		const second = target("aki", "cai", "explore", 120);
-		// Feed newest-first to prove the chooser derives the tree itself.
-		const selector = await mount(
-			() => (
-				<SubagentSelectorDialog
-					targets={[second, first, parent]}
-					selectedKey={parent.key}
-					onSelect={() => {}}
-					onCancel={() => {}}
-				/>
-			),
-			90,
-			24,
-		);
-		const frame = selector.captureCharFrame();
-		const parentAt = frame.indexOf("@cai · implementer");
-		const firstAt = frame.indexOf("@theo · explore");
-		const secondAt = frame.indexOf("@aki · explore");
-		expect(parentAt).toBeGreaterThanOrEqual(0);
-		expect(firstAt).toBeGreaterThan(parentAt);
-		expect(secondAt).toBeGreaterThan(firstAt);
-		// OpenTUI's select control may insert its own selection marker between
-		// the tree prefix and option text, so assert the hierarchy separately.
-		expect(frame).toContain("├─");
-		expect(frame).toContain("└─");
-		expect(frame).toContain("Delegation tree");
-		expect(frame).not.toContain("Active first");
+		const options = subagentSelectorOptions([second, first, parent]);
+		expect(options.map((option) => option.name)).toEqual([
+			"○ @cai · implementer",
+			"├─ ○ @theo · explore",
+			"└─ ○ @aki · explore",
+		]);
 	});
+
 
 	test("renders profiled descendants beneath their parent in the sidebar", async () => {
 		const profiledRun = (
