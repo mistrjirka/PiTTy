@@ -6,7 +6,7 @@ import type {
 	ToolItem,
 	NotificationRecord,
 } from "../types.ts";
-import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
+import { subagentTargets } from "../subagents/targets.ts";
 import { subagentTreeRows, type SubagentTreeRow } from "../subagents/tree.ts";
 import { formatDuration } from "./duration.ts";
 import type { RequestPerformance } from "../tabs/request-metrics.ts";
@@ -361,7 +361,7 @@ export function Sidebar(props: {
 		const target = row.target;
 		const selected = () =>
 			target.key === selectedKey() ||
-			(!selectedKey() && target === targets()[0]);
+			(!selectedKey() && target.key === treeRows()[0]?.target.key);
 		const treePrefix = () =>
 			row.depth > 0 ? `${"  ".repeat(Math.min(row.depth - 1, 4))}↳ ` : "";
 		const labelText = () =>
