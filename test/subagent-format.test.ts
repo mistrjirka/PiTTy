@@ -14,8 +14,9 @@ describe("subagent formatting", () => {
 		expect(summarizeSubagentArgs("raw args")).toBeUndefined();
 	});
 
-	test("normalizes and bounds task gist", () => {
+	test("normalizes and bounds task/prompt gist", () => {
 		expect(taskGist({ task: "  inspect\n   the   tabs  " })).toBe("inspect the tabs");
+		expect(taskGist({ prompt: "  inspect\n   the   API  " })).toBe("inspect the API");
 		expect(taskGist({ task: "x".repeat(100) })).toBe(`${"x".repeat(89)}…`);
 		expect(taskGist({})).toBeUndefined();
 	});
