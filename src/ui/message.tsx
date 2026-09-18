@@ -17,7 +17,7 @@ import {
 	getThemeRevision,
 } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
-import { friendlyTargetState, targetFreshness } from "./model-context.tsx";
+import { friendlyTargetState, isResidentTargetState, targetFreshness } from "./model-context.tsx";
 import {
 	summarizeSubagentArgs,
 	taskGist,
@@ -1023,8 +1023,9 @@ export function MessageView(props: {
 													<text fg={colors.cyan}>inspect</text>
 												</box>
 												<text height={1} fg={colors.muted} wrapMode="none">
-													{friendlyTargetState(target.state)} · last activity{" "}
-													{targetFreshness(target, props.now ?? Date.now())}
+													{isResidentTargetState(target.state)
+														? friendlyTargetState(target.state)
+														: `${friendlyTargetState(target.state)} · ${targetFreshness(target, props.now ?? Date.now())}`}
 												</text>
 												<text height={1} fg={colors.subtle} wrapMode="none">
 													{target.step?.currentTool ??
