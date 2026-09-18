@@ -375,6 +375,41 @@ function mergeStreamGroup(items: ConversationItem[], group: StreamTextGroup, id:
   items.push(fresh);
 }
 
+/**
+ * While a profiled run is live, events.jsonl owns the wire position of streamed
+ * assistant content. The session can persist the completed assistant message
+ * before PiTTy has finished replaying the live stream; without removing that
+ * twin the inspector shows the same answer once near the top and once at its
+ * streamed position. Remove only exact normalized field matches, newest first,
+ * so legitimate repeated earlier messages stay visible.
+ */
+function removeLivePersistedTwin(items: ConversationItem[], group: StreamTextGroup): void {
+  let thinking = normalized(group.thinking);
+  let text = normalized(group.text);
+  if (!thinking && !text) return;
+
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index];
+    if (item?.kind !== "assistant" || item.status === "streaming") continue;
+
+    const sameThinking = Boolean(thinking) && normalized(item.thinking) === thinking;
+    const sameText = Boolean(text) && normalized(item.text) === text;
+    if (!sameThinking && !sameText) continue;
+
+    const next: AssistantItem = {
+      ...item,
+      thinking: sameThinking ? "" : item.thinking,
+      text: sameText ? "" : item.text,
+    };
+    if (!next.thinking && !next.text) items.splice(index, 1);
+    else items[index] = next;
+
+    if (sameThinking) thinking = "";
+    if (sameText) text = "";
+    if (!thinking && !text) return;
+  }
+}
+
 function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], stepIndex?: number): void {
   if (!run.eventsPath) return;
   const live = profiledRunIsLive(run);
@@ -440,6 +475,7 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
     if (!group || (!group.thinking && !group.text)) return;
     const id = streamTextGroupId(group.runId || run.runId, group);
     if (live) {
+      removeLivePersistedTwin(items, group);
       const fresh: AssistantItem = {
         kind: "assistant",
         id,

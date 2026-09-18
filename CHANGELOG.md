@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.30
+
+### Live subagent final answers render once
+
+- While a profiled subagent is still live, PiTTy now treats the live `events.jsonl` stream as the owner of an exact assistant-text twin already persisted in the session. The earlier persisted copy is removed, so a final answer is shown once at its streamed wire position instead of once before the tools and again after them.
+- Deduplication is exact after whitespace normalization and removes only the newest matching persisted field, preserving legitimate repeated earlier assistant messages.
+- Added a regression reproducing the observed `No concrete findings.` duplication with a tool call before the final streamed answer and asserting a single final answer in tool → answer order.
+
+Validation: covered by the new regression plus the existing profiled-stream suite and repository CI.
+
 ## 0.6.29
 
 ### Subagent detail correctness batch
