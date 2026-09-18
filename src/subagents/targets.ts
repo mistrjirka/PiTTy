@@ -1038,6 +1038,45 @@ function matchByRunIdOrToolCallId(
 	item: ToolItem,
 	targets: readonly SubagentTarget[],
 ): SubagentTarget[] {
+	// Profile-driven agent_spawn results carry the exact child identity in
+	// details rather than the legacy runId fields. Match that identity first;
+	// otherwise nested descendants can fall through to the timestamp heuristic
+	// and appear owned by the wrong spawn card.
+	if (isProfiledSubagentTool(item)) {
+		const details = record(item.details);
+		const controlDir =
+			typeof details?.controlDir === "string" && details.controlDir.trim()
+				? details.controlDir.trim()
+				: undefined;
+		const treeId =
+			typeof details?.treeId === "string" && details.treeId.trim()
+				? details.treeId.trim()
+				: undefined;
+		const agentId =
+			typeof details?.agentId === "string" && details.agentId.trim()
+				? details.agentId.trim()
+				: undefined;
+		const parentAgentId =
+			typeof details?.parentAgentId === "string" && details.parentAgentId.trim()
+				? details.parentAgentId.trim()
+				: undefined;
+		if (controlDir) {
+			const byControlDir = targets.filter(
+				(target) => target.run.controlDir === controlDir,
+			);
+			if (byControlDir.length > 0) return byControlDir;
+		}
+		if (treeId && agentId) {
+			const byTreeIdentity = targets.filter(
+				(target) =>
+					target.run.treeId === treeId &&
+					target.run.agentId === agentId &&
+					(parentAgentId === undefined || target.run.parentAgentId === parentAgentId),
+			);
+			if (byTreeIdentity.length > 0) return byTreeIdentity;
+		}
+	}
+
 	const runId = subagentRunIdFromTool(item);
 	if (runId) {
 		const byRunId = targets.filter((target) => target.run.runId === runId);

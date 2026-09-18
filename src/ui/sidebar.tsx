@@ -7,6 +7,7 @@ import type {
 	NotificationRecord,
 } from "../types.ts";
 import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
+import { subagentTreeRows } from "../subagents/tree.ts";
 import { formatDuration } from "./duration.ts";
 import type { RequestPerformance } from "../tabs/request-metrics.ts";
 import {
@@ -355,7 +356,10 @@ export function Sidebar(props: {
 	const todoHeight = () => panelAllocation().todos;
 	const notificationHeight = () => panelAllocation().notifications;
 
-	const renderTarget = (target: SubagentTarget) => {
+	const renderTarget = (
+		target: SubagentTarget,
+		prefix = "",
+	) => {
 		const selected = () =>
 			target.key === selectedKey() ||
 			(!selectedKey() && target === targets()[0]);
@@ -365,6 +369,7 @@ export function Sidebar(props: {
 		// height always follows the usage line instead of freezing at the
 		// values captured when the row was created.
 		const usage = () => targetToolUsage(target);
+		const detailPrefix = () => " ".repeat(prefix.length);
 		const rows = () => (target.active ? (usage() ? 3 : 2) : 1);
 		return (
 			<box
@@ -395,7 +400,7 @@ export function Sidebar(props: {
 							attributes={selected() ? 1 : 0}
 							wrapMode="none"
 						>
-							{clip(`${stateIcon(target.state)} ${target.label}`, 31)}
+							{clip(`${prefix}${stateIcon(target.state)} ${target.label}`, 31)}
 						</text>
 					}
 				>
@@ -406,7 +411,7 @@ export function Sidebar(props: {
 						attributes={selected() ? 1 : 0}
 						wrapMode="none"
 					>
-						{clip(`${stateIcon(target.state)} ${target.label}`, 31)}
+						{clip(`${prefix}${stateIcon(target.state)} ${target.label}`, 31)}
 					</text>
 					<text width="100%" height={1} fg={colors.text} wrapMode="none">
 						{clip(
@@ -414,15 +419,17 @@ export function Sidebar(props: {
 							// live-but-idle: the status-file timestamp is not an age of
 							// anything the user did, so the row names the state on its
 							// own. Working rows keep the age (last activity).
-							isResidentTargetState(target.state)
-								? targetToolActivity(target)
-								: `${targetFreshness(target, now())} · ${targetToolActivity(target)}`,
+							`${detailPrefix()}${
+								isResidentTargetState(target.state)
+									? targetToolActivity(target)
+									: `${targetFreshness(target, now())} · ${targetToolActivity(target)}`
+							}`,
 							31,
 						)}
 					</text>
 					<Show when={usage()}>
 						<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
-							{clip(usage(), 31)}
+							{clip(`${detailPrefix()}${usage()}`, 31)}
 						</text>
 					</Show>
 				</Show>
@@ -565,7 +572,9 @@ export function Sidebar(props: {
 											</text>
 										}
 									>
-										<For each={targets()}>{renderTarget}</For>
+										<For each={subagentTreeRows(targets())}>
+											{(row) => renderTarget(row.target, row.prefix)}
+										</For>
 									</Show>
 								</scrollbox>
 							</box>

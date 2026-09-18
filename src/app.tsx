@@ -3967,6 +3967,8 @@ export function App(props: AppOptions) {
 								onStop={requestStopSubagent}
 								onChooseTarget={() => setSubagentSelectorOpen(true)}
 								targetCount={availableSubagentTargets().length}
+								allTargets={availableSubagentTargets()}
+								onInspectSubagentTarget={inspectSubagentTarget}
 								draft={() => currentDrafts().subagents.get(inspectedTarget()!.key) ?? ""}
 								onDraftChange={(text) => {
 									currentDrafts().subagents.set(inspectedTarget()!.key, text);

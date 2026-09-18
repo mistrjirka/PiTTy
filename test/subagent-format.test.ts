@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	nestedDescendantSummary,
 	summarizeSubagentArgs,
 	taskGist,
 	terminalBadge,
@@ -13,8 +14,9 @@ describe("subagent formatting", () => {
 		expect(summarizeSubagentArgs("raw args")).toBeUndefined();
 	});
 
-	test("normalizes and bounds task gist", () => {
+	test("normalizes and bounds task/prompt gist", () => {
 		expect(taskGist({ task: "  inspect\n   the   tabs  " })).toBe("inspect the tabs");
+		expect(taskGist({ prompt: "  inspect\n   the   API  " })).toBe("inspect the API");
 		expect(taskGist({ task: "x".repeat(100) })).toBe(`${"x".repeat(89)}…`);
 		expect(taskGist({})).toBeUndefined();
 	});
@@ -31,6 +33,17 @@ describe("subagent formatting", () => {
 		expect(workflowChildrenSummary({}, { details: { children: 6 } })).toBe("×6 children");
 		expect(workflowChildrenSummary({}, { details: { children: "6" } })).toBeUndefined();
 		expect(workflowChildrenSummary({}, "not json")).toBeUndefined();
+	});
+
+	test("summarizes recursive descendant counters from profiled spawn details", () => {
+		expect(
+			nestedDescendantSummary({
+				nested: { total: 4, running: 2, idle: 0, done: 1, failed: 1, stopped: 0 },
+			}),
+		).toBe("↳ 4 descendants · 2 working · 1 finished · 1 failed");
+		expect(nestedDescendantSummary({ nested: { total: 1, running: 1 } }))
+			.toBe("↳ 1 descendant · 1 working");
+		expect(nestedDescendantSummary({})).toBeUndefined();
 	});
 });
 

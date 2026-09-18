@@ -30,7 +30,8 @@ export function summarizeSubagentArgs(args: unknown): string | undefined {
 }
 
 export function taskGist(args: unknown): string | undefined {
-	const task = nonEmptyString(argsRecord(args)?.task);
+	const record = argsRecord(args);
+	const task = nonEmptyString(record?.task) ?? nonEmptyString(record?.prompt);
 	if (!task) return undefined;
 	const normalized = task.replace(/\s+/g, " ").trim();
 	return normalized.length > 90 ? `${normalized.slice(0, 89)}…` : normalized;
@@ -63,6 +64,31 @@ export function workflowChildrenSummary(args: unknown, output: unknown): string 
 	// consulted when args has no spawn shape at all.
 	const parsedOutput = typeof output === "string" ? parseObject(output) : argsRecord(output);
 	return childrenSummary(argsRecord(args)) ?? childrenSummary(parsedOutput);
+}
+
+export function nestedDescendantSummary(details: unknown): string | undefined {
+	const nested = argsRecord(argsRecord(details)?.nested);
+	if (!nested) return undefined;
+	const count = (key: string): number => {
+		const value = nested[key];
+		return typeof value === "number" && Number.isFinite(value) && value > 0
+			? Math.floor(value)
+			: 0;
+	};
+	const total = count("total");
+	if (!total) return undefined;
+	const parts = [`↳ ${total} descendant${total === 1 ? "" : "s"}`];
+	for (const [key, label] of [
+		["running", "working"],
+		["idle", "resident"],
+		["done", "finished"],
+		["failed", "failed"],
+		["stopped", "stopped"],
+	] as const) {
+		const value = count(key);
+		if (value) parts.push(`${value} ${label}`);
+	}
+	return parts.join(" · ");
 }
 
 function parseObject(value: string): SubagentArgs | undefined {

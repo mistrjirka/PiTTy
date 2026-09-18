@@ -17,10 +17,11 @@ import {
 	getThemeRevision,
 } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
-import { friendlyTargetState, targetFreshness } from "./model-context.tsx";
+import { friendlyTargetState, isResidentTargetState, targetFreshness } from "./model-context.tsx";
 import {
 	summarizeSubagentArgs,
 	taskGist,
+	nestedDescendantSummary,
 	terminalBadge,
 	workflowChildrenSummary,
 } from "./subagent-format.ts";
@@ -928,7 +929,12 @@ export function MessageView(props: {
 						subagentFamily() ? taskGist(item.args) : undefined;
 					const children = () =>
 						subagentFamily()
-							? workflowChildrenSummary(item.args, item.output)
+							? nestedDescendantSummary(item.details) ??
+								workflowChildrenSummary(item.args, item.output)
+							: undefined;
+					const singleProfiledTarget = () =>
+						isProfiledSubagentTool(item) && props.subagentTargets?.length === 1
+							? props.subagentTargets[0]
 							: undefined;
 					return (
 						<box
@@ -960,6 +966,21 @@ export function MessageView(props: {
 									</text>
 								</Show>
 								<box flexGrow={1} />
+								<Show when={singleProfiledTarget()}>
+									{(target) => (
+										<text
+											fg={colors.cyan}
+											attributes={1}
+											onMouseDown={(event) => {
+												event.preventDefault();
+												event.stopPropagation();
+												props.onInspectSubagentTarget?.(target().key);
+											}}
+										>
+											inspect
+										</text>
+									)}
+								</Show>
 								<Show
 									when={
 										toolTiming(item, props.now ?? Date.now()) &&
@@ -976,7 +997,7 @@ export function MessageView(props: {
 									{subagentGist()}
 								</text>
 							</Show>
-							<Show when={(props.subagentTargets?.length ?? 0) > 0}>
+							<Show when={(props.subagentTargets?.length ?? 0) > 0 && !singleProfiledTarget()}>
 								<box
 									flexDirection="column"
 									marginTop={1}
@@ -1021,8 +1042,9 @@ export function MessageView(props: {
 													<text fg={colors.cyan}>inspect</text>
 												</box>
 												<text height={1} fg={colors.muted} wrapMode="none">
-													{friendlyTargetState(target.state)} · last activity{" "}
-													{targetFreshness(target, props.now ?? Date.now())}
+													{isResidentTargetState(target.state)
+														? friendlyTargetState(target.state)
+														: `${friendlyTargetState(target.state)} · last activity ${targetFreshness(target, props.now ?? Date.now())}`}
 												</text>
 												<text height={1} fg={colors.subtle} wrapMode="none">
 													{target.step?.currentTool ??
