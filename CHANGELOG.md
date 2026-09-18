@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.32
+
+### Recursive subagents are shown as one tree
+
+- The right sidebar now reconstructs profile-driven delegation from the runtime's existing `treeId`, `agentId`, and `parentAgentId` metadata. Top-level agents stay in the normal recent-run order, while descendants remain contiguous under their parent and keep launch order instead of jumping around as activity changes.
+- A subagent inspector now shows a breadcrumb such as `Main › @cai · implementer › @theo · explore`, with a direct parent link for moving back up the delegation tree.
+- `agent_spawn` calls inside a subagent transcript bind to their actual direct child. Clicking the inline child opens that child's trace, so recursive delegation is navigable without flattening grandchildren into the main conversation.
+- Main/direct spawn cards remain owned by the agent the main session actually spawned. When `pi-subagent` supplies subtree counters, the card shows a compact descendant summary instead of pretending each grandchild was spawned by main.
+- Single profile-driven spawns no longer repeat the same child once in the card header and again in a three-line `Subagents` block; the header keeps a compact `inspect` action. Multi-child workflow cards retain their child list.
+
+### Display correctness fixes
+
+- Profile-driven spawn ownership now prefers exact control-directory or tree/agent identity before the legacy timestamp heuristic, preventing recursive children from attaching to the wrong spawn card.
+- Spawn cards understand `agent_spawn.prompt` as the delegated task gist; previously only legacy `task` was recognized, so profile-driven tasks could disappear from the card.
+- Waiting/resident child rows no longer label the status heartbeat as “last activity.”
+- Ambiguous same-id ancestry from older runtimes fails flat rather than inventing a parent relationship.
+- Recursive sidebar detail rows align with their tree prefix instead of visually snapping back to the root column.
+
+Validation: typecheck and the complete unit suite pass on Linux, macOS, and Windows.
+
 ## 0.6.31
 
 ### Live subagent chronology follows the actual wire
