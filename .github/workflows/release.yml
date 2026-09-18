@@ -1,11 +1,13 @@
 name: Release
 on:
   push:
+    branches: ["main"]
     tags: ["v*"]
 permissions:
   contents: write
 jobs:
   source-release:
+    if: github.ref_type == 'tag' || startsWith(github.event.head_commit.message, 'release:')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,19 +24,34 @@ jobs:
         run: |
           npm run typecheck
           npm run test:unit
-      - name: Validate version
+      - name: Resolve release metadata
+        id: release_meta
         shell: bash
+        env:
+          RELEASE_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME#v}"
           package="$(node -p "require('./package.json').version")"
-          test "$tag" = "$package" || { echo "tag $tag does not match package $package" >&2; exit 1; }
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            test "$version" = "$package" || { echo "tag $version does not match package $package" >&2; exit 1; }
+            tag="$GITHUB_REF_NAME"
+          else
+            version="$package"
+            tag="v$version"
+            [[ "$RELEASE_COMMIT_MESSAGE" == "release: v$version"* ]] || {
+              echo "release commit must start with 'release: v$version'" >&2
+              exit 1
+            }
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - name: Prepare release body
         id: release_body
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${{ steps.release_meta.outputs.version }}"
           notes=".github/release-notes/v${version}.md"
           if [[ "$version" == "0.5.4" && ! -f "$notes" ]]; then
             echo "Required curated release notes are missing: $notes" >&2
@@ -53,12 +70,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="${{ steps.release_meta.outputs.version }}"
           git archive --format=tar.gz --prefix="pitty-$version/" -o "pitty-$version.tar.gz" HEAD
           git archive --format=zip --prefix="pitty-$version/" -o "pitty-$version.zip" HEAD
           sha256sum "pitty-$version.tar.gz" "pitty-$version.zip" > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.release_meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             pitty-*.tar.gz
             pitty-*.zip
