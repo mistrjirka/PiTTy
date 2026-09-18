@@ -358,7 +358,7 @@ export function Sidebar(props: {
 
 	const renderTarget = (row: SubagentTreeRow) => {
 		const target = row.target;
-		const treePrefix = () => row.depth > 0 ? `${"  ".repeat(Math.min(row.depth, 4))}↳ ` : "";
+		const treePrefix = () => row.depth > 0 ? "↳ " : "";
 		const selected = () =>
 			target.key === selectedKey() ||
 			(!selectedKey() && target.key === treeRows()[0]?.target.key);
@@ -376,7 +376,7 @@ export function Sidebar(props: {
 				minHeight={rows()}
 				flexShrink={0}
 				flexDirection="column"
-				paddingLeft={1}
+				paddingLeft={1 + Math.min(row.depth, 4) * 2}
 				border={["left"]}
 				borderColor={stateColor(target.state)}
 				onMouseDown={(event) => {
