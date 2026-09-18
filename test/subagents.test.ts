@@ -37,7 +37,11 @@ import {
 	ownedSubagentTargetsForItems,
 	reconcileSubagentSelection,
 	subagentRunIdFromTool,
+	subagentTargetAncestors,
+	subagentTargetDescendants,
+	subagentTargetParent,
 	subagentTargets,
+	subagentTreeRows,
 	targetsForTool,
 	targetContextUsage,
 	type SubagentTarget,
@@ -4340,6 +4344,91 @@ describe("batch A data truth", () => {
 			},
 		});
 		expect(subagentTargets([], [supervisor])).toHaveLength(0);
+	});
+});
+
+describe("profiled recursive tree projection", () => {
+	function profiledTarget(
+		agentId: string,
+		parentAgentId: string,
+		startedAt: number,
+		profile = "explore",
+	): SubagentTarget {
+		const run: SubagentRun = {
+			runId: `profiled:${agentId}`,
+			control: "profiled",
+			runtime: "profiled-subagents",
+			treeId: "tree-recursive",
+			parentAgentId,
+			agentId,
+			profile,
+			label: agentId,
+			mode: parentAgentId === "root" ? "profiled" : "nested",
+			state: "running",
+			startedAt,
+			steps: [],
+		};
+		return {
+			key: run.runId,
+			run,
+			label: `@${agentId} · ${profile}`,
+			state: "running",
+			active: true,
+			canSteer: true,
+			startedAt,
+		};
+	}
+
+	test("keeps descendants contiguous under their actual parent at arbitrary depth", () => {
+		const root = profiledTarget("cai", "root", 1, "implementer");
+		const child = profiledTarget("theo", "cai", 2);
+		const sibling = profiledTarget("aki", "cai", 3);
+		const grandchild = profiledTarget("zoe", "theo", 4);
+		const targets = [grandchild, sibling, child, root];
+
+		expect(subagentTargetParent(grandchild, targets)?.key).toBe(child.key);
+		expect(subagentTargetAncestors(grandchild, targets).map((target) => target.key)).toEqual([
+			root.key,
+			child.key,
+		]);
+		expect(subagentTargetDescendants(root, targets).map((target) => target.key).sort()).toEqual(
+			[child.key, sibling.key, grandchild.key].sort(),
+		);
+		const rows = subagentTreeRows(targets);
+		expect(rows.map((row) => [row.target.key, row.depth])).toEqual([
+			[root.key, 0],
+			[child.key, 1],
+			[grandchild.key, 2],
+			[sibling.key, 1],
+		]);
+		expect(rows[0]?.descendantCount).toBe(3);
+		expect(rows[1]?.descendantCount).toBe(1);
+	});
+
+	test("a root agent_spawn owns only its direct child, never a closer-started grandchild", () => {
+		const direct = profiledTarget("cai", "root", 900, "implementer");
+		const grandchild = profiledTarget("theo", "cai", 1_001);
+		const spawn: ToolItem = {
+			kind: "tool",
+			id: "spawn-cai",
+			toolCallId: "spawn-cai-call",
+			name: "agent_spawn",
+			args: { agent: "implementer" },
+			output: "",
+			details: {
+				runtime: "profiled-subagents",
+				treeId: "tree-recursive",
+				parentAgentId: "root",
+				agentId: "cai",
+				profile: "implementer",
+			},
+			timestamp: 1_000,
+			status: "done",
+			isError: false,
+		};
+		const owned = ownedSubagentTargetsForItems([spawn], [grandchild, direct]).get(spawn.id) ?? [];
+		expect(owned.map((target) => target.key)).toEqual([direct.key]);
+		expect(targetsForTool(spawn, [grandchild, direct]).map((target) => target.key)).toEqual([direct.key]);
 	});
 });
 
