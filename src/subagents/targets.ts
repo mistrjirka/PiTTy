@@ -91,6 +91,25 @@ export function subagentTargetAncestors(
 	return ancestors;
 }
 
+export function subagentTargetDescendants(
+	target: SubagentTarget,
+	targets: readonly SubagentTarget[],
+): SubagentTarget[] {
+	const descendants: SubagentTarget[] = [];
+	const rootIdentity = subagentTargetIdentity(target);
+	for (const candidate of targets) {
+		if (subagentTargetIdentity(candidate) === rootIdentity) continue;
+		if (
+			subagentTargetAncestors(candidate, targets).some(
+				(ancestor) => subagentTargetIdentity(ancestor) === rootIdentity,
+			)
+		) {
+			descendants.push(candidate);
+		}
+	}
+	return descendants;
+}
+
 export function subagentTreeRows(
 	targets: readonly SubagentTarget[],
 ): SubagentTreeRow[] {
