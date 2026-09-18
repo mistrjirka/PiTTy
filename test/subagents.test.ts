@@ -3173,6 +3173,61 @@ describe("subagent controls", () => {
 		expect(owned.get("parallel-item")).toHaveLength(2);
 	});
 
+	test("profiled agent_spawn ownership matches the exact recursive child identity", () => {
+		const profiledTarget = (
+			agentId: string,
+			parentAgentId: string,
+			controlDir: string,
+		): SubagentTarget => ({
+			key: `profiled-${agentId}`,
+			run: {
+				runId: `profiled-${agentId}`,
+				runtime: "profiled-subagents",
+				control: "profiled",
+				controlDir,
+				treeId: "tree-recursive",
+				agentId,
+				parentAgentId,
+				profile: agentId === "cai" ? "implementer" : "explore",
+				mode: parentAgentId === "root" ? "profiled" : "nested",
+				state: "running",
+				startedAt: 1_000,
+				steps: [],
+			},
+			label: `@${agentId}`,
+			state: "running",
+			active: true,
+			canSteer: true,
+			startedAt: 1_000,
+		});
+		const parent = profiledTarget("cai", "root", "/tmp/cai");
+		const child = profiledTarget("theo", "cai", "/tmp/theo");
+		const sibling = profiledTarget("aki", "cai", "/tmp/aki");
+		const tool: ToolItem = {
+			kind: "tool",
+			id: "nested-spawn",
+			toolCallId: "nested-spawn-call",
+			name: "agent_spawn",
+			args: { agent: "explore" },
+			output: "",
+			details: {
+				runtime: "profiled-subagents",
+				treeId: "tree-recursive",
+				parentAgentId: "cai",
+				agentId: "theo",
+				controlDir: "/tmp/theo",
+			},
+			timestamp: 1_000,
+			status: "streaming",
+			isError: false,
+		};
+		const owned = ownedSubagentTargetsForItems(
+			[tool],
+			[parent, sibling, child],
+		).get(tool.id);
+		expect(owned).toEqual([child]);
+	});
+
 	test("nearest-match fallback attaches a run to the spawning tool call, not an earlier unrelated one", () => {
 		const earlierTool: ToolItem = {
 			kind: "tool",
