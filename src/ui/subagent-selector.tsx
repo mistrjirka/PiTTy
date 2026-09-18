@@ -1,6 +1,7 @@
 import type { SelectRenderable } from "@opentui/core";
 import { createMemo } from "solid-js";
 import type { SubagentTarget } from "../subagents/targets.ts";
+import { subagentTreeRows } from "../subagents/tree.ts";
 import { formatDuration } from "./duration.ts";
 import { colors } from "./theme.ts";
 
@@ -17,13 +18,14 @@ export function SubagentSelectorDialog(props: {
   onCancel: () => void;
 }) {
   let select: SelectRenderable | undefined;
-  const options = createMemo(() => props.targets.map((target) => ({
-    name: `${target.active ? "●" : "○"} ${target.label}`,
-    description: description(target),
-    value: target,
+  const rows = createMemo(() => subagentTreeRows(props.targets));
+  const options = createMemo(() => rows().map((row) => ({
+    name: `${row.prefix}${row.target.active ? "●" : "○"} ${row.target.label}`,
+    description: description(row.target),
+    value: row.target,
   })));
   const selectedIndex = createMemo(() => {
-    const index = props.targets.findIndex((target) => target.key === props.selectedKey);
+    const index = rows().findIndex((row) => row.target.key === props.selectedKey);
     return index >= 0 ? index : 0;
   });
   const activeCount = createMemo(() => props.targets.filter((target) => target.active).length);
@@ -56,7 +58,7 @@ export function SubagentSelectorDialog(props: {
           }}
         >× Close</text>
       </box>
-      <text fg={colors.subtle}>Active first · stable within group · ↑/↓ move · Enter select · Esc close</text>
+      <text fg={colors.subtle}>Tree order · ↑/↓ move · Enter select · Esc close</text>
       <select
         ref={(value) => { select = value; }}
         options={options()}
