@@ -1,7 +1,7 @@
 import { For, Show, type JSX } from "solid-js";
 import type { ConversationItem, ToolItem } from "../types.ts";
 import { isProfiledSubagentTool, isSubagentFamilyToolName } from "../subagents/profiled.ts";
-import type { SubagentTarget } from "../subagents/targets.ts";
+import { subagentTargetDescendants, type SubagentTarget } from "../subagents/targets.ts";
 import { colors } from "./theme.ts";
 import {
 	friendlyTargetState,
@@ -168,6 +168,7 @@ export function spawnGroupSummary(targets: readonly SubagentTarget[]): string {
 export function spawnGroupRowText(
 	target: SubagentTarget,
 	now: number,
+	allTargets?: readonly SubagentTarget[],
 ): string {
 	const friendly = friendlyTargetState(target.state);
 	const usage = targetToolUsage(target);
@@ -181,10 +182,14 @@ export function spawnGroupRowText(
 	const middle = isResidentTargetState(target.state)
 		? `${friendly}`
 		: `${friendly} · ${targetFreshness(target, now)}`;
+	const descendantCount = allTargets
+		? subagentTargetDescendants(target, allTargets).length
+		: 0;
 	return (
 		`${stateIcon(target.state)} ${target.label} · ` +
 		`${middle}` +
-		(visibleUsage ? ` · ${visibleUsage}` : "")
+		(visibleUsage ? ` · ${visibleUsage}` : "") +
+		(descendantCount > 0 ? ` · ↳ ${descendantCount} descendant${descendantCount === 1 ? "" : "s"}` : "")
 	);
 }
 
@@ -192,6 +197,7 @@ export function SpawnGroupCard(props: {
 	group: SpawnGroup;
 	expanded: boolean;
 	now: number;
+	allSubagentTargets?: readonly SubagentTarget[] | undefined;
 	onToggle: (groupId: string) => void;
 	onInspectSubagentTarget?: ((targetKey: string) => void) | undefined;
 	/** Renders one member through exactly today's per-item `MessageView` path. */
@@ -246,7 +252,7 @@ export function SpawnGroupCard(props: {
 							}}
 						>
 							<text fg={colors.text} wrapMode="none">
-								{spawnGroupRowText(target, props.now)}
+								{spawnGroupRowText(target, props.now, props.allSubagentTargets)}
 							</text>
 						</box>
 					)}
