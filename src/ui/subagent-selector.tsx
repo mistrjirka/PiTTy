@@ -11,6 +11,14 @@ function description(target: SubagentTarget): string {
   return [group, target.state, target.run.mode, elapsed].filter(Boolean).join(" · ");
 }
 
+export function subagentSelectorOptions(targets: readonly SubagentTarget[]) {
+  return subagentTreeRows(targets).map((row) => ({
+    name: `${row.prefix}${row.target.active ? "●" : "○"} ${row.target.label}`,
+    description: description(row.target),
+    value: row.target,
+  }));
+}
+
 export function SubagentSelectorDialog(props: {
   targets: SubagentTarget[];
   selectedKey?: string | undefined;
@@ -18,12 +26,7 @@ export function SubagentSelectorDialog(props: {
   onCancel: () => void;
 }) {
   let select: SelectRenderable | undefined;
-  const rows = createMemo(() => subagentTreeRows(props.targets));
-  const options = createMemo(() => rows().map((row) => ({
-    name: `${row.prefix}${row.target.active ? "●" : "○"} ${row.target.label}`,
-    description: description(row.target),
-    value: row.target,
-  })));
+  const options = createMemo(() => subagentSelectorOptions(props.targets));
   const selectedIndex = createMemo(() => {
     const index = props.targets.findIndex((target) => target.key === props.selectedKey);
     return index >= 0 ? index : 0;
