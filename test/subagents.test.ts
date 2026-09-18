@@ -43,7 +43,7 @@ import {
 	type SubagentTarget,
 } from "../src/subagents/targets.ts";
 import { initialItems } from "../src/state/conversation.ts";
-import type { ConversationItem, SubagentRun, SubagentStep, ToolItem } from "../src/types.ts";
+import type { AssistantItem, ConversationItem, SubagentRun, SubagentStep, ToolItem } from "../src/types.ts";
 import { isSpawnToolItem, spawnGroupRowText } from "../src/ui/spawn-group.tsx";
 import { clip, stateIcon } from "../src/ui/model-context.tsx";
 
