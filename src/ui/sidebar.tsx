@@ -359,7 +359,6 @@ export function Sidebar(props: {
 	const renderTarget = (
 		target: SubagentTarget,
 		prefix = "",
-		descendantCount = 0,
 	) => {
 		const selected = () =>
 			target.key === selectedKey() ||
@@ -574,7 +573,7 @@ export function Sidebar(props: {
 										}
 									>
 										<For each={subagentTreeRows(targets())}>
-											{(row) => renderTarget(row.target, row.prefix, row.descendantCount)}
+											{(row) => renderTarget(row.target, row.prefix)}
 										</For>
 									</Show>
 								</scrollbox>
