@@ -7,6 +7,7 @@ import type {
 	NotificationRecord,
 } from "../types.ts";
 import { subagentTargets, type SubagentTarget } from "../subagents/targets.ts";
+import { subagentTreeRows } from "../subagents/tree.ts";
 import { formatDuration } from "./duration.ts";
 import type { RequestPerformance } from "../tabs/request-metrics.ts";
 import {
@@ -355,7 +356,11 @@ export function Sidebar(props: {
 	const todoHeight = () => panelAllocation().todos;
 	const notificationHeight = () => panelAllocation().notifications;
 
-	const renderTarget = (target: SubagentTarget) => {
+	const renderTarget = (
+		target: SubagentTarget,
+		prefix = "",
+		descendantCount = 0,
+	) => {
 		const selected = () =>
 			target.key === selectedKey() ||
 			(!selectedKey() && target === targets()[0]);
@@ -395,7 +400,7 @@ export function Sidebar(props: {
 							attributes={selected() ? 1 : 0}
 							wrapMode="none"
 						>
-							{clip(`${stateIcon(target.state)} ${target.label}`, 31)}
+							{clip(`${prefix}${descendantCount > 0 ? "▾ " : ""}${stateIcon(target.state)} ${target.label}`, 31)}
 						</text>
 					}
 				>
@@ -406,7 +411,7 @@ export function Sidebar(props: {
 						attributes={selected() ? 1 : 0}
 						wrapMode="none"
 					>
-						{clip(`${stateIcon(target.state)} ${target.label}`, 31)}
+						{clip(`${prefix}${descendantCount > 0 ? "▾ " : ""}${stateIcon(target.state)} ${target.label}`, 31)}
 					</text>
 					<text width="100%" height={1} fg={colors.text} wrapMode="none">
 						{clip(
@@ -565,7 +570,9 @@ export function Sidebar(props: {
 											</text>
 										}
 									>
-										<For each={targets()}>{renderTarget}</For>
+										<For each={subagentTreeRows(targets())}>
+											{(row) => renderTarget(row.target, row.prefix, row.descendantCount)}
+										</For>
 									</Show>
 								</scrollbox>
 							</box>
