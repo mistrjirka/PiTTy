@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.34
+
+### Live subagent thinking no longer renders twice
+
+- Live stream reconciliation now removes every exact persisted copy of the same thinking/text field instead of stopping after the first match. This covers Pi sessions that expose the same completed assistant snapshot more than once while `events.jsonl` is still live.
+- An exact adjacent assistant-twin guard runs after live wire-order reconciliation. If two identical assistant rows still survive (including two live stream groups with different block ids), PiTTy keeps one canonical row; tools and non-identical assistant content are untouched.
+- When one twin is the live stream row, that row wins so its wire position and future growth remain authoritative.
+- Added regressions matching the reported duplicated Thinking-panel shape and a second duplicate-stream-block case.
+
+Validation: full CI on Linux, macOS, and Windows before release.
+
 ## 0.6.33
 
 ### Recursive subagent tree follow-ups
