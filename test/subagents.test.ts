@@ -4403,6 +4403,7 @@ describe("profiled recursive tree projection", () => {
 		]);
 		expect(rows[0]?.descendantCount).toBe(3);
 		expect(rows[1]?.descendantCount).toBe(1);
+		expect(reconcileSubagentSelection(undefined, [], targets)).toBe(root.key);
 	});
 
 	test("a root agent_spawn owns only its direct child, never a closer-started grandchild", () => {
