@@ -1,17 +1,23 @@
-import { For, Show, createEffect } from "solid-js";
+import { For, Show, createEffect, createMemo } from "solid-js";
 import type {
 	MouseEvent,
 	ScrollBoxRenderable,
 	TextareaRenderable,
 } from "@opentui/core";
-import type { ConversationItem, SubagentRun } from "../types.ts";
+import type { ConversationItem, SubagentRun, ToolItem } from "../types.ts";
 import type { PendingSteerEntry } from "../state/input-continuity.ts";
 import {
+	ownedSubagentTargetsForItems,
 	subagentTargets,
 	targetContextPercent,
 	targetContextUsage,
 	type SubagentTarget,
 } from "../subagents/targets.ts";
+import {
+	subagentParentTarget,
+	subagentShortLabel,
+	subagentTargetPath,
+} from "../subagents/tree.ts";
 import { colors } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
 import {
@@ -68,6 +74,8 @@ export function SubagentInspector(props: {
 	onStop?: () => void;
 	onChooseTarget?: () => void;
 	targetCount?: number;
+	allTargets?: readonly SubagentTarget[] | undefined;
+	onInspectSubagentTarget?: ((targetKey: string) => void) | undefined;
 	/** Current shared spinner glyph from the main conversation's 250 ms tick. */
 	spinner?: string | undefined;
 	draft?: (() => string) | undefined;
@@ -84,6 +92,16 @@ export function SubagentInspector(props: {
 	const target = () =>
 		(props.target ?? (props.run ? subagentTargets([props.run])[0] : undefined))!;
 	const run = () => target().run;
+	const allTargets = () => props.allTargets ?? [];
+	const parentTarget = () => subagentParentTarget(target(), allTargets());
+	const breadcrumb = () =>
+		["Main", ...subagentTargetPath(target(), allTargets()).map(subagentShortLabel)].join(" › ");
+	const nestedOwnership = createMemo(() =>
+		ownedSubagentTargetsForItems(
+			props.items.filter((item): item is ToolItem => item.kind === "tool"),
+			allTargets(),
+		),
+	);
 	// Legacy pi-subagents supports pause/resume through its file-control inbox.
 	// Profiled subagents deliberately expose only steer/stop; do not invent a
 	// pause state that the resident Pi RPC child does not have.
@@ -222,6 +240,23 @@ export function SubagentInspector(props: {
 					>
 						{cleanTerminalText(target().label)} ▼
 					</text>
+					<Show when={parentTarget()}>
+						{(parent) => (
+							<text
+								id="subagent-inspector-parent"
+								fg={colors.purple}
+								attributes={1}
+								marginLeft={2}
+								onMouseDown={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									props.onInspectSubagentTarget?.(parent().key);
+								}}
+							>
+								← Parent
+							</text>
+						)}
+					</Show>
 					<text
 						id="subagent-inspector-close"
 						fg={colors.cyan}
@@ -229,9 +264,18 @@ export function SubagentInspector(props: {
 						marginLeft={2}
 						onMouseDown={requestClose}
 					>
-						← Main chat
+						⌂ Main
 					</text>
 				</box>
+				<text
+					height={1}
+					minHeight={1}
+					flexShrink={0}
+					wrapMode="none"
+					fg={colors.subtle}
+				>
+					{cleanTerminalText(breadcrumb())}
+				</text>
 				<text
 					height={1}
 					minHeight={1}
@@ -394,6 +438,12 @@ export function SubagentInspector(props: {
 						<MessageView
 							item={item}
 							showThinking
+							subagentTargets={
+								item.kind === "tool"
+									? (nestedOwnership().get(item.id) ?? [])
+									: []
+							}
+							onInspectSubagentTarget={props.onInspectSubagentTarget}
 							thinkingExpanded={() => props.thinkingExpanded?.(item.id) ?? true}
 							onToggleThinking={() => props.onToggleThinking?.(item.id)}
 							toolExpanded={
