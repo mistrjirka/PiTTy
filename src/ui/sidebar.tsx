@@ -361,7 +361,7 @@ export function Sidebar(props: {
 		const treePrefix = () => row.depth > 0 ? `${"  ".repeat(Math.min(row.depth, 4))}↳ ` : "";
 		const selected = () =>
 			target.key === selectedKey() ||
-			(!selectedKey() && target === targets()[0]);
+			(!selectedKey() && target.key === treeRows()[0]?.target.key);
 		// The usage line is empty when there is nothing to report (the state
 		// word already appears in the row above); collapse the box instead of
 		// leaving a blank third row. Both stay accessors so the reserved
