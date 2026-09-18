@@ -1,17 +1,23 @@
-import { For, Show, createEffect } from "solid-js";
+import { For, Show, createEffect, createMemo } from "solid-js";
 import type {
 	MouseEvent,
 	ScrollBoxRenderable,
 	TextareaRenderable,
 } from "@opentui/core";
-import type { ConversationItem, SubagentRun } from "../types.ts";
+import type { ConversationItem, SubagentRun, ToolItem } from "../types.ts";
 import type { PendingSteerEntry } from "../state/input-continuity.ts";
 import {
+	ownedSubagentTargetsForItems,
 	subagentTargets,
 	targetContextPercent,
 	targetContextUsage,
 	type SubagentTarget,
 } from "../subagents/targets.ts";
+import {
+	directSubagentChildren,
+	parentSubagentTarget,
+	subagentAncestors,
+} from "../subagents/tree.ts";
 import { colors } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
 import {
@@ -68,6 +74,8 @@ export function SubagentInspector(props: {
 	onStop?: () => void;
 	onChooseTarget?: () => void;
 	targetCount?: number;
+	allTargets?: readonly SubagentTarget[];
+	onInspectSubagentTarget?: (targetKey: string) => void;
 	/** Current shared spinner glyph from the main conversation's 250 ms tick. */
 	spinner?: string | undefined;
 	draft?: (() => string) | undefined;
@@ -84,10 +92,27 @@ export function SubagentInspector(props: {
 	const target = () =>
 		(props.target ?? (props.run ? subagentTargets([props.run])[0] : undefined))!;
 	const run = () => target().run;
+	const allTargets = () => props.allTargets ?? [target()];
+	const ancestors = createMemo(() => subagentAncestors(target(), allTargets()));
+	const parentTarget = createMemo(() => parentSubagentTarget(target(), allTargets()));
+	const directChildren = createMemo(() => directSubagentChildren(target(), allTargets()));
+	const ownedChildren = createMemo(() =>
+		ownedSubagentTargetsForItems(
+			props.items.filter((item): item is ToolItem => item.kind === "tool"),
+			directChildren(),
+		),
+	);
+	const compactAgentName = (entry: SubagentTarget): string => {
+		const id = entry.run.agentId ? `@${entry.run.agentId}` : entry.label;
+		return entry.run.profile ? `${id} · ${entry.run.profile}` : id;
+	};
+	const breadcrumb = () =>
+		["Main", ...ancestors().map(compactAgentName), compactAgentName(target())].join(" › ");
 	// Legacy pi-subagents supports pause/resume through its file-control inbox.
 	// Profiled subagents deliberately expose only steer/stop; do not invent a
 	// pause state that the resident Pi RPC child does not have.
-	const profiled = () => run().control === "profiled";
+	const profiled = () =>
+		run().control === "profiled" || run().runtime === "profiled-subagents";
 	const controlState = () => {
 		const state = run().state;
 		return profiled()
@@ -207,7 +232,7 @@ export function SubagentInspector(props: {
 					zIndex={10}
 				>
 					<text height={1} wrapMode="none" fg={colors.textBright} attributes={1}>
-						Subagent detail
+						{cleanTerminalText(breadcrumb())}
 					</text>
 					<box flexGrow={1} height={1} />
 					<text
@@ -232,18 +257,38 @@ export function SubagentInspector(props: {
 						← Main chat
 					</text>
 				</box>
-				<text
+				<box
 					height={1}
 					minHeight={1}
 					flexShrink={0}
-					wrapMode="none"
-					fg={colors.subtle}
+					flexDirection="row"
 				>
-					{props.targetCount && props.targetCount > 1
-						? "←/→ or Ctrl+←/→ switch · "
-						: ""}
-					↑/Ctrl+↑ main chat · Esc / Ctrl+I close
-				</text>
+					<Show when={parentTarget()}>
+						{(parent) => (
+							<text
+								id="subagent-inspector-parent"
+								fg={colors.purple}
+								attributes={1}
+								onMouseDown={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									props.onInspectSubagentTarget?.(parent().key);
+								}}
+							>
+								← {cleanTerminalText(compactAgentName(parent()))} parent
+							</text>
+						)}
+					</Show>
+					<Show when={parentTarget()}>
+						<text fg={colors.subtle}> · </text>
+					</Show>
+					<text wrapMode="none" fg={colors.subtle}>
+						{props.targetCount && props.targetCount > 1
+							? "←/→ switch · "
+							: ""}
+						Esc / Ctrl+I main chat
+					</text>
+				</box>
 				<Show
 					when={canControl()}
 				>
@@ -394,6 +439,10 @@ export function SubagentInspector(props: {
 						<MessageView
 							item={item}
 							showThinking
+							subagentTargets={
+								item.kind === "tool" ? (ownedChildren().get(item.id) ?? []) : undefined
+							}
+							onInspectSubagentTarget={props.onInspectSubagentTarget}
 							thinkingExpanded={() => props.thinkingExpanded?.(item.id) ?? true}
 							onToggleThinking={() => props.onToggleThinking?.(item.id)}
 							toolExpanded={
