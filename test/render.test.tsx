@@ -2899,6 +2899,176 @@ describe("OpenTUI components", () => {
 		).toBeDefined();
 	});
 
+	test("renders profiled descendants contiguously as a sidebar tree", async () => {
+		const profiledRun = (
+			agentId: string,
+			parentAgentId: string,
+			startedAt: number,
+			profile: string,
+		): SubagentRun => ({
+			runId: `profiled:${agentId}`,
+			control: "foreground",
+			runtime: "profiled-subagents",
+			treeId: "render-tree",
+			parentAgentId,
+			agentId,
+			profile,
+			label: agentId,
+			mode: parentAgentId === "root" ? "profiled" : "nested",
+			state: "running",
+			startedAt,
+			steps: [],
+		});
+		const runs = [
+			profiledRun("zoe", "theo", 4, "specialist"),
+			profiledRun("aki", "cai", 3, "explore"),
+			profiledRun("theo", "cai", 2, "explore"),
+			profiledRun("cai", "root", 1, "implementer"),
+		];
+		const setup = await mount(() => <Sidebar runs={runs} height={45} />, 42, 45);
+		const frame = setup.captureCharFrame();
+		const cai = frame.indexOf("@cai");
+		const theo = frame.indexOf("@theo");
+		const zoe = frame.indexOf("@zoe");
+		const aki = frame.indexOf("@aki");
+		expect(cai).toBeGreaterThanOrEqual(0);
+		expect(cai).toBeLessThan(theo);
+		expect(theo).toBeLessThan(zoe);
+		expect(zoe).toBeLessThan(aki);
+		expect(frame).toContain("↳ 🟢 @theo");
+		expect(frame).toContain("↳ 🟢 @zoe");
+	});
+
+	test("main spawn rows summarize descendants without pretending main spawned them", async () => {
+		const makeTarget = (
+			agentId: string,
+			parentAgentId: string,
+			profile: string,
+		): SubagentTarget => {
+			const run: SubagentRun = {
+				runId: `profiled:${agentId}`,
+				control: "profiled",
+				runtime: "profiled-subagents",
+				treeId: "message-tree",
+				parentAgentId,
+				agentId,
+				profile,
+				label: agentId,
+				mode: parentAgentId === "root" ? "profiled" : "nested",
+				state: "running",
+				startedAt: parentAgentId === "root" ? 1 : 2,
+				steps: [],
+			};
+			return {
+				key: run.runId,
+				run,
+				label: `@${agentId} · ${profile}`,
+				state: "running",
+				active: true,
+				canSteer: true,
+				startedAt: run.startedAt,
+			};
+		};
+		const direct = makeTarget("cai", "root", "implementer");
+		const nested = makeTarget("theo", "cai", "explore");
+		const spawn: ToolItem = {
+			kind: "tool",
+			id: "root-spawn",
+			toolCallId: "root-spawn-call",
+			name: "agent_spawn",
+			args: { agent: "implementer", prompt: "Implement it" },
+			output: "",
+			details: { runtime: "profiled-subagents", treeId: "message-tree", parentAgentId: "root", agentId: "cai", profile: "implementer", label: "implementation" },
+			timestamp: 1,
+			status: "done",
+			isError: false,
+		};
+		const setup = await mount(() => (
+			<MessageView
+				item={spawn}
+				showThinking
+				toolExpanded={false}
+				subagentTargets={[direct]}
+				allSubagentTargets={[nested, direct]}
+			/>
+		), 100, 24);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("@cai · implementer");
+		expect(frame).toContain("↳ 1 descendant");
+		expect(frame).not.toContain("@theo");
+	});
+
+	test("inspector binds nested spawn rows and exposes breadcrumb parent navigation", async () => {
+		const makeTarget = (
+			agentId: string,
+			parentAgentId: string,
+			profile: string,
+		): SubagentTarget => {
+			const run: SubagentRun = {
+				runId: `profiled:${agentId}`,
+				control: "profiled",
+				runtime: "profiled-subagents",
+				treeId: "inspector-tree",
+				parentAgentId,
+				agentId,
+				profile,
+				label: agentId,
+				mode: parentAgentId === "root" ? "profiled" : "nested",
+				state: "running",
+				startedAt: parentAgentId === "root" ? 1 : 2,
+				steps: [],
+			};
+			return {
+				key: run.runId,
+				run,
+				label: `@${agentId} · ${profile}`,
+				state: "running",
+				active: true,
+				canSteer: true,
+				startedAt: run.startedAt,
+			};
+		};
+		const parent = makeTarget("cai", "root", "implementer");
+		const child = makeTarget("theo", "cai", "explore");
+		const spawn: ToolItem = {
+			kind: "tool",
+			id: "nested-spawn",
+			toolCallId: "nested-spawn-call",
+			name: "agent_spawn",
+			args: { agent: "explore", prompt: "Inspect routing" },
+			output: "",
+			details: { runtime: "profiled-subagents", treeId: "inspector-tree", parentAgentId: "cai", agentId: "theo", profile: "explore", label: "routing" },
+			timestamp: 2,
+			status: "done",
+			isError: false,
+		};
+		const parentView = await mount(() => (
+			<SubagentInspector
+				target={parent}
+				targets={[child, parent]}
+				items={[spawn]}
+				now={3}
+				onInspectTarget={() => {}}
+			/>
+		), 120, 30);
+		const parentFrame = parentView.captureCharFrame();
+		expect(parentFrame).toContain("Subagents");
+		expect(parentFrame).toContain("@theo · explore");
+
+		const childView = await mount(() => (
+			<SubagentInspector
+				target={child}
+				targets={[child, parent]}
+				items={[]}
+				now={3}
+				onInspectTarget={() => {}}
+			/>
+		), 120, 24);
+		const childFrame = childView.captureCharFrame();
+		expect(childFrame).toContain("Main › @cai › @theo");
+		expect(childFrame).toContain("← @cai");
+	});
+
 	test("renders session and subagent status in the sidebar", async () => {
 		const state = {
 			sessionId: "session-1",
