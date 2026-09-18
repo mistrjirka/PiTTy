@@ -21,6 +21,7 @@ import { friendlyTargetState, targetFreshness } from "./model-context.tsx";
 import {
 	summarizeSubagentArgs,
 	taskGist,
+	nestedDescendantSummary,
 	terminalBadge,
 	workflowChildrenSummary,
 } from "./subagent-format.ts";
@@ -928,7 +929,8 @@ export function MessageView(props: {
 						subagentFamily() ? taskGist(item.args) : undefined;
 					const children = () =>
 						subagentFamily()
-							? workflowChildrenSummary(item.args, item.output)
+							? nestedDescendantSummary(item.details) ??
+								workflowChildrenSummary(item.args, item.output)
 							: undefined;
 					return (
 						<box
