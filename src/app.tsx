@@ -4079,6 +4079,7 @@ export function App(props: AppOptions) {
 											<SpawnGroupCard
 												group={group}
 												expanded={toolExpanded(group.id)}
+								allSubagentTargets={availableSubagentTargets()}
 												now={
 													live ||
 													group.targets.some((target) => target.active)
