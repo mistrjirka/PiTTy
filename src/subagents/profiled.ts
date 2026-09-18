@@ -1,9 +1,8 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import type { SubagentRun, ToolItem } from "../types.ts";
 import { fileContentKey } from "./cache-key.ts";
-import { PROFILED_RUNTIME_ROOT_PREFIX, safeProfiledControlDir } from "./profiled-paths.ts";
+import { PROFILED_RUNTIME_ROOT_PREFIX, profiledScanBase, safeProfiledControlDir } from "./profiled-paths.ts";
 
 const RUNTIME = "profiled-subagents" as const;
 
@@ -45,15 +44,19 @@ function toolState(item: ToolItem, details: Record<string, unknown>): string {
 }
 
 function runtimeRoots(): string[] {
+  // Scoped to profiledScanBase(): production scans os.tmpdir() as before,
+  // while tests point PI_PITTY_PROFILED_ROOT at an isolated temp root so
+  // the fallback scan below sees only that test's fixtures.
+  const base = profiledScanBase();
   let names: string[];
   try {
-    names = fs.readdirSync(os.tmpdir());
+    names = fs.readdirSync(base);
   } catch {
     return [];
   }
   return names
     .filter((name) => name.startsWith(PROFILED_RUNTIME_ROOT_PREFIX))
-    .map((name) => path.join(os.tmpdir(), name))
+    .map((name) => path.join(base, name))
     .filter((candidate) => {
       try {
         const stat = fs.lstatSync(candidate);
@@ -303,6 +306,25 @@ export function profiledRunIsLive(run: SubagentRun, now = Date.now()): boolean {
   return profiledOwnerIsAlive(run);
 }
 
+function statusDirectoriesAll(): Array<{ controlDir: string; status: ProfiledStatus }> {
+  const rows: Array<{ controlDir: string; status: ProfiledStatus }> = [];
+  for (const root of runtimeRoots()) {
+    let names: string[];
+    try {
+      names = fs.readdirSync(root);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const controlDir = safeControlDir(path.join(root, name));
+      if (!controlDir) continue;
+      const status = parseStatus(controlDir);
+      if (status) rows.push({ controlDir, status });
+    }
+  }
+  return rows;
+}
+
 function statusDirectoriesForTrees(treeIds: ReadonlySet<string>): Array<{ controlDir: string; status: ProfiledStatus }> {
   if (treeIds.size === 0) return [];
   const rows: Array<{ controlDir: string; status: ProfiledStatus }> = [];
@@ -436,13 +458,37 @@ export function profiledSubagentRunsFromTools(tools: readonly ToolItem[], option
     const treeId = text(details.treeId);
     if (treeId) treeIds.add(treeId);
   }
-  if (treeIds.size === 0) return [];
-
   const byRunId = new Map<string, SubagentRun>();
   for (const run of seeds) byRunId.set(run.runId, run);
   for (const { controlDir, status } of statusDirectoriesForTrees(treeIds)) {
     const run = runFromStatus(controlDir, status, options);
     byRunId.set(run.runId, run);
+  }
+  // Fallback discovery for restarted PiTTy / reloaded conversations without
+  // matching spawn tools: surface finished runs from every runtime root under
+  // the scan base (runtimeRoots() already scopes to PI_PITTY_PROFILED_ROOT).
+  // Only non-live runs are added, so live/current runs never double and a
+  // previous session's live child cannot read as live here. Transcripts load
+  // through the same runFromStatus/sessionFile/eventsPath plumbing.
+  // Same-run dedup is by control dir / runId only: the runId derives from the
+  // control dir basename, so one control dir is one run even when an ancestor
+  // and a nested grandchild share both treeId and agentId (the tree spans the
+  // whole subtree). Never dedup on agentId/treeId: that merges distinct runs.
+  const seenControlDirs = new Set<string>();
+  for (const run of byRunId.values()) {
+    if (run.controlDir) seenControlDirs.add(run.controlDir);
+  }
+  for (const { controlDir, status } of statusDirectoriesAll()) {
+    const runId = `profiled:${path.basename(controlDir)}`;
+    if (byRunId.has(runId) || seenControlDirs.has(controlDir)) continue;
+    const run = runFromStatus(controlDir, status, options);
+    // Finished/terminal only: withUnresponsiveFallback already mapped dead
+    // non-terminal states to `unresponsive`, so this reuses existing state
+    // words (finished/completed/failed/stopped/unresponsive) with no new
+    // vocabulary. Liveness itself is untouched (profiledRunIsLive).
+    if (profiledRunIsLive(run)) continue;
+    byRunId.set(run.runId, run);
+    seenControlDirs.add(controlDir);
   }
   return [...byRunId.values()].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
 }

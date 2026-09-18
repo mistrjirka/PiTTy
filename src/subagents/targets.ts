@@ -1002,10 +1002,28 @@ export function reconcileSubagentSelection(
 		);
 		if (matches.length === 1) return matches[0]?.key;
 	}
-	return nextTargets[0]?.key;
+	// Previous target is gone: prefer a live/current run, else the most recent
+	// finished run (nextTargets is already most-recent-first). Never yanks a
+	// surviving selection — that case returned above.
+	if (nextTargets.length === 0) return undefined;
+	return nextTargets.find((target) => target.active)?.key ?? nextTargets[0]?.key;
 }
 
 export function subagentTargetIdentity(target: SubagentTarget): string {
+	const run = target.run;
+	// Profiled runs are distinct per run even when they share a session file:
+	// identity leads with the control dir (or runId when status-less), then
+	// treeId/agentId, with the session file last — never bare agentId, never
+	// the session file alone. Legacy/file-backed runs without a control dir
+	// keep exactly today's session-then-key behavior.
+	const controlDir = run.controlDir?.trim();
+	if (controlDir || run.control === "profiled" || run.runtime === "profiled-subagents") {
+		const scope = controlDir ? `dir:${controlDir}` : `run:${run.runId}`;
+		const tree = run.treeId?.trim() ?? "";
+		const agent = run.agentId?.trim() ?? "";
+		const session = target.sessionFile?.trim() ?? "";
+		return `profiled:${scope}:${tree}:${agent}:${target.stepIndex ?? "run"}:${session}`;
+	}
 	const sessionFile = target.sessionFile?.trim();
 	return sessionFile
 		? `session:${target.stepIndex ?? "run"}:${sessionFile}`

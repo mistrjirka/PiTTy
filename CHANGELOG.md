@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.29
+
+### Subagent detail correctness batch
+
+- Interleaved stream order: the subagent fold now emits thinking/text and tool items in `events.jsonl` wire order, so `think → tool → think → tool` renders like the main chat instead of all thinkers first.
+- One row per tool call: a live stream twin no longer doubles the session row for the same call — the session row is authoritative once it renders the call, the stream row covers only the in-flight window.
+- Finished runs open at the top: the inspector pins finished/stopped/unresponsive transcripts to the first thinking section instead of the tail (live runs still tail-follow), via scroll-on-open plus a declarative sticky-start.
+- Previous-session fallback: finished runs are still listed with session-backed transcripts after a PiTTy restart, even with no spawn tools in the reloaded conversation; same-controlDir runs dedupe, distinct runs never merge.
+- Same-id runs never merge: target identity leads with control dir/runId, so a nested grandchild sharing its ancestor's bare id renders as its own row with its own transcript; routing still uses the bare direct-child id.
+- Edit expansion on subagents shows Changes: stream-built tool items now backfill diff/diffPath/details from the session's `toolResult`, so the Changes section renders as in main chat.
+- Idle residents stop advertising stale context: `idle`/`waiting` rows keep the tool count but drop the frozen window-usage number, in the sidebar, spawn groups, and the inspector header — mirroring the earlier resident-age removal.
+- Screenshot proof: four genuine 1400×1028 captures (`subagent-interleave`, `subagent-inline-header`, `subagent-finished-top`, `subagent-restart`, each with `.ansi`/`.html` source) under `docs/screenshots/`.
+
+Requires `@mistrjirka/pi-subagent` 0.5.1 for whole-tree id uniqueness (ancestor-chain seeding); PiTTy degrades gracefully on older runtimes.
+
+Validation: 141 + 132 tests passing across the two focused suites, typecheck clean; every behavior change carries a regression test proven to fail on the previous code.
+
 ## 0.6.28
 
 ### The inspector header takes one row instead of five

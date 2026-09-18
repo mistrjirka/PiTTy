@@ -4,6 +4,19 @@ import * as path from "node:path";
 
 export const PROFILED_RUNTIME_ROOT_PREFIX = "pi-profiled-subagents-";
 
+export const PROFILED_RUNTIME_ROOT_ENV = "PI_PITTY_PROFILED_ROOT";
+
+/**
+ * Base directory scanned for `pi-profiled-subagents-*` runtime roots.
+ * `PI_PITTY_PROFILED_ROOT` overrides it so tests can point discovery at an
+ * isolated temp root (fixture control dirs then never leak into other
+ * scans); when unset this is exactly today's `os.tmpdir()` prefix scan.
+ */
+export function profiledScanBase(): string {
+  const override = process.env[PROFILED_RUNTIME_ROOT_ENV]?.trim();
+  return override ? path.resolve(override) : os.tmpdir();
+}
+
 function relativeChild(root: string, candidate: string): string | undefined {
   const relative = path.relative(root, candidate);
   if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return undefined;
@@ -20,7 +33,7 @@ function relativeChild(root: string, candidate: string): string | undefined {
  * direct child of one `pi-profiled-subagents-*` runtime root after realpath
  * resolution, so the alias exception cannot be used to escape the temp tree.
  */
-export function safeProfiledControlDir(candidate: string, tmpDir = os.tmpdir()): string | undefined {
+export function safeProfiledControlDir(candidate: string, tmpDir = profiledScanBase()): string | undefined {
   const logicalTmp = path.resolve(tmpDir);
   const logicalCandidate = path.resolve(candidate);
   const logicalRelative = relativeChild(logicalTmp, logicalCandidate);

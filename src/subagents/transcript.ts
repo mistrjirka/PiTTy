@@ -387,38 +387,57 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
     lastTs = ts;
     return ts;
   };
-  // Phase 1: accumulate consecutive same-key thinking/text chunks.
-  const groups: StreamTextGroup[] = [];
-  const groupOccurrences = new Map<string, number>();
-  const toolEvents: Array<{ event: ProfiledStreamEvent; ts: number }> = [];
-  let current: StreamTextGroup | undefined;
-  for (const event of events) {
-    const ts = eventTs(event);
-    if (event.kind === "thinking" || event.kind === "text") {
-      if (!current || current.key !== event.key) {
-        const occurrence = groupOccurrences.get(event.key) ?? 0;
-        groupOccurrences.set(event.key, occurrence + 1);
-        current = {
-          key: event.key,
-          runId: event.runId,
-          blockId: event.blockId,
-          occurrence,
-          thinking: "",
-          text: "",
-          ts,
-        };
-        groups.push(current);
-      }
-      if (event.kind === "thinking") current.thinking += event.text;
-      else current.text += event.text;
-      current.ts = ts;
-      continue;
+  // Single pass in events.jsonl wire order: consecutive same-key
+  // thinking/text chunks accumulate into one group; the group is flushed
+  // inline at its wire position (on key change, on a tool event, or at the
+  // end) so `think, tool, think, tool` renders interleaved instead of all
+  // assistants first. Tool events are likewise handled inline at their wire
+  // position, with args/output backfilled from the session file's
+  // `toolCall`/`toolResult` entries for the same `toolCallId` (built lazily:
+  // only when a stream tool actually needs it).
+  let sessionTools: Map<string, SessionToolCall> | undefined;
+  const getSessionTools = (): Map<string, SessionToolCall> =>
+    (sessionTools ??= sessionToolCalls(readSessionMessages(run, stepIndex)));
+  // Session-authoritative diff backfill for stream-built tools: the session's
+  // `toolResult` messages carry `details` from which `initialItems` derives
+  // the diff via `normalizeResultDetails`, but `sessionToolCalls` only joins
+  // {name, args, output}. Without this map the stream item's Changes section
+  // stays empty. No `createMutationDiff`: child-cwd files are unreadable
+  // from here; the session is authoritative. Lazily built, like the join.
+  let sessionDiffs: Map<string, { diff: string; diffPath?: string; details: unknown }> | undefined;
+  const getSessionDiffs = (): Map<string, { diff: string; diffPath?: string; details: unknown }> => {
+    if (sessionDiffs) return sessionDiffs;
+    const map = new Map<string, { diff: string; diffPath?: string; details: unknown }>();
+    for (const message of readSessionMessages(run, stepIndex)) {
+      const record = objectRecord(message);
+      const role = typeof record?.role === "string" ? record.role : "";
+      if (role !== "toolResult" && role !== "tool") continue;
+      const toolCallId = text(record?.toolCallId).trim();
+      if (!toolCallId) continue;
+      const normalized = normalizeResultDetails(record?.details);
+      if (!normalized.diff) continue;
+      map.set(toolCallId, {
+        diff: normalized.diff,
+        ...(normalized.path ? { diffPath: normalized.path } : {}),
+        details: record?.details,
+      });
     }
-    current = undefined;
-    toolEvents.push({ event, ts });
+    sessionDiffs = map;
+    return map;
+  };
+  const persistedToolCallIds = new Set<string>();
+  for (const item of items) {
+    if (item.kind === "tool") persistedToolCallIds.add(item.toolCallId);
   }
-  for (const group of groups) {
-    if (!group.thinking && !group.text) continue;
+  const groupOccurrences = new Map<string, number>();
+  const streamToolByCallId = new Map<string, number[]>();
+  const streamToolByName = new Map<string, number[]>();
+  const toolFallbackCounts = new Map<string, number>();
+  let current: StreamTextGroup | undefined;
+  const flushCurrent = (): void => {
+    const group = current;
+    current = undefined;
+    if (!group || (!group.thinking && !group.text)) return;
     const id = streamTextGroupId(group.runId || run.runId, group);
     if (live) {
       const fresh: AssistantItem = {
@@ -433,25 +452,41 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
     } else {
       mergeStreamGroup(items, group, id);
     }
-  }
-  // Phase 2: tool events, with args/output backfilled from the session file's
-  // `toolCall`/`toolResult` entries for the same `toolCallId` (built lazily:
-  // only when a stream tool actually needs it).
-  let sessionTools: Map<string, SessionToolCall> | undefined;
-  const getSessionTools = (): Map<string, SessionToolCall> =>
-    (sessionTools ??= sessionToolCalls(readSessionMessages(run, stepIndex)));
-  const persistedToolCallIds = new Set<string>();
-  for (const item of items) {
-    if (item.kind === "tool") persistedToolCallIds.add(item.toolCallId);
-  }
-  const streamToolByCallId = new Map<string, number[]>();
-  const streamToolByName = new Map<string, number[]>();
-  const toolFallbackCounts = new Map<string, number>();
-  for (const { event, ts } of toolEvents) {
+  };
+  for (const event of events) {
+    const ts = eventTs(event);
+    if (event.kind === "thinking" || event.kind === "text") {
+      if (!current || current.key !== event.key) {
+        flushCurrent();
+        const occurrence = groupOccurrences.get(event.key) ?? 0;
+        groupOccurrences.set(event.key, occurrence + 1);
+        current = {
+          key: event.key,
+          runId: event.runId,
+          blockId: event.blockId,
+          occurrence,
+          thinking: "",
+          text: "",
+          ts,
+        };
+      }
+      if (event.kind === "thinking") current.thinking += event.text;
+      else current.text += event.text;
+      current.ts = ts;
+      continue;
+    }
+    flushCurrent();
     if (event.kind === "tool_start") {
-      // A stopped run's session is authoritative for tools it already has.
-      if (!live && event.toolCallId !== undefined && persistedToolCallIds.has(event.toolCallId)) continue;
+      // The session row is authoritative for tools it already renders (it
+      // carries the final output/diff natively): a stream twin would render
+      // the same call twice — once at start, once at finish. Skip it live
+      // or stopped. While the session lacks the result there is no session
+      // row, so the stream row below is still created and transitions
+      // streaming→done; once the result lands, the next read renders the
+      // single session row instead.
+      if (event.toolCallId !== undefined && persistedToolCallIds.has(event.toolCallId)) continue;
       const backfill = event.toolCallId !== undefined ? getSessionTools().get(event.toolCallId) : undefined;
+      const diffBackfill = event.toolCallId !== undefined ? getSessionDiffs().get(event.toolCallId) : undefined;
       const fallbackKey = event.toolCallId ?? `name-${event.toolName}`;
       const fallbackCount = toolFallbackCounts.get(fallbackKey) ?? 0;
       toolFallbackCounts.set(fallbackKey, fallbackCount + 1);
@@ -465,6 +500,9 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
         name: event.toolName,
         args: backfill?.args,
         output: backfill?.output ?? "",
+        ...(diffBackfill ? { diff: diffBackfill.diff } : {}),
+        ...(diffBackfill?.diffPath ? { diffPath: diffBackfill.diffPath } : {}),
+        ...(diffBackfill ? { details: diffBackfill.details } : {}),
         timestamp: ts,
         startedAt: ts,
         status: live ? "streaming" : "done",
@@ -492,9 +530,19 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
     const tool = items[targetIndex];
     if (tool?.kind === "tool") {
       const backfill = getSessionTools().get(tool.toolCallId);
-      items[targetIndex] = { ...tool, endedAt: ts, status: "done", output: tool.output || backfill?.output || "" };
+      const diffBackfill = getSessionDiffs().get(tool.toolCallId);
+      items[targetIndex] = {
+        ...tool,
+        endedAt: ts,
+        status: "done",
+        output: tool.output || backfill?.output || "",
+        ...(diffBackfill && !tool.diff ? { diff: diffBackfill.diff } : {}),
+        ...(diffBackfill?.diffPath && !tool.diffPath ? { diffPath: diffBackfill.diffPath } : {}),
+        ...(diffBackfill && tool.details === undefined ? { details: diffBackfill.details } : {}),
+      };
     }
   }
+  flushCurrent();
 }
 
 function readSessionMessages(run: SubagentRun, stepIndex?: number): unknown[] {

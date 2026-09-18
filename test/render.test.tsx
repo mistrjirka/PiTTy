@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -50,7 +50,7 @@ import {
 	type RequestTiming,
 } from "../src/tabs/request-timing.ts";
 import { NotificationDialog } from "../src/ui/notification-dialog.tsx";
-import { SubagentInspector } from "../src/ui/subagent-inspector.tsx";
+import { SubagentInspector, inspectedTargetScrollY } from "../src/ui/subagent-inspector.tsx";
 import { ForkPicker } from "../src/ui/fork-picker.tsx";
 import { TabStrip } from "../src/ui/tab-strip.tsx";
 import { forkPickerOptions } from "../src/tabs/entry-index.ts";
@@ -125,9 +125,21 @@ registerBundledParsers();
 
 const active: TestRendererSetup[] = [];
 const tempDirs: string[] = [];
+// Isolate profiled fallback discovery: some suites render subagent targets,
+// which scans runtime roots. Point it at an empty isolated base so host /tmp
+// leftovers never leak into rendered rows. Literal env name keeps this file
+// importing cleanly when src is stashed for a failing-before proof.
+const ORIGINAL_PROFILED_ROOT = process.env.PI_PITTY_PROFILED_ROOT;
+beforeEach(() => {
+	const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-profiled-isolated-"));
+	tempDirs.push(isolated);
+	process.env.PI_PITTY_PROFILED_ROOT = isolated;
+});
 afterEach(() => {
 	for (const setup of active.splice(0)) setup.renderer.destroy();
 	for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+	if (ORIGINAL_PROFILED_ROOT === undefined) delete process.env.PI_PITTY_PROFILED_ROOT;
+	else process.env.PI_PITTY_PROFILED_ROOT = ORIGINAL_PROFILED_ROOT;
 });
 
 async function mount(
@@ -1028,6 +1040,151 @@ describe("OpenTUI components", () => {
 		expect(subagentFrame).not.toContain("[38;2;");
 	});
 
+	test("inspectedTargetScrollY opens finished runs at the top and keeps live runs at the tail", () => {
+		expect(inspectedTargetScrollY({ active: true })).toBe(Number.MAX_SAFE_INTEGER);
+		expect(inspectedTargetScrollY({ active: false })).toBe(0);
+		expect(inspectedTargetScrollY(undefined)).toBe(0);
+	});
+
+	test("a finished inspector transcript shows the first thinking at the top and the tail at the bottom", async () => {
+		const items: ConversationItem[] = [
+			{ kind: "user", id: "scroll-user", text: "task", timestamp: 1, optimistic: false },
+			{ kind: "assistant", id: "scroll-first", text: "", thinking: "FIRST thinking section", timestamp: 2, status: "done" },
+			...Array.from({ length: 6 }, (_, index): ConversationItem => ({
+				kind: "tool",
+				id: `scroll-tool-${index}`,
+				toolCallId: `scroll-call-${index}`,
+				name: "bash",
+				args: "ls",
+				output: `output ${index}`,
+				timestamp: 3 + index,
+				startedAt: 3 + index,
+				endedAt: 3 + index,
+				status: "done",
+				isError: false,
+			})),
+			{ kind: "assistant", id: "scroll-second", text: "", thinking: "SECOND thinking section", timestamp: 20, status: "done" },
+		];
+		const run: SubagentRun = { runId: "scroll-run", mode: "single", state: "completed", steps: [] };
+		let scroll: ScrollBoxRenderable | undefined;
+		const setup = await mount(
+			() => (
+				<SubagentInspector
+					run={run}
+					items={items}
+					now={1_000}
+					scrollRef={(value) => {
+						scroll = value;
+					}}
+					thinkingExpanded={() => true}
+					toolExpanded={() => false}
+					diffExpanded={() => false}
+				/>
+			),
+			100,
+			18,
+		);
+		if (!scroll) throw new Error("inspector transcript scrollbox missing");
+		// Finished runs open at the top: the first thinking section is on screen.
+		scroll.scrollTo(inspectedTargetScrollY({ active: false }));
+		await setup.flush();
+		await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
+		const top = setup.captureCharFrame();
+		expect(top).toContain("FIRST thinking section");
+		// Live runs keep the tail: the last thinking is on screen instead.
+		scroll.scrollTo(inspectedTargetScrollY({ active: true }));
+		await setup.flush();
+		await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
+		const bottom = setup.captureCharFrame();
+		expect(bottom).toContain("SECOND thinking section");
+		expect(bottom).not.toContain("FIRST thinking section");
+	});
+
+	test("inspector mounts at the top for finished runs and at the tail for live runs", async () => {
+		// No explicit scrollTo: this guards the mount position itself, which the
+		// app's queued scrollTo races and loses on first open (the transcript
+		// box pins to stickyStart="bottom" by default).
+		const tallItems = (first: string, last: string): ConversationItem[] => [
+			{ kind: "assistant", id: `mount-first`, text: "", thinking: first, timestamp: 2, status: "done" },
+			...Array.from({ length: 12 }, (_, index): ConversationItem => ({
+				kind: "tool",
+				id: `mount-tool-${index}`,
+				toolCallId: `mount-call-${index}`,
+				name: "bash",
+				args: "ls",
+				output: `output ${index}`,
+				timestamp: 3 + index,
+				startedAt: 3 + index,
+				endedAt: 3 + index,
+				status: "done",
+				isError: false,
+			})),
+			{ kind: "assistant", id: `mount-last`, text: "", thinking: last, timestamp: 99, status: "done" },
+		];
+		const finishedRun: SubagentRun = { runId: "mount-finished", mode: "single", state: "completed", steps: [] };
+		const finishedTarget = subagentTargets([finishedRun])[0]!;
+		expect(finishedTarget.active).toBe(false);
+		const finishedView = await mount(
+			() => (
+				<SubagentInspector
+					target={finishedTarget}
+					items={tallItems("MOUNT-FIRST", "MOUNT-LAST")}
+					now={1_000}
+					thinkingExpanded={() => true}
+					toolExpanded={() => false}
+					diffExpanded={() => false}
+				/>
+			),
+			100,
+			18,
+		);
+		const finishedFrame = finishedView.captureCharFrame();
+		expect(finishedFrame).toContain("MOUNT-FIRST");
+		expect(finishedFrame).not.toContain("MOUNT-LAST");
+		// A genuinely live target (fresh profiled heartbeat behind a spawn
+		// tool, as the app holds it) keeps the tail so the stream is followed.
+		const now = Date.now();
+		const base = process.env.PI_PITTY_PROFILED_ROOT?.trim() || os.tmpdir();
+		const root = fs.mkdtempSync(path.join(base, "pi-profiled-subagents-mount-"));
+		tempDirs.push(root);
+		const treeId = `tree-mount-${Date.now()}`;
+		const controlDir = path.join(root, "mount-live-");
+		fs.mkdirSync(path.join(controlDir, "control", "steer-requests"), { recursive: true });
+		fs.mkdirSync(path.join(controlDir, "control", "acks"), { recursive: true });
+		const statusPath = path.join(controlDir, "status.json");
+		fs.writeFileSync(statusPath, JSON.stringify({
+			version: 1, runtime: "profiled-subagents", treeId, updatedAt: now,
+			agentId: "mount-liver", profile: "explore", parentAgentId: "root", label: "mount-liver",
+			state: "running", startedAt: now - 1000,
+		}));
+		const liveTool: ToolItem = {
+			kind: "tool", id: "spawn-mount-liver", toolCallId: "spawn-mount-liver-call", name: "agent_spawn",
+			args: { agent: "explore" }, output: "", details: {
+				runtime: "profiled-subagents", treeId, parentAgentId: "root", agentId: "mount-liver", profile: "explore",
+				label: "mount-liver", state: "running", controlDir, statusPath,
+			}, timestamp: now, status: "done", isError: false,
+		};
+		const liveTarget = subagentTargets([], [liveTool]).find((target) => target.run.agentId === "mount-liver")!;
+		expect(liveTarget.active).toBe(true);
+		const liveView = await mount(
+			() => (
+				<SubagentInspector
+					target={liveTarget}
+					items={tallItems("MOUNT-LIVE-FIRST", "MOUNT-LIVE-LAST")}
+					now={now}
+					thinkingExpanded={() => true}
+					toolExpanded={() => false}
+					diffExpanded={() => false}
+				/>
+			),
+			100,
+			18,
+		);
+		const liveFrame = liveView.captureCharFrame();
+		expect(liveFrame).toContain("MOUNT-LIVE-LAST");
+		expect(liveFrame).not.toContain("MOUNT-LIVE-FIRST");
+	});
+
 	test("synchronizes subagent drafts when the owner restores or clears them", async () => {
 		const run: SubagentRun = {
 			runId: "draft-run",
@@ -1783,6 +1940,123 @@ describe("OpenTUI components", () => {
 		const expandedFrame = expanded.captureCharFrame();
 		expect(expandedFrame).toContain("old value");
 		expect(expandedFrame).toContain("new value");
+	});
+
+	test("completed profiled tools render one row with a Changes section", async () => {
+		// The live event stream carries no diff; the session file's toolResult
+		// `details` is authoritative (same derivation as `initialItems`). The
+		// stream twin of an already-rendered session tool is skipped, so the
+		// call renders once — with its Changes section intact.
+		const now = Date.now();
+		const base = process.env.PI_PITTY_PROFILED_ROOT?.trim() || os.tmpdir();
+		const root = fs.mkdtempSync(path.join(base, "pi-profiled-subagents-stream-diff-"));
+		tempDirs.push(root);
+		const treeId = `tree-stream-diff-${Date.now()}`;
+		const controlDir = path.join(root, "stream-diff-live");
+		fs.mkdirSync(path.join(controlDir, "control", "steer-requests"), { recursive: true });
+		fs.mkdirSync(path.join(controlDir, "control", "acks"), { recursive: true });
+		const sessionFile = path.join(root, "stream-diff-session.jsonl");
+		fs.writeFileSync(
+			sessionFile,
+			[
+				JSON.stringify({
+					message: {
+						role: "assistant",
+						content: [{ type: "toolCall", id: "call-edit-1", name: "edit", arguments: { path: "x" } }],
+						timestamp: now - 500,
+					},
+				}),
+				JSON.stringify({
+					message: {
+						role: "toolResult",
+						toolCallId: "call-edit-1",
+						toolName: "edit",
+						content: "Applied edit",
+						details: {
+							diff: "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n",
+							path: "x",
+						},
+						timestamp: now - 400,
+					},
+				}),
+				].join("\n") + "\n",
+		);
+		const statusPath = path.join(controlDir, "status.json");
+		fs.writeFileSync(statusPath, JSON.stringify({
+			version: 1, runtime: "profiled-subagents", treeId, updatedAt: now,
+			agentId: "stream-differ", profile: "explore", parentAgentId: "root", label: "stream-differ",
+			state: "running", startedAt: now - 1000, sessionPath: sessionFile,
+		}));
+		let seq = 0;
+		const event = (line: Record<string, unknown>) =>
+			JSON.stringify({ v: 1, seq: seq++, ts: now, runId: "stream-differ", ...line });
+		fs.writeFileSync(
+			path.join(controlDir, "events.jsonl"),
+			[
+				event({ kind: "tool_start", toolName: "edit", toolCallId: "call-edit-1" }),
+				event({ kind: "tool_end", toolName: "edit", toolCallId: "call-edit-1" }),
+			].join("\n") + "\n",
+		);
+		const tool: ToolItem = {
+			kind: "tool", id: "spawn-stream-diff", toolCallId: "spawn-stream-diff-call", name: "agent_spawn",
+			args: { agent: "explore" }, output: "", details: {
+				runtime: "profiled-subagents", treeId, parentAgentId: "root", agentId: "stream-differ", profile: "explore",
+				label: "stream-differ", state: "running", controlDir, statusPath,
+			}, timestamp: now, status: "done", isError: false,
+		};
+		const target = subagentTargets([], [tool]).find((entry) => entry.run.agentId === "stream-differ")!;
+		expect(target.active).toBe(true);
+		// Exactly one row per call: no stream twin alongside the session row.
+		const callTools = readSubagentConversation(target.run).filter(
+			(item): item is ToolItem => item.kind === "tool" && item.toolCallId === "call-edit-1",
+		);
+		expect(callTools).toHaveLength(1);
+		const streamTool = callTools[0]!;
+		expect(streamTool.diff ?? "").toContain("-old");
+		expect(streamTool.diffPath).toBe("x");
+		const setup = await mount(() => (
+			<MessageView item={streamTool} showThinking toolExpanded={false} diffExpanded={false} />
+		));
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("Changes");
+		expect(frame).toContain("+1");
+		expect(frame).toContain("-1");
+	});
+
+	test("idle residents show tool counts but no stale context usage", async () => {
+		const resident: SubagentTarget = {
+			key: "profiled:resident-idle",
+			run: {
+				runId: "profiled:resident-idle", control: "profiled", runtime: "profiled-subagents",
+				mode: "profiled", state: "idle", steps: [], agentId: "ron", profile: "explore",
+				label: "resident", toolCount: 3, tokens: { window: 168187 }, contextWindow: 1048576,
+			},
+			label: "@ron · explore",
+			state: "idle",
+			active: true,
+			canSteer: true,
+			startedAt: Date.now() - 1000,
+			lastUpdate: Date.now(),
+		};
+		// Row choke point: tools stay, the stale K/M window drops.
+		expect(targetToolUsage(resident)).toBe("3 tools");
+		const row = spawnGroupRowText(resident, Date.now());
+		expect(row).toContain("3 tools");
+		expect(row).not.toContain("/");
+		// Inspector header: the inline Context field drops, Model stays.
+		const setup = await mount(() => (
+			<SubagentInspector
+				target={{ ...resident, model: "provider/model", thinking: "medium" }}
+				items={[]}
+				now={Date.now()}
+				thinkingExpanded={() => true}
+				toolExpanded={() => false}
+				diffExpanded={() => false}
+			/>
+		));
+		const frame = setup.captureCharFrame();
+		expect(frame).not.toContain("Context");
+		expect(frame).toContain("provider/model");
 	});
 
 	test("renders profiled notifications as bounded identity cards", async () => {

@@ -112,6 +112,13 @@ export function targetToolUsage(target: SubagentTarget): string {
 	const parts: string[] = [];
 	const toolCount = target.step?.toolCount ?? target.run.toolCount;
 	if (toolCount !== undefined) parts.push(`${toolCount} tools`);
+	// Residents (`idle`) and parent-waiters (`waiting`) are live-but-idle:
+	// their context window is stale (nothing is running), so the row keeps
+	// only the tool count. Deliberately keeps `${toolCount} tools`.
+	if (isResidentTargetState(target.state)) {
+		if (parts.length > 0) return parts.join(" · ");
+		return "";
+	}
 	const contextUsage = targetContextUsage(target);
 	if (contextUsage) {
 		parts.push(contextUsage);

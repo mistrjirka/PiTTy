@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -48,9 +48,22 @@ import { isSpawnToolItem, spawnGroupRowText } from "../src/ui/spawn-group.tsx";
 import { clip, stateIcon } from "../src/ui/model-context.tsx";
 
 const roots: string[] = [];
+// Isolate profiled discovery per test: fixtures live under this base (see
+// profiledFixture) so host /tmp leftovers and sibling fixtures never leak
+// into exact-count assertions. Uses the literal env name (not the src export)
+// so these tests still import cleanly when src is stashed for the
+// failing-before proof.
+const ORIGINAL_PROFILED_ROOT = process.env.PI_PITTY_PROFILED_ROOT;
+beforeEach(() => {
+	const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-profiled-isolated-"));
+	roots.push(isolated);
+	process.env.PI_PITTY_PROFILED_ROOT = isolated;
+});
 afterEach(() => {
 	for (const root of roots.splice(0))
 		fs.rmSync(root, { recursive: true, force: true });
+	if (ORIGINAL_PROFILED_ROOT === undefined) delete process.env.PI_PITTY_PROFILED_ROOT;
+	else process.env.PI_PITTY_PROFILED_ROOT = ORIGINAL_PROFILED_ROOT;
 });
 
 function run(): SubagentRun {
@@ -68,7 +81,8 @@ function run(): SubagentRun {
 }
 
 function profiledFixture() {
-	const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-profiled-subagents-test-"));
+	const base = process.env.PI_PITTY_PROFILED_ROOT?.trim() || os.tmpdir();
+	const runtimeRoot = fs.mkdtempSync(path.join(base, "pi-profiled-subagents-test-"));
 	roots.push(runtimeRoot);
 	const treeId = `tree-${Date.now()}-${Math.random()}`;
 	const writeAgent = (name: string, value: Record<string, unknown>) => {
@@ -3719,6 +3733,99 @@ describe("profiled live event stream", () => {
 		expect(second[0].text).toBe("one two");
 		expect(second).not.toBe(first);
 	});
+
+	test("keeps interleaved thinking and tools in wire order", () => {
+		const { fixture, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "interleave-agent", "interleaved");
+		writeEvents(agent.controlDir, [
+			{ kind: "thinking", blockId: "think-1", text: "first thought" },
+			{ kind: "tool_start", toolName: "bash", toolCallId: "call-1" },
+			{ kind: "thinking", blockId: "think-2", text: "second thought" },
+			{ kind: "tool_end", toolName: "bash", toolCallId: "call-1" },
+		]);
+		const target = liveTarget("interleaved", [spawnTool(agent, "interleaved")]);
+		const items = readSubagentConversation(target!.run);
+		expect(items).toHaveLength(3);
+		expect(items.map((item) => item.kind)).toEqual(["assistant", "tool", "assistant"]);
+		const [first, tool, second] = items;
+		if (first?.kind !== "assistant" || second?.kind !== "assistant" || tool?.kind !== "tool") {
+			throw new Error("expected assistant, tool, assistant in wire order");
+		}
+		expect(first.thinking).toBe("first thought");
+		expect(tool.name).toBe("bash");
+		expect(tool.status).toBe("done");
+		expect(second.thinking).toBe("second thought");
+	});
+
+	test("live tools render one row per call when the session already holds the result", () => {
+		// Session call+result AND stream start+end for one callId: the stream
+		// twin must not double the session row (once at start, once at finish).
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-stream-dupe-"));
+		roots.push(dir);
+		const now = Date.now();
+		const sessionFile = path.join(dir, "session.jsonl");
+		fs.writeFileSync(sessionFile, [
+			JSON.stringify({
+				message: {
+					role: "assistant",
+					content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "x" } }],
+					timestamp: now - 500,
+				},
+			}),
+			JSON.stringify({
+				message: {
+					role: "toolResult", toolCallId: "call-1", toolName: "read",
+					content: "file contents", timestamp: now - 400,
+				},
+			}),
+		].join("\n") + "\n");
+		const eventsPath = path.join(dir, "events.jsonl");
+		let seq = 0;
+		fs.writeFileSync(eventsPath, [
+			{ kind: "tool_start", toolName: "read", toolCallId: "call-1" },
+			{ kind: "tool_end", toolName: "read", toolCallId: "call-1" },
+		].map((line) => JSON.stringify({ v: 1, seq: seq++, ts: now, runId: "dupe-child", ...line })).join("\n") + "\n");
+		const run: SubagentRun = {
+			runId: "dupe-live", mode: "profiled", control: "profiled", state: "running",
+			steps: [], sessionFile, eventsPath, startedAt: now - 1000,
+			lastUpdate: now, profiledStatusBacked: true,
+		};
+		const tools = readSubagentConversation(run).filter(
+			(item): item is ToolItem => item.kind === "tool" && item.toolCallId === "call-1",
+		);
+		expect(tools).toHaveLength(1);
+		expect(tools[0]?.status).toBe("done");
+		expect(tools[0]?.output).toBe("file contents");
+	});
+
+	test("live in-flight tools keep the single streaming stream row", () => {
+		// Session holds the call but no result yet: no session row exists, so
+		// the stream row below is still created and reads streaming.
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-stream-inflight-"));
+		roots.push(dir);
+		const now = Date.now();
+		const sessionFile = path.join(dir, "session.jsonl");
+		fs.writeFileSync(sessionFile, JSON.stringify({
+			message: {
+				role: "assistant",
+				content: [{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "x" } }],
+				timestamp: now - 500,
+			},
+		}) + "\n");
+		const eventsPath = path.join(dir, "events.jsonl");
+		fs.writeFileSync(eventsPath, JSON.stringify({ v: 1, seq: 0, ts: now, runId: "dupe-child", kind: "tool_start", toolName: "read", toolCallId: "call-1" }) + "\n");
+		const run: SubagentRun = {
+			runId: "dupe-inflight", mode: "profiled", control: "profiled", state: "running",
+			steps: [], sessionFile, eventsPath, startedAt: now - 1000,
+			lastUpdate: now, profiledStatusBacked: true,
+		};
+		const tools = readSubagentConversation(run).filter(
+			(item): item is ToolItem => item.kind === "tool" && item.toolCallId === "call-1",
+		);
+		expect(tools).toHaveLength(1);
+		expect(tools[0]?.status).toBe("streaming");
+		expect(tools[0]?.id.startsWith("subagent-stream-")).toBe(true);
+	});
 });
 
 describe("profiled subagent identity", () => {
@@ -3963,6 +4070,10 @@ describe("batch A data truth", () => {
 	});
 
 	test("stream tools backfill args and output from the session file", () => {
+		// In-flight: the session holds the call but no result yet, so no
+		// session row exists and the single stream row backfills args from
+		// the session file. (Once the result lands the session row takes over
+		// and no stream twin is created — one row per call.)
 		const run = liveProfiledRun(
 			[
 				{
@@ -3972,9 +4083,6 @@ describe("batch A data truth", () => {
 						timestamp: 100,
 					},
 				},
-				{
-					message: { role: "toolResult", toolCallId: "call-1", toolName: "read", content: "file contents", timestamp: 200 },
-				},
 			],
 			[
 				{ kind: "tool_start", toolName: "read", toolCallId: "call-1" },
@@ -3982,10 +4090,11 @@ describe("batch A data truth", () => {
 			],
 		);
 		const tools = readSubagentConversation(run).filter((item): item is ToolItem => item.kind === "tool");
+		expect(tools).toHaveLength(1);
 		const stream = tools.find((tool) => tool.id.startsWith("subagent-stream-"));
 		if (!stream) throw new Error("expected a stream tool item");
 		expect(stream.args).toEqual({ path: "x" });
-		expect(stream.output).toBe("file contents");
+		expect(stream.output).toBe("");
 		expect(stream.status).toBe("done");
 	});
 
@@ -4121,5 +4230,193 @@ describe("batch A data truth", () => {
 			},
 		});
 		expect(subagentTargets([], [supervisor])).toHaveLength(0);
+	});
+});
+
+describe("profiled previous-session fallback discovery", () => {
+	function finishedOrphanFixture(agentId: string, state = "completed") {
+		const fixture = profiledFixture();
+		const now = Date.now();
+		const old = now - PROFILED_HEARTBEAT_MAX_AGE_MS - 1;
+		const sessionPath = path.join(fixture.runtimeRoot, `${agentId}.jsonl`);
+		fs.writeFileSync(sessionPath, JSON.stringify({
+			message: { role: "assistant", content: [{ type: "text", text: `finished work from ${agentId}` }] },
+		}) + "\n");
+		const agent = fixture.writeAgent(`${agentId}-dir`, {
+			agentId, profile: "explore", parentAgentId: "root", label: agentId,
+			state, startedAt: old, updatedAt: old, sessionPath,
+		});
+		return { fixture, agent, sessionPath, old };
+	}
+
+	test("tool-less discovery finds a finished run from /tmp status+session", () => {
+		const agentId = `restart-orphan-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+		const { sessionPath } = finishedOrphanFixture(agentId);
+		// No spawn tools in the reloaded conversation: pure fallback scan.
+		const runs = profiledSubagentRunsFromTools([]);
+		const found = runs.find((run) => run.agentId === agentId);
+		expect(found).toBeDefined();
+		// Existing state words only — no new user-facing vocabulary.
+		expect(found?.state).toBeDefined();
+		expect(["completed", "failed", "stopped", "unresponsive"]).toContain(found!.state);
+		expect(found?.sessionFile).toBe(sessionPath);
+		// Same readSubagentConversation path: session-first transcript.
+		const items = readSubagentConversation(found!);
+		expect(items.some((item) => item.kind === "assistant" && item.text.includes(`finished work from ${agentId}`))).toBe(true);
+	});
+
+	test("no duplication when the same run is also tool-seeded", () => {
+		const agentId = `restart-dupe-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+		const { fixture, agent } = finishedOrphanFixture(agentId);
+		const tool: ToolItem = {
+			kind: "tool", id: `spawn-${agentId}`, toolCallId: `spawn-${agentId}-call`, name: "agent_spawn",
+			args: { agent: "explore" }, output: "", details: {
+				runtime: "profiled-subagents", treeId: fixture.treeId, parentAgentId: "root", agentId, profile: "explore",
+				label: agentId, state: "completed", controlDir: agent.controlDir, statusPath: agent.statusPath,
+			}, timestamp: Date.now(), status: "done", isError: false,
+		};
+		const runs = profiledSubagentRunsFromTools([tool]);
+		expect(runs.filter((run) => run.agentId === agentId)).toHaveLength(1);
+		const targets = subagentTargets([], [tool]);
+		expect(targets.filter((target) => target.run.agentId === agentId)).toHaveLength(1);
+	});
+
+	test("terminal run with deleted control dir still reads session-only transcript", () => {
+		// Reaped stream: status.json survives, events.jsonl never existed, so the
+		// tool-less fallback must still surface the run with a session-only read.
+		const streamlessId = `restart-streamless-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+		finishedOrphanFixture(streamlessId);
+		const streamless = profiledSubagentRunsFromTools([]).find((run) => run.agentId === streamlessId);
+		expect(streamless).toBeDefined();
+		expect(streamless?.eventsPath).toBeUndefined();
+		expect(readSubagentConversation(streamless!).some(
+			(item) => item.kind === "assistant" && item.text.includes(`finished work from ${streamlessId}`),
+		)).toBe(true);
+		// Fully reaped control dir (Pi-host reboot): the tool-seeded run keeps
+		// its sessionFile and reads the session-only transcript.
+		const goneId = `restart-gone-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+		const gone = finishedOrphanFixture(goneId);
+		fs.rmSync(gone.agent.controlDir, { recursive: true, force: true });
+		const tool: ToolItem = {
+			kind: "tool", id: `spawn-${goneId}`, toolCallId: `spawn-${goneId}-call`, name: "agent_spawn",
+			args: { agent: "explore" }, output: "", details: {
+				runtime: "profiled-subagents", treeId: gone.fixture.treeId, parentAgentId: "root", agentId: goneId,
+				profile: "explore", label: goneId, state: "running",
+				controlDir: gone.agent.controlDir, statusPath: gone.agent.statusPath,
+				sessionPath: gone.sessionPath,
+			}, timestamp: Date.now(), status: "done", isError: false,
+		};
+		const [seeded] = profiledSubagentRunsFromTools([tool]).filter((run) => run.sessionFile === gone.sessionPath);
+		expect(seeded).toBeDefined();
+		expect(readSubagentConversation(seeded!).some(
+			(item) => item.kind === "assistant" && item.text.includes(`finished work from ${goneId}`),
+		)).toBe(true);
+	});
+});
+
+describe("profiled same-id run identity", () => {
+	function sameIdFixture() {
+		const fixture = profiledFixture();
+		const now = Date.now();
+		const ancestorSession = path.join(fixture.runtimeRoot, "ancestor-eva.jsonl");
+		const nestedSession = path.join(fixture.runtimeRoot, "nested-eva.jsonl");
+		fs.writeFileSync(ancestorSession, JSON.stringify({
+			message: { role: "assistant", content: [{ type: "text", text: "ancestor eva transcript" }] },
+		}) + "\n");
+		fs.writeFileSync(nestedSession, JSON.stringify({
+			message: { role: "assistant", content: [{ type: "text", text: "nested eva transcript" }] },
+		}) + "\n");
+		// Same agentId `eva` and shared treeId (the tree spans the whole
+		// subtree), distinct control dirs/sessions/profiles: ancestor is a
+		// debugging-duck child of root, the other a nested explore grandchild.
+		const ancestor = fixture.writeAgent("ancestor-eva", {
+			agentId: "eva", profile: "debugging-duck", parentAgentId: "root", label: "ancestor-label",
+			state: "completed", startedAt: now - 2000, updatedAt: now - 2000, sessionPath: ancestorSession,
+		});
+		const nested = fixture.writeAgent("nested-eva", {
+			agentId: "eva", profile: "explore", parentAgentId: "eva", label: "nested-label",
+			state: "completed", startedAt: now - 1000, updatedAt: now - 1000, sessionPath: nestedSession,
+		});
+		return { fixture, ancestor, nested, ancestorSession, nestedSession };
+	}
+
+	test("same-id ancestor and nested grandchild render two rows with per-row profile and transcript", () => {
+		sameIdFixture();
+		const runs = profiledSubagentRunsFromTools([]);
+		expect(runs.filter((run) => run.agentId === "eva")).toHaveLength(2);
+		const targets = subagentTargets([], []);
+		expect(targets.filter((target) => target.run.agentId === "eva")).toHaveLength(2);
+		const ancestor = targets.find((target) => target.run.profile === "debugging-duck");
+		const nested = targets.find((target) => target.run.profile === "explore");
+		expect(ancestor?.label).toBe("@eva · debugging-duck — ancestor-label");
+		expect(nested?.label).toBe("@eva · explore — nested-label");
+		expect(ancestor?.key).not.toBe(nested?.key);
+		expect(readSubagentConversation(ancestor!.run).some(
+			(item) => item.kind === "assistant" && item.text.includes("ancestor eva transcript"),
+		)).toBe(true);
+		expect(readSubagentConversation(nested!.run).some(
+			(item) => item.kind === "assistant" && item.text.includes("nested eva transcript"),
+		)).toBe(true);
+		// Selecting the nested row keeps its key and reads its transcript,
+		// never the ancestor's.
+		expect(reconcileSubagentSelection(nested!.key, targets, targets)).toBe(nested!.key);
+		const cache = createSubagentTranscriptCache();
+		expect(cache(nested, true).some(
+			(item) => item.kind === "assistant" && item.text.includes("nested eva transcript"),
+		)).toBe(true);
+	});
+
+	test("two runs sharing one session file do not collapse", () => {
+		const fixture = profiledFixture();
+		const now = Date.now();
+		const sharedSession = path.join(fixture.runtimeRoot, "shared-eva.jsonl");
+		fs.writeFileSync(sharedSession, JSON.stringify({
+			message: { role: "assistant", content: [{ type: "text", text: "shared session work" }] },
+		}) + "\n");
+		fixture.writeAgent("share-one", {
+			agentId: "share-one", profile: "explore", parentAgentId: "root", label: "share-one",
+			state: "completed", startedAt: now - 2000, updatedAt: now - 2000, sessionPath: sharedSession,
+		});
+		fixture.writeAgent("share-two", {
+			agentId: "share-two", profile: "implementer", parentAgentId: "root", label: "share-two",
+			state: "completed", startedAt: now - 1000, updatedAt: now - 1000, sessionPath: sharedSession,
+		});
+		const targets = subagentTargets([], []);
+		expect(targets.filter((target) => target.sessionFile === sharedSession)).toHaveLength(2);
+	});
+
+	test("same controlDir via tool seed and fallback still dedupes to one row", () => {
+		const fixture = profiledFixture();
+		const now = Date.now();
+		const agent = fixture.writeAgent("dupe-eva", {
+			agentId: "eva", profile: "explore", parentAgentId: "root", label: "dupe-label",
+			state: "completed", startedAt: now - 1000, updatedAt: now - 1000,
+		});
+		const tool: ToolItem = {
+			kind: "tool", id: "spawn-dupe-eva", toolCallId: "spawn-dupe-eva-call", name: "agent_spawn",
+			args: { agent: "explore" }, output: "", details: {
+				runtime: "profiled-subagents", treeId: fixture.treeId, parentAgentId: "root", agentId: "eva",
+				profile: "explore", label: "dupe-label", state: "completed",
+				controlDir: agent.controlDir, statusPath: agent.statusPath,
+			}, timestamp: now, status: "done", isError: false,
+		};
+		expect(profiledSubagentRunsFromTools([tool]).filter((run) => run.agentId === "eva")).toHaveLength(1);
+		const targets = subagentTargets([], [tool]);
+		expect(targets.filter((target) => target.run.agentId === "eva")).toHaveLength(1);
+		expect(targets.filter((target) => target.run.agentId === "eva")[0]?.label).toBe("@eva · explore — dupe-label");
+	});
+
+	test("routing still addresses the bare direct-child id in its own control dir", () => {
+		const { ancestor, nested } = sameIdFixture();
+		const targets = subagentTargets([], []);
+		const nestedTarget = targets.find((target) => target.run.profile === "explore");
+		// Display identity is per-run, but routing uses the bare agent id.
+		expect(nestedTarget?.run.agentId).toBe("eva");
+		steerSubagent(nestedTarget!.run, "dig deeper");
+		const nestedRequests = fs.readdirSync(path.join(nested.controlDir, "control", "steer-requests"));
+		expect(nestedRequests).toHaveLength(1);
+		// The fixture pre-creates empty steer-requests dirs; routing must not
+		// have delivered the nested steer into the ancestor's inbox.
+		expect(fs.readdirSync(path.join(ancestor.controlDir, "control", "steer-requests"))).toHaveLength(0);
 	});
 });

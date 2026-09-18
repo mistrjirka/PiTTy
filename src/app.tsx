@@ -175,7 +175,7 @@ import {
 } from "./integrations/memory-store.ts";
 import { Sidebar } from "./ui/sidebar.tsx";
 import { NotificationDialog } from "./ui/notification-dialog.tsx";
-import { SubagentInspector } from "./ui/subagent-inspector.tsx";
+import { SubagentInspector, inspectedTargetScrollY } from "./ui/subagent-inspector.tsx";
 import { spinnerFrames } from "./ui/spinner.ts";
 import { resolveLiveChildTranscriptPath } from "./subagents/artifacts.ts";
 import { SubagentSelectorDialog } from "./ui/subagent-selector.tsx";
@@ -1036,7 +1036,7 @@ export function App(props: AppOptions) {
 		if (nextExtension) handleExtensionRequest(nextExtension);
 		resetMessageWindow(targetRuntime.conversation.items.length);
 		queueMicrotask(() => queueMicrotask(() => {
-			if (targetRuntime.inspectSubagent) subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER);
+			if (targetRuntime.inspectSubagent) subagentScroll?.scrollTo(inspectedTargetScrollY(selectedSubagentTarget()));
 			else scrollToBottom();
 		}));
 		draftSwitchGuard = true;
@@ -1854,8 +1854,9 @@ export function App(props: AppOptions) {
 	const inspectSubagentTarget = (targetKey: string) => {
 		setSelectedTargetKey(targetKey);
 		setInspectSubagent(true);
+		const target = availableSubagentTargets().find((entry) => entry.key === targetKey);
 		queueMicrotask(() =>
-			subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER),
+			subagentScroll?.scrollTo(inspectedTargetScrollY(target)),
 		);
 	};
 
@@ -3400,7 +3401,7 @@ export function App(props: AppOptions) {
 		setSelectedTargetKey(target.key);
 		setSubagentSelectorOpen(false);
 		setInspectSubagent(true);
-		queueMicrotask(() => subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER));
+		queueMicrotask(() => subagentScroll?.scrollTo(inspectedTargetScrollY(target)));
 	};
 
 	const cycleSubagent = (direction: 1 | -1) => {
@@ -3411,9 +3412,10 @@ export function App(props: AppOptions) {
 			all.findIndex((target) => target.key === selectedTargetKey()),
 		);
 		const nextIndex = (index + direction + all.length) % all.length;
-		setSelectedTargetKey(all[nextIndex]?.key);
+		const next = all[nextIndex];
+		setSelectedTargetKey(next?.key);
 		if (inspectSubagent())
-			queueMicrotask(() => subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER));
+			queueMicrotask(() => subagentScroll?.scrollTo(inspectedTargetScrollY(next)));
 	};
 
 	const sendSubagentSteer = (message: string) => {
@@ -3696,7 +3698,7 @@ export function App(props: AppOptions) {
 						setSelectedTargetKey(target.key);
 						setInspectSubagent(true);
 						queueMicrotask(() =>
-							subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER),
+							subagentScroll?.scrollTo(inspectedTargetScrollY(target)),
 						);
 					}
 				}
@@ -3899,7 +3901,7 @@ export function App(props: AppOptions) {
 			if (!target) return toast("No subagent selected", "warning");
 			setSelectedTargetKey(target.key);
 			setInspectSubagent(true);
-			queueMicrotask(() => subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER));
+			queueMicrotask(() => subagentScroll?.scrollTo(inspectedTargetScrollY(target)));
 			return;
 		}
 		if (keyIs(event, "a", { ctrl: true, shift: false })) {
@@ -4333,8 +4335,9 @@ export function App(props: AppOptions) {
 						onInspectTarget={(targetKey) => {
 							setSelectedTargetKey(targetKey);
 							setInspectSubagent(true);
+							const target = availableSubagentTargets().find((entry) => entry.key === targetKey);
 							queueMicrotask(() =>
-								subagentScroll?.scrollTo(Number.MAX_SAFE_INTEGER),
+								subagentScroll?.scrollTo(inspectedTargetScrollY(target)),
 							);
 						}}
 					/>

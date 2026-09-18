@@ -44,6 +44,18 @@ export function inspectorItemNow(
 	return undefined;
 }
 
+/**
+ * Where the inspector transcript should jump when the inspected target
+ * changes. Finished runs open at the top so the first thinking section is
+ * on screen; live runs keep the tail so the stream stays followed.
+ * Exported for unit tests.
+ */
+export function inspectedTargetScrollY(
+	target: { active: boolean } | undefined,
+): number {
+	return target?.active ? Number.MAX_SAFE_INTEGER : 0;
+}
+
 export function SubagentInspector(props: {
 	target?: SubagentTarget | undefined;
 	run?: SubagentRun | undefined;
@@ -95,8 +107,13 @@ export function SubagentInspector(props: {
 	};
 	const step = () => target().step;
 	const spinnerGlyph = () => props.spinner ?? spinnerFrames[0] ?? "◐";
-	const childContextUsage = () => targetContextUsage(target());
-	const childContextPercent = () => targetContextPercent(target());
+	// Residents (`idle`) and parent-waiters (`waiting`) are live-but-idle:
+	// their context window is stale, so the inline Context field drops (the
+	// tool count stays visible through the activity row). Mirrors the
+	// `targetToolUsage` resident rule at the row choke point.
+	const residentIdle = () => target().state === "idle" || target().state === "waiting";
+	const childContextUsage = () => (residentIdle() ? "" : (targetContextUsage(target()) ?? ""));
+	const childContextPercent = () => (residentIdle() ? undefined : targetContextPercent(target()));
 	// `active` is not "working": profiled `idle`/`waiting` children are live
 	// (resident / blocked on the parent) but must not show the spinner.
 	const isWorkingState = (state: string): boolean =>
@@ -351,7 +368,12 @@ export function SubagentInspector(props: {
 				scrollY
 				scrollX={false}
 				stickyScroll
-				stickyStart="bottom"
+				// Finished runs pin to the top so the first thinking section is
+				// on screen at open; live runs pin to the bottom so the stream
+				// stays followed. Declarative (not an imperative scrollTo) because
+				// the app's queued scrollTo races this mount and is lost on
+				// first open, while the box itself always wins its own race.
+				stickyStart={target().active ? "bottom" : "top"}
 				viewportCulling={false}
 				verticalScrollbarOptions={{ showArrows: false }}
 			>
