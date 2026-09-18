@@ -134,7 +134,7 @@ PiTTy checks GitHub Releases asynchronously at startup; set `PITTY_NO_UPDATE_CHE
 
 ## Subagent ordering
 
-Active and queued subagents are grouped first. Within each group, launch/index order remains stable; activity updates do not reorder peers.
+Top-level subagent trees are shown newest-run-first. Recursive descendants stay directly under their actual parent in spawn order, at any depth; activity updates do not reshuffle the tree. The selector and keyboard cycling use the same tree order as the sidebar.
 
 ## Diagnostics
 
