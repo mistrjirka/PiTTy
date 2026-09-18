@@ -1044,7 +1044,7 @@ export function MessageView(props: {
 												<text height={1} fg={colors.muted} wrapMode="none">
 													{isResidentTargetState(target.state)
 														? friendlyTargetState(target.state)
-														: `${friendlyTargetState(target.state)} · ${targetFreshness(target, props.now ?? Date.now())}`}
+														: `${friendlyTargetState(target.state)} · last activity ${targetFreshness(target, props.now ?? Date.now())}`}
 												</text>
 												<text height={1} fg={colors.subtle} wrapMode="none">
 													{target.step?.currentTool ??
