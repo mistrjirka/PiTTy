@@ -1034,10 +1034,54 @@ export type OwnedSubagentTargets = ReadonlyMap<string, SubagentTarget[]>;
 
 const NEAREST_RUN_WINDOW_MS = 30_000;
 
+function matchProfiledSpawn(
+	item: ToolItem,
+	targets: readonly SubagentTarget[],
+): SubagentTarget[] {
+	if (!isProfiledSubagentTool(item)) return [];
+	const details = record(item.details);
+	if (!details) return [];
+	const controlDir =
+		typeof details.controlDir === "string" && details.controlDir.trim()
+			? details.controlDir.trim()
+			: undefined;
+	if (controlDir) {
+		const exact = targets.filter(
+			(target) =>
+				target.run.runtime === "profiled-subagents" &&
+				target.run.controlDir?.trim() === controlDir,
+		);
+		if (exact.length > 0) return exact;
+	}
+	const treeId =
+		typeof details.treeId === "string" && details.treeId.trim()
+			? details.treeId.trim()
+			: undefined;
+	const agentId =
+		typeof details.agentId === "string" && details.agentId.trim()
+			? details.agentId.trim()
+			: undefined;
+	const parentAgentId =
+		typeof details.parentAgentId === "string" && details.parentAgentId.trim()
+			? details.parentAgentId.trim()
+			: undefined;
+	if (!treeId || !agentId) return [];
+	return targets.filter(
+		(target) =>
+			target.run.runtime === "profiled-subagents" &&
+			target.run.treeId?.trim() === treeId &&
+			target.run.agentId?.trim() === agentId &&
+			(parentAgentId === undefined ||
+				target.run.parentAgentId?.trim() === parentAgentId),
+	);
+}
+
 function matchByRunIdOrToolCallId(
 	item: ToolItem,
 	targets: readonly SubagentTarget[],
 ): SubagentTarget[] {
+	const profiled = matchProfiledSpawn(item, targets);
+	if (profiled.length > 0) return profiled;
 	const runId = subagentRunIdFromTool(item);
 	if (runId) {
 		const byRunId = targets.filter((target) => target.run.runId === runId);
@@ -1103,6 +1147,16 @@ export function ownedSubagentTargetsForItems(
 	const unclaimedByRun = new Map<string, SubagentTarget[]>();
 	for (const target of targets) {
 		if (claimed.has(subagentTargetIdentity(target))) continue;
+		// Nested profiled descendants are owned by the agent_spawn call in
+		// their immediate parent's transcript, not by a nearby root-level
+		// spawn. Timestamp fallback here used to make grandchildren appear as
+		// if the main agent had spawned them directly.
+		if (
+			target.run.runtime === "profiled-subagents" &&
+			target.run.parentAgentId &&
+			target.run.parentAgentId !== "root"
+		)
+			continue;
 		const group = unclaimedByRun.get(target.run.runId) ?? [];
 		group.push(target);
 		unclaimedByRun.set(target.run.runId, group);
