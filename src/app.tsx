@@ -183,6 +183,7 @@ import {
 	ownedSubagentTargetsForItems,
 	reconcileSubagentSelection,
 	subagentTargets,
+	subagentTreeRows,
 	type SubagentTarget,
 } from "./subagents/targets.ts";
 import { colors } from "./ui/theme.ts";
@@ -1570,12 +1571,13 @@ export function App(props: AppOptions) {
 			availableSubagentTargets(),
 		),
 	);
-	const selectedSubagentTarget = createMemo(
-		() =>
-			availableSubagentTargets().find(
-				(target) => target.key === selectedTargetKey(),
-			) ?? availableSubagentTargets()[0],
-	);
+	const selectedSubagentTarget = createMemo(() => {
+		const targets = availableSubagentTargets();
+		return (
+			targets.find((target) => target.key === selectedTargetKey()) ??
+			subagentTreeRows(targets)[0]?.target
+		);
+	});
 	const inspectedTranscriptCache = createSubagentTranscriptCache();
 	const inspectedTarget = createMemo(() => {
 		const target = selectedSubagentTarget();
@@ -3406,7 +3408,7 @@ export function App(props: AppOptions) {
 	};
 
 	const cycleSubagent = (direction: 1 | -1) => {
-		const all = availableSubagentTargets();
+		const all = subagentTreeRows(availableSubagentTargets()).map((row) => row.target);
 		if (!all.length) return;
 		const index = Math.max(
 			0,
