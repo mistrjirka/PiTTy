@@ -56,12 +56,17 @@ export function directSubagentChildren(
 	const id = agentId(target);
 	if (!id) return [];
 	return targets
-		.filter(
-			(candidate) =>
-				candidate !== target &&
-				sameProfiledTree(candidate, target) &&
-				parentAgentId(candidate) === id,
-		)
+		.filter((candidate) => {
+			if (
+				candidate === target ||
+				!sameProfiledTree(candidate, target) ||
+				parentAgentId(candidate) !== id
+			) return false;
+			// Apply the same uniqueness rule as parentSubagentTarget(). On older
+			// runtimes two ancestors may share one bare id; such a child must stay
+			// flat instead of being claimed by whichever duplicate renders first.
+			return parentSubagentTarget(candidate, targets)?.key === target.key;
+		})
 		.sort((a, b) => startedAt(a) - startedAt(b) || a.key.localeCompare(b.key));
 }
 
