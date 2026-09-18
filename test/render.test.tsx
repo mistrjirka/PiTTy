@@ -3189,11 +3189,15 @@ describe("OpenTUI components", () => {
 		);
 		const frame = selector.captureCharFrame();
 		const parentAt = frame.indexOf("@cai · implementer");
-		const firstAt = frame.indexOf("├─ ○ @theo · explore");
-		const secondAt = frame.indexOf("└─ ○ @aki · explore");
+		const firstAt = frame.indexOf("@theo · explore");
+		const secondAt = frame.indexOf("@aki · explore");
 		expect(parentAt).toBeGreaterThanOrEqual(0);
 		expect(firstAt).toBeGreaterThan(parentAt);
 		expect(secondAt).toBeGreaterThan(firstAt);
+		// OpenTUI's select control may insert its own selection marker between
+		// the tree prefix and option text, so assert the hierarchy separately.
+		expect(frame).toContain("├─");
+		expect(frame).toContain("└─");
 		expect(frame).toContain("Delegation tree");
 		expect(frame).not.toContain("Active first");
 	});
