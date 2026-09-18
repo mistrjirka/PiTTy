@@ -30,7 +30,8 @@ export function summarizeSubagentArgs(args: unknown): string | undefined {
 }
 
 export function taskGist(args: unknown): string | undefined {
-	const task = nonEmptyString(argsRecord(args)?.task);
+	const record = argsRecord(args);
+	const task = nonEmptyString(record?.task) ?? nonEmptyString(record?.prompt);
 	if (!task) return undefined;
 	const normalized = task.replace(/\s+/g, " ").trim();
 	return normalized.length > 90 ? `${normalized.slice(0, 89)}…` : normalized;
