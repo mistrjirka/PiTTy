@@ -3667,6 +3667,76 @@ describe("profiled live event stream", () => {
 		expect(answers[0]?.id).toContain("final-answer");
 	});
 
+	test("keeps live thinking between persisted tool rows in wire order", () => {
+		const { fixture, now, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "chronology-agent", "chronology-child");
+		const sessionPath = path.join(agent.controlDir, "session.jsonl");
+		const sessionLines = [
+			{ message: { role: "user", content: [{ type: "text", text: "Review this." }], timestamp: now - 1_000 } },
+			{ message: { role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: { command: "one" } }], timestamp: now - 900 } },
+			{ message: { role: "toolResult", toolCallId: "call-1", toolName: "bash", content: [{ type: "text", text: "one" }], timestamp: now - 700 } },
+			{ message: { role: "assistant", content: [{ type: "toolCall", id: "call-2", name: "read", arguments: { path: "two" } }], timestamp: now - 600 } },
+			{ message: { role: "toolResult", toolCallId: "call-2", toolName: "read", content: [{ type: "text", text: "two" }], timestamp: now - 300 } },
+		];
+		fs.writeFileSync(sessionPath, sessionLines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+		fs.writeFileSync(agent.statusPath, JSON.stringify({
+			version: 1,
+			runtime: "profiled-subagents",
+			treeId: fixture.treeId,
+			updatedAt: now,
+			agentId: "chronology-child",
+			profile: "explore",
+			parentAgentId: "root",
+			label: "chronology-child",
+			state: "running",
+			startedAt: now - 1_100,
+			sessionPath,
+		}));
+		writeEvents(agent.controlDir, [
+			{ ts: now - 950, kind: "thinking", blockId: "think-1", text: "first thought" },
+			{ ts: now - 900, kind: "tool_start", toolName: "bash", toolCallId: "call-1" },
+			{ ts: now - 700, kind: "tool_end", toolName: "bash", toolCallId: "call-1" },
+			{ ts: now - 650, kind: "thinking", blockId: "think-2", text: "middle thought" },
+			{ ts: now - 600, kind: "tool_start", toolName: "read", toolCallId: "call-2" },
+			{ ts: now - 300, kind: "tool_end", toolName: "read", toolCallId: "call-2" },
+			{ ts: now - 200, kind: "thinking", blockId: "think-3", text: "last thought" },
+		]);
+		const target = liveTarget("chronology-child", [spawnTool(agent, "chronology-child")]);
+		const items = readSubagentConversation(target!.run);
+		expect(items.map((item) => item.kind)).toEqual([
+			"user",
+			"assistant",
+			"tool",
+			"assistant",
+			"tool",
+			"assistant",
+		]);
+		expect(items.map((item) => item.kind === "assistant" ? item.thinking : item.kind === "tool" ? item.name : item.kind === "user" ? item.text : "")).toEqual([
+			"Review this.",
+			"first thought",
+			"bash",
+			"middle thought",
+			"read",
+			"last thought",
+		]);
+	});
+
+	test("keeps the beginning of a long live thinking block beyond 400 stream events", () => {
+		const { fixture, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "long-thinking-agent", "long-thinking");
+		writeEvents(agent.controlDir, Array.from({ length: 450 }, (_, index) => ({
+			kind: "thinking",
+			blockId: "think-long",
+			text: index === 0 ? "FIRST " : "x",
+		})));
+		const target = liveTarget("long-thinking", [spawnTool(agent, "long-thinking")]);
+		const items = readSubagentConversation(target!.run);
+		expect(items).toHaveLength(1);
+		if (items[0]?.kind !== "assistant") throw new Error("expected one accumulated thinking item");
+		expect(items[0].thinking.startsWith("FIRST ")).toBe(true);
+		expect(items[0].thinking.length).toBe("FIRST ".length + 449);
+	});
+
 	test("matches tool_end by call id and keeps a dangling start streaming", () => {
 		const { fixture, writeEvents, spawnTool, liveTarget } = streamHarness();
 		const agent = streamAgent(fixture, "tools-agent", "tools");
