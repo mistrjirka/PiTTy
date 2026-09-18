@@ -185,6 +185,7 @@ import {
 	subagentTargets,
 	type SubagentTarget,
 } from "./subagents/targets.ts";
+import { subagentTreeRows } from "./subagents/tree.ts";
 import { colors } from "./ui/theme.ts";
 import {
 	computeSpawnGroups,
@@ -1564,6 +1565,9 @@ export function App(props: AppOptions) {
 	const availableSubagentTargets = createMemo(() =>
 		subagentTargets(runs(), subagentTools(), { contextWindowForModel }),
 	);
+	const displaySubagentTargets = createMemo(() =>
+		subagentTreeRows(availableSubagentTargets()).map((row) => row.target),
+	);
 	const ownedVisibleSubagentTargets = createMemo(() =>
 		ownedSubagentTargetsForItems(
 			visibleItems().filter((item): item is ToolItem => item.kind === "tool"),
@@ -1574,7 +1578,7 @@ export function App(props: AppOptions) {
 		() =>
 			availableSubagentTargets().find(
 				(target) => target.key === selectedTargetKey(),
-			) ?? availableSubagentTargets()[0],
+			) ?? displaySubagentTargets()[0],
 	);
 	const inspectedTranscriptCache = createSubagentTranscriptCache();
 	const inspectedTarget = createMemo(() => {
@@ -3405,7 +3409,7 @@ export function App(props: AppOptions) {
 	};
 
 	const cycleSubagent = (direction: 1 | -1) => {
-		const all = availableSubagentTargets();
+		const all = displaySubagentTargets();
 		if (!all.length) return;
 		const index = Math.max(
 			0,
@@ -3876,7 +3880,7 @@ export function App(props: AppOptions) {
 		if (keyIs(event, "i", { ctrl: true })) {
 			event.preventDefault();
 			event.stopPropagation();
-			const targets = availableSubagentTargets();
+			const targets = displaySubagentTargets();
 			const decision = subagentInspectDecision(
 				inspectSubagent(),
 				targets.length,
@@ -3966,7 +3970,7 @@ export function App(props: AppOptions) {
 								onResume={requestResumeSubagent}
 								onStop={requestStopSubagent}
 								onChooseTarget={() => setSubagentSelectorOpen(true)}
-								targetCount={availableSubagentTargets().length}
+								targetCount={displaySubagentTargets().length}
 								allTargets={availableSubagentTargets()}
 								onInspectSubagentTarget={inspectSubagentTarget}
 								draft={() => currentDrafts().subagents.get(inspectedTarget()!.key) ?? ""}
