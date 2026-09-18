@@ -54,7 +54,7 @@ import { SubagentInspector, inspectedTargetScrollY } from "../src/ui/subagent-in
 import { ForkPicker } from "../src/ui/fork-picker.tsx";
 import { TabStrip } from "../src/ui/tab-strip.tsx";
 import { forkPickerOptions } from "../src/tabs/entry-index.ts";
-import { SubagentSelectorDialog } from "../src/ui/subagent-selector.tsx";
+import { SubagentSelectorDialog, subagentSelectorOptions } from "../src/ui/subagent-selector.tsx";
 import { subagentTargets, type SubagentTarget } from "../src/subagents/targets.ts";
 import {
 	computeSpawnGroups,
@@ -3141,6 +3141,47 @@ describe("OpenTUI components", () => {
 		expect(childFrame).toContain("Main › @cai · implementer › @theo · explore");
 		expect(childFrame).toContain("← @cai · implementer parent");
 	});
+
+	test("subagent chooser projects the same recursive hierarchy as the sidebar", () => {
+		const target = (
+			agentId: string,
+			parentAgentId: string,
+			profile: string,
+			startedAt: number,
+		): SubagentTarget => ({
+			key: `selector-${agentId}`,
+			run: {
+				runId: `selector-${agentId}`,
+				runtime: "profiled-subagents",
+				control: "profiled",
+				controlDir: `/tmp/selector-${agentId}`,
+				treeId: "tree-selector",
+				agentId,
+				parentAgentId,
+				profile,
+				label: profile,
+				mode: parentAgentId === "root" ? "profiled" : "nested",
+				state: "completed",
+				startedAt,
+				steps: [],
+			},
+			label: `@${agentId} · ${profile}`,
+			state: "completed",
+			active: false,
+			canSteer: false,
+			startedAt,
+		});
+		const parent = target("cai", "root", "implementer", 100);
+		const first = target("theo", "cai", "explore", 110);
+		const second = target("aki", "cai", "explore", 120);
+		const options = subagentSelectorOptions([second, first, parent]);
+		expect(options.map((option) => option.name)).toEqual([
+			"○ @cai · implementer",
+			"├─ ○ @theo · explore",
+			"└─ ○ @aki · explore",
+		]);
+	});
+
 
 	test("renders profiled descendants beneath their parent in the sidebar", async () => {
 		const profiledRun = (

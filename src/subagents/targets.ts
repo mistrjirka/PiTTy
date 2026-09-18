@@ -1142,6 +1142,15 @@ export function ownedSubagentTargetsForItems(
 	const unclaimedByRun = new Map<string, SubagentTarget[]>();
 	for (const target of targets) {
 		if (claimed.has(subagentTargetIdentity(target))) continue;
+		// A profiled descendant belongs to the agent_spawn call inside its
+		// immediate parent's transcript. Never let the legacy nearest-time
+		// fallback attach it to a root/main spawn card.
+		if (
+			target.run.runtime === "profiled-subagents" &&
+			target.run.parentAgentId &&
+			target.run.parentAgentId !== "root"
+		)
+			continue;
 		const group = unclaimedByRun.get(target.run.runId) ?? [];
 		group.push(target);
 		unclaimedByRun.set(target.run.runId, group);

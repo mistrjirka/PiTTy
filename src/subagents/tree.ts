@@ -60,7 +60,8 @@ export function directSubagentChildren(
 			(candidate) =>
 				candidate !== target &&
 				sameProfiledTree(candidate, target) &&
-				parentAgentId(candidate) === id,
+				parentAgentId(candidate) === id &&
+				parentSubagentTarget(candidate, targets) === target,
 		)
 		.sort((a, b) => startedAt(a) - startedAt(b) || a.key.localeCompare(b.key));
 }

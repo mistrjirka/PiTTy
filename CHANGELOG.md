@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.33
+
+### Recursive subagent tree follow-ups
+
+- Nested profile-driven descendants no longer fall through the legacy nearest-time ownership heuristic, so a grandchild cannot appear under a root/main spawn card that did not create it.
+- Ambiguous duplicate parent ids from older runtimes now stay flat consistently instead of being attached to whichever matching parent happens to render first.
+- Sidebar implicit selection follows the first rendered tree row instead of the old flat newest-first target list.
+- Inspector default selection, F6 cycling, Ctrl+I selection, and replacement selection after a child disappears now all follow the same tree order as the sidebar.
+- The subagent chooser now renders the same `├─ / └─` delegation hierarchy instead of flattening rows, and its stale “Active first” hint has been replaced with an accurate tree-navigation hint.
+- Added regressions for ambiguous ancestry, root-card ownership, and chooser hierarchy.
+
+Validation: typecheck and the complete unit suite pass on Linux, macOS, and Windows.
+
 ## 0.6.32
 
 ### Recursive subagents are shown as one tree

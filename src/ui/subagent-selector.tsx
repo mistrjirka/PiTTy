@@ -1,6 +1,7 @@
 import type { SelectRenderable } from "@opentui/core";
 import { createMemo } from "solid-js";
 import type { SubagentTarget } from "../subagents/targets.ts";
+import { subagentTreeRows } from "../subagents/tree.ts";
 import { formatDuration } from "./duration.ts";
 import { colors } from "./theme.ts";
 
@@ -10,6 +11,14 @@ function description(target: SubagentTarget): string {
   return [group, target.state, target.run.mode, elapsed].filter(Boolean).join(" · ");
 }
 
+export function subagentSelectorOptions(targets: readonly SubagentTarget[]) {
+  return subagentTreeRows(targets).map((row) => ({
+    name: `${row.prefix}${row.target.active ? "●" : "○"} ${row.target.label}`,
+    description: description(row.target),
+    value: row.target,
+  }));
+}
+
 export function SubagentSelectorDialog(props: {
   targets: SubagentTarget[];
   selectedKey?: string | undefined;
@@ -17,11 +26,7 @@ export function SubagentSelectorDialog(props: {
   onCancel: () => void;
 }) {
   let select: SelectRenderable | undefined;
-  const options = createMemo(() => props.targets.map((target) => ({
-    name: `${target.active ? "●" : "○"} ${target.label}`,
-    description: description(target),
-    value: target,
-  })));
+  const options = createMemo(() => subagentSelectorOptions(props.targets));
   const selectedIndex = createMemo(() => {
     const index = props.targets.findIndex((target) => target.key === props.selectedKey);
     return index >= 0 ? index : 0;
@@ -56,7 +61,7 @@ export function SubagentSelectorDialog(props: {
           }}
         >× Close</text>
       </box>
-      <text fg={colors.subtle}>Active first · stable within group · ↑/↓ move · Enter select · Esc close</text>
+      <text fg={colors.subtle}>Delegation tree · ↑/↓ move · Enter select · Esc close</text>
       <select
         ref={(value) => { select = value; }}
         options={options()}
