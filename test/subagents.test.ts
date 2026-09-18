@@ -3627,6 +3627,46 @@ describe("profiled live event stream", () => {
 		expect(items.every((item) => item.kind === "assistant" && item.status === "streaming")).toBe(true);
 	});
 
+	test("live stream owns a persisted final answer so it renders once in wire order", () => {
+		const { fixture, now, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "answer-agent", "answer-child");
+		const sessionPath = path.join(agent.controlDir, "session.jsonl");
+		fs.writeFileSync(sessionPath, JSON.stringify({
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "No concrete findings." }],
+				timestamp: now - 500,
+			},
+		}) + "\n");
+		fs.writeFileSync(agent.statusPath, JSON.stringify({
+			version: 1,
+			runtime: "profiled-subagents",
+			treeId: fixture.treeId,
+			updatedAt: now,
+			agentId: "answer-child",
+			profile: "explore",
+			parentAgentId: "root",
+			label: "answer-child",
+			state: "running",
+			startedAt: now - 1_000,
+			sessionPath,
+		}));
+		writeEvents(agent.controlDir, [
+			{ kind: "tool_start", toolName: "bash", toolCallId: "call-1" },
+			{ kind: "tool_end", toolName: "bash", toolCallId: "call-1" },
+			{ kind: "text", blockId: "final-answer", text: "No concrete findings." },
+		]);
+		const target = liveTarget("answer-child", [spawnTool(agent, "answer-child")]);
+		const items = readSubagentConversation(target!.run);
+		expect(items.map((item) => item.kind)).toEqual(["tool", "assistant"]);
+		const answers = items.filter(
+			(item): item is AssistantItem => item.kind === "assistant" && item.text === "No concrete findings.",
+		);
+		expect(answers).toHaveLength(1);
+		expect(answers[0]?.status).toBe("streaming");
+		expect(answers[0]?.id).toContain("final-answer");
+	});
+
 	test("matches tool_end by call id and keeps a dangling start streaming", () => {
 		const { fixture, writeEvents, spawnTool, liveTarget } = streamHarness();
 		const agent = streamAgent(fixture, "tools-agent", "tools");
