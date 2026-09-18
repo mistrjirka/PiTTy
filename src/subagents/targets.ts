@@ -4,6 +4,7 @@ import type { SubagentRun, SubagentStep, ToolItem } from "../types.ts";
 import { subagentActivityAt } from "./transcript.ts";
 import { childRunIdFromSessionFile } from "./artifacts.ts";
 import { compactTokenCount } from "../state/compaction-telemetry.ts";
+import { subagentTreeRows } from "./tree.ts";
 import { isProfiledSubagentTool, isSubagentFamilyToolName, profiledRunIsLive, profiledSubagentRunsFromTools, type ProfiledSubagentOptions } from "./profiled.ts";
 
 export type SubagentTarget = {
@@ -1002,11 +1003,12 @@ export function reconcileSubagentSelection(
 		);
 		if (matches.length === 1) return matches[0]?.key;
 	}
-	// Previous target is gone: prefer a live/current run, else the most recent
-	// finished run (nextTargets is already most-recent-first). Never yanks a
-	// surviving selection — that case returned above.
+	// Previous target is gone: use the same hierarchy as the sidebar and
+	// selector so fallback selection cannot jump to a detached grandchild.
+	// Never yanks a surviving selection — that case returned above.
 	if (nextTargets.length === 0) return undefined;
-	return nextTargets.find((target) => target.active)?.key ?? nextTargets[0]?.key;
+	const ordered = subagentTreeRows(nextTargets).map((row) => row.target);
+	return ordered.find((target) => target.active)?.key ?? ordered[0]?.key;
 }
 
 export function subagentTargetIdentity(target: SubagentTarget): string {
