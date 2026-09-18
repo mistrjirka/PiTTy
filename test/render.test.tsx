@@ -3142,6 +3142,50 @@ describe("OpenTUI components", () => {
 		expect(childFrame).toContain("← @cai · implementer parent");
 	});
 
+	test("renders profiled descendants beneath their parent in the sidebar", async () => {
+		const profiledRun = (
+			agentId: string,
+			parentAgentId: string,
+			profile: string,
+			startedAt: number,
+		): SubagentRun => ({
+			runId: `profiled-${agentId}`,
+			runtime: "profiled-subagents",
+			control: "profiled",
+			treeId: "tree-sidebar",
+			agentId,
+			parentAgentId,
+			profile,
+			label: profile,
+			mode: parentAgentId === "root" ? "profiled" : "nested",
+			state: "completed",
+			startedAt,
+			endedAt: startedAt + 1,
+			steps: [],
+		});
+		const setup = await mount(
+			() => (
+				<Sidebar
+					runs={[
+						profiledRun("cai", "root", "implementer", 100),
+						profiledRun("theo", "cai", "explore", 110),
+						profiledRun("aki", "cai", "explore", 120),
+					]}
+					height={32}
+				/>
+			),
+			42,
+			32,
+		);
+		const frame = setup.captureCharFrame();
+		const parent = frame.indexOf("@cai · implementer");
+		const firstChild = frame.indexOf("├─ ⚪ @theo · explore");
+		const secondChild = frame.indexOf("└─ ⚪ @aki · explore");
+		expect(parent).toBeGreaterThanOrEqual(0);
+		expect(firstChild).toBeGreaterThan(parent);
+		expect(secondChild).toBeGreaterThan(firstChild);
+	});
+
 	test("renders all six mission-backed workflow children in the subagent sidebar", async () => {
 		const workflowRunId = "workflow-sidebar-call";
 		const run: SubagentRun = {
