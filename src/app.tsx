@@ -1685,11 +1685,12 @@ export function App(props: AppOptions) {
 			lastRunsDigest = digest;
 			setRuns(nextRuns);
 			const nextTargets = subagentTargets(nextRuns, subagentTools(), { contextWindowForModel });
+			const nextDisplayTargets = subagentTreeRows(nextTargets).map((row) => row.target);
 			setSelectedTargetKey(
 				reconcileSubagentSelection(
 					selectedTargetKey(),
 					availableSubagentTargets(),
-					nextTargets,
+					nextDisplayTargets,
 				),
 			);
 			props.logger.info("subagents.changed", { runs: summaries });
