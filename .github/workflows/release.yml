@@ -1,13 +1,11 @@
 name: Release
 on:
   push:
-    branches: ["main"]
     tags: ["v*"]
 permissions:
   contents: write
 jobs:
   source-release:
-    if: github.ref_type == 'tag' || startsWith(github.event.head_commit.message, 'release:')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,25 +25,13 @@ jobs:
       - name: Resolve release metadata
         id: release_meta
         shell: bash
-        env:
-          RELEASE_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
           package="$(node -p "require('./package.json').version")"
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            version="${GITHUB_REF_NAME#v}"
-            test "$version" = "$package" || { echo "tag $version does not match package $package" >&2; exit 1; }
-            tag="$GITHUB_REF_NAME"
-          else
-            version="$package"
-            tag="v$version"
-            [[ "$RELEASE_COMMIT_MESSAGE" == "release: v$version"* ]] || {
-              echo "release commit must start with 'release: v$version'" >&2
-              exit 1
-            }
-          fi
+          version="${GITHUB_REF_NAME#v}"
+          test "$version" = "$package" || { echo "tag $version does not match package $package" >&2; exit 1; }
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
       - name: Prepare release body
         id: release_body
         shell: bash
