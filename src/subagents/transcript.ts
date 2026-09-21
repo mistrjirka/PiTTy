@@ -182,11 +182,14 @@ function parseJsonlTail(content: string): ParsedTranscriptRecord[] {
 type ProfiledStreamKind = "thinking" | "text" | "tool_start" | "tool_end";
 
 type ProfiledStreamEvent = {
+  seq: number;
   kind: ProfiledStreamKind;
   /** Accumulation key: `<runId>::<blockId>` (blockId falls back to kind). */
   key: string;
   /** Event's own runId (may be empty when the producer omits it). */
   runId: string;
+  /** 1-based assistant message sequence from pi-subagent >=0.5.5. */
+  messageSeq?: number;
   /** Block id (falls back to kind); the stable part of stream item ids. */
   blockId: string;
   text: string;
@@ -229,13 +232,20 @@ function parseProfiledStreamEvent(line: string): ProfiledStreamEvent | undefined
   if (kind !== "thinking" && kind !== "text" && kind !== "tool_start" && kind !== "tool_end") return undefined;
   const runId = optionalStreamText(parsed.runId) ?? "";
   const blockId = optionalStreamText(parsed.blockId) ?? kind;
+  const seq = typeof parsed.seq === "number" && Number.isInteger(parsed.seq) && parsed.seq >= 0 ? parsed.seq : 0;
+  const messageSeq =
+    typeof parsed.messageSeq === "number" && Number.isInteger(parsed.messageSeq) && parsed.messageSeq > 0
+      ? parsed.messageSeq
+      : undefined;
   // Never Date.now(): an undated event must resolve identically on every
   // read. Callers fill it from neighboring events / the run deterministically.
   const ts = typeof parsed.ts === "number" && Number.isFinite(parsed.ts) ? parsed.ts : 0;
   return {
+    seq,
     kind,
-    key: `${runId}::${blockId}`,
+    key: `${runId}::${messageSeq ?? "legacy"}::${blockId}`,
     runId,
+    ...(messageSeq !== undefined ? { messageSeq } : {}),
     blockId,
     text: optionalStreamText(parsed.text) ?? "",
     toolName: optionalStreamText(parsed.toolName) ?? "tool",
@@ -322,6 +332,8 @@ type StreamTextGroup = {
   key: string;
   runId: string;
   blockId: string;
+  messageSeq?: number;
+  completeFromStart: boolean;
   /** Deterministic disambiguation when one key yields several groups. */
   occurrence: number;
   thinking: string;
@@ -330,109 +342,18 @@ type StreamTextGroup = {
 };
 
 function streamTextGroupId(runId: string, group: StreamTextGroup): string {
-  const base = `subagent-stream-${runId}-${group.blockId}`;
+  const message = group.messageSeq !== undefined ? `-m${group.messageSeq}` : "";
+  const base = `subagent-stream-${runId}${message}-${group.blockId}`;
   return group.occurrence > 0 ? `${base}-g${group.occurrence}` : base;
 }
 
-/**
- * Growth-only merge of one stopped-run stream group into the persisted
- * assistant items: skip what the session already contains, extend a field
- * only with a longer stream value (never shrink), else append one
- * `status: "done"` item carrying whatever did not merge.
- */
-function mergeStreamGroup(items: ConversationItem[], group: StreamTextGroup, id: string): void {
-  let thinking = group.thinking;
-  let text = group.text;
-  for (const item of items) {
-    if (item.kind !== "assistant") continue;
-    if (thinking) {
-      if (item.thinking.includes(thinking)) thinking = "";
-      else if (thinking.includes(item.thinking) && thinking.length > item.thinking.length) {
-        item.thinking = thinking;
-        thinking = "";
-      }
-    }
-    if (text) {
-      if (item.text.includes(text)) text = "";
-      else if (text.includes(item.text) && text.length > item.text.length) {
-        item.text = text;
-        text = "";
-      }
-    }
-    if (!thinking && !text) return;
-  }
-  if (!thinking && !text) return;
-  const fresh: AssistantItem = {
-    kind: "assistant",
-    id,
-    text,
-    thinking,
-    timestamp: group.ts,
-    status: "done",
-  };
-  items.push(fresh);
-}
-
-/**
- * While a profiled run is live, events.jsonl owns the wire position of streamed
- * assistant content. The session can persist the completed assistant message
- * before PiTTy has finished replaying the live stream; without removing that
- * twin the inspector shows the same answer once near the top and once at its
- * streamed position. Remove only exact normalized field matches, newest first,
- * so legitimate repeated earlier messages stay visible.
- */
-function removeLivePersistedTwin(items: ConversationItem[], group: StreamTextGroup): void {
-  const thinking = normalized(group.thinking);
-  const text = normalized(group.text);
-  if (!thinking && !text) return;
-
-  // Remove every exact persisted copy of the live fields, not just the first.
-  // Pi can occasionally expose the same completed assistant snapshot more than
-  // once while events.jsonl is still live; stopping after one match leaves a
-  // second identical Thinking/answer panel next to the canonical stream row.
-  for (let index = items.length - 1; index >= 0; index--) {
-    const item = items[index];
-    if (item?.kind !== "assistant" || item.status === "streaming") continue;
-
-    const sameThinking = Boolean(thinking) && normalized(item.thinking) === thinking;
-    const sameText = Boolean(text) && normalized(item.text) === text;
-    if (!sameThinking && !sameText) continue;
-
-    const next: AssistantItem = {
-      ...item,
-      thinking: sameThinking ? "" : item.thinking,
-      text: sameText ? "" : item.text,
-    };
-    if (!next.thinking && !next.text) items.splice(index, 1);
-    else items[index] = next;
-  }
-}
-
-function dedupeAdjacentAssistantTwins(items: ConversationItem[]): void {
-  for (let index = 1; index < items.length; ) {
-    const previous = items[index - 1];
-    const current = items[index];
-    if (previous?.kind !== "assistant" || current?.kind !== "assistant") {
-      index += 1;
-      continue;
-    }
-    const sameThinking =
-      normalized(previous.thinking) === normalized(current.thinking);
-    const sameText = normalized(previous.text) === normalized(current.text);
-    const hasContent = Boolean(normalized(previous.thinking) || normalized(previous.text));
-    if (!sameThinking || !sameText || !hasContent) {
-      index += 1;
-      continue;
-    }
-
-    // Prefer the live stream row when one side is streamed: it owns wire
-    // position and can still grow. Otherwise keep the earlier stable row.
-    if (current.status === "streaming" && previous.status !== "streaming") {
-      items.splice(index - 1, 1);
-      continue;
-    }
-    items.splice(index, 1);
-  }
+/** Stable chronological order after session fallback/enrichment and stream rows are combined. */
+function sortProfiledItems(items: ConversationItem[]): void {
+  const stableOrder = new Map(items.map((item, index) => [item.id, index]));
+  items.sort((left, right) => {
+    if (left.timestamp !== right.timestamp) return left.timestamp - right.timestamp;
+    return (stableOrder.get(left.id) ?? 0) - (stableOrder.get(right.id) ?? 0);
+  });
 }
 
 function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], stepIndex?: number): void {
@@ -440,6 +361,58 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
   const live = profiledRunIsLive(run);
   const events = readProfiledStreamEvents(run.eventsPath);
   if (events.length === 0) return;
+
+  const headTruncated = (events[0]?.seq ?? 1) > 1;
+  const first = events[0];
+  const incompleteTaggedField =
+    headTruncated && first?.messageSeq !== undefined && (first.kind === "thinking" || first.kind === "text")
+      ? `${first.messageSeq}:${first.kind}`
+      : undefined;
+  const taggedFieldGroups = new Map<number, { thinking: number; text: number }>();
+  let previousTextKey = "";
+  for (const event of events) {
+    if (event.kind !== "thinking" && event.kind !== "text") {
+      previousTextKey = "";
+      continue;
+    }
+    if (event.messageSeq === undefined) continue;
+    const fieldKey = `${event.messageSeq}:${event.kind}`;
+    if (fieldKey === incompleteTaggedField) continue;
+    if (event.key === previousTextKey) continue;
+    previousTextKey = event.key;
+    const counts = taggedFieldGroups.get(event.messageSeq) ?? { thinking: 0, text: 0 };
+    counts[event.kind] += 1;
+    taggedFieldGroups.set(event.messageSeq, counts);
+  }
+  const taggedStream = events.some((event) => event.messageSeq !== undefined);
+  const persistedAssistantBySeq = new Map<number, AssistantItem>();
+  let latestPersistedAssistantAt = 0;
+  let hasPersistedThinking = false;
+  for (const item of items) {
+    if (item.kind !== "assistant") continue;
+    latestPersistedAssistantAt = Math.max(latestPersistedAssistantAt, item.timestamp);
+    hasPersistedThinking ||= Boolean(item.thinking);
+    if (item.sourceMessageSeq !== undefined) persistedAssistantBySeq.set(item.sourceMessageSeq, item);
+  }
+  const useLegacyStreamThinking = !live && !taggedStream && !headTruncated && !hasPersistedThinking;
+
+  // For tagged streams, exact message identity decides field ownership. The
+  // stream owns fields it actually carries; the persisted session remains the
+  // fallback for fields absent from or truncated out of the stream.
+  if (taggedStream) {
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      if (item?.kind !== "assistant" || item.sourceMessageSeq === undefined) continue;
+      const counts = taggedFieldGroups.get(item.sourceMessageSeq);
+      if (!counts) continue;
+      items[index] = {
+        ...item,
+        thinking: counts.thinking > 0 ? "" : item.thinking,
+        text: counts.text > 0 ? "" : item.text,
+      };
+    }
+  }
+
   // Undated events resolve deterministically: previous event, else the run.
   let lastTs = 0;
   const eventTs = (event: ProfiledStreamEvent): number => {
@@ -493,33 +466,59 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
   const streamToolByCallId = new Map<string, number[]>();
   const streamToolByName = new Map<string, number[]>();
   const toolFallbackCounts = new Map<string, number>();
-  const liveGroups: StreamTextGroup[] = [];
   const liveWireOrderById = new Map<string, number>();
   const liveToolStarts = new Map<string, { timestamp: number; order: number }>();
   let liveWireOrder = 0;
   let current: StreamTextGroup | undefined;
+  let eventIndex = -1;
   const flushCurrent = (): void => {
     const group = current;
     current = undefined;
     if (!group || (!group.thinking && !group.text)) return;
     const id = streamTextGroupId(group.runId || run.runId, group);
-    if (live) {
-      const fresh: AssistantItem = {
-        kind: "assistant",
-        id,
-        text: group.text,
-        thinking: group.thinking,
-        timestamp: group.ts,
-        status: "streaming",
-      };
-      items.push(fresh);
-      liveGroups.push(group);
-      liveWireOrderById.set(id, liveWireOrder++);
+    const field = group.thinking ? "thinking" : "text";
+    const persisted = group.messageSeq === undefined ? undefined : persistedAssistantBySeq.get(group.messageSeq);
+    if (!group.completeFromStart && persisted?.[field]) return;
+
+    let streamThinking = group.thinking;
+    let streamText = group.text;
+    if (group.messageSeq !== undefined) {
+      if (`${group.messageSeq}:${field}` === incompleteTaggedField) return;
+      if (persisted) {
+        const counts = taggedFieldGroups.get(group.messageSeq);
+        const count = field === "thinking" ? counts?.thinking : counts?.text;
+        const persistedValue = persisted[field];
+        if (count === 1 && persistedValue) {
+          const streamValue = field === "thinking" ? streamThinking : streamText;
+          const authoritative = persistedValue.length >= streamValue.length ? persistedValue : streamValue;
+          if (field === "thinking") streamThinking = authoritative;
+          else streamText = authoritative;
+        }
+      }
     } else {
-      mergeStreamGroup(items, group, id);
+      // Old profiled streams have no turn identity. Keep only stream content
+      // that can be placed safely by chronology; completed answer text stays
+      // session-authoritative, and historical plaintext thinking is used only
+      // when the session has none at all.
+      if (live && group.ts <= latestPersistedAssistantAt) return;
+      if (!live && streamText) return;
+      if (!live && streamThinking && !useLegacyStreamThinking) return;
     }
+
+    const fresh: AssistantItem = {
+      kind: "assistant",
+      id,
+      text: streamText,
+      thinking: streamThinking,
+      timestamp: group.ts,
+      status: live && !persisted ? "streaming" : "done",
+      ...(group.messageSeq !== undefined ? { sourceMessageSeq: group.messageSeq } : {}),
+    };
+    items.push(fresh);
+    if (live) liveWireOrderById.set(id, liveWireOrder++);
   };
   for (const event of events) {
+    eventIndex += 1;
     const ts = eventTs(event);
     if (event.kind === "thinking" || event.kind === "text") {
       if (!current || current.key !== event.key) {
@@ -530,6 +529,8 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
           key: event.key,
           runId: event.runId,
           blockId: event.blockId,
+          ...(event.messageSeq !== undefined ? { messageSeq: event.messageSeq } : {}),
+          completeFromStart: !(headTruncated && eventIndex === 0),
           occurrence,
           thinking: "",
           text: "",
@@ -538,7 +539,6 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
       }
       if (event.kind === "thinking") current.thinking += event.text;
       else current.text += event.text;
-      current.ts = ts;
       continue;
     }
     flushCurrent();
@@ -612,10 +612,6 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
   flushCurrent();
 
   if (live) {
-    // Deduplicate only after the stream fold is complete so removing a
-    // persisted assistant row cannot invalidate in-flight tool indexes.
-    for (const group of liveGroups) removeLivePersistedTwin(items, group);
-
     // Session-backed tools carry the rich result payload, but their persisted
     // timestamp is the result-completion time. Move them to the tool_start
     // position from events.jsonl so thinking stays between the tools where it
@@ -640,7 +636,13 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
       if (leftWire !== undefined && rightWire !== undefined) return leftWire - rightWire;
       return (stableOrder.get(left.id) ?? 0) - (stableOrder.get(right.id) ?? 0);
     });
-    dedupeAdjacentAssistantTwins(items);
+  } else if (taggedStream) {
+    sortProfiledItems(items);
+  }
+
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index];
+    if (item?.kind === "assistant" && !item.text && !item.thinking) items.splice(index, 1);
   }
 }
 

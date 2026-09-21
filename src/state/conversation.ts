@@ -371,6 +371,7 @@ export function initialItems(messages: unknown[], options?: { stableIds?: boolea
 		return seen === 0 ? `${prefix}-${key}` : `${prefix}-${key}-n${seen}`;
 	};
 	const toolCalls = new Map<string, PersistedToolCallMetadata>();
+	let assistantMessageSeq = 0;
 	for (const message of messages) {
 		for (const call of persistedToolCallMetadata(message))
 			toolCalls.set(call.toolCallId, call);
@@ -391,6 +392,7 @@ export function initialItems(messages: unknown[], options?: { stableIds?: boolea
 			const custom = customItemFromMessage(message, "history-custom", makeId, stable);
 			if (custom) items.push(custom);
 		} else if (role === "assistant") {
+			assistantMessageSeq += 1;
 			const text = extractText(message);
 			const thinking = extractThinking(message);
 			if (text || thinking) {
@@ -401,6 +403,7 @@ export function initialItems(messages: unknown[], options?: { stableIds?: boolea
 					thinking,
 					timestamp: messageTimestamp(message, stable),
 					status: "done",
+					sourceMessageSeq: assistantMessageSeq,
 				});
 			}
 		} else if (role === "toolResult" || role === "tool") {

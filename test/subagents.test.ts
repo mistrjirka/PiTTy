@@ -3785,7 +3785,7 @@ describe("profiled live event stream", () => {
 		writeEvents(agent.controlDir, [
 			{ kind: "tool_start", toolName: "bash", toolCallId: "call-1" },
 			{ kind: "tool_end", toolName: "bash", toolCallId: "call-1" },
-			{ kind: "text", blockId: "final-answer", text: "No concrete findings." },
+			{ kind: "text", blockId: "final-answer", messageSeq: 1, text: "No concrete findings." },
 		]);
 		const target = liveTarget("answer-child", [spawnTool(agent, "answer-child")]);
 		const items = readSubagentConversation(target!.run);
@@ -3794,8 +3794,44 @@ describe("profiled live event stream", () => {
 			(item): item is AssistantItem => item.kind === "assistant" && item.text === "No concrete findings.",
 		);
 		expect(answers).toHaveLength(1);
-		expect(answers[0]?.status).toBe("streaming");
-		expect(answers[0]?.id).toContain("final-answer");
+		expect(answers[0]?.status).toBe("done");
+		expect(answers[0]?.id).toContain("m1-final-answer");
+	});
+
+	test("tagged live assistant keeps the same row identity when it finalizes", () => {
+		const { fixture, now, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "finalize-agent", "finalizer");
+		const sessionPath = path.join(agent.controlDir, "session.jsonl");
+		fs.writeFileSync(sessionPath, "");
+		fs.writeFileSync(agent.statusPath, JSON.stringify({
+			version: 1, runtime: "profiled-subagents", treeId: fixture.treeId, updatedAt: now,
+			agentId: "finalizer", profile: "explore", parentAgentId: "root", label: "finalizer",
+			state: "running", startedAt: now - 1_000, sessionPath,
+		}));
+		writeEvents(agent.controlDir, [
+			{ kind: "text", blockId: "text-0", messageSeq: 1, text: "Hello " },
+			{ kind: "text", blockId: "text-0", messageSeq: 1, text: "world" },
+		]);
+		const live = liveTarget("finalizer", [spawnTool(agent, "finalizer")]);
+		if (!live) throw new Error("expected live target");
+		const liveItems = readSubagentConversation(live.run);
+		expect(liveItems).toHaveLength(1);
+		const liveItem = liveItems[0];
+		if (liveItem?.kind !== "assistant") throw new Error("expected streaming assistant");
+		expect(liveItem.status).toBe("streaming");
+		expect(liveItem.text).toBe("Hello world");
+
+		fs.writeFileSync(sessionPath, JSON.stringify({
+			message: { role: "assistant", content: [{ type: "text", text: "Hello world" }], timestamp: now + 10 },
+		}) + "\n");
+		const finished = { ...live.run, state: "completed", activityState: "completed" };
+		const finishedItems = readSubagentConversation(finished);
+		expect(finishedItems).toHaveLength(1);
+		const finishedItem = finishedItems[0];
+		if (finishedItem?.kind !== "assistant") throw new Error("expected finalized assistant");
+		expect(finishedItem.id).toBe(liveItem.id);
+		expect(finishedItem.text).toBe("Hello world");
+		expect(finishedItem.status).toBe("done");
 	});
 
 	test("keeps live thinking between persisted tool rows in wire order", () => {
@@ -4216,40 +4252,36 @@ describe("batch A data truth", () => {
 		expect(readSubagentConversation(run).map((item) => item.id)).toEqual(first);
 	});
 
-	test("one live thinking group removes every duplicate persisted snapshot", () => {
+	test("tagged live thinking replaces only its exact persisted assistant field", () => {
 		const thought =
 			"Verifying outbox persistence, RabbitMQ queue declarations, envelope schema, and publish-after-commit flow.";
-		const duplicate = {
-			message: {
-				role: "assistant",
-				content: [{ type: "thinking", thinking: thought }],
-				timestamp: 200,
-			},
-		};
 		const run = liveProfiledRun(
-			[duplicate, structuredClone(duplicate)],
-			[{ kind: "thinking", blockId: "think-live", text: thought }],
+			[
+				{ message: { role: "assistant", content: [{ type: "thinking", thinking: thought }], timestamp: 200 } },
+			],
+			[{ kind: "thinking", blockId: "think-live", messageSeq: 1, text: thought }],
 		);
 		const thinking = readSubagentConversation(run).filter(
 			(item): item is AssistantItem => item.kind === "assistant" && Boolean(item.thinking),
 		);
 		expect(thinking).toHaveLength(1);
 		expect(thinking[0]?.thinking).toBe(thought);
-		expect(thinking[0]?.status).toBe("streaming");
+		expect(thinking[0]?.sourceMessageSeq).toBe(1);
 	});
 
-	test("exact adjacent live thinking twins render once even with different block ids", () => {
+	test("distinct live thinking block identities remain distinct even when text matches", () => {
 		const thought =
 			"Extending verification to ticketing repository inserts, crash boundary, and remaining unsafe casts.";
 		const run = liveProfiledRun([], [
-			{ kind: "thinking", blockId: "think-a", text: thought },
-			{ kind: "thinking", blockId: "think-b", text: thought },
+			{ kind: "thinking", blockId: "think-a", messageSeq: 1, text: thought },
+			{ kind: "thinking", blockId: "think-b", messageSeq: 1, text: thought },
 		]);
 		const thinking = readSubagentConversation(run).filter(
 			(item): item is AssistantItem => item.kind === "assistant" && Boolean(item.thinking),
 		);
-		expect(thinking).toHaveLength(1);
-		expect(thinking[0]?.thinking).toBe(thought);
+		expect(thinking).toHaveLength(2);
+		expect(thinking.map((item) => item.thinking)).toEqual([thought, thought]);
+		expect(thinking[0]?.id).not.toBe(thinking[1]?.id);
 	});
 
 	test("stream item ids derive from block identity, not read order", () => {
@@ -4326,7 +4358,7 @@ describe("batch A data truth", () => {
 		expect(item.thinking).toBe("Hello brave new world");
 	});
 
-	test("a stopped run grows an empty persisted field from a longer stream value", () => {
+	test("a tagged stopped run grows its exact persisted field from the completed stream", () => {
 		const run = stoppedProfiledRun(
 			[
 				{
@@ -4337,13 +4369,55 @@ describe("batch A data truth", () => {
 					},
 				},
 			],
-			[{ kind: "text", blockId: "t1", text: "Hello world" }],
+			[{ kind: "text", blockId: "t1", messageSeq: 1, text: "Hello world" }],
 		);
 		const items = readSubagentConversation(run);
 		expect(items).toHaveLength(1);
 		const item = items[0];
 		if (item?.kind !== "assistant") throw new Error("expected an assistant item");
 		expect(item.text).toBe("Hello world");
+	});
+
+	test("tagged multi-turn stream keeps repeated block ids chronological and final answer once", () => {
+		const run = stoppedProfiledRun(
+			[
+				{ message: { role: "user", content: [{ type: "text", text: "do the task" }], timestamp: 10 } },
+				{ message: { role: "assistant", content: [{ type: "thinking", thinking: "" }, { type: "toolCall", id: "call-a", name: "read", arguments: { path: "a" } }], timestamp: 30 } },
+				{ message: { role: "toolResult", toolCallId: "call-a", toolName: "read", content: "A", timestamp: 40 } },
+				{ message: { role: "assistant", content: [{ type: "thinking", thinking: "" }, { type: "toolCall", id: "call-b", name: "bash", arguments: { command: "true" } }], timestamp: 60 } },
+				{ message: { role: "toolResult", toolCallId: "call-b", toolName: "bash", content: "B", timestamp: 70 } },
+				{ message: { role: "assistant", content: [{ type: "thinking", thinking: "final thought" }, { type: "text", text: "FINAL ANSWER" }], timestamp: 100 } },
+			],
+			[
+				{ kind: "thinking", blockId: "think-0", messageSeq: 1, text: "first thought", ts: 20 },
+				{ kind: "tool_start", toolName: "read", toolCallId: "call-a", messageSeq: 1, ts: 21 },
+				{ kind: "tool_end", toolName: "read", toolCallId: "call-a", messageSeq: 1, ts: 22 },
+				{ kind: "thinking", blockId: "think-0", messageSeq: 2, text: "second thought", ts: 50 },
+				{ kind: "tool_start", toolName: "bash", toolCallId: "call-b", messageSeq: 2, ts: 51 },
+				{ kind: "tool_end", toolName: "bash", toolCallId: "call-b", messageSeq: 2, ts: 52 },
+				{ kind: "thinking", blockId: "think-0", messageSeq: 3, text: "final thought", ts: 80 },
+				{ kind: "text", blockId: "text-1", messageSeq: 3, text: "FINAL ", ts: 90 },
+				{ kind: "text", blockId: "text-1", messageSeq: 3, text: "ANSWER", ts: 91 },
+			],
+		);
+		const items = readSubagentConversation(run);
+		const summary = items.map((item) =>
+			item.kind === "assistant"
+				? item.thinking ? `think:${item.thinking}` : `text:${item.text}`
+				: item.kind === "tool" ? `tool:${item.name}:${item.output}`
+				: item.kind === "user" ? `user:${item.text}`
+				: item.kind,
+		);
+		expect(summary).toEqual([
+			"user:do the task",
+			"think:first thought",
+			"tool:read:A",
+			"think:second thought",
+			"tool:bash:B",
+			"think:final thought",
+			"text:FINAL ANSWER",
+		]);
+		expect(summary.filter((value) => value === "text:FINAL ANSWER")).toHaveLength(1);
 	});
 
 	test("stream tools backfill args and output from the session file", () => {

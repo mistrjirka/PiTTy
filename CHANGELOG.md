@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.35
+
+### Subagent streaming uses identity instead of text heuristics
+
+- Profiled assistant stream rows now reconcile with persisted child-session messages by an exact assistant `messageSeq` plus block identity from `@mistrjirka/pi-subagent` 0.5.5. Final answers and thinking are no longer matched by substring/equality guesses.
+- Repeated block ids such as `think-0` stay distinct across assistant turns, and distinct blocks with identical text remain distinct rather than being collapsed by content.
+- Live rows keep stable ids through live → finalized transitions; persisted session content enriches/finalizes the same logical message instead of creating a second answer/thinking row.
+- Older untagged profiled streams use a conservative chronology fallback: completed answer text stays session-authoritative, while streamed plaintext thinking is used only where it can be placed without guessing identity.
+- The existing 0.6.31 live wire-order/tool re-anchoring and recursive subagent-tree behavior are preserved. Legacy `npm:pi-subagents` artifact parsing is unchanged.
+- Regression coverage includes the real previously broken SBHG-Buddy shape: repeated `think-0` turns, interleaved tools, a long final answer, and live→completed row identity. The old v0.5.4 capture now produces exactly one 7,912-character answer at the final row.
+
+Best results require `@mistrjirka/pi-subagent` 0.5.5; older profiled runtimes remain readable.
+
 ## 0.6.34
 
 ### Live subagent thinking no longer renders twice

@@ -41,6 +41,8 @@ export type AssistantItem = {
 	timestamp: number;
 	status: MessageStatus;
 	stopReason?: string;
+	/** 1-based assistant-message sequence from persisted Pi session order. */
+	sourceMessageSeq?: number;
 };
 
 export type ToolItem = {
