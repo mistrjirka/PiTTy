@@ -3798,6 +3798,88 @@ describe("profiled live event stream", () => {
 		expect(answers[0]?.id).toContain("m1-final-answer");
 	});
 
+	test("folds a thinking-only failed attempt into its direct-parent retry", () => {
+		const { fixture, now, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "retry-agent", "retry-child");
+		const sessionPath = path.join(agent.controlDir, "session.jsonl");
+		const sessionLines = [
+			{
+				id: "attempt-a",
+				parentId: "before-a",
+				message: {
+					role: "assistant",
+					content: [{ type: "thinking", thinking: "partial thought" }],
+					stopReason: "error",
+					timestamp: now - 200,
+				},
+			},
+			{
+				id: "attempt-b",
+				parentId: "attempt-a",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "continued thought" },
+						{ type: "text", text: "final answer" },
+					],
+					stopReason: "stop",
+					timestamp: now - 100,
+				},
+			},
+		];
+		fs.writeFileSync(sessionPath, sessionLines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+		fs.writeFileSync(agent.statusPath, JSON.stringify({
+			version: 1, runtime: "profiled-subagents", treeId: fixture.treeId, updatedAt: now,
+			agentId: "retry-child", profile: "explore", parentAgentId: "root", label: "retry-child",
+			state: "completed", startedAt: now - 300, sessionPath,
+		}));
+		writeEvents(agent.controlDir, [
+			{ kind: "thinking", blockId: "think-0", messageSeq: 1, text: "partial thought", ts: now - 200 },
+			{ kind: "thinking", blockId: "think-0", messageSeq: 2, text: "continued thought", ts: now - 100 },
+			{ kind: "text", blockId: "text-1", messageSeq: 2, text: "final answer", ts: now - 90 },
+		]);
+		const target = liveTarget("retry-child", [spawnTool(agent, "retry-child")]);
+		if (!target) throw new Error("expected retry target");
+		const items = readSubagentConversation({ ...target.run, state: "completed", activityState: "completed" });
+		const assistants = items.filter((item): item is AssistantItem => item.kind === "assistant");
+		expect(assistants).toHaveLength(2);
+		const thinkingRow = assistants.find((item) => Boolean(item.thinking));
+		const answerRow = assistants.find((item) => Boolean(item.text));
+		expect(thinkingRow?.thinking).toBe("partial thought\n\ncontinued thought");
+		expect(thinkingRow?.status).toBe("done");
+		expect(thinkingRow?.sourceEntryId).toBe("attempt-b");
+		expect(thinkingRow?.retriedAfterInterruptedThinking).toBe(true);
+		expect(answerRow?.text).toBe("final answer");
+		expect(assistants.some((item) => item.sourceEntryId === "attempt-a")).toBe(false);
+	});
+
+	test("does not fold an errored thought when the next assistant is not its direct child", () => {
+		const { fixture, now, writeEvents, spawnTool, liveTarget } = streamHarness();
+		const agent = streamAgent(fixture, "retry-boundary-agent", "retry-boundary-child");
+		const sessionPath = path.join(agent.controlDir, "session.jsonl");
+		const sessionLines = [
+			{ id: "attempt-a", parentId: "before-a", message: { role: "assistant", content: [{ type: "thinking", thinking: "failed thought" }], stopReason: "error", timestamp: now - 200 } },
+			{ id: "attempt-b", parentId: "tool-result-between", message: { role: "assistant", content: [{ type: "thinking", thinking: "new turn" }], stopReason: "stop", timestamp: now - 100 } },
+		];
+		fs.writeFileSync(sessionPath, sessionLines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+		fs.writeFileSync(agent.statusPath, JSON.stringify({
+			version: 1, runtime: "profiled-subagents", treeId: fixture.treeId, updatedAt: now,
+			agentId: "retry-boundary-child", profile: "explore", parentAgentId: "root", label: "retry-boundary-child",
+			state: "completed", startedAt: now - 300, sessionPath,
+		}));
+		writeEvents(agent.controlDir, [
+			{ kind: "thinking", blockId: "think-0", messageSeq: 1, text: "failed thought", ts: now - 200 },
+			{ kind: "thinking", blockId: "think-0", messageSeq: 2, text: "new turn", ts: now - 100 },
+		]);
+		const target = liveTarget("retry-boundary-child", [spawnTool(agent, "retry-boundary-child")]);
+		if (!target) throw new Error("expected retry boundary target");
+		const items = readSubagentConversation({ ...target.run, state: "completed", activityState: "completed" });
+		const assistants = items.filter((item): item is AssistantItem => item.kind === "assistant");
+		expect(assistants).toHaveLength(2);
+		expect(assistants[0]?.status).toBe("error");
+		expect(assistants[1]?.retriedAfterInterruptedThinking).toBeUndefined();
+	});
+
 	test("tagged live assistant keeps the same row identity when it finalizes", () => {
 		const { fixture, now, writeEvents, spawnTool, liveTarget } = streamHarness();
 		const agent = streamAgent(fixture, "finalize-agent", "finalizer");

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.36
+
+### Interrupted subagent retries render as one thinking section
+
+- Profiled child transcripts now retain Pi session entry identity, parent identity, and assistant stop reason alongside the existing exact `messageSeq` identity.
+- A thinking-only assistant attempt that ended with `stopReason: error` is folded into the immediately following assistant retry only when the retry is its direct Pi parent-child continuation and the assistant-message sequence is adjacent. The successful retry keeps its own identity and the merged Thinking header is marked `retry`.
+- The fold is structural only: no text equality, substring matching, or heuristic similarity is used. Errored thinking separated by another parent boundary remains a distinct turn.
+- Live `events.jsonl` rows inherit the persisted stop/entry metadata by exact `messageSeq`, so the same rule works when the inspector is stream-backed.
+- Regression coverage reproduces the real SBHG-Buddy runtime-review failure shape and includes a negative boundary case. The captured `@pax` session now renders the interrupted + retried reasoning as one thinking row while preserving later legitimate reasoning turns.
+
+Validation: full `npm run check` passes, including typecheck and the complete unit/UI suite.
+
 ## 0.6.35
 
 ### Subagent streaming uses identity instead of text heuristics

@@ -803,6 +803,7 @@ export function MessageView(props: {
 								attributes={1}
 							>
 								{thinkingIsExpanded() ? "▼ Thinking" : "▶ Thinking"}
+								{item.kind === "assistant" && item.retriedAfterInterruptedThinking ? " · retry" : ""}
 							</text>
 							<box flexGrow={1} />
 							<text

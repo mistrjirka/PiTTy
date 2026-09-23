@@ -395,6 +395,10 @@ export function initialItems(messages: unknown[], options?: { stableIds?: boolea
 			assistantMessageSeq += 1;
 			const text = extractText(message);
 			const thinking = extractThinking(message);
+			const record = objectRecord(message);
+			const stopReason = stringField(record, "stopReason");
+			const sourceEntryId = stringField(record, "__pittyEntryId");
+			const sourceParentId = stringField(record, "__pittyParentId");
 			if (text || thinking) {
 				items.push({
 					kind: "assistant",
@@ -402,8 +406,11 @@ export function initialItems(messages: unknown[], options?: { stableIds?: boolea
 					text,
 					thinking,
 					timestamp: messageTimestamp(message, stable),
-					status: "done",
+					status: stopReason === "error" ? "error" : "done",
+					...(stopReason ? { stopReason } : {}),
 					sourceMessageSeq: assistantMessageSeq,
+					...(sourceEntryId ? { sourceEntryId } : {}),
+					...(sourceParentId ? { sourceParentId } : {}),
 				});
 			}
 		} else if (role === "toolResult" || role === "tool") {

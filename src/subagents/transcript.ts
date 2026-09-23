@@ -356,6 +356,37 @@ function sortProfiledItems(items: ConversationItem[]): void {
   });
 }
 
+function foldInterruptedAssistantRetries(items: ConversationItem[]): void {
+  const assistantByEntryId = new Map<string, AssistantItem>();
+  for (const item of items) {
+    if (item.kind === "assistant" && item.sourceEntryId) assistantByEntryId.set(item.sourceEntryId, item);
+  }
+  const remove = new Set<string>();
+  for (let index = 0; index < items.length; index++) {
+    const retry = items[index];
+    if (retry?.kind !== "assistant" || !retry.sourceParentId) continue;
+    const interrupted = assistantByEntryId.get(retry.sourceParentId);
+    if (!interrupted || interrupted.id === retry.id) continue;
+    if (interrupted.stopReason !== "error" || interrupted.text.trim() || !interrupted.thinking.trim()) continue;
+    if (
+      interrupted.sourceMessageSeq !== undefined &&
+      retry.sourceMessageSeq !== undefined &&
+      retry.sourceMessageSeq !== interrupted.sourceMessageSeq + 1
+    ) continue;
+    items[index] = {
+      ...retry,
+      thinking: [interrupted.thinking, retry.thinking].filter((value) => value.trim()).join("\n\n"),
+      timestamp: Math.min(interrupted.timestamp, retry.timestamp),
+      retriedAfterInterruptedThinking: true,
+    };
+    remove.add(interrupted.id);
+  }
+  if (remove.size === 0) return;
+  for (let index = items.length - 1; index >= 0; index--) {
+    if (remove.has(items[index]?.id ?? "")) items.splice(index, 1);
+  }
+}
+
 function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], stepIndex?: number): void {
   if (!run.eventsPath) return;
   const live = profiledRunIsLive(run);
@@ -511,8 +542,11 @@ function appendProfiledStreamItems(run: SubagentRun, items: ConversationItem[], 
       text: streamText,
       thinking: streamThinking,
       timestamp: group.ts,
-      status: live && !persisted ? "streaming" : "done",
+      status: live && !persisted ? "streaming" : (persisted?.status ?? "done"),
+      ...(persisted?.stopReason ? { stopReason: persisted.stopReason } : {}),
       ...(group.messageSeq !== undefined ? { sourceMessageSeq: group.messageSeq } : {}),
+      ...(persisted?.sourceEntryId ? { sourceEntryId: persisted.sourceEntryId } : {}),
+      ...(persisted?.sourceParentId ? { sourceParentId: persisted.sourceParentId } : {}),
     };
     items.push(fresh);
     if (live) liveWireOrderById.set(id, liveWireOrder++);
@@ -661,8 +695,15 @@ function readSessionMessages(run: SubagentRun, stepIndex?: number): unknown[] {
   }
   const messages: unknown[] = [];
   for (const { record } of parseJsonlTail(content)) {
-    const message = record.message;
-    if (message && objectRecord(message)) messages.push(message);
+    const message = objectRecord(record.message);
+    if (!message) continue;
+    const entryId = text(record.id).trim();
+    const parentId = text(record.parentId).trim();
+    messages.push({
+      ...message,
+      ...(entryId ? { __pittyEntryId: entryId } : {}),
+      ...(parentId ? { __pittyParentId: parentId } : {}),
+    });
   }
   return messages;
 }
@@ -804,6 +845,7 @@ export function readSubagentConversation(
     if (sessionItems.length > 0) {
       const tail = sessionItems.slice(-maxItems);
       appendProfiledStreamItems(run, tail, stepIndex);
+      foldInterruptedAssistantRetries(tail);
       return tail.slice(-maxItems);
     }
   }

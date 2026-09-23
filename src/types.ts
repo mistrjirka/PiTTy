@@ -43,6 +43,12 @@ export type AssistantItem = {
 	stopReason?: string;
 	/** 1-based assistant-message sequence from persisted Pi session order. */
 	sourceMessageSeq?: number;
+	/** Persisted Pi session entry identity, when available. */
+	sourceEntryId?: string;
+	/** Persisted Pi parent entry identity, when available. */
+	sourceParentId?: string;
+	/** This visible turn absorbed a directly-parented thinking-only failed attempt. */
+	retriedAfterInterruptedThinking?: boolean;
 };
 
 export type ToolItem = {
