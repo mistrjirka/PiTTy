@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.39
+
+### Fix wide-terminal startup stalls
+
+- Stop normal UI projection from scanning every historical profiled-subagent runtime directory. The global temp runtime store cannot reliably associate orphaned completed runs with the current Pi conversation, so historical fallback discovery is now explicit instead of the default.
+- Memoize the sidebar's derived subagent targets so layout/render passes do not repeat filesystem-backed discovery until their reactive inputs actually change.
+- This fixes the reproducible width-dependent black screen: on the affected machine, a 140-column launch spent about 18.9 seconds before ui.mount; the fixed path mounts in about 0.08 seconds under the same conditions.
+- v0.6.38's prebuilt runtime remains in place. Upgrading from v0.6.38 to this release also runs the v0.6.38+ installer, ensuring installs that originally reached v0.6.38 through the older v0.6.37 upgrader finally receive the generated dist/ runtime.
+- Correct the prebuilt runtime itself to use OpenTUI Solid's documented Bun build plugin. v0.6.38 used plain bun build, which could compile Solid JSX incorrectly and crash before mount; v0.6.39 builds with @opentui/solid/bun-plugin.
+- Correct plugin builds now carry a runtime marker; markerless dist/ output from an older installer is ignored and safely falls back to the fixed source path.
+
+Validation: focused subagent tests, full typecheck/unit suite, runtime build, and a real wide-terminal launcher smoke.
+
 ## 0.6.38
 
 ### Faster cold launch and automatic subagent refresh

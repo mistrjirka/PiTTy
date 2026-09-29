@@ -20,8 +20,9 @@ describe("public installers", () => {
     expect(script).toContain("log:");
     expect(script).toContain("/dev/tty");
     expect(script).toContain("pitty-resume");
-    expect(script).toContain("src/index.tsx src/preload.ts src/upgrade.ts");
+    expect(script).toContain("scripts/build-runtime.ts");
     expect(script).toContain("dist/index.js");
+    expect(script).toContain("dist/.pitty-runtime-build-v1");
     const uninstall = fs.readFileSync(path.join(root, "uninstall.sh"), "utf8");
     expect(uninstall).toContain('"$BIN_DIR/pitty-resume"');
   });
@@ -38,8 +39,9 @@ describe("public installers", () => {
     expect(script).toContain("exit code:");
     expect(script).toContain("log:");
     expect(script).toContain("pitty-resume");
-    expect(script).toContain("src/index.tsx src/preload.ts src/upgrade.ts");
+    expect(script).toContain("scripts/build-runtime.ts");
     expect(script).toContain("dist\\index.js");
+    expect(script).toContain("dist\\.pitty-runtime-build-v1");
     const uninstall = fs.readFileSync(path.join(root, "uninstall.ps1"), "utf8");
     expect(uninstall).toContain("pitty-resume.cmd");
   });

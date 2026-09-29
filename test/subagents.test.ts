@@ -4666,6 +4666,24 @@ describe("batch A data truth", () => {
 	});
 });
 
+describe("profiled default discovery scope", () => {
+	test("does not import unrelated historical profiled runs without conversation evidence", () => {
+		const fixture = profiledFixture();
+		const now = Date.now();
+		fixture.writeAgent("unrelated-history", {
+			agentId: "unrelated-history",
+			profile: "explore",
+			parentAgentId: "root",
+			label: "unrelated-history",
+			state: "completed",
+			startedAt: now - 1000,
+			updatedAt: now - 1000,
+		});
+		expect(profiledSubagentRunsFromTools([])).toHaveLength(0);
+		expect(subagentTargets([], [])).toHaveLength(0);
+	});
+});
+
 describe("profiled previous-session fallback discovery", () => {
 	function finishedOrphanFixture(agentId: string, state = "completed") {
 		const fixture = profiledFixture();
@@ -4686,7 +4704,7 @@ describe("profiled previous-session fallback discovery", () => {
 		const agentId = `restart-orphan-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 		const { sessionPath } = finishedOrphanFixture(agentId);
 		// No spawn tools in the reloaded conversation: pure fallback scan.
-		const runs = profiledSubagentRunsFromTools([]);
+		const runs = profiledSubagentRunsFromTools([], { includeHistoricalFallback: true });
 		const found = runs.find((run) => run.agentId === agentId);
 		expect(found).toBeDefined();
 		// Existing state words only — no new user-facing vocabulary.
@@ -4719,7 +4737,7 @@ describe("profiled previous-session fallback discovery", () => {
 		// tool-less fallback must still surface the run with a session-only read.
 		const streamlessId = `restart-streamless-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 		finishedOrphanFixture(streamlessId);
-		const streamless = profiledSubagentRunsFromTools([]).find((run) => run.agentId === streamlessId);
+		const streamless = profiledSubagentRunsFromTools([], { includeHistoricalFallback: true }).find((run) => run.agentId === streamlessId);
 		expect(streamless).toBeDefined();
 		expect(streamless?.eventsPath).toBeUndefined();
 		expect(readSubagentConversation(streamless!).some(
@@ -4775,9 +4793,9 @@ describe("profiled same-id run identity", () => {
 
 	test("same-id ancestor and nested grandchild render two rows with per-row profile and transcript", () => {
 		sameIdFixture();
-		const runs = profiledSubagentRunsFromTools([]);
+		const runs = profiledSubagentRunsFromTools([], { includeHistoricalFallback: true });
 		expect(runs.filter((run) => run.agentId === "eva")).toHaveLength(2);
-		const targets = subagentTargets([], []);
+		const targets = subagentTargets([], [], { includeHistoricalFallback: true });
 		expect(targets.filter((target) => target.run.agentId === "eva")).toHaveLength(2);
 		const ancestor = targets.find((target) => target.run.profile === "debugging-duck");
 		const nested = targets.find((target) => target.run.profile === "explore");
@@ -4814,7 +4832,7 @@ describe("profiled same-id run identity", () => {
 			agentId: "share-two", profile: "implementer", parentAgentId: "root", label: "share-two",
 			state: "completed", startedAt: now - 1000, updatedAt: now - 1000, sessionPath: sharedSession,
 		});
-		const targets = subagentTargets([], []);
+		const targets = subagentTargets([], [], { includeHistoricalFallback: true });
 		expect(targets.filter((target) => target.sessionFile === sharedSession)).toHaveLength(2);
 	});
 
@@ -4841,7 +4859,7 @@ describe("profiled same-id run identity", () => {
 
 	test("routing still addresses the bare direct-child id in its own control dir", () => {
 		const { ancestor, nested } = sameIdFixture();
-		const targets = subagentTargets([], []);
+		const targets = subagentTargets([], [], { includeHistoricalFallback: true });
 		const nestedTarget = targets.find((target) => target.run.profile === "explore");
 		// Display identity is per-run, but routing uses the bare agent id.
 		expect(nestedTarget?.run.agentId).toBe("eva");

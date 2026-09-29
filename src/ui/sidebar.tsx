@@ -316,10 +316,12 @@ export function Sidebar(props: {
 		),
 	);
 	const hasNotifications = () => orderedNotifications().length > 0;
-	const targets = () => subagentTargets(
-		runs(),
-		tools(),
-		props.contextWindowForModel ? { contextWindowForModel: props.contextWindowForModel } : {},
+	const targets = createMemo(() =>
+		subagentTargets(
+			runs(),
+			tools(),
+			props.contextWindowForModel ? { contextWindowForModel: props.contextWindowForModel } : {},
+		),
 	);
 	const active = () => targets().filter((target) => target.active);
 	const selectedKey = () =>

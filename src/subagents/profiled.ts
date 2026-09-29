@@ -211,6 +211,13 @@ const PROFILED_NON_TERMINAL_STATES = ["running", "queued", "waiting", "idle"];
 
 export type ProfiledSubagentOptions = {
   contextWindowForModel?: (model: string | undefined) => number | undefined;
+  /**
+   * Explicitly scan all profiled runtime roots for terminal runs that are not
+   * referenced by the current conversation. This is intentionally off in
+   * normal UI projection: the temp runtime store is global to the user and
+   * cannot associate orphaned runs with one Pi session.
+   */
+  includeHistoricalFallback?: boolean;
 };
 
 type ProfiledSessionSnapshot = {
@@ -478,17 +485,19 @@ export function profiledSubagentRunsFromTools(tools: readonly ToolItem[], option
   for (const run of byRunId.values()) {
     if (run.controlDir) seenControlDirs.add(run.controlDir);
   }
-  for (const { controlDir, status } of statusDirectoriesAll()) {
-    const runId = `profiled:${path.basename(controlDir)}`;
-    if (byRunId.has(runId) || seenControlDirs.has(controlDir)) continue;
-    const run = runFromStatus(controlDir, status, options);
-    // Finished/terminal only: withUnresponsiveFallback already mapped dead
-    // non-terminal states to `unresponsive`, so this reuses existing state
-    // words (finished/completed/failed/stopped/unresponsive) with no new
-    // vocabulary. Liveness itself is untouched (profiledRunIsLive).
-    if (profiledRunIsLive(run)) continue;
-    byRunId.set(run.runId, run);
-    seenControlDirs.add(controlDir);
+  if (options.includeHistoricalFallback === true) {
+    for (const { controlDir, status } of statusDirectoriesAll()) {
+      const runId = `profiled:${path.basename(controlDir)}`;
+      if (byRunId.has(runId) || seenControlDirs.has(controlDir)) continue;
+      const run = runFromStatus(controlDir, status, options);
+      // Finished/terminal only: withUnresponsiveFallback already mapped dead
+      // non-terminal states to `unresponsive`, so this reuses existing state
+      // words (finished/completed/failed/stopped/unresponsive) with no new
+      // vocabulary. Liveness itself is untouched (profiledRunIsLive).
+      if (profiledRunIsLive(run)) continue;
+      byRunId.set(run.runId, run);
+      seenControlDirs.add(controlDir);
+    }
   }
   return [...byRunId.values()].sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
 }

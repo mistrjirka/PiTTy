@@ -55,8 +55,13 @@ if (isUpgrade) {
   try { activatePending(); root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); }
   const builtEntry = path.join(root, "dist", "index.js");
   const builtPreload = path.join(root, "dist", "preload.js");
-  const entry = fs.existsSync(builtEntry) ? builtEntry : path.join(root, "src", "index.tsx");
-  const preload = fs.existsSync(builtPreload) ? builtPreload : path.join(root, "src", "preload.ts");
+  const builtMarker = path.join(root, "dist", ".pitty-runtime-build-v1");
+  const useBuiltRuntime =
+    fs.existsSync(builtEntry) &&
+    fs.existsSync(builtPreload) &&
+    fs.existsSync(builtMarker);
+  const entry = useBuiltRuntime ? builtEntry : path.join(root, "src", "index.tsx");
+  const preload = useBuiltRuntime ? builtPreload : path.join(root, "src", "preload.ts");
   const childEnv = { ...process.env, PITTY_NODE_EXECUTABLE: process.execPath, PITTY_APP_ROOT: root };
   const bun = findBundledBun(root);
   if (!bun) {

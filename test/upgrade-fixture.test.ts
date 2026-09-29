@@ -43,6 +43,25 @@ describe("launcher pending activation fixture", () => {
     expect(await readFile(`${root}/marker`, "utf8")).toBe("new");
   });
 
+  test("ignores markerless prebuilds and uses only trusted runtime builds", async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), "pitty-launcher-")); temporary.push(base);
+    const root = await installRoot(base, "app", "old", true);
+    const dist = path.join(root, "dist");
+    await mkdir(dist, { recursive: true });
+    await writeFile(path.join(dist, "preload.js"), "");
+    await writeFile(path.join(dist, "index.js"), "import { writeFileSync } from 'node:fs'; writeFileSync(process.env.PITTY_FIXTURE_MARKER, 'dist');\n");
+    const marker = path.join(base, "ran");
+
+    const fallback = await runNode(path.join(root, "bin", "pitty.mjs"), [], { ...process.env, PITTY_FIXTURE_MARKER: marker });
+    expect(fallback.code, fallback.output).toBe(0);
+    expect(await readFile(marker, "utf8")).toBe("new");
+
+    await writeFile(path.join(dist, ".pitty-runtime-build-v1"), "opentui-solid-plugin-v1\n");
+    const built = await runNode(path.join(root, "bin", "pitty.mjs"), [], { ...process.env, PITTY_FIXTURE_MARKER: marker });
+    expect(built.code, built.output).toBe(0);
+    expect(await readFile(marker, "utf8")).toBe("dist");
+  });
+
   test("leaves default Pi resolution to PATH while preserving PI_BIN overrides", async () => {
     const base = await mkdtemp(path.join(os.tmpdir(), "pitty-launcher-")); temporary.push(base);
     const root = await installRoot(base, "app", "old", true);
