@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import path from "node:path";
 import { resolveDefaultPiExecutable, resolvePiCommand } from "../src/pi-command.ts";
 import { resolveBundledPiExtensionPath } from "../src/runtime-paths.ts";
 
@@ -22,10 +23,10 @@ describe("Pi command resolution", () => {
 
   test("resolves bundled Pi extensions from the install root", () => {
     expect(resolveBundledPiExtensionPath("/opt/pitty", "/opt/pitty/dist")).toBe(
-      "/opt/pitty/src/pi-extensions/compaction-observer.mjs",
+      path.join("/opt/pitty", "src", "pi-extensions", "compaction-observer.mjs"),
     );
     expect(resolveBundledPiExtensionPath(undefined, "/opt/pitty/src")).toBe(
-      "/opt/pitty/src/pi-extensions/compaction-observer.mjs",
+      path.join("/opt/pitty", "src", "pi-extensions", "compaction-observer.mjs"),
     );
   });
 
