@@ -28,6 +28,8 @@ export type ThinkingLevel =
 	| "xhigh"
 	| "max";
 
+export const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+
 export type PiRpcClientOptions = {
 	cwd: string;
 	executable?: string;
@@ -411,7 +413,7 @@ export class PiRpcClient extends EventEmitter {
 		this.options.logger?.rpc("tx", request);
 		return new Promise<RpcResponse>((resolve, reject) => {
 			const timeoutMs =
-				timeoutMsOverride ?? this.options.requestTimeoutMs ?? 30_000;
+				timeoutMsOverride ?? this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 			const pending: PendingRequest = {
 				resolve: (response) => {
 					this.options.logger?.rpc("rx", response, {

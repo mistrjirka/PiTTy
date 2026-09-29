@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.37
+
+### Slow RPC responses and runaway diagnostic logs
+
+- Increase PiTTy's default RPC response timeout from 30 seconds to 60 seconds so extension-heavy or temporarily busy Pi sessions do not falsely appear disconnected. Explicit per-call startup/history deadlines remain authoritative, and automatic-compaction timeout pausing is unchanged.
+- Bound PiTTy's own diagnostic output to 64 MiB per run log and 256 MiB of retained diagnostic files. Long-running sessions now stop adding to a full run log, and startup prunes older diagnostics by both file count and total bytes.
+- The recommended @mistrjirka/pi-subagent Git runtime was fixed upstream so only the initial child prompt handshake gets a 60-second startup window; ordinary child RPC calls remain at 10 seconds. Fresh plugin installs receive the fix automatically; existing Git installs can refresh with: pi update git:github.com/mistrjirka/pi-subagent
+
+Validation: typecheck and the complete unit suite pass.
+
 ## 0.6.36
 
 ### Interrupted subagent retries render as one thinking section

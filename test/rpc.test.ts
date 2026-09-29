@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
-import { PiRpcClient, PiRpcTimeoutError } from "../src/rpc/pi-rpc-client.ts";
+import { DEFAULT_REQUEST_TIMEOUT_MS, PiRpcClient, PiRpcTimeoutError } from "../src/rpc/pi-rpc-client.ts";
 import type { PiEvent } from "../src/types.ts";
 
 const clients: PiRpcClient[] = [];
@@ -19,6 +19,10 @@ afterEach(async () => {
 });
 
 describe("PiRpcClient", () => {
+  test("defaults ordinary RPC requests to a 60 second ceiling", () => {
+    expect(DEFAULT_REQUEST_TIMEOUT_MS).toBe(60_000);
+  });
+
   test("starts Pi RPC, reads state, and forwards stream events", async () => {
     const client = new PiRpcClient({ cwd: process.cwd(), executable: path.resolve("scripts/mock-pi-rpc.mjs") });
     clients.push(client);

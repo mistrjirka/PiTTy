@@ -10,6 +10,10 @@ export type DiagnosticLoggerOptions = {
   directory?: string;
   verboseRpc?: boolean;
   retentionFiles?: number;
+  /** Maximum bytes written by one PiTTy run log before further diagnostics are dropped. */
+  maxFileBytes?: number;
+  /** Maximum aggregate bytes retained across completed diagnostic files. */
+  retentionBytes?: number;
 };
 
 export type DiagnosticRecord = {
@@ -23,6 +27,8 @@ export type DiagnosticRecord = {
 
 const SECRET_KEY = /(api[-_]?key|authorization|cookie|credential|password|secret|token)/i;
 const MAX_STRING = 8_000;
+const DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024;
+const DEFAULT_RETENTION_BYTES = 256 * 1024 * 1024;
 
 function timestampForFilename(date = new Date()): string {
   return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z").replace("T", "-");
@@ -81,12 +87,16 @@ export class DiagnosticLogger {
   readonly verboseRpc: boolean;
   private readonly startedAt = performance.now();
   private readonly fd: number | undefined;
+  private readonly maxFileBytes: number;
+  private bytesWritten = 0;
+  private capped = false;
   private closed = false;
 
   constructor(options: DiagnosticLoggerOptions = {}) {
     this.enabled = options.enabled !== false;
     this.directory = options.directory ?? defaultDiagnosticsDirectory();
     this.verboseRpc = options.verboseRpc === true;
+    this.maxFileBytes = Math.max(0, options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES);
     this.logPath = path.join(this.directory, `run-${timestampForFilename()}-${process.pid}.jsonl`);
 
     if (!this.enabled) {
@@ -95,8 +105,9 @@ export class DiagnosticLogger {
     }
 
     fs.mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-    this.rotate(options.retentionFiles ?? 20);
+    this.rotate(options.retentionFiles ?? 20, options.retentionBytes ?? DEFAULT_RETENTION_BYTES);
     this.fd = fs.openSync(this.logPath, "a", 0o600);
+    try { this.bytesWritten = fs.fstatSync(this.fd).size; } catch { this.bytesWritten = 0; }
     fs.writeFileSync(path.join(this.directory, "latest-log-path.txt"), `${this.logPath}\n`, { mode: 0o600 });
   }
 
@@ -185,25 +196,46 @@ export class DiagnosticLogger {
       pid: process.pid,
       ...(data === undefined ? {} : { data: sanitize(data) }),
     };
+    if (this.capped) return;
+    const line = `${JSON.stringify(record)}\n`;
+    const lineBytes = Buffer.byteLength(line);
+    if (this.bytesWritten + lineBytes > this.maxFileBytes) {
+      this.capped = true;
+      return;
+    }
     try {
-      fs.writeSync(this.fd, `${JSON.stringify(record)}\n`);
+      fs.writeSync(this.fd, line);
+      this.bytesWritten += lineBytes;
       if (sync) fs.fsyncSync(this.fd);
     } catch {
       // Diagnostics must never crash the UI.
     }
   }
 
-  private rotate(retentionFiles: number): void {
+  private rotate(retentionFiles: number, retentionBytes: number): void {
     try {
       const candidates = fs.readdirSync(this.directory)
         .filter((name) => /^(run-.*\.jsonl|crash-.*\.json|diagnostics-.*\.tar\.gz)$/.test(name))
         .map((name) => {
           const target = path.join(this.directory, name);
-          return { target, mtime: fs.statSync(target).mtimeMs };
+          const stat = fs.statSync(target);
+          return { target, mtime: stat.mtimeMs, size: stat.size };
         })
         .sort((a, b) => b.mtime - a.mtime);
-      for (const stale of candidates.slice(Math.max(5, retentionFiles))) {
-        try { fs.rmSync(stale.target, { force: true }); } catch {}
+      const countLimit = Math.max(5, retentionFiles);
+      const byteLimit = Math.max(0, retentionBytes);
+      let retainedBytes = 0;
+      for (const [index, candidate] of candidates.entries()) {
+        const exceedsCount = index >= countLimit;
+        const exceedsBytes =
+          byteLimit > 0 &&
+          index > 0 &&
+          retainedBytes + candidate.size > byteLimit;
+        if (exceedsCount || exceedsBytes) {
+          try { fs.rmSync(candidate.target, { force: true }); } catch {}
+          continue;
+        }
+        retainedBytes += candidate.size;
       }
     } catch {}
   }
