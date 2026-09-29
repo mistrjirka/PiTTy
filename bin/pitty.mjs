@@ -44,14 +44,20 @@ const isUpgrade = process.argv[2] === "upgrade";
 const bundledBun = findBundledBun(root);
 if (isUpgrade) {
   if (!bundledBun) { console.error("PiTTy could not find its bundled Bun runtime for upgrade."); process.exit(1); }
-  const childEnv = { ...process.env, PITTY_NODE_EXECUTABLE: process.execPath };
-  const child = spawn(bundledBun, ["run", path.join(root, "src", "upgrade.ts"), ...process.argv.slice(3)], { cwd: process.cwd(), stdio: "inherit", env: childEnv });
+  const childEnv = { ...process.env, PITTY_NODE_EXECUTABLE: process.execPath, PITTY_APP_ROOT: root };
+  const upgradeEntry = fs.existsSync(path.join(root, "dist", "upgrade.js"))
+    ? path.join(root, "dist", "upgrade.js")
+    : path.join(root, "src", "upgrade.ts");
+  const child = spawn(bundledBun, ["run", upgradeEntry, ...process.argv.slice(3)], { cwd: process.cwd(), stdio: "inherit", env: childEnv });
   child.on("error", (error) => { console.error(`PiTTy upgrade failed: ${error.message}`); process.exit(1); });
   child.on("exit", (code, signal) => { if (signal) process.kill(process.pid, signal); else process.exit(code ?? 1); });
 } else {
   try { activatePending(); root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); }
-  const preload = path.join(root, "src", "preload.ts");
-  const childEnv = { ...process.env, PITTY_NODE_EXECUTABLE: process.execPath };
+  const builtEntry = path.join(root, "dist", "index.js");
+  const builtPreload = path.join(root, "dist", "preload.js");
+  const entry = fs.existsSync(builtEntry) ? builtEntry : path.join(root, "src", "index.tsx");
+  const preload = fs.existsSync(builtPreload) ? builtPreload : path.join(root, "src", "preload.ts");
+  const childEnv = { ...process.env, PITTY_NODE_EXECUTABLE: process.execPath, PITTY_APP_ROOT: root };
   const bun = findBundledBun(root);
   if (!bun) {
     console.error("PiTTy could not find its bundled Bun runtime.");
@@ -59,7 +65,7 @@ if (isUpgrade) {
     console.error("Re-run the installer, or run: npm ci --ignore-scripts && node node_modules/bun/install.js");
     process.exit(1);
   }
-  const child = spawn(bun, ["run", `--preload=${preload}`, path.join(root, "src", "index.tsx"), ...process.argv.slice(2)], { cwd: process.cwd(), stdio: "inherit", env: childEnv });
+  const child = spawn(bun, ["run", `--preload=${preload}`, entry, ...process.argv.slice(2)], { cwd: process.cwd(), stdio: "inherit", env: childEnv });
   child.on("error", (error) => { console.error(`PiTTy failed to start: ${error.message}`); process.exit(1); });
   child.on("exit", (code, signal) => { if (signal) process.kill(process.pid, signal); else process.exit(code ?? 1); });
 }

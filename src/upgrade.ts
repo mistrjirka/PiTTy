@@ -7,6 +7,29 @@ import { legacyInstallMetadata, readInstallMetadata, type InstallMetadata } from
 
 export type UpgradeOptions = { check: boolean; version?: string; help: boolean };
 export type InstallerCommand = { command: string; args: string[] };
+export const PROFILED_SUBAGENT_SOURCE = "git:github.com/mistrjirka/pi-subagent";
+
+export function installedProfiledSubagentSource(piList: string): string | undefined {
+  return piList.includes("github.com/mistrjirka/pi-subagent") ? PROFILED_SUBAGENT_SOURCE : undefined;
+}
+
+async function runProcess(
+  command: string,
+  args: string[],
+  options: { capture?: boolean; env?: NodeJS.ProcessEnv } = {},
+): Promise<{ code: number; stdout: string }> {
+  return await new Promise((resolve, reject) => {
+    let stdout = "";
+    const child = spawn(command, args, {
+      stdio: options.capture ? ["ignore", "pipe", "inherit"] : "inherit",
+      env: options.env ?? process.env,
+    });
+    if (options.capture) child.stdout?.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.on("error", reject);
+    child.on("exit", (code) => resolve({ code: code ?? 1, stdout }));
+  });
+}
+
 export function installerCommand(platform: NodeJS.Platform, script: string, version: string, metadata: InstallMetadata): InstallerCommand {
   if (platform === "win32") {
     return {
@@ -55,11 +78,22 @@ export async function runUpgrade(args: readonly string[], environment: NodeJS.Pr
   ensureUpgradeVersionAllowed(version, metadata.installedVersion);
   const script = path.join(installDirectory, process.platform === "win32" ? "install.ps1" : "install.sh");
   const command = installerCommand(process.platform, script, version, metadata);
-  const result = await new Promise<number>((resolve, reject) => {
-    const child = spawn(command.command, command.args, { stdio: "inherit", env: { ...environment, PITTY_PLUGIN_MODE: metadata.pluginMode } });
-    child.on("error", reject); child.on("exit", (code) => resolve(code ?? 1));
+  const result = await runProcess(command.command, command.args, {
+    env: { ...environment, PITTY_PLUGIN_MODE: metadata.pluginMode },
   });
-  return result;
+  if (result.code !== 0) return result.code;
+
+  try {
+    const listed = await runProcess("pi", ["list"], { capture: true, env: environment });
+    const source = listed.code === 0 ? installedProfiledSubagentSource(listed.stdout) : undefined;
+    if (source) {
+      const updated = await runProcess("pi", ["update", source], { env: environment });
+      if (updated.code !== 0) console.warn(`PiTTy upgraded, but ${source} could not be refreshed (exit ${updated.code}).`);
+    }
+  } catch (error) {
+    console.warn(`PiTTy upgraded, but the installed subagent runtime could not be refreshed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return 0;
 }
 
 if (import.meta.main) runUpgrade(process.argv.slice(2)).then((code) => process.exit(code)).catch((error: unknown) => { console.error(`pitty upgrade failed: ${error instanceof Error ? error.message : String(error)}`); process.exit(1); });

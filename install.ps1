@@ -78,10 +78,21 @@ try {
   $NewDir = "$InstallDir.new"; Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $NewDir; New-Item -ItemType Directory -Force -Path $NewDir | Out-Null
   Copy-Item -Recurse -Force (Join-Path $Root.FullName "*") $NewDir
   $NpmLog = Join-Path $LogRoot "npm-install.log"; Push-Location $NewDir
-  try { & npm ci --ignore-scripts --no-audit --no-fund *> $NpmLog; if ($LASTEXITCODE -ne 0) { Fail "npm dependency installation failed. See $NpmLog" }; $BunLog = Join-Path $LogRoot "bun-install.log"; & node node_modules/bun/install.js *> $BunLog; if ($LASTEXITCODE -ne 0) { Fail "Bun runtime installation failed. See $BunLog" } } finally { Pop-Location }
+  try {
+    & npm ci --ignore-scripts --no-audit --no-fund *> $NpmLog
+    if ($LASTEXITCODE -ne 0) { Fail "npm dependency installation failed. See $NpmLog" }
+    $BunLog = Join-Path $LogRoot "bun-install.log"
+    & node node_modules/bun/install.js *> $BunLog
+    if ($LASTEXITCODE -ne 0) { Fail "Bun runtime installation failed. See $BunLog" }
+    $BuildLog = Join-Path $LogRoot "runtime-build.log"
+    $BunExecutable = if (Test-Path "node_modules\.bin\bun.exe") { "node_modules\.bin\bun.exe" } else { "node_modules\bun\bin\bun.exe" }
+    & $BunExecutable build src/index.tsx src/preload.ts src/upgrade.ts --target=bun --packages external --outdir dist *> $BuildLog
+    if ($LASTEXITCODE -ne 0) { Fail "PiTTy runtime build failed. See $BuildLog" }
+  } finally { Pop-Location }
   if (-not (Test-Path (Join-Path $NewDir "bin\pitty.mjs"))) { Fail "archive is missing bin/pitty.mjs" }
   if (-not (Test-Path (Join-Path $NewDir "package.json"))) { Fail "archive is missing package.json" }
   if (-not (Test-Path (Join-Path $NewDir "node_modules\.bin\bun.exe")) -and -not (Test-Path (Join-Path $NewDir "node_modules\bun\bin\bun.exe"))) { Fail "staged dependencies are missing bundled Bun" }
+  foreach ($BuiltFile in @("dist\index.js", "dist\preload.js", "dist\upgrade.js")) { if (-not (Test-Path (Join-Path $NewDir $BuiltFile))) { Fail "runtime build is missing $BuiltFile" } }
   $PluginMode = if ($WithPlugins) { "yes" } elseif ($WithoutPlugins) { "no" } elseif ($env:PITTY_PLUGIN_MODE -in @("yes", "no")) { $env:PITTY_PLUGIN_MODE } else { "ask" }
   $Metadata = [ordered]@{ schemaVersion = 1; repository = $Repo; installedVersion = $Ver; installDirectory = $InstallDir; binDirectory = $BinDir; pluginMode = $PluginMode }
   $MetadataJson = $Metadata | ConvertTo-Json -Compress

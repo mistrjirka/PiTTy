@@ -19,6 +19,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: node node_modules/bun/install.js
+      - run: npm run build:runtime
+      - run: node bin/pitty.mjs --help
       - run: npm run typecheck
       - run: npm run test:unit
 

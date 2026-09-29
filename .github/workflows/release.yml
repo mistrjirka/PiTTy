@@ -20,6 +20,8 @@ jobs:
           node node_modules/bun/install.js
       - name: Validate core checks
         run: |
+          npm run build:runtime
+          node bin/pitty.mjs --help
           npm run typecheck
           npm run test:unit
       - name: Resolve release metadata

@@ -5,7 +5,8 @@ REPO="${PITTY_REPO:-mistrjirka/PiTTy}"
 VERSION="${PITTY_VERSION:-latest}"
 INSTALL_DIR="${PITTY_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/pitty}"
 BIN_DIR="${PITTY_BIN_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}"
-PLUGIN_MODE="ask"
+PLUGIN_MODE="${PITTY_PLUGIN_MODE:-ask}"
+case "$PLUGIN_MODE" in yes|no|ask) : ;; *) PLUGIN_MODE="ask" ;; esac
 ASSUME_YES=0
 ALLOW_PLUGIN_FAILURE=0
 DEFER_APPLY=0
@@ -139,11 +140,21 @@ if ! (cd "$INSTALL_DIR.new" && node node_modules/bun/install.js) >"$BUN_LOG" 2>&
   tail -n 30 "$BUN_LOG" >&2 || true
   exit 1
 fi
+BUILD_LOG="$LOG_DIR/runtime-build.log"
+if ! (cd "$INSTALL_DIR.new" && node_modules/.bin/bun build src/index.tsx src/preload.ts src/upgrade.ts --target=bun --packages external --outdir dist) >"$BUILD_LOG" 2>&1; then
+  printf 'error: PiTTy runtime build failed.\n' >&2
+  printf '  log: %s\n' "$BUILD_LOG" >&2
+  tail -n 30 "$BUILD_LOG" >&2 || true
+  exit 1
+fi
 # Metadata is part of the staged payload and is consumed by pitty upgrade.
 node -e 'const fs=require("fs"); const out={schemaVersion:1,repository:process.argv[1],installedVersion:process.argv[2],installDirectory:process.argv[3],binDirectory:process.argv[4],pluginMode:process.argv[5]}; fs.writeFileSync(process.argv[6], JSON.stringify(out)+"\n")' "$REPO" "$VER" "$INSTALL_DIR" "$BIN_DIR" "$PLUGIN_MODE" "$INSTALL_DIR.new/pitty-install.json"
 [ -f "$INSTALL_DIR.new/bin/pitty.mjs" ] || die "archive is missing bin/pitty.mjs"
 [ -f "$INSTALL_DIR.new/package.json" ] || die "archive is missing package.json"
 [ -f "$INSTALL_DIR.new/node_modules/.bin/bun" ] || die "staged dependencies are missing bundled Bun"
+[ -f "$INSTALL_DIR.new/dist/index.js" ] || die "runtime build is missing dist/index.js"
+[ -f "$INSTALL_DIR.new/dist/preload.js" ] || die "runtime build is missing dist/preload.js"
+[ -f "$INSTALL_DIR.new/dist/upgrade.js" ] || die "runtime build is missing dist/upgrade.js"
 if [ "$DEFER_APPLY" -eq 1 ]; then
   [ ! -e "$INSTALL_DIR.pending" ] || die "another upgrade is already staged at $INSTALL_DIR.pending"
   mv "$INSTALL_DIR.new" "$INSTALL_DIR.pending"

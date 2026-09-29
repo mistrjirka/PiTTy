@@ -10,6 +10,7 @@ import { registerBundledParsers } from "./ui/parsers.ts";
 import { detectOptionalIntegrations } from "./integrations/detect.ts";
 import { appVersion } from "./version.ts";
 import { resolveDefaultPiExecutable } from "./pi-command.ts";
+import { resolveBundledPiExtensionPath } from "./runtime-paths.ts";
 
 registerBundledParsers();
 
@@ -41,7 +42,7 @@ if (parsed.values.help) {
 
 const piArgs: string[] = [
   "--extension",
-  `${import.meta.dir}/pi-extensions/compaction-observer.mjs`,
+  resolveBundledPiExtensionPath(process.env.PITTY_APP_ROOT, import.meta.dir),
 ];
 if (parsed.values.continue) piArgs.push("--continue");
 if (typeof parsed.values.session === "string") piArgs.push("--session", parsed.values.session);

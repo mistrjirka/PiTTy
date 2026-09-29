@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ensureUpgradeVersionAllowed, installerCommand, parseUpgradeArgs, metadataForUpgrade } from "../src/upgrade.ts";
+import { ensureUpgradeVersionAllowed, installerCommand, parseUpgradeArgs, metadataForUpgrade, installedProfiledSubagentSource, PROFILED_SUBAGENT_SOURCE } from "../src/upgrade.ts";
 import { legacyInstallMetadata, isInstallMetadata } from "../src/update/metadata.ts";
 import { fetchLatestStableRelease } from "../src/update/check.ts";
 
@@ -15,6 +15,11 @@ describe("upgrade contracts", () => {
     const metadata = legacyInstallMetadata("C:\\Program Files\\PiTTy", "1.2.3", "repo", { PITTY_BIN_DIR: "C:\\Tools" });
     expect(installerCommand("win32", "C:\\Program Files\\PiTTy\\install.ps1", "1.2.4", metadata)).toEqual({ command: "powershell.exe", args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\Program Files\\PiTTy\\install.ps1", "-DeferApply", "-Version", "1.2.4", "-InstallDir", "C:\\Program Files\\PiTTy", "-BinDir", "C:\\Tools", "-Repo", "repo"] });
     expect(installerCommand("linux", "/tmp/install.sh", "1.2.4", metadata)).toEqual({ command: "sh", args: ["/tmp/install.sh", "--defer-apply", "--version", "1.2.4", "--install-dir", "C:\\Program Files\\PiTTy", "--bin-dir", "C:\\Tools", "--repo", "repo"] });
+  });
+  test("detects only an already-installed profiled subagent runtime", () => {
+    expect(installedProfiledSubagentSource("git:github.com/mistrjirka/pi-subagent\n")).toBe(PROFILED_SUBAGENT_SOURCE);
+    expect(installedProfiledSubagentSource("npm:pi-subagents\n")).toBeUndefined();
+    expect(installedProfiledSubagentSource("npm:pi-mcp-adapter\n")).toBeUndefined();
   });
   test("allows same and newer versions but rejects downgrades", () => {
     expect(() => ensureUpgradeVersionAllowed("1.2.2", "1.2.3")).toThrow("Requested version 1.2.2 is older than installed version 1.2.3");

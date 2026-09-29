@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.38
+
+### Faster cold launch and automatic subagent refresh
+
+- Install and upgrade now prebuild PiTTy local TypeScript/TSX runtime. Normal launches use the built JavaScript entrypoints, moving Bun transpilation out of the interactive startup path while retaining source fallbacks for development checkouts.
+- The launcher passes the install root into the built runtime so bundled code still resolves PiTTy non-bundled extension assets correctly.
+- pitty upgrade refreshes an already-installed git:github.com/mistrjirka/pi-subagent package after staging PiTTy, so existing Git installs receive the startup-handshake fix automatically. The optional package is not installed when absent.
+- POSIX upgrades now preserve the recorded plugin mode through PITTY_PLUGIN_MODE, matching the Windows installer behavior.
+
+Validation: runtime build and launcher smoke, typecheck, installer/upgrade focused tests, and the complete unit suite.
+
 ## 0.6.37
 
 ### Slow RPC responses and runaway diagnostic logs
