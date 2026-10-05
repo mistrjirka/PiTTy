@@ -265,6 +265,47 @@ describe("recursive profiled display follow-ups", () => {
 	});
 });
 
+describe("profiled command telemetry", () => {
+	test("keeps real execution times separate from heartbeats and agent deadlines", () => {
+		const fixture = profiledFixture();
+		const now = Date.now();
+		const first = { toolCallId: "bash-a", toolName: "bash", startedAt: now - 60_000, timeoutSeconds: 2100 };
+		const second = { toolCallId: "read-b", toolName: "read", startedAt: now - 30_000 };
+		const status = {
+			agentId: "joy", profile: "general", parentAgentId: "root", label: "command test",
+			state: "running", startedAt: now - 100_000, updatedAt: now - 5_000,
+			activeTools: [first, second, null, { toolCallId: "bad", toolName: "bash", startedAt: "yesterday" }],
+		};
+		const agent = fixture.writeAgent("joy", status);
+		const tool: ToolItem = {
+			kind: "tool", id: "spawn", toolCallId: "spawn", name: "agent_spawn", args: {}, output: "",
+			details: { runtime: "profiled-subagents", treeId: fixture.treeId, agentId: "joy", controlDir: agent.controlDir },
+			timestamp: now, status: "done", isError: false,
+		};
+		const read = () => profiledSubagentRunsFromTools([tool]).find((run) => run.agentId === "joy")!;
+		const write = (patch: Record<string, unknown>) => fs.writeFileSync(agent.statusPath, JSON.stringify({
+			version: 1, runtime: "profiled-subagents", treeId: fixture.treeId, ...status, ...patch,
+		}));
+		expect(read().activeTools).toEqual([first, second]);
+		expect(read().lastActivityAt).toBe(second.startedAt);
+		expect(read().timeoutMs).toBeUndefined();
+		expect(read().deadlineAt).toBeUndefined();
+		write({ updatedAt: now });
+		expect(read().lastUpdate).toBe(now);
+		expect(read().lastActivityAt).toBe(second.startedAt);
+		write({ activeTools: [second] });
+		expect(read().activeTools).toEqual([second]);
+		write({ activeTools: undefined });
+		expect(read().activeTools).toBeUndefined();
+		expect(read().lastActivityAt).toBeUndefined();
+		expect(subagentActivityAt(read())).toBeUndefined();
+		write({ state: "idle" });
+		expect(read().activeTools).toBeUndefined();
+		write({ state: "completed" });
+		expect(read().activeTools).toBeUndefined();
+	});
+});
+
 describe("profiled liveness and usage", () => {
 	test("uses fresh heartbeats, rejects heartbeat-dead or terminal runs, and reads session usage", () => {
 		const fixture = profiledFixture();

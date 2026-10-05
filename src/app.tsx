@@ -541,6 +541,7 @@ function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
 		thinking: run.thinking,
 		contextWindow: run.contextWindow,
 		currentTool: run.currentTool,
+		activeTools: run.activeTools,
 		currentPath: run.currentPath,
 		currentStep: run.currentStep,
 		chainStepCount: run.chainStepCount,

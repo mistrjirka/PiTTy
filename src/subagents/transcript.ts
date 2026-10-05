@@ -777,7 +777,7 @@ export function subagentActivityAt(
     : stepIndex === undefined
       ? (run.lastActivityAt ?? run.currentToolStartedAt ?? run.endedAt)
       : undefined;
-  if (run.runtime === "profiled-subagents") return persisted ?? run.lastActivityAt ?? run.lastUpdate;
+  if (run.runtime === "profiled-subagents") return persisted ?? run.lastActivityAt;
   return persisted ?? substantiveSubagentActivityAt(run, stepIndex);
 }
 

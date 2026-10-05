@@ -159,6 +159,47 @@ async function mount(
 	return setup;
 }
 
+describe("profiled command visibility", () => {
+	test("renders independent command clocks until actual completion, including unknown timeouts", async () => {
+		const startedAt = 1_000;
+		const first = { toolCallId: "a", toolName: "bash", startedAt, timeoutSeconds: 2100 };
+		const second = { toolCallId: "b", toolName: "read", startedAt: startedAt + 60_000 };
+		const initial: SubagentRun = {
+			runId: "profiled:joy", mode: "profiled", runtime: "profiled-subagents", control: "profiled",
+			agentId: "joy", profile: "general", state: "running", startedAt, steps: [], activeTools: [first, second],
+		};
+		const [run, setRun] = createSignal(initial);
+		const [now, setNow] = createSignal(startedAt + 1_293_000);
+		const target = (): SubagentTarget => ({
+			key: "joy", run: run(), label: "Joy", state: run().state,
+			active: run().state === "running", canSteer: false, startedAt,
+		});
+		const setup = await mount(() => <SubagentInspector target={target()} items={[]} now={now()} />, 120, 24);
+		const flush = async () => { await setup.flush(); await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 }); };
+		let frame = setup.captureCharFrame();
+		expect(frame).toContain("bash running · elapsed 21m 33s · command timeout 35m 0s · 13m 27s left");
+		expect(frame).toContain("read running · elapsed 20m 33s · command timeout not specified");
+		setNow(startedAt + 2_101_000);
+		await flush();
+		frame = setup.captureCharFrame();
+		expect(frame).toContain("timeout reached; awaiting completion");
+		expect(frame).toContain("bash running");
+		setRun({ ...initial, activeTools: [second] });
+		await flush();
+		frame = setup.captureCharFrame();
+		expect(frame).not.toContain("bash running");
+		expect(frame).toContain("read running");
+		setRun({ ...initial, activeTools: undefined });
+		await flush();
+		expect(setup.captureCharFrame()).not.toContain("command timeout");
+		for (const state of ["idle", "completed", "unresponsive"]) {
+			setRun({ ...initial, state });
+			await flush();
+			expect(setup.captureCharFrame()).not.toContain("command timeout");
+		}
+	});
+});
+
 describe("OpenTUI components", () => {
 	test("renders truthful startup progress", async () => {
 		const setup = await mount(

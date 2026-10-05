@@ -132,6 +132,13 @@ export type SubagentStep = {
 	error?: string | undefined;
 };
 
+export type SubagentActiveTool = {
+	toolCallId: string;
+	toolName: string;
+	startedAt: number;
+	timeoutSeconds?: number | undefined;
+};
+
 export type SubagentRun = {
 	runId: string;
 	asyncId?: string | undefined;
@@ -164,6 +171,8 @@ export type SubagentRun = {
 	profiledToolInFlight?: boolean | undefined;
 	/** True when the run was read from a currently existing profiled status file. */
 	profiledStatusBacked?: boolean | undefined;
+	/** Actual executions reported by the child, separate from the agent deadline. */
+	activeTools?: SubagentActiveTool[] | undefined;
 	agents?: string[] | undefined;
 	model?: string | undefined;
 	thinking?: string | undefined;

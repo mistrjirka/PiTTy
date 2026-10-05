@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { SubagentRun, ToolItem } from "../types.ts";
+import type { SubagentActiveTool, SubagentRun, ToolItem } from "../types.ts";
 import { fileContentKey } from "./cache-key.ts";
 import { PROFILED_RUNTIME_ROOT_PREFIX, profiledScanBase, safeProfiledControlDir } from "./profiled-paths.ts";
 
@@ -21,6 +21,7 @@ type ProfiledStatus = {
   model?: string;
   thinking?: string;
   waitingForParent?: boolean;
+  activeTools?: SubagentActiveTool[];
 };
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -35,6 +36,25 @@ function text(value: unknown): string | undefined {
 
 function number(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function activeTools(value: unknown): SubagentActiveTool[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const tools = new Map<string, SubagentActiveTool>();
+  for (const entry of value) {
+    const item = record(entry);
+    const toolCallId = text(item?.toolCallId);
+    const toolName = text(item?.toolName);
+    const startedAt = number(item?.startedAt);
+    if (!toolCallId || !toolName || startedAt === undefined || startedAt <= 0) continue;
+    const timeoutSeconds = number(item?.timeoutSeconds);
+    tools.set(toolCallId, {
+      toolCallId, toolName, startedAt,
+      ...(timeoutSeconds !== undefined && timeoutSeconds > 0 && Number.isFinite(timeoutSeconds * 1000)
+        ? { timeoutSeconds } : {}),
+    });
+  }
+  return [...tools.values()];
 }
 
 function toolState(item: ToolItem, details: Record<string, unknown>): string {
@@ -143,6 +163,7 @@ function parseStatus(controlDir: string, statusPath?: string): ProfiledStatus | 
     ...(text(value.model) ? { model: text(value.model)! } : {}),
     ...(text(value.thinking) ? { thinking: text(value.thinking)! } : {}),
     ...(value.waitingForParent === true ? { waitingForParent: true } : {}),
+    ...(Array.isArray(value.activeTools) ? { activeTools: activeTools(value.activeTools)! } : {}),
   };
 }
 
@@ -373,7 +394,11 @@ function runFromStatus(controlDir: string, status: ProfiledStatus, options: Prof
     state: status.state,
     startedAt: status.startedAt,
     lastUpdate: status.updatedAt,
-    lastActivityAt: session.lastActivityAt ?? status.updatedAt,
+    // Heartbeats prove liveness, not progress. A real execution start is activity.
+    lastActivityAt: status.activeTools?.length
+      ? Math.max(session.lastActivityAt ?? 0, ...status.activeTools.map((tool) => tool.startedAt))
+      : session.lastActivityAt,
+    ...(status.state === "running" && status.activeTools ? { activeTools: status.activeTools } : {}),
     activityState: status.state,
     agent: status.profile,
     model: status.model,

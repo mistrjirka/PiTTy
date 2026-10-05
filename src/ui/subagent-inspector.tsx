@@ -166,6 +166,17 @@ export function SubagentInspector(props: {
 		}
 		return parts.join(" · ");
 	};
+	const activeTools = () =>
+		target().active && target().state === "running" ? (run().activeTools ?? []) : [];
+	const commandTiming = (tool: NonNullable<SubagentRun["activeTools"]>[number]) => {
+		const elapsed = Math.max(0, props.now - tool.startedAt);
+		const prefix = `${cleanTerminalText(tool.toolName)} running · elapsed ${formatDuration(elapsed)}`;
+		if (tool.timeoutSeconds === undefined) return `${prefix} · command timeout not specified`;
+		const limit = tool.timeoutSeconds * 1000;
+		return `${prefix} · command timeout ${formatDuration(limit)} · ${elapsed < limit
+			? `${formatDuration(limit - elapsed)} left`
+			: "timeout reached; awaiting completion"}`;
+	};
 	const itemNow = (item: ConversationItem): number | undefined =>
 		inspectorItemNow(target().active, item, props.now);
 	const elapsed = () =>
@@ -386,6 +397,13 @@ export function SubagentInspector(props: {
 						{activityText()}
 					</text>
 				</Show>
+				<For each={activeTools()}>
+					{(tool) => (
+						<text minHeight={1} flexShrink={0} wrapMode="word" fg={colors.cyan}>
+							{commandTiming(tool)}
+						</text>
+					)}
+				</For>
 				<ModelContextRows
 					layout="inline"
 					contextText={childContextUsage() ?? ""}
