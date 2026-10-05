@@ -1086,7 +1086,9 @@ export function MessageView(props: {
 						const status = notificationText(payload.status) || customDetail(item, "status") || "completed";
 						const usage = customDetailObject(item, "usage") ?? objectRecordValue(payload.usage);
 						const usageParts = [
-							typeof usage?.tokens === "number" ? `${usage.tokens} tokens` : "",
+							typeof usage?.tokens === "number" ? `${usage.tokens.toLocaleString("en-US")} cumulative tokens (incl. cache)` : "",
+							typeof usage?.outputTokens === "number" ? `${usage.outputTokens.toLocaleString("en-US")} generated tokens` : "",
+							typeof usage?.contextTokens === "number" ? `~${usage.contextTokens.toLocaleString("en-US")} context tokens` : "",
 							typeof usage?.toolUses === "number" ? `${usage.toolUses} tools` : "",
 							typeof usage?.durationMs === "number" ? formatDuration(usage.durationMs, "") : "",
 						].filter(Boolean);
@@ -1100,7 +1102,7 @@ export function MessageView(props: {
 						return (
 							<box id={item.id} flexDirection="column" backgroundColor={colors.toolAgentBg} paddingLeft={1} paddingRight={1} marginBottom={1} border={["left"]} borderColor={colors.purple}>
 								<text fg={colors.purple} attributes={1}>◆ subagent · {identity} · {status}</text>
-								<Show when={usageParts.length > 0}><text fg={colors.muted} wrapMode="none">{usageParts.join(" · ")}</text></Show>
+								<Show when={usageParts.length > 0}><text fg={colors.muted} wrapMode="word">{usageParts.join(" · ")}</text></Show>
 								<text fg={colors.textBright} selectable wrapMode="none">{collapsedPreview(cleanedResult) || "No result preview"}{more ? ` · ${more}` : ""}</text>
 								<Show when={sessionPath}><text fg={colors.subtle} wrapMode="none">{clampDiffPath(sessionPath, 72)}</text></Show>
 							</box>

@@ -2119,7 +2119,7 @@ describe("OpenTUI components", () => {
 		);
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("@jett — bounded task");
-		expect(frame).toContain("42 tokens");
+		expect(frame).toContain("42 cumulative tokens (incl. cache)");
 		expect(frame).not.toContain("UNIQUE_TAIL");
 		expect(frame).toContain("20 more lines");
 		expect(frame.split("\n").length).toBeLessThanOrEqual(9);
@@ -2136,6 +2136,17 @@ describe("OpenTUI components", () => {
 			8,
 		);
 		expect(spawn.captureCharFrame()).toContain("@jett · explore — launch task");
+	});
+
+	test("notification usage counters remain distinct and readable at 70 columns", async () => {
+		const setup = await mount(() => <MessageView item={{
+			kind: "custom", id: "usage-card", customType: "subagent-notification", text: "", timestamp: 1,
+			details: { agent_id: "una", status: "completed", result: "done", usage: { tokens: 844771, outputTokens: 6603, contextTokens: 73739 } },
+		}} showThinking toolExpanded={false} />, 70, 12);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("844,771 cumulative tokens (incl. cache)");
+		expect(frame).toContain("6,603 generated");
+		expect(frame).toContain("73,739 context tokens");
 	});
 
 	test("renders supervisor questions, custom notices, and supervisor tool labels", async () => {
