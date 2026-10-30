@@ -7,9 +7,10 @@ import { createMemo, createSignal } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import { colors } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
-import { formatModelPerformanceStats, modelPerformanceStats, type ModelPerformanceHistory } from "../tabs/model-performance-history.ts";
+import { formatModelPerformanceStats, modelPerformanceKey, modelPerformanceStats, type ModelPerformanceHistory } from "../tabs/model-performance-history.ts";
 import {
 	requestTimingStats,
+	retainCurrentRequestTimings,
 	type RequestTiming,
 	type RequestTimingStats,
 } from "../tabs/request-timing.ts";
@@ -113,22 +114,40 @@ export function ModelSelectorDialog(props: {
 	const filteredModels = createMemo(() =>
 		filterModelChoices(props.models, query()),
 	);
-	const options = createMemo(() =>
-		filteredModels().map((model) => {
-			const timing = requestTimingStats(props.timingHistory ?? [], model.provider, model.id);
-			const details = [
+	// Stats depend only on the histories and the model list, never on the search text,
+	// so compute them once per input change (one history read, one pass over the timing
+	// history) instead of once per model on every keystroke.
+	const detailsByModel = createMemo(() => {
+		const performanceHistory = props.performanceHistory;
+		const timingByModel = new Map<string, RequestTiming[]>();
+		for (const sample of retainCurrentRequestTimings(props.timingHistory ?? [])) {
+			if (!sample.provider || !sample.modelId) continue;
+			const key = modelPerformanceKey(sample.provider, sample.modelId);
+			const bucket = timingByModel.get(key);
+			if (bucket) bucket.push(sample);
+			else timingByModel.set(key, [sample]);
+		}
+		const details = new Map<string, string>();
+		for (const model of props.models) {
+			const key = modelPerformanceKey(model.provider, model.id);
+			const timing = requestTimingStats(timingByModel.get(key) ?? [], model.provider, model.id);
+			details.set(key, [
 				formatContextWindow(model.contextWindow),
 				model.name && model.name !== model.id ? model.name : "",
-				formatModelPerformanceStats(props.performanceHistory ? modelPerformanceStats(props.performanceHistory, model.provider, model.id) : undefined),
+				formatModelPerformanceStats(performanceHistory ? modelPerformanceStats(performanceHistory, model.provider, model.id) : undefined),
 				formatModelTimingLine(timing),
-			].filter(Boolean);
-			return {
-				name: `${model.provider}/${model.id}`,
-				description: details.join(" · "),
-				value: model,
-			};
-		}),
-	);
+			].filter(Boolean).join(" · "));
+		}
+		return details;
+	});
+	const options = createMemo(() => {
+		const details = detailsByModel();
+		return filteredModels().map((model) => ({
+			name: `${model.provider}/${model.id}`,
+			description: details.get(modelPerformanceKey(model.provider, model.id)) ?? "",
+			value: model,
+		}));
+	});
 	const focus = createSearchableDialogFocus({
 		getSearch: () => search,
 		getList: () => select,

@@ -99,7 +99,7 @@ import { MessageView } from "./ui/message.tsx";
 import { CompactedSummary, CompactionPanel } from "./ui/compaction-panel.tsx";
 import { TabManager, type ConversationTab } from "./tabs/manager.ts";
 import { blankTabPiArgs, createTabRuntime, planForkTab, prepareForkedTabRuntime, provisionalExtensionUiResponse, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
-import { loadModelPerformanceHistory } from "./tabs/model-performance-history.ts";
+import { readModelPerformanceHistory } from "./tabs/model-performance-history.ts";
 import { ExtensionRequestRouter, type ExtensionRequestEnvelope } from "./tabs/extension-router.ts";
 import { TabStrip } from "./ui/tab-strip.tsx";
 import { ForkPicker } from "./ui/fork-picker.tsx";
@@ -4446,7 +4446,7 @@ export function App(props: AppOptions) {
 					models={modelOptions()}
 					currentProvider={sessionState()?.model?.provider}
 					currentModelId={sessionState()?.model?.id}
-					performanceHistory={loadModelPerformanceHistory()}
+					performanceHistory={readModelPerformanceHistory()}
 					timingHistory={activeRuntime().timingHistory}
 					onSelect={(model) => void applySettingsModel(model)}
 					onCancel={() => setSettingsRoute("root")}
@@ -4546,7 +4546,7 @@ export function App(props: AppOptions) {
 					models={modelOptions()}
 					currentProvider={sessionState()?.model?.provider}
 					currentModelId={sessionState()?.model?.id}
-					performanceHistory={loadModelPerformanceHistory()}
+					performanceHistory={readModelPerformanceHistory()}
 					timingHistory={activeRuntime().timingHistory}
 					onSelect={(model) => void selectModel(model)}
 					onCancel={closeModelSelector}
