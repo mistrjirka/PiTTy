@@ -1238,6 +1238,7 @@ export function App(props: AppOptions) {
 	let statsTimer: ReturnType<typeof setInterval> | undefined;
 	let subagentsTimer: ReturnType<typeof setInterval> | undefined;
 	let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+	let stallProbeTimer: ReturnType<typeof setInterval> | undefined;
 	let spinnerTimer: ReturnType<typeof setInterval> | undefined;
 	let clockTimer: ReturnType<typeof setInterval> | undefined;
 	let codexUsageTimer: ReturnType<typeof setInterval> | undefined;
@@ -3365,8 +3366,23 @@ export function App(props: AppOptions) {
 			setSpinnerIndex((value) => (value + 1) % spinnerFrames.length);
 		}, 250);
 		clockTimer = setInterval(() => setClockNow(Date.now()), 1000);
+		// Event-loop stall probe: a 100ms timer that fires late means the UI thread was
+		// busy (render, sync I/O, JSON parsing). Stalls are logged as they happen and the
+		// worst one since the previous heartbeat is attached to it.
+		let probeExpectedAt = Date.now() + 100;
+		let worstStallMs = 0;
+		stallProbeTimer = setInterval(() => {
+			const now = Date.now();
+			const lag = now - probeExpectedAt;
+			probeExpectedAt = now + 100;
+			if (lag > worstStallMs) worstStallMs = lag;
+			if (lag >= 250) props.logger.warn("ui.event_loop_stall", { lagMs: lag, status: status(), streaming: streaming() });
+		}, 100);
 		heartbeatTimer = setInterval(() => {
+			const stallMs = worstStallMs;
+			worstStallMs = 0;
 			props.logger.debug("ui.heartbeat", {
+				worstEventLoopStallMs: stallMs,
 				status: status(),
 				streaming: streaming(),
 				messages: activeRuntime().conversation.items.length,
@@ -3389,6 +3405,7 @@ export function App(props: AppOptions) {
 			if (statsTimer) clearInterval(statsTimer);
 			if (subagentsTimer) clearInterval(subagentsTimer);
 			if (heartbeatTimer) clearInterval(heartbeatTimer);
+			if (stallProbeTimer) clearInterval(stallProbeTimer);
 			if (spinnerTimer) clearInterval(spinnerTimer);
 			if (clockTimer) clearInterval(clockTimer);
 			if (codexUsageTimer) clearInterval(codexUsageTimer);
