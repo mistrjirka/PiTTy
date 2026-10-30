@@ -6,6 +6,7 @@ import {
   formatModelPerformanceStats,
   loadModelPerformanceHistory,
   modelPerformanceStats,
+  readModelPerformanceHistory,
   recordModelPerformanceSample,
   saveModelPerformanceHistory,
 } from "../src/tabs/model-performance-history.ts";
@@ -73,6 +74,43 @@ describe("model performance history", () => {
       expect(loadModelPerformanceHistory(file, now)["openai\u0000gpt"]).toEqual([
         { timestamp: now - 1_000, ttftMs: 100, outputTokensPerSecond: 20 },
       ]);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("records version 2 samples and prefers them over legacy samples", () => {
+    const now = Date.now();
+    const key = "openai\u0000gpt";
+    const recorded = recordModelPerformanceSample({}, "openai", "gpt", { ttftMs: 100, generationMs: 1000, outputTokens: 20 }, now);
+    expect(recorded[key]?.[0]?.version).toBe(2);
+    const legacy = { timestamp: now - 1_000, ttftMs: 5, outputTokensPerSecond: 5_000 };
+    expect(modelPerformanceStats({ [key]: [legacy] }, "openai", "gpt")).toEqual({ medianTtftMs: 5, medianOutputTokensPerSecond: 5_000 });
+    expect(modelPerformanceStats({ [key]: [legacy, ...recorded[key]!] }, "openai", "gpt")).toEqual({ medianTtftMs: 100, medianOutputTokensPerSecond: 20 });
+  });
+
+  test("readModelPerformanceHistory caches by file stat and re-reads after a write", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-model-metrics-"));
+    const file = path.join(directory, "history.json");
+    try {
+      expect(readModelPerformanceHistory(file)).toEqual({});
+      // Both timestamps are in the past: a sample stamped Date.now()+1 would make
+      // the re-read reject it whenever the read lands in the same millisecond.
+      const now = Date.now() - 60_000;
+      saveModelPerformanceHistory(recordModelPerformanceSample({}, "openai", "gpt", { ttftMs: 100, generationMs: 1000, outputTokens: 20 }, now), file);
+      const first = readModelPerformanceHistory(file);
+      expect(first["openai\u0000gpt"]).toHaveLength(1);
+      expect(readModelPerformanceHistory(file)).toBe(first);
+      saveModelPerformanceHistory(recordModelPerformanceSample(first, "openai", "gpt", { ttftMs: 200, generationMs: 1000, outputTokens: 20 }, now + 1), file);
+      const second = readModelPerformanceHistory(file);
+      expect(second).not.toBe(first);
+      expect(second["openai\u0000gpt"]).toHaveLength(2);
+      // Writers replace the file by rename (a new inode), so even a rewrite of the
+      // same byte length must invalidate the cache.
+      const replacement = `${file}.tmp`;
+      fs.writeFileSync(replacement, JSON.stringify(second).replace('"ttftMs":200', '"ttftMs":300'));
+      fs.renameSync(replacement, file);
+      expect(readModelPerformanceHistory(file)["openai\u0000gpt"]?.[1]?.ttftMs).toBe(300);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }

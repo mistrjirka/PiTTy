@@ -7,7 +7,14 @@ export type ModelPerformanceSample = {
   timestamp: number;
   ttftMs: number;
   outputTokensPerSecond: number;
+  /**
+   * 2 = measured over the streamed window with burst/short-reply rejection.
+   * Earlier samples (undefined) timed the whole tail up to message_end and could
+   * record absurd rates for buffered replies; stats use them only as a fallback.
+   */
+  version?: 2;
 };
+const SAMPLE_VERSION: 2 = 2;
 export type ModelPerformanceHistory = Record<string, ModelPerformanceSample[]>;
 export type ModelPerformanceStats = { medianTtftMs: number; medianOutputTokensPerSecond: number };
 const RETENTION_MS = 31 * 24 * 60 * 60 * 1000;
@@ -78,6 +85,43 @@ export function loadModelPerformanceHistory(
 	return history;
 }
 
+type HistoryFileStamp = { mtimeMs: number; ctimeMs: number; ino: number; size: number };
+let cachedHistory:
+	| { filePath: string; stamp: HistoryFileStamp; history: ModelPerformanceHistory }
+	| undefined;
+
+function stampOf(stat: fs.Stats): HistoryFileStamp {
+	return { mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs, ino: stat.ino, size: stat.size };
+}
+function sameStamp(a: HistoryFileStamp, b: HistoryFileStamp): boolean {
+	return (
+		a.mtimeMs === b.mtimeMs &&
+		a.ctimeMs === b.ctimeMs &&
+		a.ino === b.ino &&
+		a.size === b.size
+	);
+}
+
+/**
+ * Like {@link loadModelPerformanceHistory}, but re-parses only when the file changed
+ * (another PiTTy instance wrote it). The returned object is shared and never mutated.
+ */
+export function readModelPerformanceHistory(
+	filePath = defaultModelPerformanceHistoryPath(),
+): ModelPerformanceHistory {
+	try {
+		const stamp = stampOf(fs.statSync(filePath));
+		if (cachedHistory?.filePath === filePath && sameStamp(cachedHistory.stamp, stamp))
+			return cachedHistory.history;
+		const history = loadModelPerformanceHistory(filePath);
+		cachedHistory = { filePath, stamp, history };
+		return history;
+	} catch {
+		cachedHistory = undefined;
+		return {};
+	}
+}
+
 export function saveModelPerformanceHistory(
 	history: ModelPerformanceHistory,
 	filePath = defaultModelPerformanceHistoryPath(),
@@ -135,7 +179,12 @@ export function recordModelPerformanceSample(
 	}
 	const samples = [
 		...(next[key] ?? []),
-		{ timestamp: now, ttftMs: performance.ttftMs, outputTokensPerSecond },
+		{
+			timestamp: now,
+			ttftMs: performance.ttftMs,
+			outputTokensPerSecond,
+			version: SAMPLE_VERSION,
+		},
 	].slice(-MAX_SAMPLES_PER_MODEL);
 	next[key] = samples;
 	return next;
@@ -146,7 +195,10 @@ function median(values: number[]): number {
   return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
 }
 export function modelPerformanceStats(history: ModelPerformanceHistory, provider: string, modelId: string): ModelPerformanceStats | undefined {
-  const samples = history[modelPerformanceKey(provider, modelId)] ?? [];
+  const all = history[modelPerformanceKey(provider, modelId)] ?? [];
+  // Prefer samples taken with the current method; legacy ones only fill in until a model has any.
+  const current = all.filter((sample) => sample.version === SAMPLE_VERSION);
+  const samples = current.length ? current : all;
   if (!samples.length) return undefined;
   return { medianTtftMs: median(samples.map((sample) => sample.ttftMs)), medianOutputTokensPerSecond: median(samples.map((sample) => sample.outputTokensPerSecond)) };
 }

@@ -51,6 +51,32 @@ describe("PiRpcClient", () => {
     expect(events.some((event) => event.type === "agent_settled")).toBe(true);
   });
 
+  test("passes the stdout read time to event listeners", async () => {
+    const client = new PiRpcClient({ cwd: process.cwd(), executable: path.resolve("scripts/mock-pi-rpc.mjs") });
+    clients.push(client);
+    const receivedAt: unknown[] = [];
+    let before = 0;
+    const settled = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Timed out waiting for mock agent_settled event.")), 5_000);
+      client.onEvent((event, at) => {
+        receivedAt.push(at);
+        if (event.type === "agent_settled") {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+    });
+    await client.start();
+    before = Date.now();
+    await client.prompt("hello");
+    await settled;
+    expect(receivedAt.length).toBeGreaterThan(0);
+    for (const at of receivedAt) {
+      expect(typeof at).toBe("number");
+      expect(at as number).toBeGreaterThanOrEqual(before);
+    }
+  });
+
   test("pauses a pending prompt timeout during automatic compaction", async () => {
     const client = new PiRpcClient({
       cwd: process.cwd(),

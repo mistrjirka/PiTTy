@@ -10,12 +10,12 @@ const state = (sessionFile: string, sessionId: string): RpcSessionState => ({
 });
 
 class StubClient extends PiRpcClient {
-	private readonly eventCallbacks: Array<(event: Record<string, unknown>) => void> = [];
+	private readonly eventCallbacks: Array<(event: Record<string, unknown>, receivedAt?: number) => void> = [];
 	constructor(private readonly response: RpcSessionState) { super({ cwd: process.cwd() }); }
 	async start(): Promise<void> {}
 	async getState(): Promise<RpcSessionState> { return this.response; }
-	onEvent(listener: (event: Record<string, unknown>) => void): () => void { this.eventCallbacks.push(listener); return () => {}; }
-	deliver(event: Record<string, unknown>): void { for (const listener of this.eventCallbacks) listener(event); }
+	onEvent(listener: (event: Record<string, unknown>, receivedAt?: number) => void): () => void { this.eventCallbacks.push(listener); return () => {}; }
+	deliver(event: Record<string, unknown>, receivedAt?: number): void { for (const listener of this.eventCallbacks) listener(event, receivedAt); }
 }
 
 class DelayedEntryClient extends StubClient {
@@ -174,6 +174,18 @@ describe("tab runtime factory", () => {
 		expect(runtime.lastRequestTiming?.toolCallDurationsMs).toHaveLength(1);
 		expect(runtime.timingHistory).toHaveLength(1);
 		runtime.messageUpdates.dispose();
+	});
+
+	test("feeds the supplied receivedAt to the performance tracker and tolerates its absence", () => {
+		const client = new StubClient(state("/tmp/received.jsonl", "received"));
+		const runtime = createTabRuntime({ id: "received", cwd: process.cwd(), client });
+		// No provider/model on the message, so no history file is written.
+		client.deliver({ type: "message_start", message: { role: "assistant", timestamp: 1000 } }, 1001);
+		for (let index = 0; index < 9; index += 1)
+			client.deliver({ type: "message_update", assistantMessageEvent: { type: "text_delta" } }, 1500 + index * 200);
+		client.deliver({ type: "message_end", message: { role: "assistant", stopReason: "stop", usage: { output: 30 } } }, 9999);
+		expect(runtime.lastRequestPerformance).toEqual({ ttftMs: 500, generationMs: 1600, outputTokens: 30 });
+		expect(() => client.deliver({ type: "turn_start" })).not.toThrow();
 	});
 
 	test("stores distinct session files across interleaved state updates", async () => {

@@ -188,7 +188,8 @@ export class PiRpcClient extends EventEmitter {
 		await this.start();
 	}
 
-	onEvent(listener: (event: PiEvent) => void): () => void {
+	/** `receivedAt` is when the stdout chunk carrying the event was read, before parsing and dispatch. */
+	onEvent(listener: (event: PiEvent, receivedAt?: number) => void): () => void {
 		this.on("event", listener);
 		return () => this.off("event", listener);
 	}
@@ -491,6 +492,7 @@ export class PiRpcClient extends EventEmitter {
 	}
 
 	private consumeStdout(chunk: string): void {
+		const receivedAt = Date.now();
 		this.stdoutBuffer += chunk;
 		while (true) {
 			const newline = this.stdoutBuffer.indexOf("\n");
@@ -531,7 +533,7 @@ export class PiRpcClient extends EventEmitter {
 			if (record.type === "compaction_start") this.pausePromptTimeouts();
 			if (record.type === "compaction_end") this.resumePromptTimeouts();
 			this.options.logger?.rpc("event", value);
-			this.emit("event", value as PiEvent);
+			this.emit("event", value as PiEvent, receivedAt);
 		}
 	}
 

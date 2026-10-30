@@ -21,7 +21,7 @@ import {
 } from "./request-timing.ts";
 import {
 	recordModelPerformanceSample,
-	loadModelPerformanceHistory,
+	readModelPerformanceHistory,
 	saveModelPerformanceHistory,
 } from "./model-performance-history.ts";
 import type {
@@ -197,7 +197,7 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		eventVersion: 0,
 		effectiveThinkingLevels: new Map(),
 	};
-	runtime.client.onEvent((event) => {
+	runtime.client.onEvent((event, eventReceivedAt) => {
 		runtime.eventVersion += 1;
 		if (event.type === "agent_start") {
 			const currentTimingHistory = retainCurrentRequestTimings(runtime.timingHistory);
@@ -206,7 +206,7 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 				delete runtime.lastRequestTiming;
 			}
 		}
-		const receivedAt = Date.now();
+		const receivedAt = eventReceivedAt ?? Date.now();
 		const performance = runtime.requestPerformance.handle(
 			event,
 			receivedAt,
@@ -227,7 +227,7 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		if (event.type === "message_end" && performance) {
 			runtime.lastRequestPerformance = performance;
 			if (performance.provider && performance.modelId) {
-				const history = loadModelPerformanceHistory();
+				const history = readModelPerformanceHistory();
 				const nextHistory = recordModelPerformanceSample(
 					history,
 					performance.provider,

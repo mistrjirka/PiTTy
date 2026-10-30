@@ -11,7 +11,31 @@ export type RequestModelSnapshot = {
 	id?: string | undefined;
 };
 
-type ActiveRequest = { startedAt: number; firstOutputAt?: number; provider?: string; modelId?: string };
+type ActiveRequest = {
+	startedAt: number;
+	firstOutputAt?: number;
+	/** Arrival of the most recent output delta; ends the measured streaming window. */
+	lastOutputAt?: number;
+	/** Number of output deltas that arrived at distinct milliseconds. */
+	outputArrivals: number;
+	provider?: string;
+	modelId?: string;
+};
+
+// Throughput is only meaningful for a response that really streamed. Providers that
+// buffer a reply and flush it at once (or a UI stall that delivers many events in one
+// tick) collapse the window to ~0 ms and yield absurd tok/s, so those are not sampled.
+const MIN_GENERATION_MS = 1_000;
+const MIN_OUTPUT_ARRIVALS = 8;
+
+const OUTPUT_DELTA_TYPES: ReadonlySet<string> = new Set([
+	"text_delta",
+	"thinking_delta",
+	"reasoning_delta",
+	"toolcall_start",
+	"toolcall_delta",
+	"toolcall_end",
+]);
 
 import type { PiEvent } from "../types.ts";
 
@@ -75,21 +99,24 @@ export class RequestPerformanceTracker {
 					typeof timestamp === "number" && timestamp > 0
 						? timestamp
 						: receivedAt,
+				outputArrivals: 0,
 				...(provider && modelId ? { provider, modelId } : {}),
 			};
 			return undefined;
 		}
-		if (event.type === "message_update" && this.active && !this.active.firstOutputAt) {
+		if (event.type === "message_update" && this.active) {
 			const deltaType = assistantEvent?.type;
-			if (
-				deltaType === "text_delta" ||
-				deltaType === "thinking_delta" ||
-				deltaType === "reasoning_delta" ||
-				deltaType === "toolcall_start" ||
-				deltaType === "toolcall_delta" ||
-				deltaType === "toolcall_end"
-			)
-				this.active.firstOutputAt = receivedAt;
+			if (typeof deltaType === "string" && OUTPUT_DELTA_TYPES.has(deltaType)) {
+				const active = this.active;
+				if (active.firstOutputAt === undefined) {
+					active.firstOutputAt = receivedAt;
+					active.lastOutputAt = receivedAt;
+					active.outputArrivals = 1;
+				} else if (active.lastOutputAt === undefined || receivedAt > active.lastOutputAt) {
+					active.lastOutputAt = receivedAt;
+					active.outputArrivals += 1;
+				}
+			}
 			return undefined;
 		}
 		if (
@@ -98,10 +125,12 @@ export class RequestPerformanceTracker {
 			message?.role !== "assistant"
 		)
 			return undefined;
-		const endedAt = receivedAt;
 		const usage = isRecord(message.usage) ? message.usage : undefined;
 		const outputTokens = usage?.output;
 		const firstOutputAt = this.active.firstOutputAt;
+		// End the window at the last streamed delta rather than at message_end, which
+		// also waits for the final usage frame and for the UI to get to the event.
+		const lastOutputAt = this.active.lastOutputAt;
 		const stopReason = message.stopReason;
 		const completedNormally =
 			stopReason === "stop" ||
@@ -111,8 +140,10 @@ export class RequestPerformanceTracker {
 		if (
 			completedNormally &&
 			firstOutputAt !== undefined &&
+			lastOutputAt !== undefined &&
 			firstOutputAt >= this.active.startedAt &&
-			endedAt > firstOutputAt &&
+			lastOutputAt - firstOutputAt >= MIN_GENERATION_MS &&
+			this.active.outputArrivals >= MIN_OUTPUT_ARRIVALS &&
 			typeof outputTokens === "number" &&
 			outputTokens > 0
 		) {
@@ -121,7 +152,7 @@ export class RequestPerformanceTracker {
 					? { provider: this.active.provider, modelId: this.active.modelId }
 					: {}),
 				ttftMs: firstOutputAt - this.active.startedAt,
-				generationMs: endedAt - firstOutputAt,
+				generationMs: lastOutputAt - firstOutputAt,
 				outputTokens,
 			};
 			this.completed = performance;
