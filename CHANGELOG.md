@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.41
+
+### Usage trackers move to the status bar
+
+- Claude subscription limits now sit next to Codex and OpenCode Go in the footer: `claude 77%·1h13m` for the 5-hour session, `codex 45%·4d22h`, `oc 2% 3%·2d11h 1%`. The Claude tracker appears when the `pi-doppelclaude` provider package is detected, reads Claude Code's own credentials without ever refreshing or writing them, and shows `claude login expired` when Claude Code has not refreshed the token yet.
+- Usage no longer occupies sidebar rows. The block cost 16 of 44 rows, 8 of them OpenCode Go alone (three windows, each with its own `+X%/day` pace line). Freed rows go to subagents, todos and notifications.
+- The footer sheds detail as the terminal narrows, in a fixed priority: the least-used OpenCode window, then the next one, then the Codex summary, then OpenCode, then everything except the single tightest limit. It never wraps or pushes the status text or key hints off-screen. Limits at or over 80% render yellow; critical limits and windows predicted to run out before reset render red.
+- Claude limits refresh on the same 5-minute cadence as the other trackers, backing off to 30 minutes when the upstream endpoint rate-limits.
+- The footer hint ladder gained a middle tier, so `ctrl+r requests` and `ctrl+t effort` remain visible from 120 columns instead of disappearing at 110.
+
+Validation: typecheck, the full 639-test suite, and real-pty checks at 140, 120 and 100 columns confirming a single footer row with the sidebar usage block removed.
+
 ## 0.6.40
 
 ### Honest throughput numbers
