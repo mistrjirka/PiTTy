@@ -10,6 +10,7 @@ export const USAGE_FOOTER_SEPARATOR = " │ ";
 
 export type UsageFooterInput = {
 	claudeUsage?: ClaudeUsage | undefined;
+	claudeAccountLabel?: string | undefined;
 	claudeHint?: string | undefined;
 	codexUsage?: CodexUsage | undefined;
 	codexUsageStats?: Record<number, UsageStats> | undefined;
@@ -114,7 +115,7 @@ function claudeCandidate(input: UsageFooterInput): Candidate | undefined {
 		tone: worstTone(entries.map((e) => e.tone)),
 		percent: best.percent,
 		build: (opts) => ({
-			text: `claude ${pct(best.percent)}${opts?.reset === false ? "" : `·${best.reset}`}`,
+			text: `claude${input.claudeAccountLabel ? `(${input.claudeAccountLabel.slice(0, 12)})` : ""} ${pct(best.percent)}${opts?.reset === false ? "" : `·${best.reset}`}`,
 			tone: worstTone(entries.map((e) => e.tone)),
 		}),
 	};

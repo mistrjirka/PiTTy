@@ -13,6 +13,7 @@ import { MessageUpdateBatcher } from "../state/message-update-batcher.ts";
 import { PromptHistory } from "../state/prompt-history.ts";
 import type { DraftState, DispatchGate, LocalQueuedMessage } from "../state/input-continuity.ts";
 import { RequestPerformanceTracker, type RequestPerformance } from "./request-metrics.ts";
+import { CacheMissWatch, type CacheWarning } from "./cache-miss-watch.ts";
 import {
 	MAX_REQUEST_TIMING_HISTORY,
 	RequestTimingTracker,
@@ -56,12 +57,14 @@ export type TabRuntimeOptions = {
 	id: string;
 	cwd: string;
 	executable?: string;
+	env?: NodeJS.ProcessEnv;
 	args?: string[];
 	logger?: DiagnosticLogger;
 	sessionFile?: string;
 	client?: PiRpcClient;
 	conversation?: ConversationModel;
 	onEvent?: (event: PiEvent, runtime: ConversationTabRuntime) => void;
+	onCacheWarning?: (warning: CacheWarning, runtime: ConversationTabRuntime) => void;
 	onConversationChange?: (runtime: ConversationTabRuntime) => void;
 };
 
@@ -124,6 +127,8 @@ export type ConversationTabRuntime = {
 	startupResolved: boolean;
 	lastError?: Error;
 	requestPerformance: RequestPerformanceTracker;
+	cacheMissWatch: CacheMissWatch;
+	lastCacheWarning?: CacheWarning;
 	lastRequestPerformance?: RequestPerformance;
 	requestTiming: RequestTimingTracker;
 	lastRequestTiming?: RequestTiming;
@@ -150,6 +155,7 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 	const clientOptions: PiRpcClientOptions = {
 		cwd: options.cwd,
 		...(options.executable ? { executable: options.executable } : {}),
+		...(options.env ? { env: options.env } : {}),
 		...(clientArgs.length > 0 ? { args: clientArgs } : {}),
 		...(options.logger ? { logger: options.logger } : {}),
 	};
@@ -190,6 +196,7 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		forkInProgress: false,
 		startupResolved: false,
 		requestPerformance: new RequestPerformanceTracker(),
+		cacheMissWatch: new CacheMissWatch(),
 		requestTiming: new RequestTimingTracker(),
 		timingHistory: [],
 		queuedFollowUps: [],
@@ -207,6 +214,13 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 			}
 		}
 		const receivedAt = eventReceivedAt ?? Date.now();
+		if (event.type === "message_end" && "message" in event) {
+			const warning = runtime.cacheMissWatch.observe(event.message);
+			if (warning) {
+				runtime.lastCacheWarning = warning;
+				options.onCacheWarning?.(warning, runtime);
+			}
+		}
 		const performance = runtime.requestPerformance.handle(
 			event,
 			receivedAt,

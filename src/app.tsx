@@ -236,6 +236,10 @@ import {
 	type UsageStats,
 	type UsageWindows,
 } from "./integrations/codex-usage-history.ts";
+import os from "node:os";
+import { fetchCswapSnapshot, resolveCswapSlot, type CswapSnapshot, type ClaudeAccountChoice } from "./integrations/claude-swap.ts";
+import { readClaudeAccountPreference, resolveClaudeLaunchConfig, saveClaudeAccountPreference } from "./config/claude-account.ts";
+import { ClaudeAccountSelector } from "./ui/claude-account-selector.tsx";
 import { appVersion } from "./version.ts";
 import {
 	defaultUpdateCheckConfig,
@@ -292,6 +296,7 @@ export type SettingsRoute =
 	| "root"
 	| "model"
 	| "thinking"
+	| "claude-account"
 	| "session"
 	| "session-switch"
 	| "session-rename"
@@ -677,11 +682,16 @@ export function attachTranscriptSelectionCache(
 }
 
 export function App(props: AppOptions) {
+	const selectedAccount = readClaudeAccountPreference();
+	const initialClaudeLaunch = resolveClaudeLaunchConfig(selectedAccount);
+	if (initialClaudeLaunch.error) throw new Error(`Cannot start Pi with selected cswap account: ${initialClaudeLaunch.error}`);
+	const claudeLaunchEnv = initialClaudeLaunch.configDir ? { CLAUDE_CONFIG_DIR: initialClaudeLaunch.configDir } : undefined;
 	const renderer = useRenderer();
 	const dimensions = useTerminalDimensions();
 	const client = new PiRpcClient({
 		cwd: props.cwd,
 		args: props.piArgs,
+		...(claudeLaunchEnv ? { env: claudeLaunchEnv } : {}),
 		...(props.piExecutable ? { executable: props.piExecutable } : {}),
 		logger: props.logger,
 	});
@@ -709,6 +719,8 @@ export function App(props: AppOptions) {
 		Record<number, UsageStats>
 	>({});
 	const [claudeUsage, setClaudeUsage] = createSignal<ClaudeUsage>();
+	const [cswapSnapshot, setCswapSnapshot] = createSignal<CswapSnapshot>();
+	const [claudeAccountChoice, setClaudeAccountChoice] = createSignal<ClaudeAccountChoice>(readClaudeAccountPreference());
 	const [claudeHint, setClaudeHint] = createSignal<string>();
 	const [opencodeUsage, setOpencodeUsage] = createSignal<OpencodeUsage>();
 	const [opencodeUsageStats, setOpencodeUsageStats] = createSignal<
@@ -783,6 +795,33 @@ export function App(props: AppOptions) {
 	const invalidCompactionTelemetryWarnings = new Set<string>();
 	const provisionalRuntimes = new Set<ConversationTabRuntime>();
 	const activeRuntime = () => runtimeMap().get(activeTabId()) ?? bootRuntime;
+	const claudeEffectiveSlot = () => {
+		const snapshot = cswapSnapshot();
+		return snapshot ? resolveCswapSlot(claudeAccountChoice(), snapshot, activeRuntime().client.getClaudeConfigDir(), os.homedir()) : undefined;
+	};
+	const applyCswapUsage = (snapshot: CswapSnapshot): void => {
+		const slot = claudeEffectiveSlot();
+		const account = snapshot.accounts.find((item) => item.number === slot);
+		setClaudeUsage(account?.usage);
+		setClaudeHint(account && !account.usage ? "usage unavailable" : undefined);
+	};
+	const chooseClaudeAccount = (choice: ClaudeAccountChoice) => {
+		try {
+			const resolved = resolveClaudeLaunchConfig(choice);
+			if (resolved.error) {
+				toast(resolved.error, "warning", 8000);
+				return;
+			}
+			saveClaudeAccountPreference(choice);
+			setClaudeAccountChoice(choice);
+			const snapshot = cswapSnapshot();
+			if (snapshot) applyCswapUsage(snapshot);
+			setSettingsRoute("root");
+			toast("Claude account selected. New Pi tabs use it; restart PiTTY to change the current session.", "info", 7000);
+		} catch (error) {
+			toast(error instanceof Error ? error.message : String(error), "error");
+		}
+	};
 	const selectedTargetKey = () => { revision(); return activeRuntime().selectedTargetKey; };
 	const inspectSubagent = () => { revision(); return activeRuntime().inspectSubagent; };
 	const forkingConversation = () => { revision(); return activeRuntime().forkInProgress; };
@@ -792,6 +831,13 @@ export function App(props: AppOptions) {
 		if (current !== "forking conversation…") return current;
 		return streaming() ? "working" : "ready";
 	};
+	// Re-select the monitored account immediately when the active Pi tab changes.
+	createEffect(() => {
+		activeTabId();
+		claudeAccountChoice();
+		const snapshot = cswapSnapshot();
+		if (snapshot) applyCswapUsage(snapshot);
+	});
 	const footerStatusText = () =>
 		`● ${displayStatus()}${activeRuntime().smartCompactProgress ? ` · ${activeRuntime().smartCompactProgress}` : ""}`;
 	const footerHintText = () =>
@@ -803,6 +849,7 @@ export function App(props: AppOptions) {
 	const footerUsageSegments = () =>
 		usageFooterSegments({
 			claudeUsage: claudeUsage(),
+			claudeAccountLabel: cswapSnapshot()?.accounts.find((a) => a.number === claudeEffectiveSlot())?.label,
 			claudeHint: claudeHint(),
 			codexUsage: codexUsage(),
 			codexUsageStats: codexUsageStats(),
@@ -1120,7 +1167,8 @@ export function App(props: AppOptions) {
 	const createTab = (sessionFile?: string): string | undefined => {
 		const id = `tab-${++tabCounter}`;
 		if (!tabManager.create({ id, badges: 0 })) { toast("Maximum of 8 conversation tabs.", "warning"); return undefined; }
-		const runtime = createTabRuntime({ id, cwd: props.cwd, args: sessionFile ? props.piArgs : blankTabPiArgs(props.piArgs), ...(props.piExecutable ? { executable: props.piExecutable } : {}), ...(sessionFile ? { sessionFile } : {}), logger: props.logger,
+		const runtime = createTabRuntime({ id, cwd: props.cwd, args: sessionFile ? props.piArgs : blankTabPiArgs(props.piArgs), ...(props.piExecutable ? { executable: props.piExecutable } : {}), ...(sessionFile ? { sessionFile } : {}), logger: props.logger, ...(claudeLaunchEnv ? { env: claudeLaunchEnv } : {}),
+			onCacheWarning: notifyCacheWarning,
 			onEvent: routeRuntimeEvent,
 			onConversationChange: (tabRuntime) => { if (tabRuntime.id === activeTabId()) conversationTouch(); },
 		});
@@ -1166,7 +1214,12 @@ export function App(props: AppOptions) {
 		touch();
 		setStatus("forking conversation…");
 		const provisionalId = `fork-${++tabCounter}`;
-		const provisional = createTabRuntime({ id: provisionalId, cwd: props.cwd, args: props.piArgs, ...(props.piExecutable ? { executable: props.piExecutable } : {}), sessionFile: originalSessionFile, logger: props.logger,
+		const provisional = createTabRuntime({ id: provisionalId, cwd: props.cwd, args: props.piArgs, ...(props.piExecutable ? { executable: props.piExecutable } : {}), sessionFile: originalSessionFile, logger: props.logger, ...(claudeLaunchEnv ? { env: claudeLaunchEnv } : {}),
+			onCacheWarning: (warning, runtime) => {
+				props.logger.warn("cache.large_rewrite", { runtimeId: runtime.id, ...warning });
+				if (runtime.id === activeTabId())
+					toast(`Possible Claude cache rebuild: ${Math.round(warning.currentWrite / 1000)}k tokens rewritten (was ${Math.round(warning.previousRead / 1000)}k cached)`, "warning", 8500);
+			},
 			onEvent: (event, runtime) => {
 				if (runtimeMap().has(runtime.id)) {
 					routeRuntimeEvent(event, runtime);
@@ -1242,7 +1295,13 @@ export function App(props: AppOptions) {
 		);
 		if (tabRuntimeIsActive(runtime.id)) { resetMessageWindow(runtime.conversation.items.length); conversationTouch(); }
 	};
+	const notifyCacheWarning = (warning: import("./tabs/cache-miss-watch.ts").CacheWarning, runtime: ConversationTabRuntime) => {
+		props.logger.warn("cache.large_rewrite", { runtimeId: runtime.id, ...warning });
+		if (runtime.id === activeTabId())
+			toast(`Possible Claude cache rebuild: ${Math.round(warning.currentWrite / 1000)}k tokens rewritten (previous cache hit: ${Math.round(warning.previousRead / 1000)}k)`, "warning", 8500);
+	};
 	const bootRuntime = createTabRuntime({ id: "main", cwd: props.cwd, client, conversation,
+		onCacheWarning: notifyCacheWarning,
 		onEvent: routeRuntimeEvent,
 		onConversationChange: (tabRuntime) => { if (tabRuntime.id === activeTabId()) conversationTouch(); },
 	});
@@ -2916,6 +2975,15 @@ export function App(props: AppOptions) {
 					if (!unavailable) setSettingsRoute("thinking");
 				},
 			},
+			...(cswapSnapshot()?.accounts.length ? [{
+				id: "claude-account",
+				label: "Claude usage account (cswap)",
+				summary: () => cswapSnapshot()?.accounts.find((a) => a.number === claudeEffectiveSlot())?.label ?? "Automatic",
+				disabledReason: () => undefined,
+				busy: () => false,
+				inlineError: () => undefined,
+				open: () => setSettingsRoute("claude-account"),
+			}] : []),
 			{
 				id: "session",
 				label: "Session",
@@ -3414,6 +3482,17 @@ export function App(props: AppOptions) {
 				// pushes back (it is aggressively rate limited upstream).
 				let next = 5 * 60_000;
 				try {
+					const cswap = await fetchCswapSnapshot();
+					if (cswap) {
+						setCswapSnapshot(cswap);
+						applyCswapUsage(cswap);
+						props.logger.info("claude_usage.cswap", {
+							accounts: cswap.accounts.length,
+							selectedSlot: claudeEffectiveSlot(),
+						});
+						return;
+					}
+					setCswapSnapshot(undefined);
 					const outcome = await fetchDoppelclaudeUsage();
 					props.logger.info("claude_usage.fetch", {
 						status: outcome.status,
@@ -4564,6 +4643,15 @@ export function App(props: AppOptions) {
 					performanceHistory={readModelPerformanceHistory()}
 					timingHistory={activeRuntime().timingHistory}
 					onSelect={(model) => void applySettingsModel(model)}
+					onCancel={() => setSettingsRoute("root")}
+				/>
+			</Show>
+			<Show when={settingsRoute() === "claude-account" && cswapSnapshot()}>
+				<ClaudeAccountSelector
+					accounts={cswapSnapshot()!.accounts}
+					selection={claudeAccountChoice()}
+					effectiveSlot={claudeEffectiveSlot()}
+					onSelect={chooseClaudeAccount}
 					onCancel={() => setSettingsRoute("root")}
 				/>
 			</Show>

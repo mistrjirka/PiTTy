@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.43
+
+### Claude profiles and cache diagnostics
+
+- Detect cswap profiles and show usage for the account selected by Pi instead of the default Claude login.
+- Add a Settings selector for cswap accounts. Explicit selections apply to new Pi processes.
+- Add a conservative warning for large, unexpected Claude cache rewrites.
+
+
 ## 0.6.41
 
 ### Usage trackers move to the status bar

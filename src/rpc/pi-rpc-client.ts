@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import {
 	summarizePiArgs,
@@ -72,6 +73,18 @@ export class PiRpcClient extends EventEmitter {
 	constructor(private readonly options: PiRpcClientOptions) {
 		super();
 		this.startupArgs = [...(options.args ?? [])];
+	}
+
+	/** Read the launched Pi process's effective Claude profile. Linux only. */
+	getClaudeConfigDir(): string | undefined {
+		if (process.platform !== "linux" || !this.child?.pid) return this.options.env?.CLAUDE_CONFIG_DIR ?? process.env.CLAUDE_CONFIG_DIR;
+		try {
+			const entry = readFileSync(`/proc/${this.child.pid}/environ`).toString("utf8").split("\0")
+				.find((item) => item.startsWith("CLAUDE_CONFIG_DIR="));
+			return entry?.slice("CLAUDE_CONFIG_DIR=".length);
+		} catch {
+			return this.options.env?.CLAUDE_CONFIG_DIR ?? process.env.CLAUDE_CONFIG_DIR;
+		}
 	}
 
 	async start(): Promise<void> {
