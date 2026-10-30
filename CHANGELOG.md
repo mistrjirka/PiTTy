@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.6.40
+
+### Honest throughput numbers
+
+- Measure model throughput over the streamed window (first to last token) instead of up to the end of the request, and only record a sample when the reply actually streamed. Buffered, burst and very short replies used to collapse that window and produced impossible rates: recorded medians above 10k tok/s and single samples up to 704k tok/s.
+- New samples carry a version marker, and the picker's medians prefer them. History recorded with the old method stays as a fallback only until a model has new samples.
+- Stamp event arrival when the RPC stdout chunk is read, before parsing and dispatch, so TTFT and throughput no longer include PiTTy's own stall time.
+
+### Responsive model picker
+
+- Opening the picker no longer re-reads and re-parses the metrics history once per model on every render, and per-model timing stats are computed once per model-list or history change rather than per keystroke. Measured in a real pty run: picker open 531-633ms to 108ms, CPU while typing about 610ms to about 70ms.
+- The metrics history is cached by file stamp (mtime, ctime, inode, size) and stays correct across the temp+rename writes other PiTTy instances make.
+
+### Stall diagnostics
+
+- A 100ms event-loop probe logs `ui.event_loop_stall` for anything at or above 250ms and reports the worst stall since the previous heartbeat as `worstEventLoopStallMs`, so reported lag can be matched to a timestamped stall in the run log.
+
+### Also in this release
+
+- Child notifications distinguish cumulative, generated and context tokens.
+- The subagent inspector shows the actual command being executed and the effective timeout.
+
+### Validation
+
+- `npm run check` now runs the complete test suite. It previously listed files by hand and skipped 13 of them, including every suite covering the changes above.
+- Typecheck, the full 619-test suite, the runtime build and the launcher `--help` path were verified before release.
+
 ## 0.6.39
 
 ### Fix wide-terminal startup stalls
