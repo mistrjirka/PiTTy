@@ -15,6 +15,7 @@ export type OptionalIntegrationStatus = {
 	todos: OptionalIntegration;
 	mcpAdapter: OptionalIntegration;
 	memory: OptionalIntegration;
+	doppelclaude: OptionalIntegration;
 	piListError?: string | undefined;
 };
 
@@ -173,6 +174,9 @@ export function detectOptionalIntegrations(
 		"pi-hermes-memory": moduleRoots.map((root) =>
 			path.join(root, "pi-hermes-memory"),
 		),
+		"pi-doppelclaude": moduleRoots.map((root) =>
+			path.join(root, "pi-doppelclaude"),
+		),
 	};
 
 	const detect = (packageName: string, aliases: readonly string[] = []): OptionalIntegration => {
@@ -209,6 +213,7 @@ export function detectOptionalIntegrations(
 	let todos = detect("@juicesharp/rpiv-todo");
 	let mcpAdapter = detect("pi-mcp-adapter");
 	let memory = detect("pi-hermes-memory");
+	let doppelclaude = detect("pi-doppelclaude");
 
 	// Local settings/filesystem checks are immediate and cover normal installs.
 	// Fall back to `pi list` only when something is still unknown, and keep the
@@ -217,7 +222,8 @@ export function detectOptionalIntegrations(
 		!subagents.installed ||
 		!todos.installed ||
 		!mcpAdapter.installed ||
-		!memory.installed
+		!memory.installed ||
+		!doppelclaude.installed
 	) {
 		try {
 			const command = resolvePiCommand(piExecutable, ["list"]);
@@ -237,6 +243,7 @@ export function detectOptionalIntegrations(
 				todos = detect("@juicesharp/rpiv-todo");
 				mcpAdapter = detect("pi-mcp-adapter");
 				memory = detect("pi-hermes-memory");
+				doppelclaude = detect("pi-doppelclaude");
 			} else {
 				piListError =
 					text || `pi list exited with status ${result.status ?? "unknown"}`;
@@ -251,6 +258,7 @@ export function detectOptionalIntegrations(
 		todos,
 		mcpAdapter,
 		memory,
+		doppelclaude,
 		...(piListError ? { piListError } : {}),
 	};
 }

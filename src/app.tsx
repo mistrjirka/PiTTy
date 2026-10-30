@@ -219,6 +219,14 @@ import {
 	type OpencodeUsage,
 } from "./integrations/opencode-usage.ts";
 import {
+	fetchDoppelclaudeUsage,
+	type ClaudeUsage,
+} from "./integrations/doppelclaude-usage.ts";
+import {
+	USAGE_FOOTER_SEPARATOR,
+	usageFooterSegments,
+} from "./ui/usage-footer.ts";
+import {
 	computeUsageStats,
 	loadUsageHistory,
 	recordUsageSample,
@@ -695,6 +703,8 @@ export function App(props: AppOptions) {
 	const [codexUsageStats, setCodexUsageStats] = createSignal<
 		Record<number, UsageStats>
 	>({});
+	const [claudeUsage, setClaudeUsage] = createSignal<ClaudeUsage>();
+	const [claudeHint, setClaudeHint] = createSignal<string>();
 	const [opencodeUsage, setOpencodeUsage] = createSignal<OpencodeUsage>();
 	const [opencodeUsageStats, setOpencodeUsageStats] = createSignal<
 		Record<number, UsageStats>
@@ -777,6 +787,34 @@ export function App(props: AppOptions) {
 		if (current !== "forking conversation…") return current;
 		return streaming() ? "working" : "ready";
 	};
+	const footerStatusText = () =>
+		`● ${displayStatus()}${activeRuntime().smartCompactProgress ? ` · ${activeRuntime().smartCompactProgress}` : ""}`;
+	const footerHintText = () =>
+		globalFooterHint(
+			dimensions().width,
+			inspectSubagent(),
+			availableSubagentTargets().length,
+		);
+	const footerUsageSegments = () =>
+		usageFooterSegments({
+			claudeUsage: claudeUsage(),
+			claudeHint: claudeHint(),
+			codexUsage: codexUsage(),
+			codexUsageStats: codexUsageStats(),
+			opencodeUsage: opencodeUsage(),
+			opencodeUsageStats: opencodeUsageStats(),
+			now: clockNow(),
+			// row padding (2) + leading separator (3) + two-column gap before the hint
+			width: Math.max(
+				0,
+				dimensions().width -
+					2 -
+					footerStatusText().length -
+					footerHintText().length -
+					USAGE_FOOTER_SEPARATOR.length -
+					2,
+			),
+		});
 	const setSelectedTargetKey = (key: string | undefined) => {
 		const runtime = activeRuntime();
 		if (runtime.selectedTargetKey === key) return;
@@ -1244,6 +1282,7 @@ export function App(props: AppOptions) {
 	let codexUsageTimer: ReturnType<typeof setInterval> | undefined;
 	let codexUsageHistory: UsageHistory = loadUsageHistory(defaultCodexUsageHistoryPath());
 	let opencodeUsageTimer: ReturnType<typeof setInterval> | undefined;
+	let claudeUsageTimer: ReturnType<typeof setTimeout> | undefined;
 	let opencodeUsageHistory: UsageHistory = loadUsageHistory(
 		defaultOpencodeUsageHistoryPath(),
 	);
@@ -3356,6 +3395,55 @@ export function App(props: AppOptions) {
 		opencodeUsageTimer = setInterval(() => {
 			void fetchOpencodeUsage().then(updateOpencodeUsage);
 		}, 5 * 60_000);
+		if (props.integrations.doppelclaude.installed) {
+			let claudeInFlight = false;
+			let disposed = false;
+			const scheduleClaude = (delayMs: number) => {
+				if (disposed) return;
+				claudeUsageTimer = setTimeout(() => void pollClaude(), delayMs);
+			};
+			const pollClaude = async () => {
+				if (claudeInFlight) return;
+				claudeInFlight = true;
+				// Match the Codex/OpenCode cadence; only back off when the endpoint
+				// pushes back (it is aggressively rate limited upstream).
+				let next = 5 * 60_000;
+				try {
+					const outcome = await fetchDoppelclaudeUsage();
+					props.logger.info("claude_usage.fetch", {
+						status: outcome.status,
+						...(outcome.status === "ok"
+							? { limits: outcome.usage.limits.length }
+							: {}),
+						...(outcome.status === "http-error"
+							? { httpStatus: outcome.httpStatus }
+							: {}),
+					});
+					if (outcome.status === "ok") {
+						setClaudeUsage(outcome.usage);
+						setClaudeHint(undefined);
+					} else if (outcome.status === "expired") {
+						setClaudeUsage(undefined);
+						setClaudeHint("login expired (run Claude Code)");
+					} else if (outcome.status === "missing-credentials") {
+						setClaudeUsage(undefined);
+						setClaudeHint(undefined);
+					} else if (
+						outcome.status === "rate-limited" ||
+						outcome.status === "http-error"
+					) {
+						next = 30 * 60_000;
+					}
+				} finally {
+					claudeInFlight = false;
+					scheduleClaude(next);
+				}
+			};
+			scheduleClaude(3_000);
+			onCleanup(() => {
+				disposed = true;
+			});
+		}
 		statsTimer = setInterval(() => void refreshState(), 10_000);
 		subagentsTimer = setInterval(() => {
 			if (!props.integrations.subagents.installed) return;
@@ -3410,6 +3498,7 @@ export function App(props: AppOptions) {
 			if (clockTimer) clearInterval(clockTimer);
 			if (codexUsageTimer) clearInterval(codexUsageTimer);
 			if (opencodeUsageTimer) clearInterval(opencodeUsageTimer);
+			if (claudeUsageTimer) clearTimeout(claudeUsageTimer);
 			props.logger.info("ui.cleanup");
 		});
 	});
