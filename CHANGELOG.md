@@ -12,6 +12,10 @@
 
 Validation: typecheck, the full 639-test suite, and real-pty checks at 140, 120 and 100 columns confirming a single footer row with the sidebar usage block removed.
 
+### 0.6.41 follow-up
+
+- The Claude credentials test compared a POSIX path literal against `path.join`, so it failed on Windows CI while passing on Linux. The test now builds both sides with `path.join`; behaviour is unchanged.
+
 ## 0.6.40
 
 ### Honest throughput numbers

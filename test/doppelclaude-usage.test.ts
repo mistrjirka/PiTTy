@@ -45,7 +45,9 @@ describe("claude credentials", () => {
 		expect(readClaudeOauthCredential(bad)).toBeUndefined();
 	});
 	test("honours CLAUDE_CONFIG_DIR", () => {
-		expect(defaultClaudeCredentialsPath({ CLAUDE_CONFIG_DIR: "/x/y" })).toBe("/x/y/.credentials.json");
+		expect(defaultClaudeCredentialsPath({ CLAUDE_CONFIG_DIR: path.join("/x", "y") })).toBe(
+			path.join("/x", "y", ".credentials.json"),
+		);
 		expect(defaultClaudeCredentialsPath({})).toBe(path.join(os.homedir(), ".claude", ".credentials.json"));
 	});
 });
