@@ -28,19 +28,6 @@ import {
 	targetToolUsage,
 } from "./model-context.tsx";
 import { appVersion } from "../version.ts";
-import {
-	formatResetIn,
-	formatWindowLabel,
-	type CodexUsage,
-} from "../integrations/codex-usage.ts";
-import type { OpencodeUsage } from "../integrations/opencode-usage.ts";
-import {
-	formatRunoutIn,
-	type UsageStats,
-	type UsageWindow,
-	type UsageWindows,
-} from "../integrations/codex-usage-history.ts";
-
 export type SidebarPanelVisibility = {
 	subagents: boolean;
 	todos: boolean;
@@ -139,83 +126,6 @@ export function allocateSidebarPanels(
 	return allocation;
 }
 
-function usageWindowPaceLine(
-	stats: UsageStats | undefined,
-): string | undefined {
-	if (
-		stats?.ratePercentPerHour === undefined ||
-		stats.rateSpanHours === undefined
-	)
-		return undefined;
-	const perDay = stats.ratePercentPerHour * 24;
-	if (Math.abs(perDay) < 0.1) return undefined;
-	return `${perDay >= 0 ? "+" : ""}${perDay.toFixed(1)}%/day`;
-}
-
-function usageRowCount(
-	usage: UsageWindows | undefined,
-	stats: Record<number, UsageStats> | undefined,
-): number {
-	if (!usage?.windows.length) return 0;
-	let rows = 2;
-	for (const window of usage.windows) {
-		rows += 1;
-		const windowStats = stats?.[window.windowSeconds];
-		if (windowStats?.runsOutBeforeReset || usageWindowPaceLine(windowStats)) rows += 1;
-	}
-	return rows;
-}
-
-type UsageWindowRowsProps = {
-	windows: readonly UsageWindow[] | Accessor<readonly UsageWindow[] | undefined>;
-	stats:
-		| Record<number, UsageStats>
-		| Accessor<Record<number, UsageStats> | undefined>
-		| undefined;
-};
-
-function UsageWindowRows(props: UsageWindowRowsProps) {
-	const windows = () =>
-		typeof props.windows === "function" ? props.windows() : props.windows;
-	const stats = () =>
-		typeof props.stats === "function" ? props.stats() : props.stats;
-	return (
-		<For each={windows() ?? []}>
-			{(window) => {
-				const windowStats = () => stats()?.[window.windowSeconds];
-				const detail = () => {
-					const stats = windowStats();
-					const parts: string[] = [];
-					if (stats?.runsOutBeforeReset && stats.predictedRunoutAt !== undefined)
-						parts.push(`⚠ runs out ${formatRunoutIn(stats.predictedRunoutAt)}`);
-					const paceText = usageWindowPaceLine(stats);
-					if (paceText) parts.push(paceText);
-					return parts.length ? `  ${parts.join(" · ")}` : undefined;
-				};
-				return (
-					<>
-						<text width="100%" height={1} fg={colors.muted} wrapMode="none">
-							{clip(
-								`${formatWindowLabel(window.windowSeconds)} ${Math.round(window.usedPercent)}% · resets ${formatResetIn(window.resetAfterSeconds)}`,
-							)}
-						</text>
-						<Show when={detail()}>
-							<text
-								width="100%"
-								height={1}
-								fg={windowStats()?.runsOutBeforeReset ? colors.yellow : colors.subtle}
-								wrapMode="none"
-							>
-								{clip(detail()!)}
-							</text>
-						</Show>
-					</>
-				);
-			}}
-		</For>
-	);
-}
-
 function notificationToneColor(tone: NotificationRecord["tone"]): string {
 	if (tone === "error") return colors.red;
 	if (tone === "warning") return colors.yellow;
@@ -259,16 +169,6 @@ export function Sidebar(props: {
 		| NotificationRecord[]
 		| Accessor<NotificationRecord[]>
 		| undefined;
-	codexUsage?: CodexUsage | Accessor<CodexUsage | undefined> | undefined;
-	codexUsageStats?:
-		| Record<number, UsageStats>
-		| Accessor<Record<number, UsageStats> | undefined>
-		| undefined;
-	opencodeUsage?: OpencodeUsage | Accessor<OpencodeUsage | undefined> | undefined;
-	opencodeUsageStats?:
-		| Record<number, UsageStats>
-		| Accessor<Record<number, UsageStats> | undefined>
-		| undefined;
 	onOpenNotification?: (recordId: string) => void;
 	onOpenTodo?: (todo: TodoViewItem) => void;
 	height?: number | Accessor<number> | undefined;
@@ -284,22 +184,6 @@ export function Sidebar(props: {
 		typeof props.notifications === "function"
 			? props.notifications()
 			: (props.notifications ?? []);
-	const codexUsage = () =>
-		typeof props.codexUsage === "function"
-			? props.codexUsage()
-			: props.codexUsage;
-	const codexUsageStats = () =>
-		typeof props.codexUsageStats === "function"
-			? props.codexUsageStats()
-			: props.codexUsageStats;
-	const opencodeUsage = () =>
-		typeof props.opencodeUsage === "function"
-			? props.opencodeUsage()
-			: props.opencodeUsage;
-	const opencodeUsageStats = () =>
-		typeof props.opencodeUsageStats === "function"
-			? props.opencodeUsageStats()
-			: props.opencodeUsageStats;
 	const timingHistory = () =>
 		typeof props.timingHistory === "function"
 			? props.timingHistory()
@@ -335,13 +219,9 @@ export function Sidebar(props: {
 		);
 	const hasSubagents = () => props.subagentsAvailable !== false;
 	const hasTodos = () => props.todosAvailable !== false && todos().length > 0;
-	const codexRows = () => usageRowCount(codexUsage(), codexUsageStats());
-	const opencodeRows = () => usageRowCount(opencodeUsage(), opencodeUsageStats());
 	const fixedHeaderRows = () =>
 		11 +
 		timingRows() +
-		codexRows() +
-		opencodeRows() +
 		(props.stats?.contextUsage?.percent !== undefined &&
 		props.stats?.contextUsage?.percent !== null
 			? 1
@@ -494,26 +374,6 @@ export function Sidebar(props: {
 						</text>
 					</>
 				)}
-			</Show>
-			<Show when={codexUsage()?.windows.length}>
-				<box height={1} />
-				<text width="100%" height={1} fg={colors.textBright} attributes={1}>
-					Codex
-				</text>
-				<UsageWindowRows
-					windows={() => codexUsage()?.windows}
-					stats={codexUsageStats}
-				/>
-			</Show>
-			<Show when={opencodeUsage()?.windows.length}>
-				<box height={1} />
-				<text width="100%" height={1} fg={colors.textBright} attributes={1}>
-					OpenCode Go
-				</text>
-				<UsageWindowRows
-					windows={() => opencodeUsage()?.windows}
-					stats={opencodeUsageStats}
-				/>
 			</Show>
 			<box height={1} />
 

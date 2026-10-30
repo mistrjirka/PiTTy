@@ -595,8 +595,13 @@ export function globalFooterHint(
 	}
 	const targetHint = targetCount > 0 ? "  ctrl+down inspect" : "";
 	const inspectHint = targetCount > 0 ? `  ctrl+i inspect${targetHint}` : "";
-	if (width < 110)
+	// Usage lives in this row now, so the hint ladder has three tiers: keep the
+	// model/request/effort affordances at 120+, and only reach for the full list
+	// when there is room for three provider summaries as well.
+	if (width < 120)
 		return `ctrl+x settings  ctrl+s sidebar  ctrl+p models${targetHint}`;
+	if (width < 145)
+		return `ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}`;
 	return `ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}  alt+enter queue  ctrl+o details`;
 }
 
@@ -4437,10 +4442,6 @@ export function App(props: AppOptions) {
 						onSelectTarget={setSelectedTargetKey}
 						todos={todos}
 						onOpenTodo={(todo) => openTodo(todo.id)}
-						codexUsage={codexUsage}
-						codexUsageStats={codexUsageStats}
-						opencodeUsage={opencodeUsage}
-						opencodeUsageStats={opencodeUsageStats}
 						subagentsAvailable={subagentsAvailable()}
 						todosAvailable={todosAvailable()}
 						notifications={notificationHistory}
@@ -4464,14 +4465,22 @@ export function App(props: AppOptions) {
 				paddingRight={1}
 				backgroundColor={colors.background}
 			>
-				<text fg={streaming() ? colors.green : colors.muted}>● {displayStatus()}{activeRuntime().smartCompactProgress ? ` · ${activeRuntime().smartCompactProgress}` : ""}</text>
+				<text fg={streaming() ? colors.green : colors.muted}>{footerStatusText()}</text>
+				<For each={footerUsageSegments()}>
+					{(segment) => (
+						<>
+							<text fg={colors.muted} flexShrink={0}>{USAGE_FOOTER_SEPARATOR}</text>
+							<text
+								fg={segment.tone === "critical" ? colors.red : segment.tone === "warning" ? colors.yellow : colors.muted}
+								flexShrink={0}
+								wrapMode="none"
+							>{segment.text}</text>
+						</>
+					)}
+				</For>
 				<box flexGrow={1} />
 				<text fg={colors.subtle}>
-					{globalFooterHint(
-						dimensions().width,
-						inspectSubagent(),
-						availableSubagentTargets().length,
-					)}
+					{footerHintText()}
 				</text>
 			</box>
 			<For each={toasts()}>

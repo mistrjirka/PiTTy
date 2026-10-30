@@ -3306,62 +3306,6 @@ describe("OpenTUI components", () => {
 			expect(frame).toContain(`impl-check-${index}`);
 	});
 
-	test("shows the average daily consumption line as soon as a rate exists", async () => {
-		const state = {
-			sessionId: "session-1",
-			sessionName: "Codex avg test",
-			thinkingLevel: "high",
-			isStreaming: false,
-			isCompacting: false,
-			steeringMode: "all",
-			followUpMode: "all",
-			autoCompactionEnabled: true,
-			messageCount: 0,
-			pendingMessageCount: 0,
-			model: { provider: "openai-codex", id: "gpt-5.6", contextWindow: 400000 },
-		} as RpcSessionState;
-		const stats = {
-			sessionFile: "/tmp/session.jsonl",
-			sessionId: "session-1",
-			userMessages: 0,
-			assistantMessages: 0,
-			toolCalls: 0,
-			toolResults: 0,
-			totalMessages: 0,
-			tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			cost: 0,
-		} as SessionStats;
-		const usage: CodexUsage = {
-			windows: [
-				{
-					usedPercent: 30,
-					windowSeconds: 604800,
-					resetAfterSeconds: 9_000,
-					resetAt: 1_000,
-				},
-			],
-		};
-		const codexUsageStats: Record<number, UsageStats> = {
-			604800: { remainingPercent: 70, ratePercentPerHour: 2, rateSpanHours: 1 },
-		};
-		const setup = await mount(
-			() => (
-				<Sidebar
-					state={state}
-					stats={stats}
-					runs={[]}
-					codexUsage={usage}
-					codexUsageStats={codexUsageStats}
-					height={40}
-				/>
-			),
-			42,
-			40,
-		);
-		const frame = setup.captureCharFrame();
-		expect(frame).toContain("+48.0%/day");
-	});
-
 	test("shows the tail of long collapsed thinking instead of its beginning", async () => {
 		const thought =
 			"opening marker alpha: restate the task, weigh the alternatives, and trace the data flow through the sidebar and the app state before deciding anything, " +
@@ -3390,38 +3334,11 @@ describe("OpenTUI components", () => {
 		expect(frame).not.toContain("opening marker alpha");
 		expect(frame).toContain("▶ Thinking");
 	});
-	test("renders and hides the OpenCode Go usage block", async () => {
-		const usage: OpencodeUsage = {
-			windows: [
-				{
-					usedPercent: 1,
-					windowSeconds: 18_000,
-					resetAfterSeconds: 120,
-					resetAt: 1_000,
-				},
-				{
-					usedPercent: 1,
-					windowSeconds: 604_800,
-					resetAfterSeconds: 120,
-					resetAt: 1_000,
-				},
-				{
-					usedPercent: 61,
-					windowSeconds: 2_592_000,
-					resetAfterSeconds: 120,
-					resetAt: 1_000,
-				},
-			],
-		};
-		const withUsage = await mount(() => <Sidebar runs={[]} opencodeUsage={usage} />, 42, 40);
-		const frame = withUsage.captureCharFrame();
-		expect(frame).toContain("OpenCode Go");
-		expect(frame).toContain("5h 1%");
-		expect(frame).toContain("7d 1%");
-		expect(frame).toContain("30d 61%");
-
-		const withoutUsage = await mount(() => <Sidebar runs={[]} />, 42, 40);
-		expect(withoutUsage.captureCharFrame()).not.toContain("OpenCode Go");
+	test("sidebar spends no rows on provider usage", async () => {
+		const frame = (await mount(() => <Sidebar runs={[]} />, 42, 40)).captureCharFrame();
+		expect(frame).not.toContain("OpenCode Go");
+		expect(frame).not.toContain("Claude limits");
+		expect(frame).not.toContain("Codex");
 	});
 
 	test("renders live assistant output as stable plain text and tool timing", async () => {
