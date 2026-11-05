@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.46
+
+### Thinking level for extension settings
+
+- **Compaction model** now opens a Model/Thinking screen. The thinking row writes `one-round-compaction.json`'s top-level `thinkingLevel` and preserves per-lane overrides and every unrelated key; lane overrides that change the effective value are named on the row.
+- Opening a **Subagent models** profile now shows its Model and Thinking level. Picking either writes `subagentProfiles` for the scope that currently supplies the effective value, preserving the other key.
+- Thinking levels are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; the current value and its source are shown before opening the picker.
+- The shared thinking selector accepts extension levels (`off` included) without changing the active-session effort selector.
+
 ## 0.6.45
 
 ### Current selection in extension model pickers
