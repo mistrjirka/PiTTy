@@ -103,7 +103,7 @@ pitty-resume -C /path/to/project
 
 Compaction thinking is written to the top-level setting and to both the `audit` and `execution` lanes. This matters because the extension pins the audit lane to its own `medium` default, so a top-level-only change never reached it. The row shows the effective value for each lane when they differ.
 
-Both sections edit the extension's own configuration — `one-round-compaction.json` in the Pi agent directory and `subagentProfiles` in `settings.json` — and preserve every other key, including per-lane compaction model overrides. Each row names the effective value and its source. When a project-level `.pi/` configuration already overrides a value, PiTTy updates that file; otherwise it updates the global configuration. Thinking pickers list only the levels the selected model accepts, plus `off`.
+Both sections edit the extension's own configuration — `one-round-compaction.json` in the Pi agent directory and `subagentProfiles` in `settings.json` — and preserve every other key, including per-lane compaction model overrides. Each row names the effective value and its source (`profile` means the agent's own `.md` frontmatter pins the value, so changing shared defaults alone will not move it — set the value on that agent instead). When a project-level `.pi/` configuration already overrides a value, PiTTy updates that file; otherwise it updates the global configuration. Thinking pickers list only the levels the selected model accepts, plus `off`.
 
 ## Models and thinking effort
 

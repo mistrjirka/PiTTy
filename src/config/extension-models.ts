@@ -364,9 +364,25 @@ async function readMarkdownNames(directory: string): Promise<string[]> {
 		if (isMissing(error)) return [];
 		throw error;
 	}
-	return entries
-		.filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-		.map((entry) => path.basename(entry.name, ".md"));
+	const names: string[] = [];
+	for (const entry of entries) {
+		if (!entry.name.endsWith(".md")) continue;
+		// Mirror pi-subagent's markdownFiles(): agent profiles are often
+		// symlinks (e.g. generated profiles), and Dirent.isFile() is false
+		// for them. Fall back to stat like the extension does.
+		if (entry.isFile()) {
+			names.push(path.basename(entry.name, ".md"));
+			continue;
+	}
+		if (!entry.isSymbolicLink()) continue;
+		try {
+			const stat = await fsp.stat(path.join(directory, entry.name));
+			if (stat.isFile()) names.push(path.basename(entry.name, ".md"));
+		} catch {
+			// Dangling link: ignore, like the extension does.
+		}
+	}
+	return names;
 }
 
 function parseProfileRuntime(raw: string): {
