@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.49
+
+### Symlinked agent profiles resolve correctly
+
+- PiTTy missed frontmatter of symlinked agent profiles (the usual setup for generated profiles), so e.g. `impl-check-*` showed the shared-defaults model instead of the `profile`-pinned one. Changing shared defaults then looked ignored, because a profile pin wins over defaults by design.
+- The Subagent models rows now show the true source. Setting a model or thinking level on that agent writes a per-agent override, which does take effect over the pin (verified against the extension's own resolver).
+- All ten profiles (`explore`, `general`, `feasibility`, `implementation-review`, `implementer`, `debugging-duck`, plus the four `impl-check-*`) resolve and are listed.
+
 ## 0.6.48
 
 ### Compaction thinking reaches both lanes
