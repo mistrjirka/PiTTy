@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.44
+
+### Extension model settings
+
+- Settings gained **Compaction model**: picks the model `pi-one-round-compaction` uses for the next compaction by writing `one-round-compaction.json` in the Pi agent directory. Thinking level, lane overrides, and every unrelated key are preserved.
+- Settings gained **Subagent models**: lists shared defaults plus every discovered `@mistrjirka/pi-subagent` profile with its effective model, thinking level, and source. Picking a model writes `subagentProfiles` in `settings.json` and applies to the next spawned child.
+- Project-level `.pi/` configuration is updated when it already defines the value; otherwise the global file is updated. Writes are atomic and never rewrite a stalled or malformed JSON file.
+- The compaction summary reports lane overrides, so a top-level model pick is not mistaken for the model a lane actually uses.
+
+### Recommended packages
+
+- Installers now recommend `pi-subagent`, `pi-one-round-compaction`, `@juicesharp/rpiv-todo`, `pi-web-access`, `pi-diet-semble`, and `pi-hermes-memory`. `pi-hermes-memory` was previously only detected, never offered.
+- `pi-mcp-adapter` remains supported and installable from Settings > MCP servers, but is no longer recommended automatically.
+
 ## 0.6.43
 
 ### Claude profiles and cache diagnostics
