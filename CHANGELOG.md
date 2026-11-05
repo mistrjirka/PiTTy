@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.47
+
+### Built-in MCP support
+
+- Settings' MCP section no longer reports `pi-mcp-adapter` as missing when Pi has built-in MCP (0.99+). PiTTy probes `pi mcp --help` and uses the native backend when the adapter is absent.
+- Native mode edits `~/.pi/agent/mcp.json` and `.pi/mcp.json`, with Pi's own server schema; adapter-only auth fields are hidden and Pi handles HTTP OAuth itself.
+- If `-builtin:mcp` remains in global or project `settings.json` (as the adapter leaves it), Settings shows **Enable built-in MCP**. It removes that entry, preserves the rest of the file, and restarts the Pi session.
+- The adapter still wins when it is installed: its paths, `auth`/`bearerTokenEnv` fields, and connected-count sidebar row are unchanged.
+- With built-in MCP, the sidebar shows `🔌 MCP <enabled> servers` (plus disabled count) and lists the enabled names on hover, noting that Pi manages connections because it does not expose live state to the host.
+
 ## 0.6.46
 
 ### Thinking level for extension settings
