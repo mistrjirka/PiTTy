@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.45
+
+### Current selection in extension model pickers
+
+- The model picker opened from **Compaction model** or **Subagent models** now names the value it edits (`explore: opencode-go/muse-spark-1.3-contributor · thinking low · global`) instead of relying on the highlighted list row alone. This stays accurate when the current model is not in Pi's available model list.
+
+### MCP status in the sidebar
+
+- The sidebar shows `🔌 MCP <connected>/<enabled> connected`: green when every enabled server is connected, yellow for a partial connection, red when a server is failing.
+- Hovering the row lists the connected server names, with a short hide delay so moving onto the list keeps it open.
+- A bundled `mcp-observer` extension forwards `pi-mcp-adapter`'s structured status snapshot to PiTTy. The adapter's footer status supplies counts while its deferred startup path reports configured servers without connecting them, so the row still shows the configured total and `0 connected` instead of disappearing.
+
 ## 0.6.44
 
 ### Extension model settings
