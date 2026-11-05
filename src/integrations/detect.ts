@@ -10,10 +10,19 @@ export type OptionalIntegration = {
 	detectedBy: string[];
 };
 
+export type BuiltinMcpStatus = {
+	/** The installed Pi understands `mcp.json` and `pi mcp`. */
+	supported: boolean;
+	/** `extensions` contains `-builtin:mcp`, so the built-in server runtime is off. */
+	disabledBySettings: boolean;
+	disabledBy: string[];
+};
+
 export type OptionalIntegrationStatus = {
 	subagents: OptionalIntegration;
 	todos: OptionalIntegration;
 	mcpAdapter: OptionalIntegration;
+	mcpBuiltin: BuiltinMcpStatus;
 	memory: OptionalIntegration;
 	doppelclaude: OptionalIntegration;
 	piListError?: string | undefined;
@@ -35,6 +44,48 @@ function readJsonStrings(file: string): string[] {
 	} catch {
 		return [];
 	}
+}
+
+function detectBuiltinMcpSupport(piExecutable: string, cwd: string): boolean {
+	try {
+		const command = resolvePiCommand(piExecutable, ["mcp", "--help"]);
+		const result = spawnSync(command.executable, command.args, {
+			cwd,
+			encoding: "utf8",
+			timeout: 2_500,
+			windowsHide: true,
+			env: { ...process.env, NO_COLOR: "1" },
+		});
+		if (result.status !== 0) return false;
+		return /--exposure/.test(`${result.stdout ?? ""}${result.stderr ?? ""}`);
+	} catch {
+		return false;
+	}
+}
+
+function builtinMcpDisableSources(cwd: string): string[] {
+	const files = [
+		path.join(os.homedir(), ".pi", "agent", "settings.json"),
+		path.join(cwd, ".pi", "settings.json"),
+	];
+	const found: string[] = [];
+	for (const file of files) {
+		try {
+			const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+				continue;
+			const extensions = (parsed as Record<string, unknown>).extensions;
+			if (!Array.isArray(extensions)) continue;
+			const disables = extensions.some(
+				(entry) =>
+					typeof entry === "string" &&
+					entry.trim().replace(/^[-+!]/, "").trim() === "builtin:mcp" &&
+					entry.trim().startsWith("-"),
+			);
+			if (disables) found.push(file);
+		} catch {}
+	}
+	return found;
 }
 
 function hasPackage(haystack: string, packageName: string): boolean {
@@ -253,10 +304,18 @@ export function detectOptionalIntegrations(
 		}
 	}
 
+	const disabledBy = builtinMcpDisableSources(cwd);
 	return {
 		subagents,
 		todos,
 		mcpAdapter,
+		mcpBuiltin: {
+			supported: mcpAdapter.installed
+				? false
+				: detectBuiltinMcpSupport(piExecutable, cwd),
+			disabledBySettings: disabledBy.length > 0,
+			disabledBy,
+		},
 		memory,
 		doppelclaude,
 		...(piListError ? { piListError } : {}),

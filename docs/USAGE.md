@@ -136,9 +136,18 @@ pi install npm:pi-hermes-memory
 # MCP configuration from Settings: pi install npm:pi-mcp-adapter
 ```
 
-`@mistrjirka/pi-subagent` adds profile-driven child-agent and nested-tree inspection, waiting-state visibility, steering, and stop controls. Legacy `pi-subagents` remains supported and additionally exposes its pause/resume controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-hermes-memory` backs the Memory browser with persistent global and project memory. `pi-web-access` adds web search and page-fetch tools, `pi-diet-semble` adds semantic code search, and `pi-one-round-compaction` adds one-round parallel compaction with streamed lane progress. `pi-mcp-adapter` enables standard MCP config changes from Settings and reports MCP status to the sidebar. `pi-smart-compact` remains supported as an alternative compaction engine and reports coarse compaction progress in PiTTy's existing surface.
+`@mistrjirka/pi-subagent` adds profile-driven child-agent and nested-tree inspection, waiting-state visibility, steering, and stop controls. Legacy `pi-subagents` remains supported and additionally exposes its pause/resume controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-hermes-memory` backs the Memory browser with persistent global and project memory. `pi-web-access` adds web search and page-fetch tools, `pi-diet-semble` adds semantic code search, and `pi-one-round-compaction` adds one-round parallel compaction with streamed lane progress. `pi-smart-compact` remains supported as an alternative compaction engine and reports coarse compaction progress in PiTTy's existing surface.
 
-When `pi-mcp-adapter` is running, the sidebar shows `🔌 MCP <connected>/<enabled> connected`. Hover the row to list the connected server names. Servers the adapter has cached but not connected — its deferred startup path — count as enabled but not connected until something uses them; the row falls back to the adapter's footer counts in that state.
+### MCP servers
+
+MCP works with Pi's built-in support (Pi 0.99 or newer) and with `pi-mcp-adapter`; the adapter is only needed on older Pi versions. Settings > MCP servers edits the active backend's own files:
+
+- **Built-in MCP**: `~/.pi/agent/mcp.json` for every project and `.pi/mcp.json` for one project. Pi connects enabled servers at session start, so saved changes apply after PiTTy restarts the Pi session.
+- **Adapter**: `~/.config/mcp/mcp.json` and `.mcp.json`.
+
+If `-builtin:mcp` is still in `settings.json` (left behind by the adapter), Settings shows **Enable built-in MCP**; it removes that entry from the global and project settings and restarts the session. OAuth sign-in for HTTP servers is handled by Pi itself (`/mcp` in the Pi TUI, or `pi mcp login <server>`).
+
+With the adapter, the sidebar shows `🔌 MCP <connected>/<enabled> connected` and hover lists the connected server names. Servers the adapter has cached but not connected — its deferred startup path — count as enabled but not connected until something uses them; the row falls back to the adapter's footer counts in that state. With built-in MCP, Pi does not expose live connection state to the host, so the sidebar shows `🔌 MCP <enabled> servers` and hover lists the enabled names with **Pi manages connections**.
 
 ## Updates and upgrades
 

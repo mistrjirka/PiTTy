@@ -34,7 +34,7 @@ An empty session opens straight into the chat with a passive dashboard of recent
 - **Tool output is readable.** Edit/write tools get a dedicated diff view, tools render as collapsible cards, and timings stay on screen.
 - **Less hunting.** Searchable model picker (`Ctrl+P`), session browser (`/resume`), request map (`Ctrl+R`), and prompt history on an empty prompt (`↑`).
 - **Live themes.** Ten presets plus full color-token editing, applied immediately.
-- **Optional extra panels.** Todo, MCP server management, and an MCP connection counter with hover details appear when the matching Pi packages are installed.
+- **Optional extra panels.** Todo, MCP server management, and an MCP counter with hover details appear when the matching Pi packages are installed.
 
 Pi extensions generally keep working: commands, tools, prompt templates, skills, notifications, status updates, and standard dialogs flow through RPC. Custom `pi-tui` component trees are not serialized, so extension-owned renderers won't look identical, and interactive `/login` is done once in regular Pi.
 
@@ -112,14 +112,14 @@ PiTTy works without extra packages. These add specialized panels when installed:
 | `npm:pi-web-access` | Web search and page-fetch tools for Pi |
 | `npm:pi-diet-semble` | Semantic code search for Pi |
 | `npm:pi-hermes-memory` | Persistent memory behind PiTTy's Memory browser |
-| `npm:pi-mcp-adapter` | Standard MCP config activation from Settings, plus the sidebar MCP connection counter |
+| `npm:pi-mcp-adapter` | MCP config management and connection status; not needed with Pi's built-in MCP |
 | `npm:pi-subagents` | Legacy workflow child-agent support, including pause/resume and queued steering |
 | `npm:pi-smart-compact` | Smart Compact progress on the compaction surface (alternative compaction engine) |
 
 ```bash
 pi install git:github.com/mistrjirka/pi-subagent git:github.com/mistrjirka/pi-one-round-compaction npm:@juicesharp/rpiv-todo npm:pi-web-access npm:pi-diet-semble npm:pi-hermes-memory
 
-# MCP configuration from Settings needs the adapter; install it separately when wanted.
+# MCP configuration works with Pi's built-in MCP (0.99+). On older Pi, install the adapter:
 # pi install npm:pi-mcp-adapter
 # Legacy pi-subagents remains supported; do not install both runtimes unless you intentionally want both.
 # pi install npm:pi-subagents

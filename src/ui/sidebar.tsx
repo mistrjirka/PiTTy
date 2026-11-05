@@ -34,6 +34,7 @@ import {
 	type McpStatusCounts,
 	type McpStatusSnapshot,
 } from "../state/mcp-status.ts";
+import type { McpConfiguredSummary } from "../config/mcp-config.ts";
 export type SidebarPanelVisibility = {
 	subagents: boolean;
 	todos: boolean;
@@ -194,6 +195,10 @@ export function Sidebar(props: {
 		| McpStatusCounts
 		| Accessor<McpStatusCounts | undefined>
 		| undefined;
+	mcpConfigured?:
+		| McpConfiguredSummary
+		| Accessor<McpConfiguredSummary | undefined>
+		| undefined;
 	notifications?:
 		| NotificationRecord[]
 		| Accessor<NotificationRecord[]>
@@ -225,6 +230,10 @@ export function Sidebar(props: {
 		typeof props.mcpCounts === "function"
 			? props.mcpCounts()
 			: props.mcpCounts;
+	const mcpConfigured = () =>
+		typeof props.mcpConfigured === "function"
+			? props.mcpConfigured()
+			: props.mcpConfigured;
 	const mcpCounts = () => {
 		const snapshot = mcpSnapshot();
 		if (snapshot)
@@ -269,7 +278,20 @@ export function Sidebar(props: {
 		const shown = Math.min(names.length, MCP_HOVER_LIMIT);
 		return shown + (names.length > shown ? 1 : 0);
 	};
-	const mcpRows = () => (mcpCounts() ? 1 + mcpDetailRows() : 0);
+	const mcpConfiguredDetailRows = () => {
+		const configured = mcpConfigured();
+		if (!configured || mcpCounts() || !mcpHover()) return 0;
+		const names = configured.enabledNames;
+		if (names.length === 0) return 2;
+		const shown = Math.min(names.length, MCP_HOVER_LIMIT);
+		return shown + (names.length > shown ? 1 : 0) + 1;
+	};
+	const mcpRows = () =>
+		mcpCounts()
+			? 1 + mcpDetailRows()
+			: mcpConfigured()
+				? 1 + mcpConfiguredDetailRows()
+				: 0;
 	const selectedModelTiming = createMemo(() => {
 		const model = props.state?.model;
 		if (!model?.provider || !model.id) return undefined;
@@ -456,6 +478,66 @@ export function Sidebar(props: {
 								: ""}
 						</text>
 					</>
+				)}
+			</Show>
+			<Show when={!mcpCounts() && mcpConfigured()}>
+				{(configured) => (
+					<box
+						id="mcp-configured-status"
+						flexDirection="column"
+						flexShrink={0}
+						onMouseOver={showMcpDetails}
+						onMouseOut={scheduleMcpHide}
+					>
+						<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
+							{clip(
+								`🔌 MCP ${configured().enabled} server${configured().enabled === 1 ? "" : "s"}${configured().disabled ? ` · ${configured().disabled} off` : ""}`,
+								31,
+							)}
+						</text>
+						<Show when={mcpHover()}>
+							<For
+								each={configured().enabledNames.slice(0, MCP_HOVER_LIMIT)}
+							>
+								{(name) => (
+									<text
+										width="100%"
+										height={1}
+										fg={colors.muted}
+										wrapMode="none"
+									>
+										{clip(`  · ${name}`, 31)}
+									</text>
+								)}
+							</For>
+							<Show when={configured().enabledNames.length > MCP_HOVER_LIMIT}>
+								<text
+									width="100%"
+									height={1}
+									fg={colors.subtle}
+									wrapMode="none"
+								>
+									{clip(
+										`  +${configured().enabledNames.length - MCP_HOVER_LIMIT} more`,
+										31,
+									)}
+								</text>
+							</Show>
+							<Show when={configured().enabledNames.length === 0}>
+								<text
+									width="100%"
+									height={1}
+									fg={colors.subtle}
+									wrapMode="none"
+								>
+									{clip("  no servers enabled", 31)}
+								</text>
+							</Show>
+							<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
+								{clip("  Pi manages connections", 31)}
+							</text>
+						</Show>
+					</box>
 				)}
 			</Show>
 			<Show when={mcpCounts()}>

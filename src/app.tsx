@@ -135,10 +135,14 @@ import {
 	type ThemeConfigDocument,
 } from "./config/theme-config.ts";
 import {
-	loadMcpConfig,
-	previewMcpMutation,
 	commitMcpMutation,
+	enableBuiltinMcp,
+	loadMcpConfig,
+	loadNativeMcpSummary,
+	previewMcpMutation,
+	type McpConfigBackend,
 	type McpConfigSnapshot,
+	type McpConfiguredSummary,
 	type McpPreview,
 	type McpScope,
 	type McpServerForm,
@@ -279,6 +283,18 @@ import {
 	loadOlderMessageWindowStart,
 	trimMessageWindowStart,
 } from "./ui/message-window.ts";
+
+function mcpInstallStateFor(
+	integrations: OptionalIntegrationStatus,
+): McpInstallState {
+	if (integrations.mcpAdapter.installed) return "ready";
+	if (integrations.mcpBuiltin.supported) {
+		return integrations.mcpBuiltin.disabledBySettings
+			? "native-disabled"
+			: "native";
+	}
+	return "missing";
+}
 
 export type AppOptions = {
 	cwd: string;
@@ -783,8 +799,22 @@ export function App(props: AppOptions) {
 	const [mcpPreview, setMcpPreview] = createSignal<McpPreview>();
 	const [mcpError, setMcpError] = createSignal<string>();
 	const [mcpInstallState, setMcpInstallState] = createSignal<McpInstallState>(
-		props.integrations.mcpAdapter.installed ? "ready" : "missing",
+		mcpInstallStateFor(props.integrations),
 	);
+	const [nativeMcpSummary, setNativeMcpSummary] = createSignal<
+		McpConfiguredSummary | undefined
+	>(
+		props.integrations.mcpBuiltin.supported &&
+			!props.integrations.mcpAdapter.installed
+			? loadNativeMcpSummary(props.cwd)
+			: undefined,
+	);
+	const mcpBackend = (): McpConfigBackend =>
+		mcpInstallState() === "native" || mcpInstallState() === "native-disabled"
+			? "native"
+			: "adapter";
+	const mcpConfiguredSummary = () =>
+		mcpInstallState() === "native" ? nativeMcpSummary() : undefined;
 	const [mcpConfigState, setMcpConfigState] =
 		createSignal<McpConfigState>("empty");
 	const [_mcpActivationPending, setMcpActivationPending] = createSignal(false);
@@ -3235,7 +3265,12 @@ export function App(props: AppOptions) {
 		}
 	};
 	const openMcpSettings = () => {
-		const snapshot = loadMcpConfig(mcpScope(), props.cwd);
+		const snapshot = loadMcpConfig(
+			mcpScope(),
+			props.cwd,
+			undefined,
+			mcpBackend(),
+		);
 		setMcpView("list");
 		setMcpPreview(undefined);
 		setMcpSnapshot(snapshot);
@@ -3260,8 +3295,10 @@ export function App(props: AppOptions) {
 				...(props.piExecutable ? { piExecutable: props.piExecutable } : {}),
 				cwd: props.cwd,
 			});
-			setMcpInstallState(
-				integrations.mcpAdapter.installed ? "ready" : "missing",
+			const nextState = mcpInstallStateFor(integrations);
+			setMcpInstallState(nextState);
+			setNativeMcpSummary(
+				nextState === "ready" ? undefined : loadNativeMcpSummary(props.cwd),
 			);
 			await loadCurrentSession(runtime);
 			const refreshedCommands = await runtime.client.getCommands();
@@ -3274,6 +3311,32 @@ export function App(props: AppOptions) {
 			setMcpError(error instanceof Error ? error.message : String(error));
 			return false;
 		}
+	};
+	const enableBuiltinMcpInSettings = () => {
+		void enableBuiltinMcp(props.cwd)
+			.then(async (result) => {
+				if (!result.changed.length) {
+					setMcpError("No -builtin:mcp entry was found in settings.json.");
+					return;
+				}
+				setMcpError(undefined);
+				const integrations = detectOptionalIntegrations({
+					...(props.piExecutable ? { piExecutable: props.piExecutable } : {}),
+					cwd: props.cwd,
+				});
+				const nextState = mcpInstallStateFor(integrations);
+				setMcpInstallState(nextState);
+				setNativeMcpSummary(
+					nextState === "ready" ? undefined : loadNativeMcpSummary(props.cwd),
+				);
+				if (streaming()) {
+					setMcpActivationPending(true);
+					setMcpConfigState("saved-pending-busy");
+				} else await activateMcp();
+			})
+			.catch((error: unknown) => {
+				setMcpError(error instanceof Error ? error.message : String(error));
+			});
 	};
 	const installMcpAdapter = () => {
 		setMcpInstallState("installing");
@@ -3336,7 +3399,11 @@ export function App(props: AppOptions) {
 		if (!preview) return;
 		void commitMcpMutation(preview)
 			.then(async () => {
-				setMcpSnapshot(loadMcpConfig(mcpScope(), props.cwd));
+				setMcpSnapshot(
+					loadMcpConfig(mcpScope(), props.cwd, undefined, mcpBackend()),
+				);
+				if (mcpBackend() === "native")
+					setNativeMcpSummary(loadNativeMcpSummary(props.cwd));
 				setMcpPreview(undefined);
 				if (streaming()) {
 					setMcpActivationPending(true);
@@ -3451,7 +3518,13 @@ export function App(props: AppOptions) {
 				id: "mcp",
 				label: "MCP servers",
 				summary: () =>
-					mcpInstallState() === "ready" ? "Adapter ready" : "Adapter optional",
+					mcpInstallState() === "ready"
+						? "Adapter ready"
+						: mcpInstallState() === "native"
+							? "Built-in MCP"
+							: mcpInstallState() === "native-disabled"
+								? "Built-in MCP disabled"
+								: "Adapter optional",
 				disabledReason: () => undefined,
 				busy: () => mcpInstallState() === "installing",
 				inlineError: () => mcpError(),
@@ -4968,6 +5041,7 @@ export function App(props: AppOptions) {
 						todosAvailable={todosAvailable()}
 						mcpStatus={mcpStatus}
 						mcpCounts={mcpCounts}
+						mcpConfigured={mcpConfiguredSummary}
 						notifications={notificationHistory}
 						onOpenNotification={openNotification}
 						height={() => dimensions().height - 1}
@@ -5078,6 +5152,8 @@ export function App(props: AppOptions) {
 					}}
 					onRetryActivation={() => void activateMcp()}
 					onBack={() => setSettingsRoute(settingsBackRoute("mcp"))}
+					backend={mcpBackend}
+					onEnableBuiltin={enableBuiltinMcpInSettings}
 				/>
 			</Show>
 			<Show when={settingsRoute() === "model"}>

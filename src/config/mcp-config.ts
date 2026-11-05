@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 export type McpScope = "project" | "global";
+export type McpConfigBackend = "adapter" | "native";
 export type McpTransport = "stdio" | "http";
 export type McpHttpAuthMode = "oauth" | "bearer" | "disabled";
 export type McpConfigDocument = Record<string, unknown>;
@@ -23,6 +24,7 @@ export type McpServerForm = {
 };
 export type McpConfigSnapshot = {
   scope: McpScope;
+  backend?: McpConfigBackend;
   filePath: string;
   exists: boolean;
   sourceFingerprint: string;
@@ -58,10 +60,20 @@ function isMissingFileError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 
-function laterNames(scope: McpScope, cwd: string, home: string, names: string[]): string[] {
-  const candidates = scope === "global"
-    ? [path.join(home, ".pi", "agent", "mcp.json"), path.join(cwd, ".mcp.json"), path.join(cwd, ".pi", "mcp.json")]
-    : [path.join(cwd, ".pi", "mcp.json")];
+function laterNames(
+  scope: McpScope,
+  backend: McpConfigBackend,
+  cwd: string,
+  home: string,
+  names: string[],
+): string[] {
+  const candidates = backend === "native"
+    ? scope === "global"
+      ? [path.join(cwd, ".pi", "mcp.json")]
+      : []
+    : scope === "global"
+      ? [path.join(home, ".pi", "agent", "mcp.json"), path.join(cwd, ".mcp.json"), path.join(cwd, ".pi", "mcp.json")]
+      : [path.join(cwd, ".pi", "mcp.json")];
   const later = new Set(candidates.flatMap(readServerNames));
   return names.filter((name) => later.has(name));
 }
@@ -70,7 +82,17 @@ function fingerprint(stat: fs.Stats | undefined, content: string): string {
   const digest = crypto.createHash("sha256").update(content).digest("hex");
   return stat ? `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${digest}` : `missing:${digest}`;
 }
-export function mcpConfigPath(scope: McpScope, cwd = process.cwd(), home = os.homedir()): string {
+export function mcpConfigPath(
+  scope: McpScope,
+  cwd = process.cwd(),
+  home = os.homedir(),
+  backend: McpConfigBackend = "adapter",
+): string {
+  if (backend === "native") {
+    return scope === "project"
+      ? path.join(cwd, ".pi", "mcp.json")
+      : path.join(home, ".pi", "agent", "mcp.json");
+  }
   return scope === "project" ? path.join(cwd, ".mcp.json") : path.join(home, ".config", "mcp", "mcp.json");
 }
 
@@ -105,32 +127,56 @@ export function validateMcpServerForm(form: McpServerForm): McpValidation {
   return { valid: errors.length === 0, errors, warnings };
 }
 
-function definition(form: McpServerForm): McpServerDefinition {
-  return form.transport === "stdio"
-    ? { command: form.command!.trim(), ...(form.args?.length ? { args: [...form.args] } : {}), ...(form.env && Object.keys(form.env).length ? { env: { ...form.env } } : {}), ...(form.cwd?.trim() ? { cwd: form.cwd.trim() } : {}) }
-    : { url: form.url!.trim(), ...(form.headers && Object.keys(form.headers).length ? { headers: { ...form.headers } } : {}), auth: form.authMode === "bearer" ? "bearer" : form.authMode === "oauth" ? "oauth" : false, ...(form.bearerTokenEnv ? { bearerTokenEnv: form.bearerTokenEnv } : {}) };
+function definition(
+  form: McpServerForm,
+  backend: McpConfigBackend,
+): McpServerDefinition {
+  if (form.transport === "stdio") {
+    return {
+      command: form.command!.trim(),
+      ...(form.args?.length ? { args: [...form.args] } : {}),
+      ...(form.env && Object.keys(form.env).length ? { env: { ...form.env } } : {}),
+      ...(form.cwd?.trim() ? { cwd: form.cwd.trim() } : {}),
+    };
+  }
+  if (backend === "native") {
+    // Pi's built-in runtime authenticates HTTP servers itself; its mcp.json has
+    // no adapter-style auth or bearerTokenEnv field.
+    return {
+      url: form.url!.trim(),
+      ...(form.headers && Object.keys(form.headers).length
+        ? { headers: { ...form.headers } }
+        : {}),
+    };
+  }
+  return { url: form.url!.trim(), ...(form.headers && Object.keys(form.headers).length ? { headers: { ...form.headers } } : {}), auth: form.authMode === "bearer" ? "bearer" : form.authMode === "oauth" ? "oauth" : false, ...(form.bearerTokenEnv ? { bearerTokenEnv: form.bearerTokenEnv } : {}) };
 }
 
-export function loadMcpConfig(scope: McpScope, cwd = process.cwd(), home = os.homedir()): McpConfigSnapshot {
-  const filePath = mcpConfigPath(scope, cwd, home);
+export function loadMcpConfig(
+  scope: McpScope,
+  cwd = process.cwd(),
+  home = os.homedir(),
+  backend: McpConfigBackend = "adapter",
+): McpConfigSnapshot {
+  const filePath = mcpConfigPath(scope, cwd, home, backend);
   let content = "";
   let stat: fs.Stats | undefined;
   try { content = fs.readFileSync(filePath, "utf8"); stat = fs.statSync(filePath); } catch (error) {
-    if (!isMissingFileError(error)) return { scope, filePath, exists: true, sourceFingerprint: "unreadable", document: {}, servers: {}, readOnlyReason: error instanceof Error ? error.message : String(error) };
+    if (!isMissingFileError(error)) return { scope, backend, filePath, exists: true, sourceFingerprint: "unreadable", document: {}, servers: {}, readOnlyReason: error instanceof Error ? error.message : String(error) };
   }
-  if (!content) return { scope, filePath, exists: false, sourceFingerprint: fingerprint(undefined, ""), document: { mcpServers: {} }, servers: {} };
+  if (!content) return { scope, backend, filePath, exists: false, sourceFingerprint: fingerprint(undefined, ""), document: { mcpServers: {} }, servers: {} };
   let parsed: unknown;
-  try { parsed = JSON.parse(content); } catch { return { scope, filePath, exists: true, sourceFingerprint: fingerprint(stat, content), document: {}, servers: {}, readOnlyReason: "MCP configuration is malformed JSON." }; }
-  if (!isRecord(parsed) || !isRecord(parsed.mcpServers)) return { scope, filePath, exists: true, sourceFingerprint: fingerprint(stat, content), document: {}, servers: {}, readOnlyReason: "MCP configuration root or mcpServers must be an object." };
+  try { parsed = JSON.parse(content); } catch { return { scope, backend, filePath, exists: true, sourceFingerprint: fingerprint(stat, content), document: {}, servers: {}, readOnlyReason: "MCP configuration is malformed JSON." }; }
+  if (!isRecord(parsed) || !isRecord(parsed.mcpServers)) return { scope, backend, filePath, exists: true, sourceFingerprint: fingerprint(stat, content), document: {}, servers: {}, readOnlyReason: "MCP configuration root or mcpServers must be an object." };
   const document: McpConfigDocument = parsed;
   const serverValues = parsed.mcpServers;
   const invalidServer = Object.values(serverValues).some((value) => !isRecord(value));
-  if (invalidServer) return { scope, filePath, exists: true, sourceFingerprint: fingerprint(stat, content), document, servers: {}, readOnlyReason: "MCP server definitions must be objects." };
+  if (invalidServer) return { scope, backend, filePath, exists: true, sourceFingerprint: fingerprint(stat, content), document, servers: {}, readOnlyReason: "MCP server definitions must be objects." };
   const servers: Record<string, McpServerDefinition> = {};
   for (const [name, value] of Object.entries(serverValues)) {
     if (isRecord(value)) servers[name] = value;
   }
-  return { scope, filePath, exists: true, sourceFingerprint: fingerprint(stat, content), document, servers, laterPrecedenceNames: laterNames(scope, cwd, home, Object.keys(servers)) };
+  return { scope, backend, filePath, exists: true, sourceFingerprint: fingerprint(stat, content), document, servers, laterPrecedenceNames: laterNames(scope, backend, cwd, home, Object.keys(servers)) };
 }
 
 export function previewMcpMutation(snapshot: McpConfigSnapshot, mutation: McpMutation, confirmPlaintext = false, confirmDuplicate = false): McpPreview {
@@ -145,7 +191,10 @@ export function previewMcpMutation(snapshot: McpConfigSnapshot, mutation: McpMut
     if (!validation.valid) throw new Error(validation.errors.join(" "));
     if (validation.warnings.length && !confirmPlaintext) throw new Error(`${validation.warnings.join(" ")} Confirmation required.`);
     warnings.push(...validation.warnings, ...(mutation.server.transport === "stdio" ? ["Configured command executes with the user's permissions."] : []));
-    servers[mutation.server.name] = definition(mutation.server);
+    servers[mutation.server.name] = definition(
+      mutation.server,
+      snapshot.backend ?? "adapter",
+    );
   } else delete servers[mutation.name];
   document.mcpServers = servers;
   return { snapshot, mutation, before, after: mutation.kind === "upsert" ? servers[mutation.server.name] : undefined, document, warnings };
@@ -178,4 +227,118 @@ export async function commitMcpMutation(preview: McpPreview, operations: McpFile
   const temporary = path.join(dir, `.${path.basename(preview.snapshot.filePath)}.${process.pid}.${Date.now()}.tmp`);
   try { await operations.writeFile(temporary, `${JSON.stringify(preview.document, null, 2)}\n`, { mode: 0o600, flag: "wx" }); await operations.rename(temporary, preview.snapshot.filePath); }
   catch (error) { try { await operations.unlink(temporary); } catch { /* cleanup is best effort */ } throw error; }
+}
+
+export type McpConfiguredSummary = {
+  enabled: number;
+  disabled: number;
+  enabledNames: string[];
+  files: string[];
+};
+
+/**
+ * Configured native servers after project overrides. Pi does not expose live
+ * connection state outside its own `/mcp` UI, so this is counts and names only.
+ */
+export function loadNativeMcpSummary(
+  cwd = process.cwd(),
+  home = os.homedir(),
+): McpConfiguredSummary {
+  const globalSnapshot = loadMcpConfig("global", cwd, home, "native");
+  const projectSnapshot = loadMcpConfig("project", cwd, home, "native");
+  const names = new Set([
+    ...Object.keys(globalSnapshot.servers),
+    ...Object.keys(projectSnapshot.servers),
+  ]);
+  const enabledNames: string[] = [];
+  let disabled = 0;
+  for (const name of names) {
+    const globalDefinition = globalSnapshot.servers[name];
+    const projectDefinition = projectSnapshot.servers[name];
+    const projectIsOverride =
+      projectDefinition !== undefined &&
+      !("command" in projectDefinition) &&
+      !("url" in projectDefinition) &&
+      !("type" in projectDefinition);
+    const enabled =
+      projectDefinition === undefined
+        ? (globalDefinition?.enabled ?? true)
+        : projectIsOverride
+          ? (projectDefinition.enabled ?? globalDefinition?.enabled ?? true)
+          : (projectDefinition.enabled ?? true);
+    if (enabled === false) disabled += 1;
+    else enabledNames.push(name);
+  }
+  return {
+    enabled: enabledNames.length,
+    disabled,
+    enabledNames: enabledNames.sort(),
+    files: [globalSnapshot.filePath, projectSnapshot.filePath],
+  };
+}
+
+export type EnableBuiltinMcpResult = { changed: string[] };
+
+function isBuiltinMcpDisableEntry(entry: unknown): boolean {
+  if (typeof entry !== "string") return false;
+  const trimmed = entry.trim();
+  return (
+    trimmed.startsWith("-") &&
+    trimmed.replace(/^-/, "").trim() === "builtin:mcp"
+  );
+}
+
+/** Remove stale `-builtin:mcp` entries that keep Pi's native MCP runtime off. */
+export async function enableBuiltinMcp(
+  cwd = process.cwd(),
+  home = os.homedir(),
+): Promise<EnableBuiltinMcpResult> {
+  const files = [
+    path.join(home, ".pi", "agent", "settings.json"),
+    path.join(cwd, ".pi", "settings.json"),
+  ];
+  const changed: string[] = [];
+  for (const file of files) {
+    let raw: string;
+    try {
+      raw = await fsp.readFile(file, "utf8");
+    } catch (error) {
+      if (isMissingFileError(error)) continue;
+      throw error;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(`Cannot edit ${file}: invalid JSON`);
+    }
+    if (!isRecord(parsed) || !Array.isArray(parsed.extensions)) continue;
+    const extensions = parsed.extensions;
+    const next = extensions.filter((entry) => !isBuiltinMcpDisableEntry(entry));
+    if (next.length === extensions.length) continue;
+    const indent = /^\{\r?\n([ \t]+)/.exec(raw)?.[1] ?? "  ";
+    const directory = path.dirname(file);
+    await fsp.mkdir(directory, { recursive: true, mode: 0o700 });
+    const temporary = path.join(
+      directory,
+      `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`,
+    );
+    try {
+      await fsp.writeFile(
+        temporary,
+        `${JSON.stringify({ ...parsed, extensions: next }, null, indent)}\n`,
+        { encoding: "utf8", mode: 0o600, flag: "wx" },
+      );
+      await fsp.rename(temporary, file);
+    } catch (error) {
+      try {
+        await fsp.unlink(temporary);
+      } catch {
+        // Preserve the original failure; cleanup is best effort.
+      }
+      throw error;
+    }
+    changed.push(file);
+  }
+  return { changed };
 }

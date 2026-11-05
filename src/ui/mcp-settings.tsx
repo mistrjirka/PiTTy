@@ -2,9 +2,15 @@ import { createMemo, createSignal, type Accessor } from "solid-js";
 import type { TextareaRenderable } from "@opentui/core";
 import stripAnsi from "strip-ansi";
 import { colors } from "./theme.ts";
-import type { McpConfigSnapshot, McpHttpAuthMode, McpMutation, McpPreview, McpScope, McpServerForm } from "../config/mcp-config.ts";
+import type { McpConfigBackend, McpConfigSnapshot, McpHttpAuthMode, McpMutation, McpPreview, McpScope, McpServerForm } from "../config/mcp-config.ts";
 
-export type McpInstallState = "missing" | "installing" | "install-failed" | "ready";
+export type McpInstallState =
+  | "missing"
+  | "installing"
+  | "install-failed"
+  | "ready"
+  | "native"
+  | "native-disabled";
 export type McpConfigState = "empty" | "loaded" | "malformed-readonly" | "mutation-preview" | "saved-active" | "saved-pending-busy" | "saved-inactive-retry";
 export type McpFormConfirmations = { confirmDuplicate?: boolean; confirmPlaintext?: boolean };
 export type McpSettingsView = "list" | "form";
@@ -35,6 +41,8 @@ function McpAction(props: McpActionProps) {
 
 export type McpSettingsProps = {
   adapterState: Accessor<McpInstallState>;
+  backend?: Accessor<McpConfigBackend>;
+  onEnableBuiltin?: () => void;
   configState: Accessor<McpConfigState>;
   scope: Accessor<McpScope>;
   snapshot: Accessor<McpConfigSnapshot | undefined>;
@@ -68,6 +76,7 @@ export function McpSettings(props: McpSettingsProps) {
   let headersInput: TextareaRenderable | undefined;
   const [editing, setEditing] = createSignal(false);
   const view = () => props.view();
+  const backend = () => props.backend?.() ?? "adapter";
   const [confirmDuplicate, setConfirmDuplicate] = createSignal(false);
   const [confirmPlaintext, setConfirmPlaintext] = createSignal(false);
   const [executionConfirmed, setExecutionConfirmed] = createSignal(false);
@@ -89,7 +98,7 @@ export function McpSettings(props: McpSettingsProps) {
     if (!value) return;
     setName(serverName); setEditing(true);
     if (typeof value.command === "string") { setTransport("stdio"); setCommand(value.command); setArgs(Array.isArray(value.args) ? value.args.filter((item): item is string => typeof item === "string").join("\n") : ""); setEnv(typeof value.env === "object" && value.env !== null ? Object.entries(value.env).map(([key, item]) => `${key}=${String(item)}`).join("\n") : ""); setCwd(typeof value.cwd === "string" ? value.cwd : ""); }
-    else { setTransport("http"); setUrl(typeof value.url === "string" ? value.url : ""); setHeaders(typeof value.headers === "object" && value.headers !== null ? Object.entries(value.headers).map(([key, item]) => `${key}=${String(item)}`).join("\n") : ""); setAuthMode(value.auth === "oauth" || value.auth === "bearer" ? value.auth : "disabled"); setBearerTokenEnv(typeof value.bearerTokenEnv === "string" ? value.bearerTokenEnv : ""); }
+    else { setTransport("http"); setUrl(typeof value.url === "string" ? value.url : ""); setHeaders(typeof value.headers === "object" && value.headers !== null ? Object.entries(value.headers).map(([key, item]) => `${key}=${String(item)}`).join("\n") : ""); setAuthMode(backend() === "native" ? "disabled" : value.auth === "oauth" || value.auth === "bearer" ? value.auth : "disabled"); setBearerTokenEnv(backend() === "native" ? "" : typeof value.bearerTokenEnv === "string" ? value.bearerTokenEnv : ""); }
     props.onViewChange("form");
   };
   const submit = () => {
@@ -108,11 +117,14 @@ export function McpSettings(props: McpSettingsProps) {
       closeForm();
     }}>
       <box height={1} minHeight={1} flexShrink={0} flexDirection="row"><text fg={colors.textBright} attributes={1}>MCP servers</text><box flexGrow={1} /><text fg={colors.cyan} onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); if (view() === "form") closeForm(); else props.onBack(); }}>← {view() === "form" ? "Servers" : "Settings"}</text></box>
-      <text fg={colors.subtle}>Standard config only; PiTTy never invokes /mcp or /mcp setup.</text>
+      <text fg={colors.subtle}>{backend() === "native" ? "Pi's built-in MCP reads ~/.pi/agent/mcp.json and .pi/mcp.json. Changes apply on the next session start." : "Standard config only; PiTTy never invokes /mcp or /mcp setup."}</text>
       <scrollbox flexGrow={1} minHeight={1} scrollY viewportCulling={true}>
       {props.adapterState() === "missing" ? <text fg={colors.yellow}>pi-mcp-adapter is missing. Configured commands execute with your user permissions.</text> : null}
       {props.adapterState() === "installing" ? <text fg={colors.muted}>Installing pi-mcp-adapter…</text> : null}
       {props.adapterState() === "install-failed" ? <text fg={colors.red}>Install failed; PiTTy remains usable. Check the retained install log and retry.</text> : null}
+      {props.adapterState() === "native" ? <text fg={colors.green}>Using Pi's built-in MCP; the adapter is not installed or needed.</text> : null}
+      {props.adapterState() === "native-disabled" ? <text fg={colors.yellow}>Pi's built-in MCP is disabled by -builtin:mcp in settings.json.</text> : null}
+      {props.adapterState() === "native-disabled" ? <McpAction label="Enable built-in MCP" onPress={() => props.onEnableBuiltin?.()} /> : null}
       {props.adapterState() === "missing" ? <McpAction label="Install adapter" onPress={props.onInstall} /> : null}
       <box flexDirection="row"><McpAction label="Project scope" onPress={() => { closeForm(); props.onScope("project"); }} /><McpAction label="Global scope" onPress={() => { closeForm(); props.onScope("global"); }} /></box>
       <text fg={colors.muted}>Scope: {props.scope()} · Path: {pathText()}</text>
@@ -150,8 +162,10 @@ export function McpSettings(props: McpSettingsProps) {
         </> : <>
           <input placeholder="http(s) URL (required)" value={url()} onInput={(event) => setUrl(event)} />
           <textarea ref={(value) => { headersInput = value; }} placeholder="Headers KEY=value, one per line" onContentChange={() => setHeaders(headersInput?.plainText ?? "")} />
-          <select options={[{ name: "Auth disabled", description: "No auth", value: "disabled" }, { name: "Bearer", description: "Environment token reference", value: "bearer" }, { name: "OAuth", description: "Adapter OAuth", value: "oauth" }]} selectedIndex={authMode() === "disabled" ? 0 : authMode() === "bearer" ? 1 : 2} onSelect={(index) => setAuthMode(index === 0 ? "disabled" : index === 1 ? "bearer" : "oauth")} />
-          {authMode() === "bearer" ? <input placeholder="Bearer token environment name" value={bearerTokenEnv()} onInput={(event) => setBearerTokenEnv(event)} /> : null}
+          {backend() === "adapter" ? <>
+            <select options={[{ name: "Auth disabled", description: "No auth", value: "disabled" }, { name: "Bearer", description: "Environment token reference", value: "bearer" }, { name: "OAuth", description: "Adapter OAuth", value: "oauth" }]} selectedIndex={authMode() === "disabled" ? 0 : authMode() === "bearer" ? 1 : 2} onSelect={(index) => setAuthMode(index === 0 ? "disabled" : index === 1 ? "bearer" : "oauth")} />
+            {authMode() === "bearer" ? <input placeholder="Bearer token environment name" value={bearerTokenEnv()} onInput={(event) => setBearerTokenEnv(event)} /> : null}
+          </> : <text fg={colors.muted}>Pi handles OAuth itself when the server requests sign-in. Add an Authorization header to use a token instead.</text>}
         </>}
         <box flexDirection="row"><McpAction label={`Preview ${editing() ? "edit" : "add"}`} onPress={submit} /><McpAction label="Cancel" onPress={closeForm} /></box>
         <box flexDirection="row"><input placeholder="Confirm duplicate replacement: type yes" value={confirmDuplicate() ? "yes" : ""} onInput={(event) => setConfirmDuplicate(event.toLowerCase() === "yes")} /><input placeholder="Confirm plaintext storage: type yes" value={confirmPlaintext() ? "yes" : ""} onInput={(event) => setConfirmPlaintext(event.toLowerCase() === "yes")} /></box>
