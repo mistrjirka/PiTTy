@@ -43,6 +43,8 @@ export type CompactionModelState = {
 		audit?: string | undefined;
 		execution?: string | undefined;
 	};
+	/** What each lane actually uses, including the extension's own defaults. */
+	effectiveThinking: { audit: string; execution: string };
 };
 
 export type SubagentModelSource = ExtensionModelScope | "profile" | "defaults";
@@ -60,6 +62,9 @@ export type SubagentModelEntry = {
 	/** File PiTTy updates for a thinking-level change. */
 	thinkingScope: ExtensionModelScope;
 };
+
+const DEFAULT_COMPACTION_THINKING = "low";
+const DEFAULT_AUDIT_THINKING = "medium";
 
 export type ExtensionModelOptions = {
 	cwd?: string;
@@ -241,33 +246,51 @@ export async function loadCompactionModelState(
 			laneModel(projectDocument, "execution") ??
 			laneModel(globalDocument, "execution"),
 	};
+	const projectLaneThinking = {
+		audit: laneThinking(projectDocument, "audit"),
+		execution: laneThinking(projectDocument, "execution"),
+	};
 	const laneThinkingLevel = {
-		audit:
-			laneThinking(projectDocument, "audit") ??
-			laneThinking(globalDocument, "audit"),
+		audit: projectLaneThinking.audit ?? laneThinking(globalDocument, "audit"),
 		execution:
-			laneThinking(projectDocument, "execution") ??
-			laneThinking(globalDocument, "execution"),
+			projectLaneThinking.execution ?? laneThinking(globalDocument, "execution"),
+	};
+	const effectiveThinking = {
+		// The extension's DEFAULT_CONFIG pins the audit lane to "medium", so a
+		// top-level thinkingLevel alone never reaches it.
+		audit: laneThinkingLevel.audit ?? DEFAULT_AUDIT_THINKING,
+		execution:
+			laneThinkingLevel.execution ??
+			thinkingLevel ??
+			DEFAULT_COMPACTION_THINKING,
 	};
 	const model = projectModel ?? globalModel;
 	return {
 		...(model ? { model } : {}),
 		...(thinkingLevel ? { thinkingLevel } : {}),
 		scope: projectModel ? "project" : "global",
-		thinkingScope: projectThinkingLevel ? "project" : "global",
+		thinkingScope:
+			projectThinkingLevel ||
+			projectLaneThinking.audit ||
+			projectLaneThinking.execution
+				? "project"
+				: "global",
 		...(globalModel ? { globalModel } : {}),
 		...(projectModel ? { projectModel } : {}),
 		laneModels,
 		...(laneThinkingLevel.audit || laneThinkingLevel.execution
 			? { laneThinkingLevel }
 			: {}),
+		effectiveThinking,
 	};
 }
 
 /**
- * Write the top-level compaction model to the file whose value is currently
- * effective: an existing project override keeps the change project-local,
- * otherwise the global config is updated.
+ * Write one compaction thinking level for both lanes.
+ *
+ * The top-level key alone is not enough: the extension's own defaults pin the
+ * audit lane to `medium`, so PiTTy also sets each lane's `thinkingLevel`. Lane
+ * models and other lane keys survive.
  */
 export async function writeCompactionThinking(
 	level: ExtensionThinkingLevel,
@@ -281,6 +304,13 @@ export async function writeCompactionThinking(
 		state.thinkingScope === "project" ? paths.project : paths.global;
 	const document = await readOptionalJson(target);
 	document.thinkingLevel = level;
+	const lanes = isRecord(document.lanes)
+		? document.lanes
+		: (document.lanes = {});
+	for (const lane of ["audit", "execution"] as const) {
+		const value = isRecord(lanes[lane]) ? lanes[lane] : (lanes[lane] = {});
+		value.thinkingLevel = level;
+	}
 	await writeJsonObject(target, document);
 }
 

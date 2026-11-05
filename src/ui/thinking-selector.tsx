@@ -1,7 +1,12 @@
 import type { SelectRenderable, TextRenderable } from "@opentui/core";
-import { createEffect, createMemo, createSignal } from "solid-js";
+import { Show, createEffect, createMemo, createSignal } from "solid-js";
 import type { ThinkingLevel } from "../rpc/pi-rpc-client.ts";
 import { colors } from "./theme.ts";
+import {
+  EXTENSION_THINKING_LEVELS,
+  type ExtensionThinkingLevel,
+} from "../config/extension-models.ts";
+import type { ModelChoice } from "./model-selector.ts";
 
 export const THINKING_LEVELS: ThinkingLevel[] = [
   "minimal",
@@ -21,6 +26,28 @@ const EXTENDED_THINKING_LEVELS: ReadonlySet<ThinkingLevel> = new Set([
 ]);
 
 export type ThinkingLevelMap = Partial<Record<ThinkingLevel, string | null>>;
+
+/**
+ * Levels the extension can pass to this model. `off` is always allowed; the
+ * extension skips reasoning entirely for it. Unknown models keep every level
+ * because PiTTy has no capability data for them.
+ */
+export function compatibleThinkingLevels(
+  model: Pick<ModelChoice, "reasoning" | "thinkingLevelMap"> | undefined,
+): ExtensionThinkingLevel[] {
+  if (!model) return [...EXTENSION_THINKING_LEVELS];
+  if (model.reasoning === false) return ["off"];
+  const map = model.thinkingLevelMap;
+  return EXTENSION_THINKING_LEVELS.filter((level) => {
+    if (level === "off") return true;
+    if (map) {
+      const entry = map[level];
+      if (entry === null) return false;
+      if (entry !== undefined) return true;
+    }
+    return level !== "xhigh" && level !== "max";
+  });
+}
 
 export function visibleThinkingLevels(
   reasoning: boolean | undefined,
@@ -45,6 +72,7 @@ export function ThinkingSelector(props: {
   levels?: readonly string[];
   busy?: boolean;
   error?: string;
+  context?: string | undefined;
   onSelect: (level: string) => void;
   onCancel: () => void;
 }) {
@@ -105,6 +133,11 @@ export function ThinkingSelector(props: {
           }}
         >← Settings</text>
       </box>
+      <Show when={props.context}>
+        <text fg={colors.subtle} wrapMode="none">
+          {props.context}
+        </text>
+      </Show>
       <text
         ref={(value) => {
           status = value;

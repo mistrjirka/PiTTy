@@ -164,6 +164,7 @@ import type { ThemePresetName } from "./ui/theme-presets.ts";
 import {
 	ThinkingSelector,
 	THINKING_LEVELS,
+	compatibleThinkingLevels,
 	visibleThinkingLevels,
 	type ThinkingLevelMap,
 } from "./ui/thinking-selector.tsx";
@@ -3110,10 +3111,11 @@ export function App(props: AppOptions) {
 						? "execution lane overrides"
 						: "";
 		const modelLane = laneNote(state.laneModels.audit, state.laneModels.execution);
-		const thinkingLane = laneNote(
-			state.laneThinkingLevel?.audit,
-			state.laneThinkingLevel?.execution,
-		);
+		const effective = state.effectiveThinking;
+		const thinkingSummary =
+			effective.audit === effective.execution
+				? `${effective.audit} · both lanes`
+				: `audit ${effective.audit} · execution ${effective.execution}`;
 		return [
 			{
 				id: "model",
@@ -3129,25 +3131,79 @@ export function App(props: AppOptions) {
 			{
 				id: "thinking",
 				label: "Thinking level",
-				summary: [
-					state.thinkingLevel ?? "default",
-					state.thinkingScope,
-					thinkingLane,
-				]
+				summary: [thinkingSummary, state.thinkingScope]
 					.filter(Boolean)
 					.join(" · "),
 			},
 		];
 	};
+	const openCompactionThinking = async () => {
+		if (await ensureExtensionModels("compaction"))
+			setSettingsRoute("compaction-thinking");
+	};
+	const openSubagentThinking = async () => {
+		if (await ensureExtensionModels("subagents"))
+			setSettingsRoute("subagent-thinking");
+	};
 	const openCompactionSetting = (id: string) => {
 		setDetailSettingSelectedId(id);
 		if (id === "model") void openCompactionModelPicker();
-		else setSettingsRoute("compaction-thinking");
+		else void openCompactionThinking();
 	};
 	const openSubagentSetting = (id: string) => {
 		setDetailSettingSelectedId(id);
 		if (id === "model") void openSubagentModelPicker();
-		else setSettingsRoute("subagent-thinking");
+		else void openSubagentThinking();
+	};
+	const modelChoiceForRef = (
+		value: string | undefined,
+	): ModelChoice | undefined => {
+		const ref = parseModelRef(value);
+		if (!ref) return undefined;
+		const matches = (model: ModelChoice) =>
+			model.provider === ref.provider && model.id === ref.id;
+		return modelOptions().find(matches) ?? availableModelsCache?.find(matches);
+	};
+	const compactionModelChoice = () =>
+		modelChoiceForRef(compactionModelState()?.model);
+	const subagentModelChoice = () =>
+		modelChoiceForRef(selectedSubagentModelEntry()?.model);
+	const compactionThinkingLevels = () =>
+		compatibleThinkingLevels(compactionModelChoice());
+	const subagentThinkingLevels = () =>
+		compatibleThinkingLevels(subagentModelChoice());
+	const thinkingContextFor = (
+		model: string | undefined,
+		current: string | undefined,
+		levels: readonly string[],
+		fallback: string,
+	): string => {
+		const shown = current ?? fallback;
+		return [
+			model ?? "extension default model",
+			`current ${shown}`,
+			levels.some((level) => level === shown)
+				? ""
+				: "not supported by this model",
+		]
+			.filter(Boolean)
+			.join(" · ");
+	};
+	const compactionThinkingContext = () =>
+		thinkingContextFor(
+			compactionModelState()?.model,
+			compactionModelState()?.thinkingLevel,
+			compactionThinkingLevels(),
+			"low",
+		);
+	const subagentThinkingContext = () => {
+		const entry = selectedSubagentModelEntry();
+		return thinkingContextFor(
+			entry?.model,
+			entry?.thinking,
+			subagentThinkingLevels(),
+			"default",
+		);
 	};
 	const compactionModelContext = () => {
 		const state = compactionModelState();
@@ -3454,12 +3510,14 @@ export function App(props: AppOptions) {
 					if (!compaction)
 						return settingsErrors().compaction ? "Unavailable" : "Loading…";
 					if (!compaction.model) return "Extension default";
-					const thinking = compaction.thinkingLevel
-						? ` · ${compaction.thinkingLevel}`
-						: "";
+					const lanes = compaction.effectiveThinking;
+					const thinking =
+						lanes.audit === lanes.execution
+							? ` · ${lanes.audit}`
+							: ` · lanes ${lanes.audit}/${lanes.execution}`;
 					const laneOverride =
 						compaction.laneModels.audit || compaction.laneModels.execution
-							? " · lane override"
+							? " · model lane"
 							: "";
 					return `${compaction.model}${thinking}${laneOverride}`;
 				},
@@ -5231,7 +5289,8 @@ export function App(props: AppOptions) {
 			<Show when={settingsRoute() === "compaction-thinking"}>
 				<ThinkingSelector
 					current={compactionModelState()?.thinkingLevel}
-					levels={EXTENSION_THINKING_LEVELS}
+					levels={compactionThinkingLevels()}
+					context={compactionThinkingContext()}
 					busy={settingsBusy() === "compaction"}
 					{...(settingsErrors().compaction
 						? { error: settingsErrors().compaction }
@@ -5290,7 +5349,8 @@ export function App(props: AppOptions) {
 			<Show when={settingsRoute() === "subagent-thinking"}>
 				<ThinkingSelector
 					current={selectedSubagentModelEntry()?.thinking}
-					levels={EXTENSION_THINKING_LEVELS}
+					levels={subagentThinkingLevels()}
+					context={subagentThinkingContext()}
 					busy={settingsBusy() === "subagents"}
 					{...(settingsErrors().subagents
 						? { error: settingsErrors().subagents }

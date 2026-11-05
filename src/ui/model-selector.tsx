@@ -24,7 +24,22 @@ export type ModelChoice = {
 	id: string;
 	name?: string | undefined;
 	contextWindow?: number | undefined;
+	reasoning?: boolean | undefined;
+	thinkingLevelMap?: Record<string, string | null> | undefined;
 };
+
+function thinkingLevelMap(
+	value: unknown,
+): Record<string, string | null> | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value))
+		return undefined;
+	const entries: Record<string, string | null> = {};
+	for (const [key, entry] of Object.entries(value)) {
+		if (typeof entry === "string") entries[key] = entry;
+		else if (entry === null) entries[key] = null;
+	}
+	return Object.keys(entries).length ? entries : undefined;
+}
 
 function positiveNumber(value: unknown): number | undefined {
 	if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
@@ -75,6 +90,9 @@ export function normalizeModelChoices(values: unknown[]): ModelChoice[] {
 		const contextWindow =
 			positiveNumber(record.contextWindow) ??
 			positiveNumber(record.context_window);
+		const reasoning =
+			typeof record.reasoning === "boolean" ? record.reasoning : undefined;
+		const map = thinkingLevelMap(record.thinkingLevelMap);
 		models.push({
 			provider,
 			id,
@@ -82,6 +100,8 @@ export function normalizeModelChoices(values: unknown[]): ModelChoice[] {
 				? { name: record.name.trim() }
 				: {}),
 			...(contextWindow ? { contextWindow } : {}),
+			...(reasoning !== undefined ? { reasoning } : {}),
+			...(map ? { thinkingLevelMap: map } : {}),
 		});
 	}
 	return models.sort(
