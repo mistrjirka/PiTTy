@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.48
+
+### Compaction thinking reaches both lanes
+
+- A compaction thinking change now writes the top-level setting and both the `audit` and `execution` lane levels. The extension's own default pins the audit lane to `medium`, so a top-level-only change never reached it and a low/high selection appeared to do nothing.
+- The compaction Thinking row shows the effective level per lane, so an audit/execution difference is visible instead of implied. No restart is needed; the extension reads the file at the next compaction.
+- Thinking pickers now list only levels the selected compaction or subagent model accepts, plus `off`. `xhigh`/`max` appear only when the model maps them, and a model without reasoning offers `off` alone.
+- The picker names the current level and marks it when the selected model does not support it. Available models keep their `reasoning` and `thinkingLevelMap` data through the model picker.
+
 ## 0.6.47
 
 ### Built-in MCP support
