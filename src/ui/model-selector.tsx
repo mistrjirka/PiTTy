@@ -3,7 +3,7 @@ import type {
 	SelectRenderable,
 	TextareaRenderable,
 } from "@opentui/core";
-import { createMemo, createSignal } from "solid-js";
+import { Show, createMemo, createSignal } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import { colors } from "./theme.ts";
 import { formatDuration } from "./duration.ts";
@@ -107,6 +107,8 @@ export function ModelSelectorDialog(props: {
 	onCancel: () => void;
 	performanceHistory?: ModelPerformanceHistory;
 	timingHistory?: readonly RequestTiming[];
+	/** Optional line naming the value this picker changes, e.g. the current profile model. */
+	context?: string | undefined;
 }) {
 	let select: SelectRenderable | undefined;
 	let search: TextareaRenderable | undefined;
@@ -239,6 +241,11 @@ export function ModelSelectorDialog(props: {
 						× Close
 					</text>
 				</box>
+				<Show when={props.context}>
+					<text fg={colors.subtle} wrapMode="none">
+						{props.context}
+					</text>
+				</Show>
 				<textarea
 					ref={(value) => {
 						search = value;

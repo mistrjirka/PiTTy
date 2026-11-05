@@ -56,6 +56,13 @@ import {
 	shouldRecoverPromptDraft,
 } from "./state/prompt-history.ts";
 import {
+	MCP_ADAPTER_STATUS_KEY,
+	MCP_STATUS_KEY,
+	isEmptyMcpStatus,
+	parseMcpAdapterStatusText,
+	parseMcpStatusSnapshot,
+} from "./state/mcp-status.ts";
+import {
 	createPromptPasteBlock,
 	expandPromptPasteTokens,
 	insertPromptPasteBlock,
@@ -1093,6 +1100,48 @@ export function App(props: AppOptions) {
 				}
 				return;
 			}
+			if (event.method === "setStatus" && event.statusKey === MCP_STATUS_KEY) {
+				const snapshot =
+					typeof event.statusText === "string"
+						? parseMcpStatusSnapshot(event.statusText)
+						: undefined;
+				if (!snapshot || isEmptyMcpStatus(snapshot)) {
+					if (
+						tabRuntime.mcpStatus !== undefined ||
+						tabRuntime.mcpCounts !== undefined
+					) {
+						delete tabRuntime.mcpStatus;
+						delete tabRuntime.mcpCounts;
+						if (tabRuntime.id === activeTabId()) touch();
+					}
+				} else {
+					tabRuntime.mcpStatus = snapshot;
+					if (tabRuntime.id === activeTabId()) touch();
+				}
+				return;
+			}
+			if (
+				event.method === "setStatus" &&
+				event.statusKey === MCP_ADAPTER_STATUS_KEY
+			) {
+				// The adapter's deferred startup path publishes only this footer text.
+				// Keep the counts for the sidebar, then let the generic setStatus
+				// handling below keep the footer and response behavior unchanged.
+				const counts = parseMcpAdapterStatusText(event.statusText);
+				if (counts) {
+					tabRuntime.mcpCounts = counts;
+					if (tabRuntime.id === activeTabId()) touch();
+				} else if (
+					event.statusText === undefined ||
+					event.statusText === null ||
+					event.statusText === ""
+				) {
+					if (tabRuntime.mcpCounts !== undefined) {
+						delete tabRuntime.mcpCounts;
+						if (tabRuntime.id === activeTabId()) touch();
+					}
+				}
+			}
 			const envelope = extensionRouter.enqueue(tabRuntime.id, event);
 			if (tabRuntime.id !== activeTabId()) {
 				tabManager.incrementBadge(tabRuntime.id, "extension");
@@ -1420,6 +1469,8 @@ export function App(props: AppOptions) {
 	const sessionState = () => { revision(); return activeRuntime().sessionState; };
 	const sessionStats = () => { revision(); return activeRuntime().sessionStats; };
 	const runs = () => { revision(); return activeRuntime().runs; };
+	const mcpStatus = () => { revision(); return activeRuntime().mcpStatus; };
+	const mcpCounts = () => { revision(); return activeRuntime().mcpCounts; };
 	const lastRequestPerformance = () => { revision(); return activeRuntime().lastRequestPerformance; };
 	const requestTimingHistory = () => { revision(); return activeRuntime().timingHistory; };
 	const setRuns = (nextRuns: SubagentRun[]) => {
@@ -2902,6 +2953,24 @@ export function App(props: AppOptions) {
 		subagentModelEntries().find(
 			(entry) => entry.id === selectedSubagentModelId(),
 		);
+	const compactionModelContext = () => {
+		const state = compactionModelState();
+		if (!state) return undefined;
+		return [
+			`Compaction: ${state.model ?? "extension default"}`,
+			...(state.thinkingLevel ? [`thinking ${state.thinkingLevel}`] : []),
+			state.scope,
+		].join(" · ");
+	};
+	const subagentModelContext = () => {
+		const entry = selectedSubagentModelEntry();
+		if (!entry) return undefined;
+		return [
+			`${entry.kind === "defaults" ? "Defaults" : entry.id}: ${entry.model ?? "no model"}`,
+			...(entry.thinking ? [`thinking ${entry.thinking}`] : []),
+			entry.source ?? "unset",
+		].join(" · ");
+	};
 	const applySettingsThinking = async (level: ThinkingLevel) => {
 		if (settingsBusy()) return;
 		setSettingsRoute("root");
@@ -4731,6 +4800,8 @@ export function App(props: AppOptions) {
 						onOpenTodo={(todo) => openTodo(todo.id)}
 						subagentsAvailable={subagentsAvailable()}
 						todosAvailable={todosAvailable()}
+						mcpStatus={mcpStatus}
+						mcpCounts={mcpCounts}
 						notifications={notificationHistory}
 						onOpenNotification={openNotification}
 						height={() => dimensions().height - 1}
@@ -4889,6 +4960,7 @@ export function App(props: AppOptions) {
 					currentModelId={parseModelRef(compactionModelState()?.model)?.id}
 					performanceHistory={readModelPerformanceHistory()}
 					timingHistory={activeRuntime().timingHistory}
+					context={compactionModelContext()}
 					onSelect={(model) => void applyCompactionModel(model)}
 					onCancel={() => {
 						setSettingsRoute("root");
@@ -4918,6 +4990,7 @@ export function App(props: AppOptions) {
 					currentModelId={parseModelRef(selectedSubagentModelEntry()?.model)?.id}
 					performanceHistory={readModelPerformanceHistory()}
 					timingHistory={activeRuntime().timingHistory}
+					context={subagentModelContext()}
 					onSelect={(model) => void applySubagentModel(model)}
 					onCancel={() => setSettingsRoute("subagents")}
 				/>

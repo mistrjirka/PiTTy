@@ -136,7 +136,9 @@ pi install npm:pi-hermes-memory
 # MCP configuration from Settings: pi install npm:pi-mcp-adapter
 ```
 
-`@mistrjirka/pi-subagent` adds profile-driven child-agent and nested-tree inspection, waiting-state visibility, steering, and stop controls. Legacy `pi-subagents` remains supported and additionally exposes its pause/resume controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-hermes-memory` backs the Memory browser with persistent global and project memory. `pi-web-access` adds web search and page-fetch tools, `pi-diet-semble` adds semantic code search, and `pi-one-round-compaction` adds one-round parallel compaction with streamed lane progress. `pi-mcp-adapter` enables standard MCP config changes from Settings. `pi-smart-compact` remains supported as an alternative compaction engine and reports coarse compaction progress in PiTTy's existing surface.
+`@mistrjirka/pi-subagent` adds profile-driven child-agent and nested-tree inspection, waiting-state visibility, steering, and stop controls. Legacy `pi-subagents` remains supported and additionally exposes its pause/resume controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-hermes-memory` backs the Memory browser with persistent global and project memory. `pi-web-access` adds web search and page-fetch tools, `pi-diet-semble` adds semantic code search, and `pi-one-round-compaction` adds one-round parallel compaction with streamed lane progress. `pi-mcp-adapter` enables standard MCP config changes from Settings and reports MCP status to the sidebar. `pi-smart-compact` remains supported as an alternative compaction engine and reports coarse compaction progress in PiTTy's existing surface.
+
+When `pi-mcp-adapter` is running, the sidebar shows `🔌 MCP <connected>/<enabled> connected`. Hover the row to list the connected server names. Servers the adapter has cached but not connected — its deferred startup path — count as enabled but not connected until something uses them; the row falls back to the adapter's footer counts in that state.
 
 ## Updates and upgrades
 

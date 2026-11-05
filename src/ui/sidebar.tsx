@@ -1,4 +1,4 @@
-import { For, Show, createMemo, type Accessor } from "solid-js";
+import { For, Show, createMemo, createSignal, onCleanup, type Accessor } from "solid-js";
 import type {
 	RpcSessionState,
 	SessionStats,
@@ -28,6 +28,12 @@ import {
 	targetToolUsage,
 } from "./model-context.tsx";
 import { appVersion } from "../version.ts";
+import {
+	connectedMcpServerNames,
+	mcpEnabledCount,
+	type McpStatusCounts,
+	type McpStatusSnapshot,
+} from "../state/mcp-status.ts";
 export type SidebarPanelVisibility = {
 	subagents: boolean;
 	todos: boolean;
@@ -52,6 +58,21 @@ const PANEL_FLOORS: SidebarPanelAllocation = {
 	todos: 4,
 	notifications: 3,
 };
+
+function mcpSummaryText(counts: { enabled: number; connected: number }): string {
+	return `🔌 MCP ${counts.connected}/${counts.enabled} connected`;
+}
+
+function mcpSummaryColor(
+	counts: { enabled: number; connected: number },
+	failed: boolean,
+): string {
+	if (failed) return colors.red;
+	if (counts.enabled > 0 && counts.connected >= counts.enabled)
+		return colors.green;
+	if (counts.connected === 0) return colors.subtle;
+	return colors.yellow;
+}
 
 export function allocateSidebarPanels(
 	availableRows: number,
@@ -165,6 +186,14 @@ export function Sidebar(props: {
 	todos?: TodoViewItem[] | Accessor<TodoViewItem[]> | undefined;
 	subagentsAvailable?: boolean | undefined;
 	todosAvailable?: boolean | undefined;
+	mcpStatus?:
+		| McpStatusSnapshot
+		| Accessor<McpStatusSnapshot | undefined>
+		| undefined;
+	mcpCounts?:
+		| McpStatusCounts
+		| Accessor<McpStatusCounts | undefined>
+		| undefined;
 	notifications?:
 		| NotificationRecord[]
 		| Accessor<NotificationRecord[]>
@@ -188,6 +217,59 @@ export function Sidebar(props: {
 		typeof props.timingHistory === "function"
 			? props.timingHistory()
 			: (props.timingHistory ?? []);
+	const mcpSnapshot = () =>
+		typeof props.mcpStatus === "function"
+			? props.mcpStatus()
+			: props.mcpStatus;
+	const mcpFallbackCounts = () =>
+		typeof props.mcpCounts === "function"
+			? props.mcpCounts()
+			: props.mcpCounts;
+	const mcpCounts = () => {
+		const snapshot = mcpSnapshot();
+		if (snapshot)
+			return {
+				enabled: mcpEnabledCount(snapshot),
+				connected: snapshot.connectedCount,
+				disabled: snapshot.disabledCount,
+			};
+		return mcpFallbackCounts();
+	};
+	const [mcpHover, setMcpHover] = createSignal(false);
+	// Moving from the summary row onto the revealed server rows crosses child
+	// renderables, which emits out-then-over on the parent. A short hide delay
+	// keeps the list readable while the pointer is still inside the block.
+	let mcpHideTimer: ReturnType<typeof setTimeout> | undefined;
+	const showMcpDetails = () => {
+		if (mcpHideTimer !== undefined) {
+			clearTimeout(mcpHideTimer);
+			mcpHideTimer = undefined;
+		}
+		setMcpHover(true);
+	};
+	const scheduleMcpHide = () => {
+		if (mcpHideTimer !== undefined) clearTimeout(mcpHideTimer);
+		mcpHideTimer = setTimeout(() => {
+			mcpHideTimer = undefined;
+			setMcpHover(false);
+		}, 250);
+	};
+	onCleanup(() => {
+		if (mcpHideTimer !== undefined) clearTimeout(mcpHideTimer);
+	});
+	const mcpConnectedNames = createMemo(() => {
+		const snapshot = mcpSnapshot();
+		return snapshot ? connectedMcpServerNames(snapshot) : [];
+	});
+	const MCP_HOVER_LIMIT = 6;
+	const mcpDetailRows = () => {
+		if (!mcpCounts() || !mcpHover()) return 0;
+		const names = mcpConnectedNames();
+		if (names.length === 0) return 1;
+		const shown = Math.min(names.length, MCP_HOVER_LIMIT);
+		return shown + (names.length > shown ? 1 : 0);
+	};
+	const mcpRows = () => (mcpCounts() ? 1 + mcpDetailRows() : 0);
 	const selectedModelTiming = createMemo(() => {
 		const model = props.state?.model;
 		if (!model?.provider || !model.id) return undefined;
@@ -225,7 +307,8 @@ export function Sidebar(props: {
 		(props.stats?.contextUsage?.percent !== undefined &&
 		props.stats?.contextUsage?.percent !== null
 			? 1
-			: 0);
+			: 0) +
+		mcpRows();
 	const availableBodyRows = () =>
 		Math.max(0, sidebarHeight() - fixedHeaderRows());
 	const panelAllocation = () =>
@@ -373,6 +456,77 @@ export function Sidebar(props: {
 								: ""}
 						</text>
 					</>
+				)}
+			</Show>
+			<Show when={mcpCounts()}>
+				{(counts) => (
+					<box
+						id="mcp-status"
+						flexDirection="column"
+						flexShrink={0}
+						onMouseOver={showMcpDetails}
+						onMouseOut={scheduleMcpHide}
+					>
+						<text
+							width="100%"
+							height={1}
+							fg={mcpSummaryColor(
+								counts(),
+								(mcpSnapshot()?.servers ?? []).some(
+									(server) => server.status === "failed",
+								),
+							)}
+							wrapMode="none"
+						>
+							{clip(mcpSummaryText(counts()), 31)}
+						</text>
+						<Show when={mcpHover()}>
+							<Show
+								when={mcpConnectedNames().length > 0}
+								fallback={
+									<text
+										width="100%"
+										height={1}
+										fg={colors.subtle}
+										wrapMode="none"
+									>
+										{clip(
+											counts().connected > 0
+												? `  ${counts().connected} connected (names unavailable)`
+												: "  none connected",
+											31,
+										)}
+									</text>
+								}
+							>
+								<For each={mcpConnectedNames().slice(0, MCP_HOVER_LIMIT)}>
+									{(name) => (
+										<text
+											width="100%"
+											height={1}
+											fg={colors.muted}
+											wrapMode="none"
+										>
+											{clip(`  ${stateIcon("running")} ${name}`, 31)}
+										</text>
+									)}
+								</For>
+								<Show when={mcpConnectedNames().length > MCP_HOVER_LIMIT}>
+									<text
+										width="100%"
+										height={1}
+										fg={colors.subtle}
+										wrapMode="none"
+									>
+										{clip(
+											`  +${mcpConnectedNames().length - MCP_HOVER_LIMIT} more connected`,
+											31,
+										)}
+									</text>
+								</Show>
+							</Show>
+						</Show>
+					</box>
 				)}
 			</Show>
 			<box height={1} />

@@ -34,7 +34,7 @@ An empty session opens straight into the chat with a passive dashboard of recent
 - **Tool output is readable.** Edit/write tools get a dedicated diff view, tools render as collapsible cards, and timings stay on screen.
 - **Less hunting.** Searchable model picker (`Ctrl+P`), session browser (`/resume`), request map (`Ctrl+R`), and prompt history on an empty prompt (`↑`).
 - **Live themes.** Ten presets plus full color-token editing, applied immediately.
-- **Optional extra panels.** Todo and MCP server management appear when the matching Pi packages are installed.
+- **Optional extra panels.** Todo, MCP server management, and an MCP connection counter with hover details appear when the matching Pi packages are installed.
 
 Pi extensions generally keep working: commands, tools, prompt templates, skills, notifications, status updates, and standard dialogs flow through RPC. Custom `pi-tui` component trees are not serialized, so extension-owned renderers won't look identical, and interactive `/login` is done once in regular Pi.
 
@@ -61,7 +61,7 @@ irm https://raw.githubusercontent.com/mistrjirka/PiTTy/main/install.ps1 -OutFile
 
 Requirements: Node.js 22.19 or newer, npm, and the Pi CLI. The installer downloads a versioned release, verifies its SHA-256 against the release `SHA256SUMS`, installs PiTTy's local Bun runtime, and creates the `pitty` and `pitty-resume` launchers.
 
-The installer can also install recommended Pi packages (subagent, one-round compaction, Todo, MCP adapter) with `--with-plugins` / `-WithPlugins`. Uninstalling PiTTy leaves Pi and those packages alone.
+The installer can also install the recommended Pi packages (subagent, one-round compaction, Todo, web access, semantic code search, persistent memory) with `--with-plugins` / `-WithPlugins`. Uninstalling PiTTy leaves Pi and those packages alone.
 
 <details>
 <summary><strong>Installer flags, upgrades, and running from source</strong></summary>
@@ -112,7 +112,7 @@ PiTTy works without extra packages. These add specialized panels when installed:
 | `npm:pi-web-access` | Web search and page-fetch tools for Pi |
 | `npm:pi-diet-semble` | Semantic code search for Pi |
 | `npm:pi-hermes-memory` | Persistent memory behind PiTTy's Memory browser |
-| `npm:pi-mcp-adapter` | Standard MCP config activation from Settings |
+| `npm:pi-mcp-adapter` | Standard MCP config activation from Settings, plus the sidebar MCP connection counter |
 | `npm:pi-subagents` | Legacy workflow child-agent support, including pause/resume and queued steering |
 | `npm:pi-smart-compact` | Smart Compact progress on the compaction surface (alternative compaction engine) |
 

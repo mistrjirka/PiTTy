@@ -12,6 +12,7 @@ import type {
 import { MessageUpdateBatcher } from "../state/message-update-batcher.ts";
 import { PromptHistory } from "../state/prompt-history.ts";
 import type { DraftState, DispatchGate, LocalQueuedMessage } from "../state/input-continuity.ts";
+import type { McpStatusCounts, McpStatusSnapshot } from "../state/mcp-status.ts";
 import { RequestPerformanceTracker, type RequestPerformance } from "./request-metrics.ts";
 import { CacheMissWatch, type CacheWarning } from "./cache-miss-watch.ts";
 import {
@@ -141,6 +142,10 @@ export type ConversationTabRuntime = {
 	oneRoundLaneTexts?: OneRoundLaneTexts;
 	compactionAttempt: number;
 	lastCompactionCompletion?: CompactionCompletion;
+	/** Latest pi-mcp-adapter status snapshot forwarded by PiTTy's observer extension. */
+	mcpStatus?: McpStatusSnapshot;
+	/** Configured/connected counts from the adapter's footer status when no snapshot exists yet. */
+	mcpCounts?: McpStatusCounts;
 	queuedFollowUps: LocalQueuedMessage[];
 	dispatchGate: DispatchGate;
 	eventVersion: number;
