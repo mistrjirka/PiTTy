@@ -109,13 +109,18 @@ PiTTy works without extra packages. These add specialized panels when installed:
 | `git:github.com/mistrjirka/pi-subagent` | Profile-driven child-agent tree, live inspection, waiting-state visibility, steer/stop |
 | `git:github.com/mistrjirka/pi-one-round-compaction` | One-round parallel compaction with streamed lane progress |
 | `npm:@juicesharp/rpiv-todo` | Active and completed Todo panels |
+| `npm:pi-web-access` | Web search and page-fetch tools for Pi |
+| `npm:pi-diet-semble` | Semantic code search for Pi |
+| `npm:pi-hermes-memory` | Persistent memory behind PiTTy's Memory browser |
 | `npm:pi-mcp-adapter` | Standard MCP config activation from Settings |
 | `npm:pi-subagents` | Legacy workflow child-agent support, including pause/resume and queued steering |
 | `npm:pi-smart-compact` | Smart Compact progress on the compaction surface (alternative compaction engine) |
 
 ```bash
-pi install git:github.com/mistrjirka/pi-subagent git:github.com/mistrjirka/pi-one-round-compaction npm:@juicesharp/rpiv-todo npm:pi-mcp-adapter
+pi install git:github.com/mistrjirka/pi-subagent git:github.com/mistrjirka/pi-one-round-compaction npm:@juicesharp/rpiv-todo npm:pi-web-access npm:pi-diet-semble npm:pi-hermes-memory
 
+# MCP configuration from Settings needs the adapter; install it separately when wanted.
+# pi install npm:pi-mcp-adapter
 # Legacy pi-subagents remains supported; do not install both runtimes unless you intentionally want both.
 # pi install npm:pi-subagents
 # pi-smart-compact is a competing compaction engine; install it instead of pi-one-round-compaction only if you prefer it.

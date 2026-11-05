@@ -14,8 +14,9 @@ describe("public installers", () => {
     expect(script).toContain("git:github.com/mistrjirka/pi-subagent");
     expect(script).toContain("git:github.com/mistrjirka/pi-one-round-compaction");
     expect(script).toContain("npm:@juicesharp/rpiv-todo");
-    expect(script).toContain("npm:pi-mcp-adapter");
-    expect(script).toContain("pi-mcp-adapter");
+    expect(script).toContain("npm:pi-web-access");
+    expect(script).toContain("npm:pi-diet-semble");
+    expect(script).toContain("npm:pi-hermes-memory");
     expect(script).toContain("exit code:");
     expect(script).toContain("log:");
     expect(script).toContain("/dev/tty");
@@ -34,8 +35,9 @@ describe("public installers", () => {
     expect(script).toContain("git:github.com/mistrjirka/pi-subagent");
     expect(script).toContain("git:github.com/mistrjirka/pi-one-round-compaction");
     expect(script).toContain("npm:@juicesharp/rpiv-todo");
-    expect(script).toContain("npm:pi-mcp-adapter");
-    expect(script).toContain("pi-mcp-adapter");
+    expect(script).toContain("npm:pi-web-access");
+    expect(script).toContain("npm:pi-diet-semble");
+    expect(script).toContain("npm:pi-hermes-memory");
     expect(script).toContain("exit code:");
     expect(script).toContain("log:");
     expect(script).toContain("pitty-resume");

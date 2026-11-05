@@ -157,6 +157,16 @@ import {
 	type ThinkingLevelMap,
 } from "./ui/thinking-selector.tsx";
 import { SessionSettings, SessionRename } from "./ui/session-settings.tsx";
+import {
+	loadCompactionModelState,
+	loadSubagentModelEntries,
+	parseModelRef,
+	writeCompactionModel,
+	writeSubagentModel,
+	type CompactionModelState,
+	type SubagentModelEntry,
+} from "./config/extension-models.ts";
+import { SubagentModelSettings } from "./ui/subagent-model-settings.tsx";
 import type { ThinkingLevel } from "./rpc/pi-rpc-client.ts";
 import { EmptyDashboard } from "./ui/empty-dashboard.tsx";
 import { StartupPanel } from "./ui/startup-panel.tsx";
@@ -296,6 +306,9 @@ export type SettingsRoute =
 	| "root"
 	| "model"
 	| "thinking"
+	| "compaction-model"
+	| "subagents"
+	| "subagent-model"
 	| "claude-account"
 	| "session"
 	| "session-switch"
@@ -310,6 +323,7 @@ export function settingsBackRoute(route: SettingsRoute): SettingsRoute {
 	if (route === "session-switch" || route === "session-rename")
 		return "session";
 	if (route === "theme-editor") return "theme";
+	if (route === "subagent-model") return "subagents";
 	return "root";
 }
 
@@ -755,11 +769,23 @@ export function App(props: AppOptions) {
 	const [settingsSelectedId, setSettingsSelectedId] = createSignal("model");
 	const [rpcAvailable, setRpcAvailable] = createSignal(false);
 	const [settingsBusy, setSettingsBusy] = createSignal<
-		"model" | "thinking" | "rename" | "theme"
+		"model" | "thinking" | "rename" | "theme" | "compaction" | "subagents"
 	>();
 	const [settingsErrors, setSettingsErrors] = createSignal<
-		Partial<Record<"model" | "thinking" | "rename" | "theme", string>>
+		Partial<
+			Record<
+				"model" | "thinking" | "rename" | "theme" | "compaction" | "subagents",
+				string
+			>
+		>
 	>({});
+	const [compactionModelState, setCompactionModelState] =
+		createSignal<CompactionModelState>();
+	const [subagentModelEntries, setSubagentModelEntries] = createSignal<
+		SubagentModelEntry[]
+	>([]);
+	const [selectedSubagentModelId, setSelectedSubagentModelId] =
+		createSignal("defaults");
 	const [themeConfig, setThemeConfig] = createSignal<ThemeConfigDocument>(
 		props.themeConfig ?? {
 			version: 1,
@@ -2652,6 +2678,8 @@ export function App(props: AppOptions) {
 		setSettingsErrors({});
 		setSettingsSelectedId("model");
 		setSettingsRoute("root");
+		void refreshCompactionModel();
+		void refreshSubagentModels();
 	};
 	const fetchAvailableModels = (): Promise<ModelChoice[]> => {
 		if (availableModelsFetch) return availableModelsFetch;
@@ -2733,6 +2761,147 @@ export function App(props: AppOptions) {
 			setSettingsBusy(undefined);
 		}
 	};
+	const refreshCompactionModel = async (): Promise<boolean> => {
+		try {
+			setCompactionModelState(
+				await loadCompactionModelState({ cwd: props.cwd }),
+			);
+			setSettingsErrors((errors) => {
+				const next = { ...errors };
+				delete next.compaction;
+				return next;
+			});
+			return true;
+		} catch (error) {
+			setSettingsErrors((errors) => ({
+				...errors,
+				compaction: error instanceof Error ? error.message : String(error),
+			}));
+			return false;
+		}
+	};
+	const refreshSubagentModels = async (): Promise<boolean> => {
+		try {
+			setSubagentModelEntries(
+				await loadSubagentModelEntries({ cwd: props.cwd }),
+			);
+			setSettingsErrors((errors) => {
+				const next = { ...errors };
+				delete next.subagents;
+				return next;
+			});
+			return true;
+		} catch (error) {
+			setSettingsErrors((errors) => ({
+				...errors,
+				subagents: error instanceof Error ? error.message : String(error),
+			}));
+			return false;
+		}
+	};
+	const ensureExtensionModels = async (
+		key: "compaction" | "subagents",
+	): Promise<boolean> => {
+		if (!activeRuntime().startupResolved) {
+			toast("This tab is still starting…", "info");
+			return false;
+		}
+		if (modelSelectorLoading()) return false;
+		setSettingsBusy(key);
+		setSettingsErrors((errors) => {
+			const next = { ...errors };
+			delete next[key];
+			return next;
+		});
+		setModelSelectorLoading(true);
+		try {
+			setModelOptions(availableModelsCache ?? (await fetchAvailableModels()));
+			return true;
+		} catch (error) {
+			setSettingsErrors((errors) => ({
+				...errors,
+				[key]: error instanceof Error ? error.message : String(error),
+			}));
+			return false;
+		} finally {
+			setModelSelectorLoading(false);
+			setSettingsBusy(undefined);
+		}
+	};
+	const openCompactionModelPicker = async () => {
+		setSettingsSelectedId("compaction");
+		if (!(await refreshCompactionModel())) return;
+		if (await ensureExtensionModels("compaction"))
+			setSettingsRoute("compaction-model");
+	};
+	const openSubagentModels = async () => {
+		setSettingsSelectedId("subagents");
+		if (await refreshSubagentModels()) setSettingsRoute("subagents");
+	};
+	const openSubagentModelPicker = async (entry: SubagentModelEntry) => {
+		setSelectedSubagentModelId(entry.id);
+		if (await ensureExtensionModels("subagents"))
+			setSettingsRoute("subagent-model");
+	};
+	const applyCompactionModel = async (model: ModelChoice) => {
+		if (settingsBusy()) return;
+		setSettingsRoute("root");
+		setSettingsSelectedId("compaction");
+		setSettingsBusy("compaction");
+		setSettingsErrors((errors) => {
+			const next = { ...errors };
+			delete next.compaction;
+			return next;
+		});
+		try {
+			await writeCompactionModel(`${model.provider}/${model.id}`, {
+				cwd: props.cwd,
+			});
+			await refreshCompactionModel();
+		} catch (error) {
+			setSettingsErrors((errors) => ({
+				...errors,
+				compaction: error instanceof Error ? error.message : String(error),
+			}));
+		} finally {
+			setSettingsBusy(undefined);
+		}
+	};
+	const applySubagentModel = async (model: ModelChoice) => {
+		if (settingsBusy()) return;
+		const id = selectedSubagentModelId();
+		const entry = subagentModelEntries().find(
+			(candidate) => candidate.id === id,
+		);
+		if (!entry) return;
+		setSettingsRoute("subagents");
+		setSettingsBusy("subagents");
+		setSettingsErrors((errors) => {
+			const next = { ...errors };
+			delete next.subagents;
+			return next;
+		});
+		try {
+			await writeSubagentModel(
+				id,
+				`${model.provider}/${model.id}`,
+				entry.scope,
+				{ cwd: props.cwd },
+			);
+			await refreshSubagentModels();
+		} catch (error) {
+			setSettingsErrors((errors) => ({
+				...errors,
+				subagents: error instanceof Error ? error.message : String(error),
+			}));
+		} finally {
+			setSettingsBusy(undefined);
+		}
+	};
+	const selectedSubagentModelEntry = () =>
+		subagentModelEntries().find(
+			(entry) => entry.id === selectedSubagentModelId(),
+		);
 	const applySettingsThinking = async (level: ThinkingLevel) => {
 		if (settingsBusy()) return;
 		setSettingsRoute("root");
@@ -2974,6 +3143,45 @@ export function App(props: AppOptions) {
 				open: () => {
 					if (!unavailable) setSettingsRoute("thinking");
 				},
+			},
+			{
+				id: "compaction",
+				label: "Compaction model",
+				summary: () => {
+					const compaction = compactionModelState();
+					if (!compaction)
+						return settingsErrors().compaction ? "Unavailable" : "Loading…";
+					if (!compaction.model) return "Extension default";
+					const thinking = compaction.thinkingLevel
+						? ` · ${compaction.thinkingLevel}`
+						: "";
+					const laneOverride =
+						compaction.laneModels.audit || compaction.laneModels.execution
+							? " · lane override"
+							: "";
+					return `${compaction.model}${thinking}${laneOverride}`;
+				},
+				disabledReason: () => undefined,
+				busy: () => settingsBusy() === "compaction",
+				inlineError: () => settingsErrors().compaction,
+				open: () => void openCompactionModelPicker(),
+			},
+			{
+				id: "subagents",
+				label: "Subagent models",
+				summary: () => {
+					const entries = subagentModelEntries();
+					if (!entries.length)
+						return settingsErrors().subagents ? "Unavailable" : "Loading…";
+					const agents = entries.filter((entry) => entry.kind === "agent");
+					return agents.length
+						? `Defaults + ${agents.length} agent${agents.length === 1 ? "" : "s"}`
+						: "Defaults only";
+				},
+				disabledReason: () => undefined,
+				busy: () => settingsBusy() === "subagents",
+				inlineError: () => settingsErrors().subagents,
+				open: () => void openSubagentModels(),
 			},
 			...(cswapSnapshot()?.accounts.length ? [{
 				id: "claude-account",
@@ -4672,6 +4880,46 @@ export function App(props: AppOptions) {
 						: {})}
 					onSelect={(level) => void applySettingsThinking(level)}
 					onCancel={() => setSettingsRoute("root")}
+				/>
+			</Show>
+			<Show when={settingsRoute() === "compaction-model"}>
+				<ModelSelectorDialog
+					models={modelOptions()}
+					currentProvider={parseModelRef(compactionModelState()?.model)?.provider}
+					currentModelId={parseModelRef(compactionModelState()?.model)?.id}
+					performanceHistory={readModelPerformanceHistory()}
+					timingHistory={activeRuntime().timingHistory}
+					onSelect={(model) => void applyCompactionModel(model)}
+					onCancel={() => {
+						setSettingsRoute("root");
+						setSettingsSelectedId("compaction");
+					}}
+				/>
+			</Show>
+			<Show when={settingsRoute() === "subagents"}>
+				<SubagentModelSettings
+					entries={subagentModelEntries()}
+					selectedId={selectedSubagentModelId()}
+					busy={settingsBusy() === "subagents"}
+					error={settingsErrors().subagents}
+					onSelected={setSelectedSubagentModelId}
+					onPick={(entry) => void openSubagentModelPicker(entry)}
+					onCancel={() => {
+						setSettingsRoute("root");
+						setSettingsSelectedId("subagents");
+					}}
+				/>
+			</Show>
+			<Show when={settingsRoute() === "subagent-model"}>
+				<ModelSelectorDialog
+					models={modelOptions()}
+					currentProvider={parseModelRef(selectedSubagentModelEntry()?.model)
+						?.provider}
+					currentModelId={parseModelRef(selectedSubagentModelEntry()?.model)?.id}
+					performanceHistory={readModelPerformanceHistory()}
+					timingHistory={activeRuntime().timingHistory}
+					onSelect={(model) => void applySubagentModel(model)}
+					onCancel={() => setSettingsRoute("subagents")}
 				/>
 			</Show>
 			<Show when={settingsRoute() === "theme"}>

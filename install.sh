@@ -190,7 +190,9 @@ if [ "$PLUGIN_MODE" = "ask" ] || [ "$PLUGIN_MODE" = "yes" ]; then
   MISSING_PLUGINS=""
   printf '%s\n' "$PI_LIST" | grep -F "github.com/mistrjirka/pi-subagent" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS @mistrjirka/pi-subagent"
   printf '%s\n' "$PI_LIST" | grep -F "@juicesharp/rpiv-todo" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS @juicesharp/rpiv-todo"
-  printf '%s\n' "$PI_LIST" | grep -F "pi-mcp-adapter" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-mcp-adapter"
+  printf '%s\n' "$PI_LIST" | grep -F "pi-web-access" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-web-access"
+  printf '%s\n' "$PI_LIST" | grep -F "pi-diet-semble" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-diet-semble"
+  printf '%s\n' "$PI_LIST" | grep -F "pi-hermes-memory" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-hermes-memory"
   printf '%s\n' "$PI_LIST" | grep -F "github.com/mistrjirka/pi-one-round-compaction" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-one-round-compaction"
 fi
 if [ "$PLUGIN_MODE" = "ask" ] && [ -z "$MISSING_PLUGINS" ]; then
@@ -235,7 +237,9 @@ if [ "$PLUGIN_MODE" = "yes" ]; then
     install_plugin "git:github.com/mistrjirka/pi-subagent" "github.com/mistrjirka/pi-subagent"
   fi
   install_plugin "npm:@juicesharp/rpiv-todo" "@juicesharp/rpiv-todo"
-  install_plugin "npm:pi-mcp-adapter" "pi-mcp-adapter"
+  install_plugin "npm:pi-web-access" "pi-web-access"
+  install_plugin "npm:pi-diet-semble" "pi-diet-semble"
+  install_plugin "npm:pi-hermes-memory" "pi-hermes-memory"
   if printf '%s\n' "$PI_LIST" | grep -F "pi-smart-compact" >/dev/null 2>&1 || pi list 2>/dev/null | grep -F "pi-smart-compact" >/dev/null 2>&1; then
     say "Skipping git:github.com/mistrjirka/pi-one-round-compaction: pi-smart-compact is already installed"
   else

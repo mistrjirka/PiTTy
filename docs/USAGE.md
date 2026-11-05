@@ -71,6 +71,7 @@ Type `/` to open command suggestions. PiTTy merges its local commands with exten
 | Mouse wheel / `PgUp` / `PgDn` | Scroll the active transcript |
 | `Ctrl+Home` / `Ctrl+End` | Jump to the beginning or latest message |
 | `Ctrl+P` | Open the searchable model selector |
+| `Ctrl+X` | Open Settings |
 | `Ctrl+T` / `Shift+Tab` | Cycle thinking effort |
 | Click a Thinking heading | Toggle one thinking block |
 | `Ctrl+R` | Open the request map |
@@ -95,6 +96,12 @@ The `pitty-resume` launcher is useful when choosing an existing session is the p
 ```bash
 pitty-resume -C /path/to/project
 ```
+
+## Settings
+
+`Ctrl+X` opens Settings. Model and Thinking effort control the active Pi session. Compaction model selects the model `pi-one-round-compaction` uses for the next compaction, and Subagent models selects the model for each `@mistrjirka/pi-subagent` profile (defaults plus every discovered agent); a new choice applies to the next spawned child.
+
+Both sections edit the extension's own configuration — `one-round-compaction.json` in the Pi agent directory and `subagentProfiles` in `settings.json` — and preserve every other key, including per-lane compaction overrides and thinking levels. When a project-level `.pi/` configuration already overrides a value, PiTTy updates that file; otherwise it updates the global configuration.
 
 ## Models and thinking effort
 
@@ -123,10 +130,13 @@ pi install git:github.com/mistrjirka/pi-subagent
 pi install git:github.com/mistrjirka/pi-one-round-compaction
 # Alternative compaction engine: pi install npm:pi-smart-compact
 pi install npm:@juicesharp/rpiv-todo
-pi install npm:pi-mcp-adapter
+pi install npm:pi-web-access
+pi install npm:pi-diet-semble
+pi install npm:pi-hermes-memory
+# MCP configuration from Settings: pi install npm:pi-mcp-adapter
 ```
 
-`@mistrjirka/pi-subagent` adds profile-driven child-agent and nested-tree inspection, waiting-state visibility, steering, and stop controls. Legacy `pi-subagents` remains supported and additionally exposes its pause/resume controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-mcp-adapter` enables standard MCP config changes, and `pi-one-round-compaction` adds one-round parallel compaction with streamed lane progress. `pi-smart-compact` remains supported as an alternative compaction engine and reports coarse compaction progress in PiTTy's existing surface.
+`@mistrjirka/pi-subagent` adds profile-driven child-agent and nested-tree inspection, waiting-state visibility, steering, and stop controls. Legacy `pi-subagents` remains supported and additionally exposes its pause/resume controls. `rpiv-todo` adds bounded active and completed Todo panels. `pi-hermes-memory` backs the Memory browser with persistent global and project memory. `pi-web-access` adds web search and page-fetch tools, `pi-diet-semble` adds semantic code search, and `pi-one-round-compaction` adds one-round parallel compaction with streamed lane progress. `pi-mcp-adapter` enables standard MCP config changes from Settings. `pi-smart-compact` remains supported as an alternative compaction engine and reports coarse compaction progress in PiTTy's existing surface.
 
 ## Updates and upgrades
 
