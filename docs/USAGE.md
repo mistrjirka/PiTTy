@@ -99,9 +99,9 @@ pitty-resume -C /path/to/project
 
 ## Settings
 
-`Ctrl+X` opens Settings. Model and Thinking effort control the active Pi session. Compaction model selects the model `pi-one-round-compaction` uses for the next compaction, and Subagent models selects the model for each `@mistrjirka/pi-subagent` profile (defaults plus every discovered agent); a new choice applies to the next spawned child.
+`Ctrl+X` opens Settings. Model and Thinking effort control the active Pi session. Compaction model opens a Model/Thinking screen for `pi-one-round-compaction`, and Subagent models lists every `@mistrjirka/pi-subagent` profile (defaults plus each discovered agent); opening a profile shows its Model and Thinking level. A model or thinking change applies to the next compaction or the next spawned child.
 
-Both sections edit the extension's own configuration — `one-round-compaction.json` in the Pi agent directory and `subagentProfiles` in `settings.json` — and preserve every other key, including per-lane compaction overrides and thinking levels. When a project-level `.pi/` configuration already overrides a value, PiTTy updates that file; otherwise it updates the global configuration.
+Both sections edit the extension's own configuration — `one-round-compaction.json` in the Pi agent directory and `subagentProfiles` in `settings.json` — and preserve every other key, including per-lane compaction overrides. Each row names the effective value and its source, and lane overrides are called out. When a project-level `.pi/` configuration already overrides a value, PiTTy updates that file; otherwise it updates the global configuration.
 
 ## Models and thinking effort
 

@@ -41,11 +41,11 @@ export function visibleThinkingLevels(
 }
 
 export function ThinkingSelector(props: {
-  current: ThinkingLevel | undefined;
-  levels?: ThinkingLevel[];
+  current: string | undefined;
+  levels?: readonly string[];
   busy?: boolean;
   error?: string;
-  onSelect: (level: ThinkingLevel) => void;
+  onSelect: (level: string) => void;
   onCancel: () => void;
 }) {
   let select: SelectRenderable | undefined;
@@ -56,7 +56,7 @@ export function ThinkingSelector(props: {
   const [index, setIndex] = createSignal(
     Math.max(0, levels().indexOf(props.current ?? "medium")),
   );
-  const resolve = (value: unknown): ThinkingLevel | undefined =>
+  const resolve = (value: unknown): string | undefined =>
     levels().find((level) => level === value);
   createEffect(() => {
     setIndex(Math.max(0, levels().indexOf(props.current ?? "medium")));
@@ -73,7 +73,7 @@ export function ThinkingSelector(props: {
         ? "Applying…"
         : (props.error ?? "Enter select · Esc back");
   });
-  const choose = (level: ThinkingLevel | undefined) => {
+  const choose = (level: string | undefined) => {
     if (level && !props.busy) {
       setIndex(levels().indexOf(level));
       props.onSelect(level);

@@ -165,15 +165,22 @@ import {
 } from "./ui/thinking-selector.tsx";
 import { SessionSettings, SessionRename } from "./ui/session-settings.tsx";
 import {
+	EXTENSION_THINKING_LEVELS,
 	loadCompactionModelState,
 	loadSubagentModelEntries,
 	parseModelRef,
 	writeCompactionModel,
+	writeCompactionThinking,
 	writeSubagentModel,
+	writeSubagentThinking,
 	type CompactionModelState,
+	type ExtensionThinkingLevel,
 	type SubagentModelEntry,
 } from "./config/extension-models.ts";
-import { SubagentModelSettings } from "./ui/subagent-model-settings.tsx";
+import {
+	ExtensionSettingsList,
+	type ExtensionSettingRow,
+} from "./ui/extension-settings.tsx";
 import type { ThinkingLevel } from "./rpc/pi-rpc-client.ts";
 import { EmptyDashboard } from "./ui/empty-dashboard.tsx";
 import { StartupPanel } from "./ui/startup-panel.tsx";
@@ -313,9 +320,13 @@ export type SettingsRoute =
 	| "root"
 	| "model"
 	| "thinking"
+	| "compaction"
 	| "compaction-model"
+	| "compaction-thinking"
 	| "subagents"
+	| "subagent"
 	| "subagent-model"
+	| "subagent-thinking"
 	| "claude-account"
 	| "session"
 	| "session-switch"
@@ -330,7 +341,11 @@ export function settingsBackRoute(route: SettingsRoute): SettingsRoute {
 	if (route === "session-switch" || route === "session-rename")
 		return "session";
 	if (route === "theme-editor") return "theme";
-	if (route === "subagent-model") return "subagents";
+	if (route === "compaction-model" || route === "compaction-thinking")
+		return "compaction";
+	if (route === "subagent") return "subagents";
+	if (route === "subagent-model" || route === "subagent-thinking")
+		return "subagent";
 	return "root";
 }
 
@@ -793,6 +808,8 @@ export function App(props: AppOptions) {
 	>([]);
 	const [selectedSubagentModelId, setSelectedSubagentModelId] =
 		createSignal("defaults");
+	const [detailSettingSelectedId, setDetailSettingSelectedId] =
+		createSignal("model");
 	const [themeConfig, setThemeConfig] = createSignal<ThemeConfigDocument>(
 		props.themeConfig ?? {
 			version: 1,
@@ -2879,9 +2896,14 @@ export function App(props: AppOptions) {
 			setSettingsBusy(undefined);
 		}
 	};
-	const openCompactionModelPicker = async () => {
+	const openCompactionSettings = async () => {
 		setSettingsSelectedId("compaction");
-		if (!(await refreshCompactionModel())) return;
+		if (await refreshCompactionModel()) {
+			setDetailSettingSelectedId("model");
+			setSettingsRoute("compaction");
+		}
+	};
+	const openCompactionModelPicker = async () => {
 		if (await ensureExtensionModels("compaction"))
 			setSettingsRoute("compaction-model");
 	};
@@ -2889,15 +2911,19 @@ export function App(props: AppOptions) {
 		setSettingsSelectedId("subagents");
 		if (await refreshSubagentModels()) setSettingsRoute("subagents");
 	};
-	const openSubagentModelPicker = async (entry: SubagentModelEntry) => {
+	const openSubagentSettings = (entry: SubagentModelEntry) => {
 		setSelectedSubagentModelId(entry.id);
+		setDetailSettingSelectedId("model");
+		setSettingsRoute("subagent");
+	};
+	const openSubagentModelPicker = async () => {
 		if (await ensureExtensionModels("subagents"))
 			setSettingsRoute("subagent-model");
 	};
 	const applyCompactionModel = async (model: ModelChoice) => {
 		if (settingsBusy()) return;
-		setSettingsRoute("root");
-		setSettingsSelectedId("compaction");
+		setSettingsRoute("compaction");
+		setDetailSettingSelectedId("model");
 		setSettingsBusy("compaction");
 		setSettingsErrors((errors) => {
 			const next = { ...errors };
@@ -2925,7 +2951,8 @@ export function App(props: AppOptions) {
 			(candidate) => candidate.id === id,
 		);
 		if (!entry) return;
-		setSettingsRoute("subagents");
+		setSettingsRoute("subagent");
+		setDetailSettingSelectedId("model");
 		setSettingsBusy("subagents");
 		setSettingsErrors((errors) => {
 			const next = { ...errors };
@@ -2949,10 +2976,149 @@ export function App(props: AppOptions) {
 			setSettingsBusy(undefined);
 		}
 	};
+	const applyCompactionThinking = async (level: string) => {
+		if (settingsBusy()) return;
+		const thinkingLevel = EXTENSION_THINKING_LEVELS.find(
+			(candidate) => candidate === level,
+		);
+		if (!thinkingLevel) return;
+		setSettingsRoute("compaction");
+		setDetailSettingSelectedId("thinking");
+		setSettingsBusy("compaction");
+		setSettingsErrors((errors) => {
+			const next = { ...errors };
+			delete next.compaction;
+			return next;
+		});
+		try {
+			await writeCompactionThinking(thinkingLevel, { cwd: props.cwd });
+			await refreshCompactionModel();
+		} catch (error) {
+			setSettingsErrors((errors) => ({
+				...errors,
+				compaction: error instanceof Error ? error.message : String(error),
+			}));
+		} finally {
+			setSettingsBusy(undefined);
+		}
+	};
+	const applySubagentThinking = async (level: string) => {
+		if (settingsBusy()) return;
+		const thinkingLevel: ExtensionThinkingLevel | undefined =
+			EXTENSION_THINKING_LEVELS.find((candidate) => candidate === level);
+		const id = selectedSubagentModelId();
+		const entry = subagentModelEntries().find(
+			(candidate) => candidate.id === id,
+		);
+		if (!thinkingLevel || !entry) return;
+		setSettingsRoute("subagent");
+		setDetailSettingSelectedId("thinking");
+		setSettingsBusy("subagents");
+		setSettingsErrors((errors) => {
+			const next = { ...errors };
+			delete next.subagents;
+			return next;
+		});
+		try {
+			await writeSubagentThinking(
+				id,
+				thinkingLevel,
+				entry.thinkingScope,
+				{ cwd: props.cwd },
+			);
+			await refreshSubagentModels();
+		} catch (error) {
+			setSettingsErrors((errors) => ({
+				...errors,
+				subagents: error instanceof Error ? error.message : String(error),
+			}));
+		} finally {
+			setSettingsBusy(undefined);
+		}
+	};
 	const selectedSubagentModelEntry = () =>
 		subagentModelEntries().find(
 			(entry) => entry.id === selectedSubagentModelId(),
 		);
+	const subagentListRows = (): ExtensionSettingRow[] =>
+		subagentModelEntries().map((entry) => ({
+			id: entry.id,
+			label: entry.kind === "defaults" ? "Defaults" : entry.id,
+			summary: [
+				entry.model ?? "no model",
+				entry.thinking ? `thinking ${entry.thinking}` : "",
+				entry.source ?? "",
+			]
+				.filter(Boolean)
+				.join(" · "),
+		}));
+	const subagentSettingsRows = (): ExtensionSettingRow[] => {
+		const entry = selectedSubagentModelEntry();
+		if (!entry) return [];
+		return [
+			{
+				id: "model",
+				label: "Model",
+				summary: `${entry.model ?? "no model"}${entry.source ? ` · ${entry.source}` : ""}`,
+			},
+			{
+				id: "thinking",
+				label: "Thinking level",
+				summary: `${entry.thinking ?? "default"}${entry.thinkingSource ? ` · ${entry.thinkingSource}` : ""}`,
+			},
+		];
+	};
+	const compactionSettingsRows = (): ExtensionSettingRow[] => {
+		const state = compactionModelState();
+		if (!state) return [];
+		const laneNote = (audit?: string, execution?: string): string =>
+			audit && execution
+				? "audit+execution lanes override"
+				: audit
+					? "audit lane overrides"
+					: execution
+						? "execution lane overrides"
+						: "";
+		const modelLane = laneNote(state.laneModels.audit, state.laneModels.execution);
+		const thinkingLane = laneNote(
+			state.laneThinkingLevel?.audit,
+			state.laneThinkingLevel?.execution,
+		);
+		return [
+			{
+				id: "model",
+				label: "Model",
+				summary: [
+					state.model ?? "extension default",
+					state.scope,
+					modelLane,
+				]
+					.filter(Boolean)
+					.join(" · "),
+			},
+			{
+				id: "thinking",
+				label: "Thinking level",
+				summary: [
+					state.thinkingLevel ?? "default",
+					state.thinkingScope,
+					thinkingLane,
+				]
+					.filter(Boolean)
+					.join(" · "),
+			},
+		];
+	};
+	const openCompactionSetting = (id: string) => {
+		setDetailSettingSelectedId(id);
+		if (id === "model") void openCompactionModelPicker();
+		else setSettingsRoute("compaction-thinking");
+	};
+	const openSubagentSetting = (id: string) => {
+		setDetailSettingSelectedId(id);
+		if (id === "model") void openSubagentModelPicker();
+		else setSettingsRoute("subagent-thinking");
+	};
 	const compactionModelContext = () => {
 		const state = compactionModelState();
 		if (!state) return undefined;
@@ -3233,7 +3399,7 @@ export function App(props: AppOptions) {
 				disabledReason: () => undefined,
 				busy: () => settingsBusy() === "compaction",
 				inlineError: () => settingsErrors().compaction,
-				open: () => void openCompactionModelPicker(),
+				open: () => void openCompactionSettings(),
 			},
 			{
 				id: "subagents",
@@ -4949,8 +5115,29 @@ export function App(props: AppOptions) {
 					{...(settingsErrors().thinking
 						? { error: settingsErrors().thinking }
 						: {})}
-					onSelect={(level) => void applySettingsThinking(level)}
+					onSelect={(level) => {
+						const next = THINKING_LEVELS.find(
+							(candidate) => candidate === level,
+						);
+						if (next) void applySettingsThinking(next);
+					}}
 					onCancel={() => setSettingsRoute("root")}
+				/>
+			</Show>
+			<Show when={settingsRoute() === "compaction"}>
+				<ExtensionSettingsList
+					title="Compaction settings"
+					hint="Model and thinking level used by pi-one-round-compaction. Esc back."
+					rows={compactionSettingsRows()}
+					selectedId={detailSettingSelectedId()}
+					busy={settingsBusy() === "compaction"}
+					error={settingsErrors().compaction}
+					onSelected={setDetailSettingSelectedId}
+					onOpen={openCompactionSetting}
+					onCancel={() => {
+						setSettingsRoute("root");
+						setSettingsSelectedId("compaction");
+					}}
 				/>
 			</Show>
 			<Show when={settingsRoute() === "compaction-model"}>
@@ -4962,24 +5149,53 @@ export function App(props: AppOptions) {
 					timingHistory={activeRuntime().timingHistory}
 					context={compactionModelContext()}
 					onSelect={(model) => void applyCompactionModel(model)}
-					onCancel={() => {
-						setSettingsRoute("root");
-						setSettingsSelectedId("compaction");
-					}}
+					onCancel={() => setSettingsRoute("compaction")}
+				/>
+			</Show>
+			<Show when={settingsRoute() === "compaction-thinking"}>
+				<ThinkingSelector
+					current={compactionModelState()?.thinkingLevel}
+					levels={EXTENSION_THINKING_LEVELS}
+					busy={settingsBusy() === "compaction"}
+					{...(settingsErrors().compaction
+						? { error: settingsErrors().compaction }
+						: {})}
+					onSelect={(level) => void applyCompactionThinking(level)}
+					onCancel={() => setSettingsRoute("compaction")}
 				/>
 			</Show>
 			<Show when={settingsRoute() === "subagents"}>
-				<SubagentModelSettings
-					entries={subagentModelEntries()}
+				<ExtensionSettingsList
+					title="Subagent models"
+					hint="Each @mistrjirka/pi-subagent profile. Enter opens model and thinking. Esc back."
+					rows={subagentListRows()}
 					selectedId={selectedSubagentModelId()}
 					busy={settingsBusy() === "subagents"}
 					error={settingsErrors().subagents}
 					onSelected={setSelectedSubagentModelId}
-					onPick={(entry) => void openSubagentModelPicker(entry)}
+					onOpen={(id) => {
+						const entry = subagentModelEntries().find(
+							(candidate) => candidate.id === id,
+						);
+						if (entry) openSubagentSettings(entry);
+					}}
 					onCancel={() => {
 						setSettingsRoute("root");
 						setSettingsSelectedId("subagents");
 					}}
+				/>
+			</Show>
+			<Show when={settingsRoute() === "subagent"}>
+				<ExtensionSettingsList
+					title={`Subagent: ${selectedSubagentModelId() === "defaults" ? "Defaults" : selectedSubagentModelId()}`}
+					hint="Model and thinking level. Esc back to the profile list."
+					rows={subagentSettingsRows()}
+					selectedId={detailSettingSelectedId()}
+					busy={settingsBusy() === "subagents"}
+					error={settingsErrors().subagents}
+					onSelected={setDetailSettingSelectedId}
+					onOpen={openSubagentSetting}
+					onCancel={() => setSettingsRoute("subagents")}
 				/>
 			</Show>
 			<Show when={settingsRoute() === "subagent-model"}>
@@ -4992,7 +5208,19 @@ export function App(props: AppOptions) {
 					timingHistory={activeRuntime().timingHistory}
 					context={subagentModelContext()}
 					onSelect={(model) => void applySubagentModel(model)}
-					onCancel={() => setSettingsRoute("subagents")}
+					onCancel={() => setSettingsRoute("subagent")}
+				/>
+			</Show>
+			<Show when={settingsRoute() === "subagent-thinking"}>
+				<ThinkingSelector
+					current={selectedSubagentModelEntry()?.thinking}
+					levels={EXTENSION_THINKING_LEVELS}
+					busy={settingsBusy() === "subagents"}
+					{...(settingsErrors().subagents
+						? { error: settingsErrors().subagents }
+						: {})}
+					onSelect={(level) => void applySubagentThinking(level)}
+					onCancel={() => setSettingsRoute("subagent")}
 				/>
 			</Show>
 			<Show when={settingsRoute() === "theme"}>

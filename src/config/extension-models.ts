@@ -11,16 +11,31 @@ import path from "node:path";
  * compaction. `@mistrjirka/pi-subagent` reads `subagentProfiles` from
  * `settings.json` (global and project) when it spawns a child.
  *
- * PiTTy edits only the two model keys, keeps every other key untouched, and
- * writes atomically because these files are shared with Pi and its extensions.
+ * PiTTy edits only the model and thinking keys, keeps every other key
+ * untouched, and writes atomically because these files are shared with Pi and
+ * its extensions.
  */
 export type ExtensionModelScope = "global" | "project";
+
+/** Thinking levels accepted by both extensions (Pi's own list has no `off`). */
+export const EXTENSION_THINKING_LEVELS = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+] as const;
+export type ExtensionThinkingLevel = (typeof EXTENSION_THINKING_LEVELS)[number];
 
 export type CompactionModelState = {
 	/** Model PiTTy would write if the user picks one now. */
 	model?: string;
 	thinkingLevel?: string;
 	scope: ExtensionModelScope;
+	/** File PiTTy updates for a thinking-level change. */
+	thinkingScope: ExtensionModelScope;
 	globalModel?: string;
 	projectModel?: string;
 	laneModels: { audit: string | undefined; execution: string | undefined };
@@ -39,8 +54,11 @@ export type SubagentModelEntry = {
 	model?: string;
 	thinking?: string;
 	source?: SubagentModelSource;
-	/** File PiTTy updates so the choice takes effect for this project. */
+	/** File PiTTy updates for a model change. */
 	scope: ExtensionModelScope;
+	thinkingSource?: SubagentModelSource;
+	/** File PiTTy updates for a thinking-level change. */
+	thinkingScope: ExtensionModelScope;
 };
 
 export type ExtensionModelOptions = {
@@ -63,15 +81,9 @@ const BUILTIN_EXTENDED_PROFILE_NAMES = [
 	"impl-check-design",
 	"impl-check-runtime",
 ] as const;
-const THINKING_LEVELS = new Set([
-	"off",
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-	"max",
-]);
+const THINKING_LEVELS: ReadonlySet<string> = new Set(
+	EXTENSION_THINKING_LEVELS,
+);
 
 function isRecord(value: unknown): value is JsonObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -220,9 +232,9 @@ export async function loadCompactionModelState(
 	const projectDocument = await readOptionalJson(paths.project);
 	const globalModel = stringField(globalDocument.model);
 	const projectModel = stringField(projectDocument.model);
-	const thinkingLevel =
-		stringField(projectDocument.thinkingLevel) ??
-		stringField(globalDocument.thinkingLevel);
+	const globalThinkingLevel = stringField(globalDocument.thinkingLevel);
+	const projectThinkingLevel = stringField(projectDocument.thinkingLevel);
+	const thinkingLevel = projectThinkingLevel ?? globalThinkingLevel;
 	const laneModels = {
 		audit: laneModel(projectDocument, "audit") ?? laneModel(globalDocument, "audit"),
 		execution:
@@ -242,6 +254,7 @@ export async function loadCompactionModelState(
 		...(model ? { model } : {}),
 		...(thinkingLevel ? { thinkingLevel } : {}),
 		scope: projectModel ? "project" : "global",
+		thinkingScope: projectThinkingLevel ? "project" : "global",
 		...(globalModel ? { globalModel } : {}),
 		...(projectModel ? { projectModel } : {}),
 		laneModels,
@@ -256,6 +269,21 @@ export async function loadCompactionModelState(
  * effective: an existing project override keeps the change project-local,
  * otherwise the global config is updated.
  */
+export async function writeCompactionThinking(
+	level: ExtensionThinkingLevel,
+	options: ExtensionModelOptions = {},
+): Promise<void> {
+	if (!THINKING_LEVELS.has(level))
+		throw new Error(`Invalid thinking level: ${level}`);
+	const paths = compactionPaths(options);
+	const state = await loadCompactionModelState(options);
+	const target =
+		state.thinkingScope === "project" ? paths.project : paths.global;
+	const document = await readOptionalJson(target);
+	document.thinkingLevel = level;
+	await writeJsonObject(target, document);
+}
+
 export async function writeCompactionModel(
 	model: string,
 	options: ExtensionModelOptions = {},
@@ -393,6 +421,10 @@ export async function loadSubagentModelEntries(
 			...(defaultsThinking ? { thinking: defaultsThinking } : {}),
 			...(defaultsModel ? { source: projectDefaults.model ? "project" : "global" } : {}),
 			scope: projectDefaults.model ? "project" : "global",
+			...(defaultsThinking
+				? { thinkingSource: projectDefaults.thinking ? "project" : "global" }
+				: {}),
+			thinkingScope: projectDefaults.thinking ? "project" : "global",
 		},
 	];
 	for (const name of [...names].sort((left, right) =>
@@ -417,6 +449,16 @@ export async function loadSubagentModelEntries(
 					: defaultsModel
 						? "defaults"
 						: undefined;
+		const thinkingSource: SubagentModelSource | undefined =
+			projectValue.thinking
+				? "project"
+				: globalValue.thinking
+					? "global"
+					: profileValue.thinking
+						? "profile"
+						: defaultsThinking
+							? "defaults"
+							: undefined;
 		entries.push({
 			id: name,
 			kind: "agent",
@@ -424,9 +466,41 @@ export async function loadSubagentModelEntries(
 			...(thinking ? { thinking } : {}),
 			...(source ? { source } : {}),
 			scope: projectValue.model ? "project" : "global",
+			...(thinkingSource ? { thinkingSource } : {}),
+			thinkingScope: projectValue.thinking ? "project" : "global",
 		});
 	}
 	return entries;
+}
+
+async function writeSubagentSetting(
+	name: string,
+	key: "model" | "thinking",
+	value: string,
+	scope: ExtensionModelScope,
+	options: ExtensionModelOptions,
+): Promise<void> {
+	const paths = settingsPaths(options);
+	const target = scope === "project" ? paths.project : paths.global;
+	const document = await readOptionalJson(target);
+	const namespace = isRecord(document.subagentProfiles)
+		? document.subagentProfiles
+		: (document.subagentProfiles = {});
+	if (name === "defaults") {
+		namespace.defaults = {
+			...(isRecord(namespace.defaults) ? namespace.defaults : {}),
+			[key]: value,
+		};
+	} else {
+		const agents = isRecord(namespace.agents)
+			? namespace.agents
+			: (namespace.agents = {});
+		agents[name] = {
+			...(isRecord(agents[name]) ? (agents[name] as JsonObject) : {}),
+			[key]: value,
+		};
+	}
+	await writeJsonObject(target, document);
 }
 
 /**
@@ -440,25 +514,17 @@ export async function writeSubagentModel(
 	options: ExtensionModelOptions = {},
 ): Promise<void> {
 	if (!parseModelRef(model)) throw new Error(`Invalid model reference: ${model}`);
-	const paths = settingsPaths(options);
-	const target = scope === "project" ? paths.project : paths.global;
-	const document = await readOptionalJson(target);
-	const namespace = isRecord(document.subagentProfiles)
-		? document.subagentProfiles
-		: (document.subagentProfiles = {});
-	if (name === "defaults") {
-		namespace.defaults = {
-			...(isRecord(namespace.defaults) ? namespace.defaults : {}),
-			model,
-		};
-	} else {
-		const agents = isRecord(namespace.agents)
-			? namespace.agents
-			: (namespace.agents = {});
-		agents[name] = {
-			...(isRecord(agents[name]) ? (agents[name] as JsonObject) : {}),
-			model,
-		};
-	}
-	await writeJsonObject(target, document);
+	await writeSubagentSetting(name, "model", model, scope, options);
+}
+
+/** Write one agent's thinking level, preserving its model and other keys. */
+export async function writeSubagentThinking(
+	name: string,
+	level: ExtensionThinkingLevel,
+	scope: ExtensionModelScope,
+	options: ExtensionModelOptions = {},
+): Promise<void> {
+	if (!THINKING_LEVELS.has(level))
+		throw new Error(`Invalid thinking level: ${level}`);
+	await writeSubagentSetting(name, "thinking", level, scope, options);
 }

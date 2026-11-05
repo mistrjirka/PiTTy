@@ -1,52 +1,51 @@
 import type { SelectRenderable } from "@opentui/core";
 import { createEffect, createMemo } from "solid-js";
-import type { SubagentModelEntry } from "../config/extension-models.ts";
 import { colors } from "./theme.ts";
 
-export function formatSubagentModelSummary(entry: SubagentModelEntry): string {
-	if (!entry.model) return "No model configured";
-	const parts = [entry.model];
-	if (entry.thinking) parts.push(`thinking ${entry.thinking}`);
-	if (entry.source) parts.push(entry.source);
-	return parts.join(" · ");
-}
+export type ExtensionSettingRow = {
+	id: string;
+	label: string;
+	summary: string;
+};
 
-export function SubagentModelSettings(props: {
-	entries: SubagentModelEntry[];
+/**
+ * Nested Settings list for extension-owned values.
+ *
+ * The same layout serves the profile list and the Model/Thinking detail screen
+ * so keyboard and mouse behavior stay identical at both depths.
+ */
+export function ExtensionSettingsList(props: {
+	title: string;
+	hint: string;
+	rows: ExtensionSettingRow[];
 	selectedId: string;
 	busy: boolean;
 	error?: string | undefined;
 	onSelected: (id: string) => void;
-	onPick: (entry: SubagentModelEntry) => void;
+	onOpen: (id: string) => void;
 	onCancel: () => void;
 }) {
 	let select: SelectRenderable | undefined;
-	const rows = createMemo(() =>
-		props.entries.map((entry) => ({
-			entry,
-			name: entry.kind === "defaults" ? "Defaults" : entry.id,
-			description: formatSubagentModelSummary(entry),
-		})),
-	);
+	const rows = createMemo(() => props.rows);
 	const selectedIndex = () =>
 		Math.max(
 			0,
-			rows().findIndex((row) => row.entry.id === props.selectedId),
+			rows().findIndex((row) => row.id === props.selectedId),
 		);
 	createEffect(() => {
 		const current = rows();
 		if (!select) return;
 		select.options = current.map((row) => ({
-			name: row.name,
-			description: row.description,
-			value: row.entry,
+			name: row.label,
+			description: row.summary,
+			value: row.id,
 		}));
 		select.selectedIndex = selectedIndex();
 	});
-	const pick = (entry: SubagentModelEntry | undefined) => {
-		if (!entry || props.busy) return;
-		props.onSelected(entry.id);
-		props.onPick(entry);
+	const open = (row: ExtensionSettingRow | undefined) => {
+		if (!row || props.busy) return;
+		props.onSelected(row.id);
+		props.onOpen(row.id);
 	};
 	return (
 		<box
@@ -64,7 +63,7 @@ export function SubagentModelSettings(props: {
 		>
 			<box flexDirection="row">
 				<text fg={colors.textBright} attributes={1}>
-					Subagent models
+					{props.title}
 				</text>
 				<box flexGrow={1} />
 				<text
@@ -78,15 +77,12 @@ export function SubagentModelSettings(props: {
 					× Back
 				</text>
 			</box>
-			<text fg={colors.subtle}>
-				Model for each @mistrjirka/pi-subagent profile. Applies to the next
-				spawned child.
-			</text>
+			<text fg={colors.subtle}>{props.hint}</text>
 			<select
 				ref={(value) => {
 					select = value;
 				}}
-				id="subagent-model-entries"
+				id="extension-setting-rows"
 				options={[]}
 				selectedIndex={0}
 				focused
@@ -119,21 +115,16 @@ export function SubagentModelSettings(props: {
 					const row = rows()[index];
 					if (!row) return;
 					select.setSelectedIndex(index);
-					props.onSelected(row.entry.id);
-					pick(row.entry);
+					open(row);
 				}}
 				onSelect={(_index, option) => {
-					const entry =
-						option?.value && typeof option.value === "object"
-							? (option.value as SubagentModelEntry)
-							: undefined;
-					pick(entry);
+					const id =
+						typeof option?.value === "string" ? option.value : undefined;
+					open(rows().find((row) => row.id === id));
 				}}
 			/>
 			<text fg={props.busy ? colors.yellow : colors.subtle}>
-				{props.busy
-					? "Saving…"
-					: "↑/↓ choose · Enter pick model · Esc back"}
+				{props.busy ? "Saving…" : "↑/↓ choose · Enter open · Esc back"}
 			</text>
 			<text fg={colors.red}>{props.error ?? ""}</text>
 		</box>
