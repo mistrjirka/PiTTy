@@ -28,6 +28,7 @@ import {
 	targetToolUsage,
 } from "./model-context.tsx";
 import { appVersion } from "../version.ts";
+import { MCP_HOVER_LIMIT, McpHoverCard } from "./mcp-hover-card.tsx";
 import {
 	connectedMcpServerNames,
 	mcpEnabledCount,
@@ -245,9 +246,9 @@ export function Sidebar(props: {
 		return mcpFallbackCounts();
 	};
 	const [mcpHover, setMcpHover] = createSignal(false);
-	// Moving from the summary row onto the revealed server rows crosses child
-	// renderables, which emits out-then-over on the parent. A short hide delay
-	// keeps the list readable while the pointer is still inside the block.
+	// The card floats left of the row with a small gap. Moving across that gap
+	// emits out-then-over, so a short hide delay keeps the card readable while
+	// the pointer travels between the row and the card.
 	let mcpHideTimer: ReturnType<typeof setTimeout> | undefined;
 	const showMcpDetails = () => {
 		if (mcpHideTimer !== undefined) {
@@ -270,28 +271,7 @@ export function Sidebar(props: {
 		const snapshot = mcpSnapshot();
 		return snapshot ? connectedMcpServerNames(snapshot) : [];
 	});
-	const MCP_HOVER_LIMIT = 6;
-	const mcpDetailRows = () => {
-		if (!mcpCounts() || !mcpHover()) return 0;
-		const names = mcpConnectedNames();
-		if (names.length === 0) return 1;
-		const shown = Math.min(names.length, MCP_HOVER_LIMIT);
-		return shown + (names.length > shown ? 1 : 0);
-	};
-	const mcpConfiguredDetailRows = () => {
-		const configured = mcpConfigured();
-		if (!configured || mcpCounts() || !mcpHover()) return 0;
-		const names = configured.enabledNames;
-		if (names.length === 0) return 2;
-		const shown = Math.min(names.length, MCP_HOVER_LIMIT);
-		return shown + (names.length > shown ? 1 : 0) + 1;
-	};
-	const mcpRows = () =>
-		mcpCounts()
-			? 1 + mcpDetailRows()
-			: mcpConfigured()
-				? 1 + mcpConfiguredDetailRows()
-				: 0;
+	const mcpRows = () => (mcpCounts() || mcpConfigured() ? 1 : 0);
 	const selectedModelTiming = createMemo(() => {
 		const model = props.state?.model;
 		if (!model?.provider || !model.id) return undefined;
@@ -496,46 +476,15 @@ export function Sidebar(props: {
 							)}
 						</text>
 						<Show when={mcpHover()}>
-							<For
-								each={configured().enabledNames.slice(0, MCP_HOVER_LIMIT)}
-							>
-								{(name) => (
-									<text
-										width="100%"
-										height={1}
-										fg={colors.muted}
-										wrapMode="none"
-									>
-										{clip(`  · ${name}`, 31)}
-									</text>
-								)}
-							</For>
-							<Show when={configured().enabledNames.length > MCP_HOVER_LIMIT}>
-								<text
-									width="100%"
-									height={1}
-									fg={colors.subtle}
-									wrapMode="none"
-								>
-									{clip(
-										`  +${configured().enabledNames.length - MCP_HOVER_LIMIT} more`,
-										31,
-									)}
-								</text>
-							</Show>
-							<Show when={configured().enabledNames.length === 0}>
-								<text
-									width="100%"
-									height={1}
-									fg={colors.subtle}
-									wrapMode="none"
-								>
-									{clip("  no servers enabled", 31)}
-								</text>
-							</Show>
-							<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
-								{clip("  Pi manages connections", 31)}
-							</text>
+							<McpHoverCard
+								names={configured().enabledNames}
+								bullet="·"
+								emptyText="no servers enabled"
+								overflowText={`+${configured().enabledNames.length - MCP_HOVER_LIMIT} more`}
+								note="Pi manages connections"
+								onEnter={showMcpDetails}
+								onLeave={scheduleMcpHide}
+							/>
 						</Show>
 					</box>
 				)}
@@ -563,50 +512,18 @@ export function Sidebar(props: {
 							{clip(mcpSummaryText(counts()), 31)}
 						</text>
 						<Show when={mcpHover()}>
-							<Show
-								when={mcpConnectedNames().length > 0}
-								fallback={
-									<text
-										width="100%"
-										height={1}
-										fg={colors.subtle}
-										wrapMode="none"
-									>
-										{clip(
-											counts().connected > 0
-												? `  ${counts().connected} connected (names unavailable)`
-												: "  none connected",
-											31,
-										)}
-									</text>
+							<McpHoverCard
+								names={mcpConnectedNames()}
+								bullet={stateIcon("running")}
+								emptyText={
+									counts().connected > 0
+										? `${counts().connected} connected (names unavailable)`
+										: "none connected"
 								}
-							>
-								<For each={mcpConnectedNames().slice(0, MCP_HOVER_LIMIT)}>
-									{(name) => (
-										<text
-											width="100%"
-											height={1}
-											fg={colors.muted}
-											wrapMode="none"
-										>
-											{clip(`  ${stateIcon("running")} ${name}`, 31)}
-										</text>
-									)}
-								</For>
-								<Show when={mcpConnectedNames().length > MCP_HOVER_LIMIT}>
-									<text
-										width="100%"
-										height={1}
-										fg={colors.subtle}
-										wrapMode="none"
-									>
-										{clip(
-											`  +${mcpConnectedNames().length - MCP_HOVER_LIMIT} more connected`,
-											31,
-										)}
-									</text>
-								</Show>
-							</Show>
+								overflowText={`+${mcpConnectedNames().length - MCP_HOVER_LIMIT} more connected`}
+								onEnter={showMcpDetails}
+								onLeave={scheduleMcpHide}
+							/>
 						</Show>
 					</box>
 				)}

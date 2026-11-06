@@ -3341,6 +3341,56 @@ describe("OpenTUI components", () => {
 		expect(frame).not.toContain("Codex");
 	});
 
+	test("mcp hover floats the server list without shifting panels", async () => {
+		// Right-align like the app does: the floating card needs room on the
+		// left of the 38-column sidebar, which it always has at real widths.
+		const setup = await mount(
+			() => (
+				<box width={100} flexDirection="row">
+					<box flexGrow={1} />
+					<Sidebar
+						runs={[]}
+						mcpStatus={{
+							version: 1,
+							servers: [
+								{ name: "github", status: "connected", toolCount: 4, disabled: false },
+								{ name: "postgres", status: "connected", toolCount: 2, disabled: false },
+							],
+							totalTools: 6,
+							connectedCount: 2,
+							disabledCount: 0,
+						}}
+						height={40}
+					/>
+				</box>
+			),
+			100,
+			40,
+		);
+		const rowOf = (frame: string, text: string) =>
+			frame.split("\n").findIndex((line) => line.includes(text));
+		const before = setup.captureCharFrame();
+		expect(before).toContain("MCP 2/2 connected");
+		expect(before).not.toContain("github");
+		const subagentsBefore = rowOf(before, "Subagents (0 active)");
+		expect(subagentsBefore).toBeGreaterThanOrEqual(0);
+		const mcpRow = rowOf(before, "MCP 2/2 connected");
+		await setup.mockMouse.moveTo(70, mcpRow);
+		await setup.flush();
+		await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
+		const hovered = setup.captureCharFrame();
+		expect(hovered).toContain("github");
+		expect(hovered).toContain("postgres");
+		expect(rowOf(hovered, "Subagents (0 active)")).toBe(subagentsBefore);
+		await setup.mockMouse.moveTo(4, 0);
+		await setup.flush();
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		await setup.flush();
+		const after = setup.captureCharFrame();
+		expect(after).not.toContain("github");
+		expect(rowOf(after, "Subagents (0 active)")).toBe(subagentsBefore);
+	});
+
 	test("renders live assistant output as stable plain text and tool timing", async () => {
 		const items: ConversationItem[] = [
 			{

@@ -151,7 +151,7 @@ MCP works with Pi's built-in support (Pi 0.99 or newer) and with `pi-mcp-adapter
 
 If `-builtin:mcp` is still in `settings.json` (left behind by the adapter), Settings shows **Enable built-in MCP**; it removes that entry from the global and project settings and restarts the session. OAuth sign-in for HTTP servers is handled by Pi itself (`/mcp` in the Pi TUI, or `pi mcp login <server>`).
 
-With the adapter, the sidebar shows `🔌 MCP <connected>/<enabled> connected` and hover lists the connected server names. Servers the adapter has cached but not connected — its deferred startup path — count as enabled but not connected until something uses them; the row falls back to the adapter's footer counts in that state. With built-in MCP, Pi does not expose live connection state to the host, so the sidebar shows `🔌 MCP <enabled> servers` and hover lists the enabled names with **Pi manages connections**.
+With the adapter, the sidebar shows `🔌 MCP <connected>/<enabled> connected` and hovering the row floats a tooltip-style card with the connected server names to its left; nothing below moves. Servers the adapter has cached but not connected — its deferred startup path — count as enabled but not connected until something uses them; the row falls back to the adapter's footer counts in that state. With built-in MCP, Pi does not expose live connection state to the host, so the sidebar shows `🔌 MCP <enabled> servers` and hovering floats the same kind of card with the enabled names, noting that Pi manages connections.
 
 ## Updates and upgrades
 
