@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.51
+
+### MCP hover no longer shifts the sidebar
+
+- Hovering the sidebar MCP row now floats a tooltip-style card with the server names to the left of the row instead of expanding inline rows beneath it. Subagents, Todo, and Notifications stay exactly where they are.
+- The card lists connected servers (adapter mode) or enabled servers with a Pi-manages-connections note (built-in mode), capped at six names plus an overflow line.
+
 ## 0.6.50
 
 ### Status bar fixes
