@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { globalFooterHint } from "../src/app.tsx";
+import { globalFooterHint, selectFooterHint, footerHintTiers } from "../src/app.tsx";
 import {
 	USAGE_FOOTER_SEPARATOR,
 	usageFooterSegments,
@@ -51,6 +51,18 @@ describe("usageFooterSegments", () => {
 		const out = usageFooterSegments({ ...base, claudeUsage: undefined, claudeHint: "login expired (run Claude Code)" });
 		expect(out[0]).toEqual({ text: "claude login expired", tone: "warning" });
 	});
+	test("unavailable usage does not read as an expired login", () => {
+		const out = usageFooterSegments({ ...base, claudeUsage: undefined, claudeHint: "usage unavailable" });
+		expect(out[0]).toEqual({ text: "claude usage unavailable", tone: "warning" });
+	});
+	test("stale cswap usage is marked with its age", () => {
+		const stale = {
+			...base,
+			claudeAccountLabel: "work",
+			claudeUsage: { limits: claude.limits, staleAgeSeconds: 12722 },
+		};
+		expect(line(stale)).toBe("claude(work) 40%·1h26m·stale 3h32m │ codex 45%·4d22h │ oc 2% 3%·2d4h 1%");
+	});
 	test("empty input yields nothing", () => {
 		expect(usageFooterSegments({ width: 100, now: NOW })).toEqual([]);
 	});
@@ -76,6 +88,33 @@ describe("usageFooterSegments", () => {
 			const segments = usageFooterSegments({ ...base, width });
 			expect(usageFooterWidth(segments)).toBeLessThanOrEqual(width);
 		}
+	});
+	test("hints yield to usage summaries instead of dropping providers", () => {
+		const tiers = footerHintTiers(false, 0);
+		const status = "● ready";
+		expect(line({ ...base, width: 200 })).toContain("codex");
+		// Compact usage at 180 columns: the full hint list still fits.
+		const compact = usageFooterWidth(usageFooterSegments({ ...base, width: 200 }));
+		expect(selectFooterHint(180, status.length, compact, false, 0)).toBe(tiers[2]!);
+		// Long usage (stale claude label, three oc windows) at 180 columns:
+		// usage stays complete and the hints step down one tier instead of
+		// dropping codex.
+		const long = usageFooterSegments({
+			...base,
+			claudeAccountLabel: "work",
+			claudeUsage: { limits: claude.limits, staleAgeSeconds: 12722 },
+			width: 200,
+		});
+		expect(line({ ...base, width: 200 })).toContain("codex");
+		const used = usageFooterWidth(long);
+		expect(used).toBeGreaterThan(compact);
+		// Full hints still fit at 180; at 172 they step down one tier while
+		// every usage segment stays visible.
+		expect(selectFooterHint(180, status.length, used, false, 0)).toBe(tiers[2]!);
+		const hint = selectFooterHint(172, status.length, used, false, 0);
+		expect(hint).toBe(tiers[1]!);
+		const row = 2 + status.length + 3 + used + 2 + hint.length;
+		expect(row).toBeLessThanOrEqual(172);
 	});
 	test("footer stays one row from 60 to 200 columns", () => {
 		for (let cols = 60; cols <= 200; cols++) {

@@ -129,6 +129,8 @@ export function ModelSelectorDialog(props: {
 	timingHistory?: readonly RequestTiming[];
 	/** Optional line naming the value this picker changes, e.g. the current profile model. */
 	context?: string | undefined;
+	/** Optional sync status, e.g. "syncing with Pi…" or a refresh failure. */
+	notice?: string | undefined;
 }) {
 	let select: SelectRenderable | undefined;
 	let search: TextareaRenderable | undefined;
@@ -298,6 +300,11 @@ export function ModelSelectorDialog(props: {
 					{filteredModels().length} match
 					{filteredModels().length === 1 ? "" : "es"}
 				</text>
+				<Show when={props.notice}>
+					<text fg={colors.yellow} wrapMode="none">
+						{props.notice}
+					</text>
+				</Show>
 				{filteredModels().length === 0 ? (
 					<text fg={colors.yellow}>No matching models.</text>
 				) : (

@@ -3474,6 +3474,22 @@ describe("OpenTUI components", () => {
 		expect(emptySetup.captureCharFrame()).toContain("No matching models.");
 	});
 
+	test("model selector shows the Pi sync notice when set", async () => {
+		const setup = await mount(
+			() => (
+				<ModelSelectorDialog
+					models={[]}
+					notice="syncing with Pi…"
+					onSelect={() => {}}
+					onCancel={() => {}}
+				/>
+			),
+			90,
+			16,
+		);
+		expect(setup.captureCharFrame()).toContain("syncing with Pi…");
+	});
+
 	test("keys timing summaries to the selected model and shows only two medians", async () => {
 		const history: RequestTiming[] = [
 			{

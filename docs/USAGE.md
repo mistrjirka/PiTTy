@@ -107,7 +107,9 @@ Both sections edit the extension's own configuration — `one-round-compaction.j
 
 ## Models and thinking effort
 
-`Ctrl+P` opens a searchable model selector. Search matches provider, model identifier, and display name. Closing or selecting a model returns focus to the unchanged chat draft.
+`Ctrl+P` opens a searchable model selector. Search matches provider, model identifier, and display name. The list opens immediately and then syncs with Pi: a `syncing with Pi…` line shows while it refreshes, and a `sync failed — showing cached list` line when Pi cannot be reached. Closing or selecting a model returns focus to the unchanged chat draft.
+
+Context windows are Pi's per-provider numbers (`openai/gpt-6.1-sol` reports 272k while the Codex entry reports 500k). PiTTy shows them as reported; pick the provider entry with the window you need.
 
 Use `Ctrl+T`, `Shift+Tab`, or `/thinking` to change Pi's reasoning effort. Available levels depend on the selected provider and model.
 
@@ -184,6 +186,12 @@ Use `pitty --pi /path/to/pi` when Pi is installed outside `PATH`.
 ### Optional panels are missing
 
 Run the corresponding `pi install` command above, then restart PiTTy. Missing optional integrations are intentionally nonfatal.
+
+### The status bar lost a usage tracker
+
+The footer shows Claude, Codex, and OpenCode usage only while everything fits in one row. When space runs out, the key hints step down first (`alt+enter queue  ctrl+o details` disappears) and only then do usage summaries shrink. A missing Codex segment with no `sync failed` notice and no fetch failure in the diagnostics log usually means the row was full; widen the terminal. If `~/.pi/agent/auth.json` has no `openai-codex` OAuth entry, the Codex segment is hidden until the next `/login`.
+
+A `·stale 3h32m` marker on the Claude segment means cswap's live usage needs a relogin, so PiTTy shows the last fetched usage and its age instead of claiming the login expired. The model itself keeps working through Pi's own credentials.
 
 ### Terminal rendering looks wrong
 

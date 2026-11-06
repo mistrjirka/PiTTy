@@ -13,6 +13,8 @@ export type CswapAccount = {
   label: string;
   usageStatus: string;
   usage?: ClaudeUsage;
+  /** Last good usage cswap kept when live usage needs a relogin, with its age. */
+  lastGood?: { usage: ClaudeUsage; ageSeconds: number };
 };
 export type CswapSnapshot = {
   activeAccountNumber?: number;
@@ -61,11 +63,28 @@ export function parseCswapSnapshot(value: unknown, now = Date.now()): CswapSnaps
       windowLimit(rawUsage?.fiveHour, "session", "Session", now),
       windowLimit(rawUsage?.sevenDay, "weekly_all", "Week", now),
     ].filter((limit): limit is ClaudeUsage["limits"][number] => limit !== undefined);
+    const lastGoodRaw = obj(account.lastGoodUsage);
+    const lastGoodLimits = lastGoodRaw
+      ? [
+          windowLimit(lastGoodRaw.fiveHour, "session", "Session", now),
+          windowLimit(lastGoodRaw.sevenDay, "weekly_all", "Week", now),
+        ].filter((limit): limit is ClaudeUsage["limits"][number] => limit !== undefined)
+      : [];
+    let lastGoodAge: number | undefined;
+    if (typeof account.lastGoodAgeSeconds === "number" && Number.isFinite(account.lastGoodAgeSeconds) && account.lastGoodAgeSeconds >= 0)
+      lastGoodAge = account.lastGoodAgeSeconds;
+    else if (typeof account.lastGoodFetchedAt === "string") {
+      const fetchedAt = Date.parse(account.lastGoodFetchedAt);
+      if (Number.isFinite(fetchedAt)) lastGoodAge = Math.max(0, (now - fetchedAt) / 1000);
+    }
     accounts.push({
       number: slot,
       label,
       usageStatus: typeof account.usageStatus === "string" ? account.usageStatus : "unknown",
       ...(limits.length ? { usage: { limits } } : {}),
+      ...(lastGoodLimits.length && lastGoodAge !== undefined
+        ? { lastGood: { usage: { limits: lastGoodLimits }, ageSeconds: lastGoodAge } }
+        : {}),
     });
   }
   if (!accounts.length) return;

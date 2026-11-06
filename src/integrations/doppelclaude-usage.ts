@@ -16,6 +16,8 @@ export type ClaudeLimit = {
 export type ClaudeUsage = {
 	planType?: string;
 	limits: ClaudeLimit[];
+	/** Set when the limits are cswap's last good snapshot, not live data. */
+	staleAgeSeconds?: number;
 };
 
 export type ClaudeOauthCredential = {

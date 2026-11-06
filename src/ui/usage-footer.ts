@@ -89,6 +89,13 @@ type Candidate = {
 	percent: number;
 };
 
+function claudeHintText(hint: string | undefined): string {
+	// "usage unavailable" (cswap account without usage data) must not read
+	// as an expired login; the model itself may work fine.
+	if (hint === "usage unavailable") return "claude usage unavailable";
+	return "claude login expired";
+}
+
 function claudeCandidate(input: UsageFooterInput): Candidate | undefined {
 	const limits = input.claudeUsage?.limits ?? [];
 	if (limits.length === 0) {
@@ -97,7 +104,7 @@ function claudeCandidate(input: UsageFooterInput): Candidate | undefined {
 			provider: "claude",
 			tone: "warning",
 			percent: 0,
-			build: () => ({ text: "claude login expired", tone: "warning" }),
+			build: () => ({ text: claudeHintText(input.claudeHint), tone: "warning" }),
 		};
 	}
 	const entries = limits.map<Entry>((limit) => {
@@ -110,12 +117,15 @@ function claudeCandidate(input: UsageFooterInput): Candidate | undefined {
 		};
 	});
 	const best = tightest(entries)!;
+	const stale = input.claudeUsage?.staleAgeSeconds;
+	const staleSuffix =
+		stale !== undefined ? `·stale ${compactReset(stale)}` : "";
 	return {
 		provider: "claude",
 		tone: worstTone(entries.map((e) => e.tone)),
 		percent: best.percent,
 		build: (opts) => ({
-			text: `claude${input.claudeAccountLabel ? `(${input.claudeAccountLabel.slice(0, 12)})` : ""} ${pct(best.percent)}${opts?.reset === false ? "" : `·${best.reset}`}`,
+			text: `claude${input.claudeAccountLabel ? `(${input.claudeAccountLabel.slice(0, 12)})` : ""} ${pct(best.percent)}${opts?.reset === false ? "" : `·${best.reset}`}${staleSuffix}`,
 			tone: worstTone(entries.map((e) => e.tone)),
 		}),
 	};

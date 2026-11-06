@@ -203,6 +203,7 @@ import {
 	type MemorySnapshot,
 } from "./integrations/memory-store.ts";
 import { Sidebar } from "./ui/sidebar.tsx";
+import { cleanInline, clip } from "./ui/model-context.tsx";
 import { NotificationDialog } from "./ui/notification-dialog.tsx";
 import { SubagentInspector, inspectedTargetScrollY } from "./ui/subagent-inspector.tsx";
 import { spinnerFrames } from "./ui/spinner.ts";
@@ -240,6 +241,7 @@ import {
 } from "./integrations/detect.ts";
 import {
 	fetchCodexUsage,
+	readCodexCredential,
 	type CodexUsage,
 } from "./integrations/codex-usage.ts";
 import {
@@ -254,6 +256,7 @@ import {
 import {
 	USAGE_FOOTER_SEPARATOR,
 	usageFooterSegments,
+	usageFooterWidth,
 } from "./ui/usage-footer.ts";
 import {
 	computeUsageStats,
@@ -642,25 +645,62 @@ function modelThinkingKey(provider: string, modelId: string): string {
 	return `${provider}\0${modelId}`;
 }
 
+export function footerHintTiers(
+	inspectorOpen: boolean,
+	targetCount = 0,
+): string[] {
+	if (inspectorOpen) {
+		const switchHint = targetCount > 1 ? "←/→ or ctrl+←/→ switch  " : "";
+		return [`${switchHint}↑/ctrl+↑ main chat  esc/ctrl+i close`];
+	}
+	const targetHint = targetCount > 0 ? "  ctrl+down inspect" : "";
+	const inspectHint = targetCount > 0 ? `  ctrl+i inspect${targetHint}` : "";
+	return [
+		`ctrl+x settings  ctrl+s sidebar  ctrl+p models${targetHint}`,
+		`ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}`,
+		`ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}  alt+enter queue  ctrl+o details`,
+	];
+}
+
 export function globalFooterHint(
 	width: number,
 	inspectorOpen: boolean,
 	targetCount = 0,
 ): string {
-	if (inspectorOpen) {
-		const switchHint = targetCount > 1 ? "←/→ or ctrl+←/→ switch  " : "";
-		return `${switchHint}↑/ctrl+↑ main chat  esc/ctrl+i close`;
-	}
-	const targetHint = targetCount > 0 ? "  ctrl+down inspect" : "";
-	const inspectHint = targetCount > 0 ? `  ctrl+i inspect${targetHint}` : "";
+	const tiers = footerHintTiers(inspectorOpen, targetCount);
+	if (tiers.length === 1) return tiers[0]!;
 	// Usage lives in this row now, so the hint ladder has three tiers: keep the
 	// model/request/effort affordances at 120+, and only reach for the full list
 	// when there is room for three provider summaries as well.
-	if (width < 120)
-		return `ctrl+x settings  ctrl+s sidebar  ctrl+p models${targetHint}`;
-	if (width < 145)
-		return `ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}`;
-	return `ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}  alt+enter queue  ctrl+o details`;
+	if (width < 120) return tiers[0]!;
+	if (width < 145) return tiers[1]!;
+	return tiers[2]!;
+}
+
+/**
+ * Longest hint tier that fits alongside the status text and the already-chosen
+ * usage segments. Usage summaries win over hint verbosity: the full hint list
+ * only appears when every usage segment still fits next to it.
+ */
+export function selectFooterHint(
+	totalWidth: number,
+	statusLength: number,
+	usedUsageWidth: number,
+	inspectorOpen: boolean,
+	targetCount = 0,
+): string {
+	const tiers = footerHintTiers(inspectorOpen, targetCount);
+	for (let index = tiers.length - 1; index >= 0; index--) {
+		const hint = tiers[index]!;
+		const row =
+			2 +
+			statusLength +
+			(usedUsageWidth ? USAGE_FOOTER_SEPARATOR.length + usedUsageWidth : 0) +
+			2 +
+			hint.length;
+		if (row <= totalWidth) return hint;
+	}
+	return tiers[0]!;
 }
 
 export function shouldShowEmptyDashboard(renderedItemCount: number): boolean {
@@ -785,6 +825,7 @@ export function App(props: AppOptions) {
 	const [dialogOwnerRuntimeId, setDialogOwnerRuntimeId] = createSignal<string>();
 	const [modelSelectorOpen, setModelSelectorOpen] = createSignal(false);
 	const [modelOptions, setModelOptions] = createSignal<ModelChoice[]>([]);
+	const [modelListNotice, setModelListNotice] = createSignal<string>();
 	const [modelSelectorLoading, setModelSelectorLoading] = createSignal(false);
 	const [sessionSelectorOpen, setSessionSelectorOpen] = createSignal(false);
 	const [skillSelectorOpen, setSkillSelectorOpen] = createSignal(false);
@@ -883,8 +924,19 @@ export function App(props: AppOptions) {
 	const applyCswapUsage = (snapshot: CswapSnapshot): void => {
 		const slot = claudeEffectiveSlot();
 		const account = snapshot.accounts.find((item) => item.number === slot);
-		setClaudeUsage(account?.usage);
-		setClaudeHint(account && !account.usage ? "usage unavailable" : undefined);
+		if (account?.usage) {
+			setClaudeUsage(account.usage);
+			setClaudeHint(undefined);
+		} else if (account?.lastGood) {
+			// cswap keeps the last fetched usage when the account needs a
+			// relogin; show it marked stale instead of claiming expiry. The
+			// model itself can still work through Pi's own credentials.
+			setClaudeUsage({ ...account.lastGood.usage, staleAgeSeconds: account.lastGood.ageSeconds });
+			setClaudeHint(undefined);
+		} else {
+			setClaudeUsage(undefined);
+			setClaudeHint(account ? "usage unavailable" : undefined);
+		}
 	};
 	const chooseClaudeAccount = (choice: ClaudeAccountChoice) => {
 		try {
@@ -912,6 +964,15 @@ export function App(props: AppOptions) {
 		if (current !== "forking conversation…") return current;
 		return streaming() ? "working" : "ready";
 	};
+	// Extension and stderr status text is untrusted: adapters style it with
+	// ANSI colors and some extensions send multi-line payloads. The footer is
+	// a single row, so clean it before display (and before width math).
+	const sanitizeStatusText = (value: string): string =>
+		clip(cleanInline(value), 80);
+	const setExtensionStatus = (value: string): void => {
+		const clean = sanitizeStatusText(value);
+		if (clean) setStatus(clean);
+	};
 	// Re-select the monitored account immediately when the active Pi tab changes.
 	createEffect(() => {
 		activeTabId();
@@ -921,9 +982,14 @@ export function App(props: AppOptions) {
 	});
 	const footerStatusText = () =>
 		`● ${displayStatus()}${activeRuntime().smartCompactProgress ? ` · ${activeRuntime().smartCompactProgress}` : ""}`;
+	const footerMinHintLength = () =>
+		footerHintTiers(inspectSubagent(), availableSubagentTargets().length)[0]!
+			.length;
 	const footerHintText = () =>
-		globalFooterHint(
+		selectFooterHint(
 			dimensions().width,
+			footerStatusText().length,
+			usageFooterWidth(footerUsageSegments()),
 			inspectSubagent(),
 			availableSubagentTargets().length,
 		);
@@ -937,13 +1003,15 @@ export function App(props: AppOptions) {
 			opencodeUsage: opencodeUsage(),
 			opencodeUsageStats: opencodeUsageStats(),
 			now: clockNow(),
-			// row padding (2) + leading separator (3) + two-column gap before the hint
+			// row padding (2) + leading separator (3) + two-column gap before the hint.
+			// Budget against the shortest hints so usage wins over verbosity;
+			// the hint picker then upgrades verbosity with whatever is left.
 			width: Math.max(
 				0,
 				dimensions().width -
 					2 -
 					footerStatusText().length -
-					footerHintText().length -
+					footerMinHintLength() -
 					USAGE_FOOTER_SEPARATOR.length -
 					2,
 			),
@@ -977,7 +1045,7 @@ export function App(props: AppOptions) {
 			return;
 		}
 		if (event.method === "setStatus") {
-			if (event.statusText) setStatus(event.statusText);
+			if (event.statusText) setExtensionStatus(event.statusText);
 			finishExtensionRequest(envelope);
 			return;
 		}
@@ -2792,13 +2860,30 @@ export function App(props: AppOptions) {
 	};
 	const loadModels = async (fromSettings: boolean): Promise<boolean> => {
 		if (!activeRuntime().startupResolved) { toast("This tab is still starting…", "info"); return false; }
-		if (modelSelectorLoading()) return false;
-		if (!fromSettings && availableModelsCache) {
-			setModelOptions(availableModelsCache);
+		if (!fromSettings) {
+			// Open immediately so Ctrl+P never hangs on a slow Pi, then sync
+			// visibly: the notice shows syncing/sync-failed instead of silently
+			// serving a stale cached list.
+			setModelOptions(availableModelsCache ?? []);
+			setModelListNotice(availableModelsCache ? "syncing with Pi…" : "loading models from Pi…");
 			setModelSelectorOpen(true);
-			void fetchAvailableModels().then((models) => setModelOptions(models)).catch(() => undefined);
+			try {
+				setModelOptions(await fetchAvailableModels());
+				setModelListNotice(undefined);
+			} catch (error) {
+				if (!availableModelsCache) {
+					setModelSelectorOpen(false);
+					toast(
+						`Failed to load models: ${error instanceof Error ? error.message : String(error)}`,
+						"error",
+					);
+					return false;
+				}
+				setModelListNotice("sync failed — showing cached list");
+			}
 			return true;
 		}
+		if (modelSelectorLoading()) return false;
 		if (fromSettings) {
 			setSettingsBusy("model");
 			setSettingsErrors((errors) => {
@@ -2914,7 +2999,7 @@ export function App(props: AppOptions) {
 		});
 		setModelSelectorLoading(true);
 		try {
-			setModelOptions(availableModelsCache ?? (await fetchAvailableModels()));
+			setModelOptions(await fetchAvailableModels());
 			return true;
 		} catch (error) {
 			setSettingsErrors((errors) => ({
@@ -3894,7 +3979,7 @@ export function App(props: AppOptions) {
 			if (!tabRuntimeIsActive(startupRuntime.id)) return;
 			const line = chunk.trim().split("\n").at(-1);
 			if (!line) return;
-			if (startupPhase().kind === "ready") setStatus(line.slice(0, 120));
+			if (startupPhase().kind === "ready") setExtensionStatus(line);
 			else setStatus("loading extensions/session…");
 		});
 		startupRuntime.client.on("exit", (error: Error) => {
@@ -4025,10 +4110,18 @@ export function App(props: AppOptions) {
 				setCodexUsageStats,
 			);
 		};
-		void fetchCodexUsage().then(updateCodexUsage);
-		codexUsageTimer = setInterval(() => {
-			void fetchCodexUsage().then(updateCodexUsage);
-		}, 5 * 60_000);
+		const pollCodex = () => {
+			void fetchCodexUsage().then((usage) => {
+				// A missing credential simply hides the segment; a failed fetch
+				// with a credential present is worth one diagnostics line so a
+				// vanishing codex segment can be told apart from width shedding.
+				if (!usage && readCodexCredential())
+					props.logger.warn("codex_usage.fetch_failed", {});
+				updateCodexUsage(usage);
+			});
+		};
+		pollCodex();
+		codexUsageTimer = setInterval(pollCodex, 5 * 60_000);
 		const updateOpencodeUsage = (usage: OpencodeUsage | undefined) => {
 			opencodeUsageHistory = updateUsage(
 				usage,
@@ -5120,8 +5213,9 @@ export function App(props: AppOptions) {
 				paddingLeft={1}
 				paddingRight={1}
 				backgroundColor={colors.background}
+				overflow="hidden"
 			>
-				<text fg={streaming() ? colors.green : colors.muted}>{footerStatusText()}</text>
+				<text fg={streaming() ? colors.green : colors.muted} wrapMode="none">{footerStatusText()}</text>
 				<For each={footerUsageSegments()}>
 					{(segment) => (
 						<>
@@ -5135,7 +5229,7 @@ export function App(props: AppOptions) {
 					)}
 				</For>
 				<box flexGrow={1} />
-				<text fg={colors.subtle}>
+				<text fg={colors.subtle} wrapMode="none">
 					{footerHintText()}
 				</text>
 			</box>
@@ -5436,6 +5530,7 @@ export function App(props: AppOptions) {
 					currentModelId={sessionState()?.model?.id}
 					performanceHistory={readModelPerformanceHistory()}
 					timingHistory={activeRuntime().timingHistory}
+					notice={modelListNotice()}
 					onSelect={(model) => void selectModel(model)}
 					onCancel={closeModelSelector}
 				/>

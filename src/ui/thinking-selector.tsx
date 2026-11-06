@@ -39,7 +39,10 @@ export function compatibleThinkingLevels(
   if (model.reasoning === false) return ["off"];
   const map = model.thinkingLevelMap;
   return EXTENSION_THINKING_LEVELS.filter((level) => {
-    if (level === "off") return true;
+    // The extension skips reasoning for "off", but a model that explicitly
+    // maps it to null (e.g. openai-codex/gpt-6.1-sol) rejects it, so only
+    // offer it when it is not excluded.
+    if (level === "off") return map?.["off"] !== null;
     if (map) {
       const entry = map[level];
       if (entry === null) return false;

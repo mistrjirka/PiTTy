@@ -42,6 +42,30 @@ describe("cswap account selection", () => {
     expect(resolveCswapSlot("auto", snapshot, undefined, home)).toBe(2);
     expect(resolveCswapSlot(2, snapshot, work, home)).toBe(2);
   });
+  test("keeps last good usage with its age when live usage needs a relogin", () => {
+    const relogin = parseCswapSnapshot({
+      activeAccountNumber: 1,
+      accounts: [{
+        number: 1, alias: "work", usageStatus: "relogin_required", usage: null,
+        lastGoodUsage: {
+          fiveHour: { pct: 3, resetsAt: "2026-11-06T13:49:59Z" },
+          sevenDay: { pct: 61, resetsAt: "2026-11-11T06:59:59Z" },
+        },
+        lastGoodAgeSeconds: 12722.4,
+      }],
+    }, now)!;
+    expect(relogin.accounts[0]?.usage).toBeUndefined();
+    expect(relogin.accounts[0]?.lastGood?.usage.limits.map((limit) => limit.percent)).toEqual([3, 61]);
+    expect(relogin.accounts[0]?.lastGood?.ageSeconds).toBe(12722.4);
+    const byFetchedAt = parseCswapSnapshot({
+      accounts: [{
+        number: 1, usageStatus: "relogin_required", usage: null,
+        lastGoodUsage: { fiveHour: { pct: 3, resetsAt: "2026-11-06T13:49:59Z" } },
+        lastGoodFetchedAt: new Date(now - 60_000).toISOString(),
+      }],
+    }, now)!;
+    expect(byFetchedAt.accounts[0]?.lastGood?.ageSeconds).toBe(60);
+  });
   test("rejects malformed account entries and invalid choices", () => {
     expect(parseCswapSnapshot({ accounts: [{ number: 0 }, { number: "1" }] })).toBeUndefined();
     expect(resolveCswapSlot(99, snapshot)).toBeUndefined();
