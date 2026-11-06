@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.50
+
+### Status bar fixes
+
+- Extension status text (notably the MCP adapter's colored footer) no longer leaks raw ANSI codes into the status bar or corrupts its width math. Status is cleaned, single-line, and bounded.
+- Footer overflow clips instead of drawing segments over each other (`ginclaude`, `2dc2h` artifacts).
+- The key hints now step down before usage summaries are dropped, so Codex stays visible at widths that used to shed it. A missing Codex segment with no failure in the diagnostics log means the row was full (widen the terminal); with no `openai-codex` OAuth entry in `~/.pi/agent/auth.json` the segment hides until the next login.
+- cswap accounts whose live usage needs a relogin show the last fetched usage marked `·stale <age>` instead of a false `claude login expired`. `usage unavailable` renders honestly, and the model keeps working through Pi's own credentials either way.
+
+### Model list sync
+
+- `Ctrl+P` opens immediately and syncs visibly: `syncing with Pi…` while refreshing, `sync failed — showing cached list` when Pi is unreachable (with an error toast when there is nothing cached).
+- Compaction and subagent model pickers always fetch a fresh list instead of trusting the cache.
+- Thinking pickers no longer offer `off` for models that explicitly exclude it (e.g. `openai-codex/gpt-6.1-sol`).
+- Context windows are Pi's per-provider numbers: `openai/gpt-6.1-sol` reports 272k while the Codex entry reports 500k. PiTTy shows them as reported; pick the provider entry with the window you need.
+
 ## 0.6.49
 
 ### Symlinked agent profiles resolve correctly

@@ -1,6 +1,6 @@
 {
   "name": "pitty-pi-ui",
-  "version": "0.6.49",
+  "version": "0.6.50",
   "private": false,
   "type": "module",
   "description": "PiTTy: a fast, extensible OpenTUI frontend for the Pi coding agent",
