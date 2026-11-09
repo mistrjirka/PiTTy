@@ -5314,7 +5314,7 @@ export function App(props: AppOptions) {
 					currentProvider={sessionState()?.model?.provider}
 					currentModelId={sessionState()?.model?.id}
 					performanceHistory={readModelPerformanceHistory()}
-					timingHistory={activeRuntime().timingHistory}
+					timingHistory={requestTimingHistory()}
 					onSelect={(model) => void applySettingsModel(model)}
 					onCancel={() => setSettingsRoute("root")}
 				/>
@@ -5374,7 +5374,7 @@ export function App(props: AppOptions) {
 					currentProvider={parseModelRef(compactionModelState()?.model)?.provider}
 					currentModelId={parseModelRef(compactionModelState()?.model)?.id}
 					performanceHistory={readModelPerformanceHistory()}
-					timingHistory={activeRuntime().timingHistory}
+					timingHistory={requestTimingHistory()}
 					context={compactionModelContext()}
 					onSelect={(model) => void applyCompactionModel(model)}
 					onCancel={() => setSettingsRoute("compaction")}
@@ -5434,7 +5434,7 @@ export function App(props: AppOptions) {
 						?.provider}
 					currentModelId={parseModelRef(selectedSubagentModelEntry()?.model)?.id}
 					performanceHistory={readModelPerformanceHistory()}
-					timingHistory={activeRuntime().timingHistory}
+					timingHistory={requestTimingHistory()}
 					context={subagentModelContext()}
 					onSelect={(model) => void applySubagentModel(model)}
 					onCancel={() => setSettingsRoute("subagent")}
@@ -5529,7 +5529,7 @@ export function App(props: AppOptions) {
 					currentProvider={sessionState()?.model?.provider}
 					currentModelId={sessionState()?.model?.id}
 					performanceHistory={readModelPerformanceHistory()}
-					timingHistory={activeRuntime().timingHistory}
+					timingHistory={requestTimingHistory()}
 					notice={modelListNotice()}
 					onSelect={(model) => void selectModel(model)}
 					onCancel={closeModelSelector}

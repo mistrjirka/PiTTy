@@ -126,7 +126,7 @@ export function ModelSelectorDialog(props: {
 	onSelect: (model: ModelChoice) => void;
 	onCancel: () => void;
 	performanceHistory?: ModelPerformanceHistory;
-	timingHistory?: readonly RequestTiming[];
+	timingHistory?: readonly RequestTiming[] | (() => readonly RequestTiming[]);
 	/** Optional line naming the value this picker changes, e.g. the current profile model. */
 	context?: string | undefined;
 	/** Optional sync status, e.g. "syncing with Pi…" or a refresh failure. */
@@ -144,7 +144,10 @@ export function ModelSelectorDialog(props: {
 	const detailsByModel = createMemo(() => {
 		const performanceHistory = props.performanceHistory;
 		const timingByModel = new Map<string, RequestTiming[]>();
-		for (const sample of retainCurrentRequestTimings(props.timingHistory ?? [])) {
+		const timingHistory = typeof props.timingHistory === "function"
+			? props.timingHistory()
+			: (props.timingHistory ?? []);
+		for (const sample of retainCurrentRequestTimings(timingHistory)) {
 			if (!sample.provider || !sample.modelId) continue;
 			const key = modelPerformanceKey(sample.provider, sample.modelId);
 			const bucket = timingByModel.get(key);

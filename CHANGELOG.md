@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.52
+
+### Model picker now shows timing and speed
+
+- The Ctrl+P / settings model picker reads request timing and TTFT/speed stats reactively from the active runtime, so freshly recorded samples appear without reopening PiTTy. Previously the picker captured a stale snapshot and showed no timing even though the sidebar did.
+
 ## 0.6.51
 
 ### MCP hover no longer shifts the sidebar
