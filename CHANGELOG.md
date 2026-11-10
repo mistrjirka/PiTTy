@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.53
+
+### Codex Fast speed and timing attribution
+
+- Fixed missing speed, TTFT, and Turn/Tool timing under `openai-codex-fast` in the model picker. Fast-mode replies report the underlying `openai-codex` provider; PiTTy now attributes measurements to the selected provider when the model IDs agree.
+- Existing samples remain unchanged because historical regular and Fast Codex measurements cannot reliably be separated. New qualifying Fast responses populate the correct picker entry.
+
 ## 0.6.52
 
 ### Model picker now shows timing and speed

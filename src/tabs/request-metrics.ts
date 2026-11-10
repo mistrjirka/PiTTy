@@ -11,6 +11,26 @@ export type RequestModelSnapshot = {
 	id?: string | undefined;
 };
 
+/** Keep wrapper-provider samples under the selected model's picker entry. */
+export function requestModelIdentity(
+	message: { provider?: unknown; model?: unknown; responseModel?: unknown } | undefined,
+	selected?: RequestModelSnapshot,
+): Pick<RequestPerformance, "provider" | "modelId"> {
+	const nonEmpty = (value: unknown) =>
+		typeof value === "string" && value.trim() ? value.trim() : undefined;
+	const modelId = nonEmpty(message?.model) ?? nonEmpty(message?.responseModel) ?? nonEmpty(selected?.id);
+	// Wrappers can stream the underlying provider's identity unchanged. Only
+	// trust the selected provider when the model IDs agree; a different model
+	// in the event still wins over a stale session snapshot.
+	const provider =
+		(modelId && modelId === nonEmpty(selected?.id) ? nonEmpty(selected?.provider) : undefined) ??
+		nonEmpty(message?.provider) ?? nonEmpty(selected?.provider);
+	return {
+		...(provider ? { provider } : {}),
+		...(modelId ? { modelId } : {}),
+	};
+}
+
 type ActiveRequest = {
 	startedAt: number;
 	firstOutputAt?: number;
@@ -81,19 +101,7 @@ export class RequestPerformanceTracker {
 				return undefined;
 			}
 			const timestamp = message.timestamp;
-			const provider =
-				typeof message.provider === "string" && message.provider.trim()
-					? message.provider.trim()
-					: model?.provider?.trim();
-			// The selected request model is the selector key; responseModel is a
-			// provider fallback for event variants that omit the requested model.
-			const modelId =
-				typeof message.model === "string" && message.model.trim()
-					? message.model.trim()
-					: typeof message.responseModel === "string" &&
-							message.responseModel.trim()
-						? message.responseModel.trim()
-						: model?.id?.trim();
+			const { provider, modelId } = requestModelIdentity(message, model);
 			this.active = {
 				startedAt:
 					typeof timestamp === "number" && timestamp > 0

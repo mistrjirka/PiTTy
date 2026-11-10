@@ -1,4 +1,4 @@
-import type { RequestModelSnapshot } from "./request-metrics.ts";
+import { requestModelIdentity, type RequestModelSnapshot } from "./request-metrics.ts";
 
 export const REQUEST_TIMING_VERSION: 2 = 2;
 
@@ -108,17 +108,9 @@ function updateModelIdentity(
 	message: Record<string, unknown> | undefined,
 	model: RequestModelSnapshot | undefined,
 ): void {
-	if (!turn.provider) {
-		const provider = stringField(message, "provider") ?? model?.provider?.trim();
-		if (provider) turn.provider = provider;
-	}
-	if (!turn.modelId) {
-		const modelId =
-			stringField(message, "model") ??
-			stringField(message, "responseModel") ??
-			model?.id?.trim();
-		if (modelId) turn.modelId = modelId;
-	}
+	const { provider, modelId } = requestModelIdentity(message, model);
+	if (!turn.provider && provider) turn.provider = provider;
+	if (!turn.modelId && modelId) turn.modelId = modelId;
 }
 
 function validTimestamp(value: unknown): number | undefined {
