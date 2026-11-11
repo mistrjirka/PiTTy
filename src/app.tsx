@@ -594,10 +594,6 @@ function keyIs(
 	);
 }
 
-function normalizedQueueText(value: string): string {
-	return value.trim().replace(/\s+/g, " ");
-}
-
 function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
 	return {
 		runId: run.runId,
@@ -1612,7 +1608,7 @@ export function App(props: AppOptions) {
 	};
 	const mainPromptPlaceholder = () =>
 		activeRuntime().conversation.isStreaming
-			? "Enter sends steering immediately · Alt+Enter queues editable follow-up"
+			? "Enter queues steering for the next model step · Alt+Enter queues editable follow-up"
 			: "Ask Pi anything… (/help for commands)";
 	const syncPromptPlaceholder = (text: string) => {
 		if (prompt)
@@ -1908,29 +1904,15 @@ export function App(props: AppOptions) {
 	const inspectedTranscript = createMemo(() =>
 		inspectedTranscriptCache(inspectedTarget(), inspectSubagent()),
 	);
-	const recentlyRenderedUserTexts = () => {
-		const cutoff = Date.now() - 120_000;
-		return new Set(
-			activeRuntime().conversation.items
-				.filter((item) => item.kind === "user" && item.timestamp >= cutoff)
-				.map((item) =>
-					item.kind === "user" ? normalizedQueueText(item.text) : "",
-				),
-		);
-	};
+	// Pi publishes queue_update before consuming a queued user message. Do not
+	// filter by recent transcript text: repeated inputs are separate messages.
 	const steeringQueue = createMemo(() => {
 		conversationRevision();
-		const rendered = recentlyRenderedUserTexts();
-		return [...activeRuntime().conversation.steering].filter(
-			(text) => !rendered.has(normalizedQueueText(text)),
-		);
+		return [...activeRuntime().conversation.steering];
 	});
 	const followUpQueue = createMemo(() => {
 		conversationRevision();
-		const rendered = recentlyRenderedUserTexts();
-		return [...activeRuntime().conversation.followUp].filter(
-			(text) => !rendered.has(normalizedQueueText(text)),
-		);
+		return [...activeRuntime().conversation.followUp];
 	});
 
 	const toast = (
@@ -2642,6 +2624,11 @@ export function App(props: AppOptions) {
 		if (dialog()) return;
 		const text = expandedPromptText().trim();
 		if (!text) return;
+		if (runtime.submitInFlight) {
+			toast("The previous message is still awaiting Pi acknowledgment.", "info");
+			return;
+		}
+		runtime.submitInFlight = true;
 		runtime.promptHistory.recordSubmitted(text);
 		try {
 			if (await handleSlashCommand(text, runtime)) {
@@ -2657,6 +2644,8 @@ export function App(props: AppOptions) {
 				"error",
 			);
 			runtime.onConversationChange();
+		} finally {
+			runtime.submitInFlight = false;
 		}
 	};
 
@@ -5077,7 +5066,7 @@ export function App(props: AppOptions) {
 									promptValue().length > 0
 										? null
 										: streaming()
-											? "Enter sends steering immediately · Alt+Enter queues editable follow-up"
+											? "Enter queues steering for the next model step · Alt+Enter queues editable follow-up"
 											: "Ask Pi anything… (/help for commands)"
 								}
 								wrapMode="word"

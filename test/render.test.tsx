@@ -3731,7 +3731,7 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("1. editable later: short queued");
 	});
 
-	test("keeps sent header and steering row separate when space is available", async () => {
+	test("keeps pending-in-Pi header and steering row separate when space is available", async () => {
 		const setup = await mount(
 			() => (
 				<box width="100%" height="100%" flexDirection="column">
@@ -3754,9 +3754,26 @@ describe("OpenTUI components", () => {
 			14,
 		);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("Already sent to Pi");
-		expect(frame).not.toContain("Already sent to Pi — RPC cannot edit these:");
+		expect(frame).toContain("Queued in Pi, not yet delivered to the model");
+		expect(frame).not.toContain("Already sent to Pi");
 		expect(frame).toContain("steering: short steering");
+	});
+
+	test("renders repeated identical pending messages separately", async () => {
+		const setup = await mount(
+			() => (
+				<PendingInputPanel
+					queuedFollowUps={[]}
+					steering={[".", "."]}
+					followUps={[]}
+					onEditQueuedFollowUp={() => {}}
+				/>
+			),
+			80,
+			12,
+		);
+		const frame = setup.captureCharFrame();
+		expect(frame.match(/steering: \./g)).toHaveLength(2);
 	});
 
 	test("keeps pending steering text intact in an 80x10 layout", async () => {

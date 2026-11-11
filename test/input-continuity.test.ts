@@ -46,13 +46,18 @@ describe("input continuity state", () => {
     expect(queuedPromptMatchesDraft("new text", "queued text")).toBe(false);
   });
 
-  test("snapshots a FIFO batch and restores it ahead of arrivals", () => {
+  test("dispatches local follow-ups individually in FIFO order", () => {
     const queued: LocalQueuedMessage[] = [
       { id: "one", text: " first " },
       { id: "two", text: "second" },
     ];
-    const snapshot = snapshotQueue(queued);
-    expect(snapshot.prompt).toBe("first\n\nsecond");
-    expect(restoreQueue(snapshot.items, [{ id: "three", text: "later" }])).toEqual([...queued, { id: "three", text: "later" }]);
+    const first = snapshotQueue(queued);
+    expect(first.items).toEqual([queued[0]!]);
+    expect(first.prompt).toBe("first");
+    const second = snapshotQueue(queued.slice(first.items.length));
+    expect(second.items).toEqual([queued[1]!]);
+    expect(second.prompt).toBe("second");
+    expect(restoreQueue(first.items, [{ id: "three", text: "later" }])).toEqual([queued[0]!, { id: "three", text: "later" }]);
+    expect(snapshotQueue([])).toEqual({ items: [], prompt: "" });
   });
 });

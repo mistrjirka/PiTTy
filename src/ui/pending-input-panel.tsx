@@ -48,7 +48,7 @@ export function PendingInputPanel(props: PendingInputPanelProps) {
         }}
       >
         <For each={props.queuedFollowUps}>{(item, index) => <box height={1} minHeight={1} flexShrink={0} flexDirection="row" onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); props.onEditQueuedFollowUp(item.id); }}><text height={1} fg={colors.text} selectable wrapMode="none">  {index() + 1}. editable later: {clip(item.text)}</text><box flexGrow={1} /><text height={1} fg={colors.cyan} wrapMode="none">click to edit</text></box>}</For>
-        <Show when={props.steering.length || props.followUps.length}><text height={1} minHeight={1} flexShrink={0} fg={colors.subtle} wrapMode="none">Already sent to Pi</text></Show>
+        <Show when={props.steering.length || props.followUps.length}><text height={1} minHeight={1} flexShrink={0} fg={colors.subtle} wrapMode="none">Queued in Pi, not yet delivered to the model</text></Show>
         <For each={props.steering}>{(text) => <text height={1} minHeight={1} flexShrink={0} fg={colors.muted} selectable wrapMode="none">  steering: {clip(text)}</text>}</For>
         <For each={props.followUps}>{(text) => <text height={1} minHeight={1} flexShrink={0} fg={colors.muted} selectable wrapMode="none">  follow-up: {clip(text)}</text>}</For>
       </scrollbox>
