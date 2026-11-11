@@ -52,10 +52,10 @@ describe("input continuity state", () => {
       { id: "two", text: "second" },
     ];
     const first = snapshotQueue(queued);
-    expect(first.items).toEqual([queued[0]]);
+    expect(first.items).toEqual([queued[0]!]);
     expect(first.prompt).toBe("first");
     const second = snapshotQueue(queued.slice(first.items.length));
-    expect(second.items).toEqual([queued[1]]);
+    expect(second.items).toEqual([queued[1]!]);
     expect(second.prompt).toBe("second");
     expect(restoreQueue(first.items, [{ id: "three", text: "later" }])).toEqual([queued[0], { id: "three", text: "later" }]);
     expect(snapshotQueue([])).toEqual({ items: [], prompt: "" });
