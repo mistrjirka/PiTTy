@@ -21,6 +21,8 @@ type ProfiledStatus = {
   model?: string;
   thinking?: string;
   waitingForParent?: boolean;
+  pendingQuestion?: string;
+  pendingQuestionContext?: string;
   activeTools?: SubagentActiveTool[];
 };
 
@@ -163,6 +165,8 @@ function parseStatus(controlDir: string, statusPath?: string): ProfiledStatus | 
     ...(text(value.model) ? { model: text(value.model)! } : {}),
     ...(text(value.thinking) ? { thinking: text(value.thinking)! } : {}),
     ...(value.waitingForParent === true ? { waitingForParent: true } : {}),
+    ...(value.waitingForParent === true && text(value.pendingQuestion) ? { pendingQuestion: text(value.pendingQuestion)! } : {}),
+    ...(value.waitingForParent === true && text(value.pendingQuestionContext) ? { pendingQuestionContext: text(value.pendingQuestionContext)! } : {}),
     ...(Array.isArray(value.activeTools) ? { activeTools: activeTools(value.activeTools)! } : {}),
   };
 }
@@ -392,6 +396,8 @@ function runFromStatus(controlDir: string, status: ProfiledStatus, options: Prof
     label: status.label,
     mode: status.parentAgentId === "root" ? "profiled" : "nested",
     state: status.state,
+    ...(status.state === "waiting" && status.pendingQuestion ? { pendingQuestion: status.pendingQuestion } : {}),
+    ...(status.state === "waiting" && status.pendingQuestionContext ? { pendingQuestionContext: status.pendingQuestionContext } : {}),
     startedAt: status.startedAt,
     lastUpdate: status.updatedAt,
     // Heartbeats prove liveness, not progress. A real execution start is activity.
