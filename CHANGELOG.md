@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.54
+
+### Subagent questions and reliable queued messages
+
+- Show the live question and context of an `ask_parent` worker in the subagent inspector until it is answered.
+- Keep repeated identical queued messages visible rather than incorrectly hiding them as duplicates of recent transcript text.
+- Dispatch locally queued follow-ups individually, in FIFO order, instead of concatenating separate requests into one prompt.
+- Prevent repeated Enter presses from resubmitting a draft while an RPC acknowledgement is outstanding. Clarify the distinction between accepted and delivered messages.
+
+
 ## 0.6.53
 
 ### Codex Fast speed and timing attribution
