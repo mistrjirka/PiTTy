@@ -612,6 +612,10 @@ describe("batch A data truth", () => {
 		model.apply(event({ type: "queue_update", steering: ["a"], followUp: ["b"] }));
 		expect(model.steering).toEqual(["a"]);
 		expect(model.followUp).toEqual(["b"]);
+		// Identical pending inputs must retain both queue entries.
+		model.apply(event({ type: "queue_update", steering: [".", "."], followUp: ["a", "a"] }));
+		expect(model.steering).toEqual([".", "."]);
+		expect(model.followUp).toEqual(["a", "a"]);
 	});
 
 	test("treats non-boolean compaction flags and non-string errors as absent", () => {

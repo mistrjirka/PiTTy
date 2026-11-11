@@ -136,10 +136,12 @@ export function sessionDrafts(
 export function snapshotQueue(
 	items: readonly LocalQueuedMessage[],
 ): QueueDispatchSnapshot {
-	const snapshot = [...items];
+	// Submit one user request per Pi turn. Joining separate follow-ups changes
+	// their semantics and can hide a message inside another prompt.
+	const first = items[0];
 	return {
-		items: snapshot,
-		prompt: snapshot.map((item) => item.text.trim()).join("\n\n"),
+		items: first ? [first] : [],
+		prompt: first?.text.trim() ?? "",
 	};
 }
 

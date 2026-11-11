@@ -147,6 +147,8 @@ export type ConversationTabRuntime = {
 	/** Configured/connected counts from the adapter's footer status when no snapshot exists yet. */
 	mcpCounts?: McpStatusCounts;
 	queuedFollowUps: LocalQueuedMessage[];
+	/** Prevent repeated Enter presses from submitting the same draft twice before RPC acknowledgment. */
+	submitInFlight: boolean;
 	dispatchGate: DispatchGate;
 	eventVersion: number;
 	abortInFlight?: Promise<void>;
@@ -205,6 +207,7 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		requestTiming: new RequestTimingTracker(),
 		timingHistory: [],
 		queuedFollowUps: [],
+		submitInFlight: false,
 		dispatchGate: { inFlight: false, suppressNextSettled: false },
 		eventVersion: 0,
 		effectiveThinkingLevels: new Map(),
