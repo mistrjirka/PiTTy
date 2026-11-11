@@ -520,6 +520,7 @@ describe("subagent controls", () => {
 		fixture.writeAgent("nested-agent", {
 			agentId: "zoe", profile: "explore", parentAgentId: "max", label: "explore", state: "waiting", startedAt: startedAt + 1,
 			sessionPath: path.join(fixture.runtimeRoot, "zoe.jsonl"), waitingForParent: true,
+			pendingQuestion: "Approve the exact-publication hold?", pendingQuestionContext: "Legal hold prevents deletion",
 		});
 		const tool: ToolItem = {
 			kind: "tool", id: "spawn-tool", toolCallId: "call-spawn", name: "agent_spawn",
@@ -537,6 +538,9 @@ describe("subagent controls", () => {
 			["implementer", "root", "running"],
 		]);
 		expect(targets.every((target) => target.run.control === "profiled" && target.canSteer)).toBe(true);
+		const waiting = targets.find((target) => target.run.agentId === "zoe");
+		expect(waiting?.run.pendingQuestion).toBe("Approve the exact-publication hold?");
+		expect(waiting?.run.pendingQuestionContext).toBe("Legal hold prevents deletion");
 	});
 
 	test("profiled controls support steer/stop but deliberately reject pause/resume", () => {

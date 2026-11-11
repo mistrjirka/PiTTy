@@ -4070,6 +4070,20 @@ describe("OpenTUI components", () => {
 		expect(frame).not.toContain("▤");
 	});
 
+	test("inspector shows the pending ask_parent question without a duplicate model message", async () => {
+		const run: SubagentRun = {
+			runId: "question-1", control: "profiled", controlDir: "/tmp/question-1",
+			mode: "profiled", state: "waiting", agent: "implementer", startedAt: 1_000, steps: [],
+			pendingQuestion: "Approve the retention hold?", pendingQuestionContext: "Delete is blocked",
+		};
+		const target = subagentTargets([run])[0]!;
+		const setup = await mount(() => <SubagentInspector target={target} items={[]} now={2_000} />, 100, 24);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("Awaiting parent answer");
+		expect(frame).toContain("Approve the retention hold?");
+		expect(frame).toContain("Delete is blocked");
+	});
+
 	test("inspector presence indicator follows state, not mere activity", async () => {
 		const makeProfiled = (suffix: string, state: string): SubagentRun => ({
 			runId: `presence-${suffix}`,

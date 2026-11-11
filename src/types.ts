@@ -161,6 +161,9 @@ export type SubagentRun = {
 	sessionFile?: string | undefined;
 	mode: string;
 	state: string;
+	/** Current ask_parent question while this child is waiting, from the live status file. */
+	pendingQuestion?: string | undefined;
+	pendingQuestionContext?: string | undefined;
 	startedAt?: number | undefined;
 	lastUpdate?: number | undefined;
 	endedAt?: number | undefined;

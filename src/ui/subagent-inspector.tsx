@@ -397,6 +397,15 @@ export function SubagentInspector(props: {
 						{activityText()}
 					</text>
 				</Show>
+				<Show when={target().state === "waiting" && run().pendingQuestion}>
+					<box flexDirection="column" border={["left"]} borderColor={colors.purple} paddingLeft={1}>
+						<text fg={colors.purple} attributes={1}>Awaiting parent answer</text>
+						<text fg={colors.textBright} selectable wrapMode="word">{run().pendingQuestion}</text>
+						<Show when={run().pendingQuestionContext}>
+							<text fg={colors.muted} selectable wrapMode="word">{run().pendingQuestionContext}</text>
+						</Show>
+					</box>
+				</Show>
 				<For each={activeTools()}>
 					{(tool) => (
 						<text minHeight={1} flexShrink={0} wrapMode="word" fg={colors.cyan}>
