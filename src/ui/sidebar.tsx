@@ -36,6 +36,7 @@ import {
 	type McpStatusSnapshot,
 } from "../state/mcp-status.ts";
 import type { McpConfiguredSummary } from "../config/mcp-config.ts";
+import { backgroundStatus, type BackgroundTask } from "../state/background-tasks.ts";
 export type SidebarPanelVisibility = {
 	subagents: boolean;
 	todos: boolean;
@@ -200,6 +201,8 @@ export function Sidebar(props: {
 		| McpConfiguredSummary
 		| Accessor<McpConfiguredSummary | undefined>
 		| undefined;
+	backgroundTasks?: BackgroundTask[] | Accessor<BackgroundTask[]>;
+	onOpenBackgroundTask?: (id: string) => void;
 	notifications?:
 		| NotificationRecord[]
 		| Accessor<NotificationRecord[]>
@@ -215,6 +218,10 @@ export function Sidebar(props: {
 		typeof props.tools === "function" ? props.tools() : (props.tools ?? []);
 	const todos = () =>
 		typeof props.todos === "function" ? props.todos() : (props.todos ?? []);
+	const backgroundTasks = () =>
+		typeof props.backgroundTasks === "function"
+			? props.backgroundTasks()
+			: (props.backgroundTasks ?? []);
 	const notifications = () =>
 		typeof props.notifications === "function"
 			? props.notifications()
@@ -322,8 +329,15 @@ export function Sidebar(props: {
 			? 1
 			: 0) +
 		mcpRows();
+	// When present, reserve a small bounded panel rather than stealing all
+	// rows from subagents, todos and notifications on shorter terminals.
+	const backgroundHeight = () => {
+		const remaining = sidebarHeight() - fixedHeaderRows();
+		if (!backgroundTasks().length || remaining < 6) return 0;
+		return Math.min(7, 2 + Math.max(1, Math.floor(remaining / 4)), backgroundTasks().length + 2);
+	};
 	const availableBodyRows = () =>
-		Math.max(0, sidebarHeight() - fixedHeaderRows());
+		Math.max(0, sidebarHeight() - fixedHeaderRows() - backgroundHeight());
 	const panelAllocation = () =>
 		allocateSidebarPanels(availableBodyRows(), {
 			subagents: hasSubagents(),
@@ -550,6 +564,57 @@ export function Sidebar(props: {
 				// @ts-expect-error Accessor children are supported by the JSX runtime.
 				() => (
 					<>
+						<Show when={backgroundHeight() > 0}>
+							<box
+								id="background-panel"
+								height={backgroundHeight()}
+								minHeight={backgroundHeight()}
+								flexShrink={0}
+								flexDirection="column"
+								border={["top"]}
+								borderColor={colors.borderStrong}
+							>
+								<text height={1} fg={colors.textBright} attributes={1}>
+									{clip(`Background (${backgroundTasks().filter((task) => task.state === "running").length} active · ${backgroundTasks().length} total)`, 31)}
+								</text>
+								<scrollbox
+									id="background-scroll"
+									flexGrow={1}
+									minHeight={1}
+									scrollY
+									scrollX={false}
+									viewportCulling
+								>
+									<For each={backgroundTasks()}>
+										{(task) => (
+											<box
+												id={`background-row-${task.id}`}
+												height={1}
+												minHeight={1}
+												flexShrink={0}
+												border={["left"]}
+												borderColor={task.state === "running" ? colors.green : task.exitCode === 0 ? colors.borderStrong : colors.red}
+												paddingLeft={1}
+												onMouseDown={(event) => {
+													event.preventDefault();
+													event.stopPropagation();
+													props.onOpenBackgroundTask?.(task.id);
+												}}
+											>
+												<text
+													height={1}
+													width="100%"
+													fg={task.state === "running" ? colors.textBright : colors.muted}
+													wrapMode="none"
+												>
+													{clip(`${task.state === "running" ? "●" : task.state === "exited" && task.exitCode === 0 ? "✓" : "×"} ${task.id} ${task.command.replace(/\\s+/g, " ").trim() || backgroundStatus(task)}`, 31)}
+												</text>
+											</box>
+										)}
+									</For>
+								</scrollbox>
+							</box>
+						</Show>
 						<Show when={hasSubagents()}>
 							<box
 								id="subagent-panel"

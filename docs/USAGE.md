@@ -200,3 +200,7 @@ Use a modern monospace terminal font with box-drawing support. Very small termin
 ### Login is unavailable
 
 Run the regular `pi` interface, complete `/login`, exit Pi, and start PiTTy again.
+
+### Background jobs
+
+Install `pi install npm:pi-bg-bash` to enable the optional background shell tools. While a Pi session is active, the right sidebar shows up to 100 current or recent jobs. Select a job to inspect its original command, current status, and scrollable output. **Older**, **Newer**, and **Latest** navigate 64-KiB output pages. **Analyze with Pi** is opt-in and sends the selected page to Pi. The viewer is read-only and does not consume the `bash_output` cursor.

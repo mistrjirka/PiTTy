@@ -13,6 +13,7 @@ import { MessageUpdateBatcher } from "../state/message-update-batcher.ts";
 import { PromptHistory } from "../state/prompt-history.ts";
 import type { DraftState, DispatchGate, LocalQueuedMessage } from "../state/input-continuity.ts";
 import type { McpStatusCounts, McpStatusSnapshot } from "../state/mcp-status.ts";
+import type { BackgroundSnapshot } from "../state/background-tasks.ts";
 import { RequestPerformanceTracker, type RequestPerformance } from "./request-metrics.ts";
 import { CacheMissWatch, type CacheWarning } from "./cache-miss-watch.ts";
 import {
@@ -146,6 +147,8 @@ export type ConversationTabRuntime = {
 	mcpStatus?: McpStatusSnapshot;
 	/** Configured/connected counts from the adapter's footer status when no snapshot exists yet. */
 	mcpCounts?: McpStatusCounts;
+	/** Read-only pi-bg-bash snapshot from PiTTy\x27s bundled observer. */
+	background?: BackgroundSnapshot;
 	queuedFollowUps: LocalQueuedMessage[];
 	/** Prevent repeated Enter presses from submitting the same draft twice before RPC acknowledgment. */
 	submitInFlight: boolean;

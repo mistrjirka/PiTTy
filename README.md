@@ -36,7 +36,7 @@ An empty session opens straight into the chat with a passive dashboard of recent
 - **Live themes.** Ten presets plus full color-token editing, applied immediately.
 - **Optional extra panels.** Todo, MCP server management, and an MCP counter with hover details appear when the matching Pi packages are installed.
 
-Pi extensions generally keep working: commands, tools, prompt templates, skills, notifications, status updates, and standard dialogs flow through RPC. Custom `pi-tui` component trees are not serialized, so extension-owned renderers won't look identical, and interactive `/login` is done once in regular Pi.
+Pi extensions generally keep working: commands, tools, prompt templates, skills, notifications, status updates, and standard dialogs flow through RPC. With `pi-bg-bash` installed, the right sidebar lists background jobs. Select a job to inspect its original command and paged output, or explicitly request analysis with Pi. Custom `pi-tui` component trees are not serialized, so extension-owned renderers won't look identical, and interactive `/login` is done once in regular Pi.
 
 ## Install
 
@@ -111,6 +111,7 @@ PiTTy works without extra packages. These add specialized panels when installed:
 | `npm:@juicesharp/rpiv-todo` | Active and completed Todo panels |
 | `npm:pi-web-access` | Web search and page-fetch tools for Pi |
 | `npm:pi-diet-semble` | Semantic code search for Pi |
+| `npm:pi-bg-bash` | Background jobs: status, original command, 64-KiB output pages, and optional analysis |
 | `npm:pi-hermes-memory` | Persistent memory behind PiTTy's Memory browser |
 | `npm:pi-mcp-adapter` | MCP config management and connection status; not needed with Pi's built-in MCP |
 | `npm:pi-subagents` | Legacy workflow child-agent support, including pause/resume and queued steering |

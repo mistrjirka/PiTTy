@@ -203,6 +203,8 @@ import {
 	type MemorySnapshot,
 } from "./integrations/memory-store.ts";
 import { Sidebar } from "./ui/sidebar.tsx";
+import { BackgroundTaskDialog } from "./ui/background-task-dialog.tsx";
+import { BG_STATUS_KEY, parseBackgroundSnapshot, readBackgroundOutput, type BackgroundOutputPage } from "./state/background-tasks.ts";
 import { cleanInline, clip } from "./ui/model-context.tsx";
 import { NotificationDialog } from "./ui/notification-dialog.tsx";
 import { SubagentInspector, inspectedTargetScrollY } from "./ui/subagent-inspector.tsx";
@@ -1213,6 +1215,17 @@ export function App(props: AppOptions) {
 				}
 				return;
 			}
+			if (event.method === "setStatus" && event.statusKey === BG_STATUS_KEY) {
+				const snapshot = typeof event.statusText === "string"
+					? parseBackgroundSnapshot(event.statusText)
+					: undefined;
+				if (snapshot && (!tabRuntime.sessionState?.sessionId ||
+					snapshot.sessionId === tabRuntime.sessionState.sessionId)) {
+					tabRuntime.background = snapshot;
+					if (tabRuntime.id === activeTabId()) touch();
+				}
+				return;
+			}
 			if (event.method === "setStatus" && event.statusKey === MCP_STATUS_KEY) {
 				const snapshot =
 					typeof event.statusText === "string"
@@ -1304,6 +1317,7 @@ export function App(props: AppOptions) {
 		const targetRuntime = runtimeMap().get(id);
 		if (!targetRuntime) return;
 		const targetText = sessionDrafts(targetRuntime.drafts, targetRuntime.sessionState?.sessionId ?? props.cwd).main;
+		if (backgroundSelection()?.runtimeId !== id) closeBackgroundTask();
 		if (dialogOwnerRuntimeId() && dialogOwnerRuntimeId() !== id) {
 			setDialog(undefined);
 			setDialogOwnerRuntimeId(undefined);
@@ -1516,6 +1530,14 @@ export function App(props: AppOptions) {
 	>([]);
 	const [notificationDetailId, setNotificationDetailId] =
 		createSignal<string>();
+	const [backgroundSelection, setBackgroundSelection] = createSignal<
+		{ runtimeId: string; sessionId: string; id: string } | undefined
+	>();
+	const [backgroundOutput, setBackgroundOutput] = createSignal<BackgroundOutputPage>();
+	const [backgroundOutputError, setBackgroundOutputError] = createSignal<string>();
+	const [backgroundOutputBusy, setBackgroundOutputBusy] = createSignal(false);
+	let backgroundOutputRequest = 0;
+	let lastBackgroundPoll = 0;
 	const [todoDetailId, setTodoDetailId] = createSignal<string>();
 	const [status, setStatus] = createSignal("starting Pi…");
 	const startupStartedAt = Date.now();
@@ -2776,6 +2798,7 @@ export function App(props: AppOptions) {
 		if (
 			startupPhase().kind !== "ready" ||
 			dialog() ||
+			backgroundSelection() ||
 			notificationDetailId() ||
 			todoDetailId() ||
 			modelSelectorOpen() ||
@@ -2792,6 +2815,7 @@ export function App(props: AppOptions) {
 		queueMicrotask(() => {
 			if (
 				!dialog() &&
+				!backgroundSelection() &&
 				!modelSelectorOpen() &&
 				!sessionSelectorOpen() &&
 				!forkPickerOpen() &&
@@ -2822,6 +2846,80 @@ export function App(props: AppOptions) {
 		);
 		setNotificationDetailId(recordId);
 	};
+	const backgroundTasks = () => {
+		revision();
+		return activeRuntime().background?.tasks ?? [];
+	};
+	const selectedBackgroundTask = () => {
+		const selection = backgroundSelection();
+		if (!selection || selection.runtimeId !== activeTabId()) return undefined;
+		return backgroundTasks().find((task) => task.id === selection.id);
+	};
+	const showBackgroundOutputPage = async (page: number) => {
+		const selection = backgroundSelection();
+		if (!selection) return;
+		const request = ++backgroundOutputRequest;
+		setBackgroundOutputBusy(true);
+		setBackgroundOutputError(undefined);
+		try {
+			const output = await readBackgroundOutput(selection.sessionId, selection.id, page);
+			if (request === backgroundOutputRequest && backgroundSelection() === selection) {
+				setBackgroundOutput((previous) =>
+					previous?.page === output.page && previous.totalBytes === output.totalBytes &&
+					previous.text === output.text && previous.available === output.available
+						? previous : output,
+				);
+			}
+		} catch (error) {
+			if (request === backgroundOutputRequest)
+				setBackgroundOutputError(error instanceof Error ? error.message : String(error));
+		} finally {
+			if (request === backgroundOutputRequest) setBackgroundOutputBusy(false);
+		}
+	};
+	const openBackgroundTask = (id: string) => {
+		const snapshot = activeRuntime().background;
+		if (!snapshot?.tasks.some((task) => task.id === id)) return;
+		backgroundOutputRequest++;
+		setBackgroundOutput(undefined);
+		setBackgroundOutputError(undefined);
+		setBackgroundSelection({ runtimeId: activeTabId(), sessionId: snapshot.sessionId, id });
+		lastBackgroundPoll = Date.now();
+		void showBackgroundOutputPage(0);
+	};
+	const closeBackgroundTask = () => {
+		backgroundOutputRequest++;
+		setBackgroundSelection(undefined);
+		setBackgroundOutput(undefined);
+		setBackgroundOutputError(undefined);
+		queueMicrotask(focusMainPrompt);
+	};
+	const analyzeBackgroundTask = () => {
+		const task = selectedBackgroundTask();
+		const output = backgroundOutput();
+		if (!task) return;
+		const context = [
+			"Analyze this background command and its observed output. Identify any problems and suggest fixes. Do not modify files or run commands unless requested.",
+			`Working directory: ${task.cwd}`,
+			`Command (${task.commandTruncated ? "observer excerpt, original longer" : "original"}):\n${task.command}`,
+			`Status: ${task.state}${task.exitCode === undefined ? "" : ` (exit ${task.exitCode})`}`,
+			`Output (${output ? `bytes ${output.startByte}-${output.endByte} of ${output.totalBytes}` : "not available"}):\n${output?.text.slice(-12000) ?? ""}`,
+		].join("\n\n");
+		closeBackgroundTask();
+		void sendText(context).catch((error) =>
+			toast(`Unable to submit analysis: ${error instanceof Error ? error.message : String(error)}`, "error"),
+		);
+	};
+	// Refresh the opened log only. Never run filesystem reads on model/tool turns.
+	createEffect(() => {
+		const selection = backgroundSelection();
+		const task = selectedBackgroundTask();
+		const now = clockNow();
+		if (!selection || task?.state !== "running" || backgroundOutput()?.page !== 0) return;
+		if (now - lastBackgroundPoll < 1_800 || backgroundOutputBusy()) return;
+		lastBackgroundPoll = now;
+		void showBackgroundOutputPage(0);
+	});
 	const closeNotification = () => {
 		setNotificationDetailId(undefined);
 		queueMicrotask(focusMainPrompt);
@@ -4418,6 +4516,14 @@ export function App(props: AppOptions) {
 			}
 			return;
 		}
+		if (backgroundSelection()) {
+			if (event.name === "escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				closeBackgroundTask();
+			}
+			return;
+		}
 		if (notificationDetailId()) {
 			if (event.name === "escape") {
 				event.preventDefault();
@@ -5056,6 +5162,7 @@ export function App(props: AppOptions) {
 								focused={
 									startupPhase().kind === "ready" &&
 									!dialog() &&
+									!backgroundSelection() &&
 									!modelSelectorOpen() &&
 									!sessionSelectorOpen() &&
 									!forkPickerOpen() &&
@@ -5185,6 +5292,8 @@ export function App(props: AppOptions) {
 						mcpCounts={mcpCounts}
 						mcpConfigured={mcpConfiguredSummary}
 						notifications={notificationHistory}
+						backgroundTasks={backgroundTasks}
+						onOpenBackgroundTask={openBackgroundTask}
 						onOpenNotification={openNotification}
 						height={() => dimensions().height - 1}
 						onInspectTarget={(targetKey) => {
@@ -5524,6 +5633,17 @@ export function App(props: AppOptions) {
 					notice={modelListNotice()}
 					onSelect={(model) => void selectModel(model)}
 					onCancel={closeModelSelector}
+				/>
+			</Show>
+			<Show when={backgroundSelection() && selectedBackgroundTask()}>
+				<BackgroundTaskDialog
+					task={selectedBackgroundTask}
+					output={backgroundOutput}
+					busy={backgroundOutputBusy()}
+					{...(backgroundOutputError() ? { error: backgroundOutputError() } : {})}
+					onPage={(page) => void showBackgroundOutputPage(page)}
+					onAnalyze={analyzeBackgroundTask}
+					onClose={closeBackgroundTask}
 				/>
 			</Show>
 			<Show when={notificationDetailId()}>

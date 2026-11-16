@@ -10,7 +10,7 @@ import { registerBundledParsers } from "./ui/parsers.ts";
 import { detectOptionalIntegrations } from "./integrations/detect.ts";
 import { appVersion } from "./version.ts";
 import { resolveDefaultPiExecutable } from "./pi-command.ts";
-import { resolveBundledMcpObserverPath, resolveBundledPiExtensionPath } from "./runtime-paths.ts";
+import { resolveBundledBackgroundObserverPath, resolveBundledMcpObserverPath, resolveBundledPiExtensionPath } from "./runtime-paths.ts";
 
 registerBundledParsers();
 
@@ -45,6 +45,8 @@ const piArgs: string[] = [
   resolveBundledPiExtensionPath(process.env.PITTY_APP_ROOT, import.meta.dir),
   "--extension",
   resolveBundledMcpObserverPath(process.env.PITTY_APP_ROOT, import.meta.dir),
+  "--extension",
+  resolveBundledBackgroundObserverPath(process.env.PITTY_APP_ROOT, import.meta.dir),
 ];
 if (parsed.values.continue) piArgs.push("--continue");
 if (typeof parsed.values.session === "string") piArgs.push("--session", parsed.values.session);
