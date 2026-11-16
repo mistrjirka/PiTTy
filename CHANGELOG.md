@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.55
+
+- Avoid parsing full tool output when collapsed. Large code and shell results now use a bounded preview, with complete output preserved on expansion.
+- Defer hidden output text layout and diff-node creation until expanded. This reduces UI event-loop work around large tool results.
+- Add regression coverage for large collapsed output and full output on demand.
+
 ## 0.6.54
 
 ### Subagent questions and reliable queued messages

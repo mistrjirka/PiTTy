@@ -105,10 +105,17 @@ function prettyArgs(args: unknown): string {
 }
 
 function expandedToolHeight(output: string): number {
-	return Math.max(6, Math.min(18, output.split("\n").length + 1));
+	// Layout is capped at 18 rows. Avoid allocating every line of a large log.
+	let lines = 1;
+	for (let i = 0; i < output.length && lines < 18; i++) {
+		if (output.charCodeAt(i) === 10) lines++;
+	}
+	return Math.max(6, Math.min(18, lines + 1));
 }
 
 export function toolOutputExpandable(output: string): boolean {
+	// Long outputs are already bigger than the collapsed preview.
+	if (output.length > 512) return true;
 	const clean = cleanTerminalText(output).trimEnd();
 	if (!clean) return false;
 	const lines = clean.split("\n");
@@ -125,9 +132,13 @@ export function toolOutputExpandable(output: string): boolean {
 }
 
 function collapsedPreview(output: string): string {
-	const normalized = cleanTerminalText(output).replace(/\s+/g, " ").trim();
-	if (!normalized) return "";
-	return normalized.length > 100 ? `${normalized.slice(0, 97)}…` : normalized;
+	// Inspect a bounded prefix. Full output is rendered only when expanded.
+	const prefixLimit = 4096;
+	const normalized = cleanTerminalText(output.slice(0, prefixLimit)).replace(/\s+/g, " ").trim();
+	if (!normalized) return output.length > prefixLimit ? "…" : "";
+	return normalized.length > 100 || output.length > prefixLimit
+		? normalized.slice(0, 97) + "…"
+		: normalized;
 }
 
 export function cleanThinkingText(value: string): string {
@@ -295,6 +306,13 @@ function ToolDetails(props: {
 	const toolExpanded = () => expandable() && resolvedBoolean(props.toolExpanded);
 	const diffExpanded = () => resolvedBoolean(props.diffExpanded);
 	const stats = () => diffStats(diff());
+	// Hidden OpenTUI nodes still process their text. Gate full output and diff
+	// preprocessing behind the user's explicit expansion.
+	const expandedOutputText = createMemo(() => toolExpanded() ? cleanTerminalText(output()) : "");
+	const expandedOutputRows = () => toolExpanded() ? expandedToolHeight(output()) : 6;
+	const expandedDiffLines = createMemo(() => diffExpanded() ? diffLines(diff()) : []);
+	const expandedDiffRows = () => diffExpanded()
+		? Math.max(6, Math.min(22, expandedDiffLines().length)) : 6;
 	const [scrollOwner, setScrollOwner] = createSignal<
 		"transcript" | "output" | "diff"
 	>("transcript");
@@ -450,12 +468,12 @@ function ToolDetails(props: {
 									outputPreviewBox = value;
 								}}
 								visible={scrollOwner() !== "output"}
-								height={expandedToolHeight(output())}
+								height={expandedOutputRows()}
 								minHeight={6}
 								overflow="hidden"
 							>
 								<text fg={colors.muted} selectable wrapMode="word">
-									{cleanTerminalText(output())}
+									{expandedOutputText()}
 								</text>
 							</box>
 							<scrollbox
@@ -465,7 +483,7 @@ function ToolDetails(props: {
 								}}
 								visible={scrollOwner() === "output"}
 								focusable={false}
-								height={expandedToolHeight(output())}
+								height={expandedOutputRows()}
 								minHeight={6}
 								scrollY
 								scrollX={false}
@@ -479,7 +497,7 @@ function ToolDetails(props: {
 								verticalScrollbarOptions={{ showArrows: false }}
 							>
 								<text fg={colors.muted} selectable wrapMode="word">
-									{cleanTerminalText(output())}
+									{expandedOutputText()}
 								</text>
 							</scrollbox>
 						</box>
@@ -579,12 +597,12 @@ function ToolDetails(props: {
 								diffPreviewBox = value;
 							}}
 							visible={scrollOwner() !== "diff"}
-							height={expandedDiffHeight(diff())}
+							height={expandedDiffRows()}
 							minHeight={6}
 							overflow="hidden"
 							backgroundColor={colors.diffBg}
 						>
-							<For each={diffLines(diff())}>
+							<For each={expandedDiffLines()}>
 								{(line) => (
 									<text
 										fg={diffLineColor(line)}
@@ -604,7 +622,7 @@ function ToolDetails(props: {
 							}}
 							visible={scrollOwner() === "diff"}
 							focusable={false}
-							height={expandedDiffHeight(diff())}
+							height={expandedDiffRows()}
 							minHeight={6}
 							scrollY
 							scrollX={false}
@@ -616,7 +634,7 @@ function ToolDetails(props: {
 							}}
 							verticalScrollbarOptions={{ showArrows: false }}
 						>
-							<For each={diffLines(diff())}>
+							<For each={expandedDiffLines()}>
 								{(line) => (
 									<text
 										fg={diffLineColor(line)}
