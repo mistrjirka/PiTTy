@@ -66,6 +66,39 @@ describe("MessageUpdateBatcher", () => {
 		expect(batches).toEqual([[first, second], [third]]);
 	});
 
+	test("coalesces adjacent text only when enabled and preserves event order", () => {
+		const applied: PiEvent[] = [];
+		const batcher = new MessageUpdateBatcher({
+			applyEvent: (event) => applied.push(event),
+			mergeTextDeltas: true,
+		});
+		const first = update(0, "a");
+		const second = update(0, "a");
+		const thinking = { type: "message_update", assistantMessageEvent: {
+			type: "thinking_delta", contentIndex: 1, delta: "b",
+		} } as PiEvent;
+		batcher.handle(first);
+		batcher.handle(second);
+		batcher.handle(thinking);
+		batcher.handle(update(0, "c"));
+		batcher.flush();
+		const deltas = applied.map((event) => (
+			(event as Record<string, any>).assistantMessageEvent.delta
+		));
+		expect(deltas).toEqual(["aa", "b", "c"]);
+		expect((first as Record<string, any>).assistantMessageEvent.delta).toBe("a");
+	});
+	test("never merges deltas with full provider snapshots", () => {
+		const applied: PiEvent[] = [];
+		const batcher = new MessageUpdateBatcher({
+			applyEvent: (event) => applied.push(event), mergeTextDeltas: true,
+		});
+		batcher.handle(update(0, "first"));
+		batcher.handle({ ...update(0, "second"), message: { role: "assistant" } } as PiEvent);
+		batcher.flush();
+		expect(applied).toHaveLength(2);
+	});
+
 	test("stale timer cannot replay after explicit flush", () => {
 		const timers: Timer[] = [];
 		const applied: PiEvent[] = [];

@@ -230,6 +230,51 @@ describe("ConversationModel", () => {
 		}
 	});
 
+	test("does not build mutation previews for read-only tool events", () => {
+		const cwd = mkdtempSync(path.join(tmpdir(), "piui-read-"));
+		try {
+			writeFileSync(path.join(cwd, "data.txt"), "x".repeat(2 * 1024 * 1024));
+			const model = new ConversationModel([], cwd);
+			model.apply(event({
+				type: "tool_execution_start",
+				toolCallId: "read-large",
+				toolName: "read",
+				args: { path: "data.txt" },
+			}));
+			expect(model.items[0]?.kind).toBe("tool");
+			expect(model.items[0]?.kind === "tool" && model.items[0].diff).toBeUndefined();
+			expect(model.items[0]?.kind === "tool" && model.items[0].diffPath).toBeUndefined();
+			model.apply(event({
+				type: "tool_execution_end",
+				toolCallId: "read-large",
+				toolName: "read",
+				result: { content: [{ type: "text", text: "file inspected" }] },
+				isError: false,
+			}));
+			expect(model.items[0]?.kind === "tool" && model.items[0].output).toBe("file inspected");
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	test("avoids expensive diff previews for files above 1 MiB", () => {
+		const cwd = mkdtempSync(path.join(tmpdir(), "piui-large-"));
+		try {
+			writeFileSync(path.join(cwd, "large.ts"), "a".repeat(1_048_577));
+			const model = new ConversationModel([], cwd);
+			model.apply(event({
+				type: "tool_execution_start",
+				toolCallId: "large-write",
+				toolName: "write",
+				args: { path: "large.ts", content: "const changed = true;\\n" },
+			}));
+			expect(model.items[0]?.kind === "tool" && model.items[0].diff).toBeUndefined();
+			expect(model.items[0]?.kind === "tool" && model.items[0].diffPath).toBe("large.ts");
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
 	test("correlates tool progress by tool call id", () => {
 		const model = new ConversationModel();
 		model.apply(

@@ -787,6 +787,7 @@ export function App(props: AppOptions) {
 	const conversation = new ConversationModel([], props.cwd);
 	const [revision, setRevision] = createSignal(0);
 	const [conversationRevision, setConversationRevision] = createSignal(0);
+	const [conversationStructureRevision, setConversationStructureRevision] = createSignal(0);
 	const [compactionRevision, setCompactionRevision] = createSignal(0);
 	const [messageWindowStart, setMessageWindowStart] = createSignal(0);
 
@@ -1357,7 +1358,7 @@ export function App(props: AppOptions) {
 		const runtime = createTabRuntime({ id, cwd: props.cwd, args: sessionFile ? props.piArgs : blankTabPiArgs(props.piArgs), ...(props.piExecutable ? { executable: props.piExecutable } : {}), ...(sessionFile ? { sessionFile } : {}), logger: props.logger, ...(claudeLaunchEnv ? { env: claudeLaunchEnv } : {}),
 			onCacheWarning: notifyCacheWarning,
 			onEvent: routeRuntimeEvent,
-			onConversationChange: (tabRuntime) => { if (tabRuntime.id === activeTabId()) conversationTouch(); },
+			onConversationChange: (tabRuntime, reason) => { if (tabRuntime.id === activeTabId()) conversationTouch(reason); },
 		});
 		setRuntimeMap((current) => new Map(current).set(id, runtime));
 		activateTab(id);
@@ -1415,7 +1416,7 @@ export function App(props: AppOptions) {
 				if (isExtensionUiRequest(event))
 					void runtime.client.sendExtensionUiResponse(provisionalExtensionUiResponse(event)).catch((cancelError) => props.logger.warn("tabs.provisional_extension_response_failed", cancelError));
 			},
-			onConversationChange: (tabRuntime) => { if (tabRuntime.id === activeTabId()) conversationTouch(); },
+			onConversationChange: (tabRuntime, reason) => { if (tabRuntime.id === activeTabId()) conversationTouch(reason); },
 		});
 		provisionalRuntimes.add(provisional);
 		try {
@@ -1476,7 +1477,7 @@ export function App(props: AppOptions) {
 			props.logger.warn("tabs.history_load_raced_live_events", { runtimeId: runtime.id });
 			return;
 		}
-		runtime.conversation.items.splice(0, runtime.conversation.items.length, ...initialItems(messages));
+		runtime.conversation.replaceItems(initialItems(messages));
 		await refreshRuntimeEntries(runtime).catch((error) =>
 			props.logger.warn("tabs.entry_refresh_failed", error),
 		);
@@ -1490,7 +1491,7 @@ export function App(props: AppOptions) {
 	const bootRuntime = createTabRuntime({ id: "main", cwd: props.cwd, client, conversation,
 		onCacheWarning: notifyCacheWarning,
 		onEvent: routeRuntimeEvent,
-		onConversationChange: (tabRuntime) => { if (tabRuntime.id === activeTabId()) conversationTouch(); },
+		onConversationChange: (tabRuntime, reason) => { if (tabRuntime.id === activeTabId()) conversationTouch(reason); },
 	});
 	extensionRouter.setActive("main");
 	setRuntimeMap(new Map([["main", bootRuntime]]));
@@ -1767,16 +1768,24 @@ export function App(props: AppOptions) {
 	});
 
 	const touch = () => setRevision((value) => value + 1);
-	const conversationTouch = () => setConversationRevision((value) => value + 1);
+	const conversationTouch = (reason: "stream" | "structure" = "structure") => {
+		setConversationRevision((value) => value + 1);
+		if (reason === "structure") setConversationStructureRevision((value) => value + 1);
+	};
 	const visibleSidebar = createMemo(
 		() => sidebarEnabled() && dimensions().width >= 104,
 	);
-	const items = createMemo(() => {
+	// Accessing the live array is O(1). The window memo below makes a fresh
+	// slice for Solid so updated rows still render. Copying the *entire*
+	// conversation on every stream batch scaled with session length.
+	const items = (): ConversationItem[] => {
 		conversationRevision();
-		// ConversationModel mutates its array in place. Return a new reference so
-		// Solid propagates updates to <For>; otherwise resumed messages stay blank.
-		return [...activeRuntime().conversation.items];
-	});
+		return activeRuntime().conversation.items;
+	};
+	const structureItems = (): ConversationItem[] => {
+		conversationStructureRevision();
+		return activeRuntime().conversation.items;
+	};
 	const visibleItems = createMemo(() => {
 		const all = items();
 		const start = clampMessageWindowStart(all.length, messageWindowStart());
@@ -1789,14 +1798,14 @@ export function App(props: AppOptions) {
 		visibleItems().map((item) => item.id),
 	);
 	const promptMapEntries = createMemo<PromptMapEntry[]>(() =>
-		items().flatMap((item) =>
+		structureItems().flatMap((item) =>
 			item.kind === "user"
 				? [{ id: item.id, text: item.text, timestamp: item.timestamp }]
 				: [],
 		),
 	);
 	const todos = createMemo<TodoViewItem[]>((previous) =>
-		preserveEquivalentTodos(previous, deriveTodos(items())),
+		preserveEquivalentTodos(previous, deriveTodos(structureItems())),
 	);
 	const subagentsAvailable = createMemo(
 		() => props.integrations.subagents.installed || runs().length > 0,
@@ -1853,7 +1862,7 @@ export function App(props: AppOptions) {
 	const subagentTools = createMemo<ToolItem[]>((previous) =>
 		preserveReferencedList(
 			previous,
-			items().filter((item): item is ToolItem => item.kind === "tool"),
+			structureItems().filter((item): item is ToolItem => item.kind === "tool"),
 		),
 	);
 	const availableSubagentTargets = createMemo(() =>
@@ -2271,7 +2280,7 @@ export function App(props: AppOptions) {
 			runtime.client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS),
 		]);
 		const historyItems = initialItems(messages);
-		runtime.conversation.items.splice(0, runtime.conversation.items.length, ...historyItems);
+		runtime.conversation.replaceItems(historyItems);
 		runtime.conversation.isStreaming = state.isStreaming;
 		runtime.conversation.steering = [];
 		runtime.conversation.followUp = [];
@@ -2588,10 +2597,7 @@ export function App(props: AppOptions) {
 			try {
 				await runtime.client.prompt(text);
 			} catch (error) {
-				const index = runtime.conversation.items.findIndex(
-					(item) => item.id === optimisticId,
-				);
-				if (index >= 0) runtime.conversation.items.splice(index, 1);
+				runtime.conversation.removeItem(optimisticId);
 				if (tabRuntimeIsActive(runtime.id)) conversationTouch();
 				throw error;
 			}
@@ -4006,11 +4012,7 @@ export function App(props: AppOptions) {
 				if (startupFailure) throw startupFailure;
 				setCommandChoices(mergeCommandChoices(remoteCommands));
 				const historyItems = initialItems(messages);
-				startupRuntime.conversation.items.splice(
-					0,
-					startupRuntime.conversation.items.length,
-					...historyItems,
-				);
+				startupRuntime.conversation.replaceItems(historyItems);
 				resetMessageWindow(historyItems.length);
 				props.logger.info("ui.history_loaded", {
 					rpcMessages: messages.length,

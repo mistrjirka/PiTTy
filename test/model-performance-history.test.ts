@@ -21,7 +21,7 @@ describe("model performance history", () => {
     saveModelPerformanceHistory(history, file);
     const loaded = loadModelPerformanceHistory(file);
     expect(modelPerformanceStats(loaded, "openai", "gpt")).toEqual({ medianTtftMs: 200, medianOutputTokensPerSecond: 15 });
-    expect(formatModelPerformanceStats(modelPerformanceStats(loaded, "openai", "gpt"))).toBe("{15 tok/s · 200ms TTFT}");
+    expect(formatModelPerformanceStats(modelPerformanceStats(loaded, "openai", "gpt"))).toBe("{15 tok/s · 200ms turn→first}");
   });
 
   test("prunes samples older than 31 days and ignores malformed history", () => {
@@ -79,14 +79,16 @@ describe("model performance history", () => {
     }
   });
 
-  test("records version 2 samples and prefers them over legacy samples", () => {
+  test("uses version 3 samples and never mixes previous measurement boundaries", () => {
     const now = Date.now();
     const key = "openai\u0000gpt";
     const recorded = recordModelPerformanceSample({}, "openai", "gpt", { ttftMs: 100, generationMs: 1000, outputTokens: 20 }, now);
-    expect(recorded[key]?.[0]?.version).toBe(2);
+    expect(recorded[key]?.[0]?.version).toBe(3);
     const legacy = { timestamp: now - 1_000, ttftMs: 5, outputTokensPerSecond: 5_000 };
-    expect(modelPerformanceStats({ [key]: [legacy] }, "openai", "gpt")).toEqual({ medianTtftMs: 5, medianOutputTokensPerSecond: 5_000 });
-    expect(modelPerformanceStats({ [key]: [legacy, ...recorded[key]!] }, "openai", "gpt")).toEqual({ medianTtftMs: 100, medianOutputTokensPerSecond: 20 });
+    expect(modelPerformanceStats({ [key]: [legacy] }, "openai", "gpt")).toBeUndefined();
+    const previous = { timestamp: now - 500, ttftMs: 1, outputTokensPerSecond: 100, version: 2 as const };
+    expect(modelPerformanceStats({ [key]: [previous] }, "openai", "gpt")).toBeUndefined();
+    expect(modelPerformanceStats({ [key]: [legacy, previous, ...recorded[key]!] }, "openai", "gpt")).toEqual({ medianTtftMs: 100, medianOutputTokensPerSecond: 20 });
   });
 
   test("readModelPerformanceHistory caches by file stat and re-reads after a write", () => {

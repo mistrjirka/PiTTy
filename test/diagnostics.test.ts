@@ -28,6 +28,22 @@ describe("diagnostics", () => {
     expect(text).not.toContain("TOP SECRET SOURCE CODE");
   });
 
+  test("flushes every buffered RPC event in order before warnings and shutdown", () => {
+    const root = tempRoot();
+    const logger = new DiagnosticLogger({ directory: root });
+    for (let index = 0; index < 250; index += 1)
+      logger.rpc("event", { type: "message_update", id: String(index) });
+    logger.warn("boundary");
+    for (let index = 250; index < 500; index += 1)
+      logger.rpc("event", { type: "message_update", id: String(index) });
+    logger.close();
+    const lines = fs.readFileSync(logger.logPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    expect(lines).toHaveLength(501);
+    expect(lines.slice(0, 250).map((row) => row.data.id)).toEqual(Array.from({ length: 250 }, (_, n) => String(n)));
+    expect(lines[250].event).toBe("boundary");
+    expect(lines.slice(251).map((row) => row.data.id)).toEqual(Array.from({ length: 250 }, (_, n) => String(250 + n)));
+  });
+
   test("caps a single long-running diagnostic log", () => {
     const root = tempRoot();
     const logger = new DiagnosticLogger({ directory: root, maxFileBytes: 1_024 });

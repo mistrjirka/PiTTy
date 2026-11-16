@@ -5,11 +5,12 @@ const assistantEnd = (output: number) => ({ type: "message_end", message: { role
 
 /** Starts a request at `startedAt` and delivers `count` deltas from `firstAt`, `stepMs` apart. Returns the last delta time. */
 function streamReply(tracker: RequestPerformanceTracker, startedAt: number, firstAt: number, count: number, stepMs: number, delta = "text_delta", extra: Record<string, unknown> = {}): number {
+	tracker.handle({ type: "turn_start" }, startedAt);
 	tracker.handle({ type: "message_start", message: { role: "assistant", timestamp: startedAt, ...extra } }, startedAt + 1);
 	let last = firstAt;
 	for (let index = 0; index < count; index += 1) {
 		last = firstAt + index * stepMs;
-		tracker.handle({ type: "message_update", assistantMessageEvent: { type: delta } }, last);
+		tracker.handle({ type: "message_update", assistantMessageEvent: { type: delta, delta: "x" } }, last);
 	}
 	return last;
 }
@@ -20,7 +21,7 @@ describe("request performance", () => {
 			"text_delta",
 			"thinking_delta",
 			"reasoning_delta",
-			"toolcall_start",
+			"toolcall_delta",
 		]) {
 			const tracker = new RequestPerformanceTracker();
 			const last = streamReply(tracker, 1000, 1800, 9, 150, delta);
@@ -30,12 +31,38 @@ describe("request performance", () => {
 		}
 	});
 
+	test("uses turn start, not a late assistant timestamp, for first-output latency", () => {
+		const tracker = new RequestPerformanceTracker();
+		tracker.handle({ type: "turn_start" }, 1_000);
+		tracker.handle({ type: "message_start", message: { role: "assistant", timestamp: 3_500 } }, 3_500);
+		for (let i = 0; i < 9; i++)
+			tracker.handle({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "token" } }, 4_000 + i * 150);
+		expect(tracker.handle(assistantEnd(50), 6_000)?.ttftMs).toBe(3_000);
+	});
+
+	test("omits samples without a valid turn start or content-bearing deltas", () => {
+		const missing = new RequestPerformanceTracker();
+		missing.handle({ type: "message_start", message: { role: "assistant", timestamp: 1_000 } }, 1_001);
+		for (let i = 0; i < 9; i++)
+			missing.handle({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "ok" } }, 2_000 + i * 150);
+		expect(missing.handle(assistantEnd(20), 5_000)).toBeUndefined();
+
+		const empty = new RequestPerformanceTracker();
+		empty.handle({ type: "turn_start" }, 1_000);
+		empty.handle({ type: "message_start", message: { role: "assistant" } }, 1_001);
+		for (let i = 0; i < 9; i++)
+			empty.handle({ type: "message_update", assistantMessageEvent: { type: "toolcall_start" } }, 2_000 + i * 150);
+		expect(empty.handle(assistantEnd(20), 5_000)).toBeUndefined();
+	});
+
 	test("omits incomplete, zero-token, and overlapping requests", () => {
 		const tracker = new RequestPerformanceTracker();
+		tracker.handle({ type: "turn_start" }, 100);
 		tracker.handle({ type: "message_start", message: { role: "assistant", timestamp: 100 } }, 100);
 		tracker.handle({ type: "message_start", message: { role: "assistant", timestamp: 200 } }, 200);
 		tracker.handle({ type: "message_end", message: { role: "assistant", stopReason: "stop", usage: { output: 5 } } }, 300);
 		expect(tracker.value).toBeUndefined();
+		tracker.handle({ type: "turn_start" }, 400);
 		tracker.handle({ type: "message_start", message: { role: "assistant", timestamp: 400 } }, 400);
 		tracker.handle({ type: "message_end", message: { role: "assistant", stopReason: "error", usage: { output: 2 } } }, 500);
 		expect(tracker.value).toBeUndefined();
@@ -46,15 +73,17 @@ describe("request performance", () => {
 		streamReply(tracker, 100, 120, 10, 200);
 		tracker.handle(assistantEnd(4), 2000);
 		expect(tracker.value?.outputTokens).toBe(4);
+		tracker.handle({ type: "turn_start" }, 5000);
 		tracker.handle({ type: "message_start", message: { role: "assistant", timestamp: 5000 } }, 5000);
 		for (let index = 0; index < 10; index += 1)
-			tracker.handle({ type: "message_update", assistantMessageEvent: { type: "text_delta" } }, 4000 + index * 200);
+			tracker.handle({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "x" } }, 4000 + index * 200);
 		tracker.handle(assistantEnd(8), 7000);
 		expect(tracker.value?.outputTokens).toBe(4);
 	});
 
 	test("uses the assistant message model and emits a completion only once", () => {
 		const tracker = new RequestPerformanceTracker();
+		tracker.handle({ type: "turn_start" }, 100);
 		tracker.handle(
 			{
 				type: "message_start",
@@ -70,7 +99,7 @@ describe("request performance", () => {
 		);
 		for (let index = 0; index < 9; index += 1)
 			tracker.handle(
-				{ type: "message_update", assistantMessageEvent: { type: "text_delta" } },
+				{ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "x" } },
 				150 + index * 150,
 			);
 		const performance = tracker.handle(
@@ -121,9 +150,10 @@ describe("request performance", () => {
 
 		// Two flushes 2s apart: long window, but only two distinct arrival times.
 		const twoBursts = new RequestPerformanceTracker();
+		twoBursts.handle({ type: "turn_start" }, 0);
 		twoBursts.handle({ type: "message_start", message: { role: "assistant", timestamp: 0 } }, 1);
 		for (const at of [500, 500, 500, 500, 2500, 2500, 2500, 2500, 2500])
-			twoBursts.handle({ type: "message_update", assistantMessageEvent: { type: "text_delta" } }, at);
+			twoBursts.handle({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "x" } }, at);
 		expect(twoBursts.handle(assistantEnd(100), 3000)).toBeUndefined();
 		expect(twoBursts.value).toBeUndefined();
 	});

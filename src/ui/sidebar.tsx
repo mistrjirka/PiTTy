@@ -277,6 +277,17 @@ export function Sidebar(props: {
 		if (!model?.provider || !model.id) return undefined;
 		return requestTimingStats(timingHistory(), model.provider, model.id);
 	});
+	const currentRequestPerformance = createMemo(() => {
+		const performance = props.lastRequestPerformance;
+		if (!performance) return undefined;
+		const selected = props.state?.model;
+		// A recent request from a previous model must not masquerade as the
+		// current model's latency or throughput.
+		if (selected?.provider && selected.id &&
+			(performance.provider !== selected.provider || performance.modelId !== selected.id))
+			return undefined;
+		return performance;
+	});
 	const timingRows = () => (selectedModelTiming() ? 2 : 0);
 	const orderedNotifications = createMemo(() =>
 		[...notifications()].sort((a, b) =>
@@ -437,10 +448,10 @@ export function Sidebar(props: {
 				thinkingText={props.state?.thinkingLevel ?? "—"}
 			/>
 			<box height={1} />
-			<Show when={props.lastRequestPerformance}>
+			<Show when={currentRequestPerformance()}>
 				{(performance) => (
 					<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
-						TTFT {(performance().ttftMs / 1000).toFixed(1)}s · {Math.round(performance().outputTokens / (performance().generationMs / 1000))} tok/s
+						Turn→output {(performance().ttftMs / 1000).toFixed(1)}s · {Math.round(performance().outputTokens / (performance().generationMs / 1000))} tok/s
 					</text>
 				)}
 			</Show>
@@ -453,8 +464,11 @@ export function Sidebar(props: {
 						</text>
 						<text width="100%" height={1} fg={colors.muted} wrapMode="none">
 							Turn {formatDuration(stats().medianTurnMs)}
-							{stats().medianTurnPerToolMs !== undefined
-								? ` · Tool ${formatDuration(stats().medianTurnPerToolMs)}`
+							{stats().medianToolDispatchMs !== undefined
+								? ` · Dispatch ${formatDuration(stats().medianToolDispatchMs)}`
+								: ""}
+							{stats().medianToolExecutionMs !== undefined
+								? ` · Tool ${formatDuration(stats().medianToolExecutionMs)}`
 								: ""}
 						</text>
 					</>

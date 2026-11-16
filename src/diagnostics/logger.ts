@@ -29,6 +29,10 @@ const SECRET_KEY = /(api[-_]?key|authorization|cookie|credential|password|secret
 const MAX_STRING = 8_000;
 const DEFAULT_MAX_FILE_BYTES = 64 * 1024 * 1024;
 const DEFAULT_RETENTION_BYTES = 256 * 1024 * 1024;
+// Amortize diagnostics writes without dropping any RPC events. Bounded batches
+// prevent one large write from monopolizing the UI event loop.
+const DEBUG_FLUSH_BYTES = 32 * 1024;
+const DEBUG_FLUSH_DELAY_MS = 35;
 
 function timestampForFilename(date = new Date()): string {
   return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z").replace("T", "-");
@@ -91,6 +95,9 @@ export class DiagnosticLogger {
   private bytesWritten = 0;
   private capped = false;
   private closed = false;
+  private readonly pendingDebug: string[] = [];
+  private pendingDebugBytes = 0;
+  private debugFlushTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(options: DiagnosticLoggerOptions = {}) {
     this.enabled = options.enabled !== false;
@@ -179,10 +186,25 @@ export class DiagnosticLogger {
 
   close(): void {
     if (this.closed) return;
+    this.flushDebug();
     this.closed = true;
     if (this.fd !== undefined) {
       try { fs.fsyncSync(this.fd); } catch {}
       try { fs.closeSync(this.fd); } catch {}
+    }
+  }
+
+  private flushDebug(): void {
+    if (this.debugFlushTimer !== undefined) {
+      clearTimeout(this.debugFlushTimer);
+      this.debugFlushTimer = undefined;
+    }
+    if (!this.pendingDebug.length || this.fd === undefined) return;
+    const value = this.pendingDebug.join("");
+    this.pendingDebug.length = 0;
+    this.pendingDebugBytes = 0;
+    try { fs.writeSync(this.fd, value); } catch {
+      // Debug telemetry is best-effort and must not stop the UI.
     }
   }
 
@@ -203,9 +225,24 @@ export class DiagnosticLogger {
       this.capped = true;
       return;
     }
+    // Reserve byte budget when the record is accepted, including queued
+    // records, so the per-run log cap stays strict.
+    this.bytesWritten += lineBytes;
+    if (level === "debug" && !sync) {
+      this.pendingDebug.push(line);
+      this.pendingDebugBytes += lineBytes;
+      if (this.pendingDebugBytes >= DEBUG_FLUSH_BYTES) {
+        this.flushDebug();
+      } else if (this.debugFlushTimer === undefined) {
+        this.debugFlushTimer = setTimeout(() => this.flushDebug(), DEBUG_FLUSH_DELAY_MS);
+        this.debugFlushTimer.unref?.();
+      }
+      return;
+    }
+    // Preserve log order for warn/error/fatal and flush before a crash report.
+    this.flushDebug();
     try {
       fs.writeSync(this.fd, line);
-      this.bytesWritten += lineBytes;
       if (sync) fs.fsyncSync(this.fd);
     } catch {
       // Diagnostics must never crash the UI.

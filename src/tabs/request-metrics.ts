@@ -52,9 +52,7 @@ const OUTPUT_DELTA_TYPES: ReadonlySet<string> = new Set([
 	"text_delta",
 	"thinking_delta",
 	"reasoning_delta",
-	"toolcall_start",
 	"toolcall_delta",
-	"toolcall_end",
 ]);
 
 import type { PiEvent } from "../types.ts";
@@ -78,6 +76,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export class RequestPerformanceTracker {
+	private turnStartedAt: number | undefined;
 	private active: ActiveRequest | undefined;
 	private completed: RequestPerformance | undefined;
 
@@ -86,6 +85,15 @@ export class RequestPerformanceTracker {
 		receivedAt: number,
 		model?: RequestModelSnapshot,
 	): RequestPerformance | undefined {
+		if (event.type === "agent_start" || event.type === "agent_settled") {
+			this.turnStartedAt = undefined;
+			if (event.type === "agent_settled") this.active = undefined;
+			return undefined;
+		}
+		if (event.type === "turn_start") {
+			this.turnStartedAt = receivedAt;
+			return undefined;
+		}
 		const message =
 			"message" in event && isRecord(event.message) ? event.message : undefined;
 		const assistantEvent =
@@ -100,13 +108,14 @@ export class RequestPerformanceTracker {
 				this.active = undefined;
 				return undefined;
 			}
-			const timestamp = message.timestamp;
+			// A partial session without a matching turn_start cannot give a
+			// trustworthy turn-to-first-output sample. Do not use the provider's
+			// message timestamp to fabricate a different metric.
+			if (this.turnStartedAt === undefined || receivedAt < this.turnStartedAt)
+				return undefined;
 			const { provider, modelId } = requestModelIdentity(message, model);
 			this.active = {
-				startedAt:
-					typeof timestamp === "number" && timestamp > 0
-						? timestamp
-						: receivedAt,
+				startedAt: this.turnStartedAt,
 				outputArrivals: 0,
 				...(provider && modelId ? { provider, modelId } : {}),
 			};
@@ -114,7 +123,8 @@ export class RequestPerformanceTracker {
 		}
 		if (event.type === "message_update" && this.active) {
 			const deltaType = assistantEvent?.type;
-			if (typeof deltaType === "string" && OUTPUT_DELTA_TYPES.has(deltaType)) {
+			if (typeof deltaType === "string" && OUTPUT_DELTA_TYPES.has(deltaType) &&
+				typeof assistantEvent?.delta === "string" && assistantEvent.delta.length > 0) {
 				const active = this.active;
 				if (active.firstOutputAt === undefined) {
 					active.firstOutputAt = receivedAt;

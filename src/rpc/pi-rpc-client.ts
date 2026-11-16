@@ -65,7 +65,7 @@ export class PiRpcClient extends EventEmitter {
 	private child: ChildProcessWithoutNullStreams | undefined;
 	private readonly pending = new Map<string, PendingRequest>();
 	private nextId = 0;
-	private stdoutBuffer = "";
+	private readonly stdoutFragments: string[] = [];
 	private stderrBuffer = "";
 	private stopping = false;
 	private startupArgs: string[];
@@ -90,7 +90,7 @@ export class PiRpcClient extends EventEmitter {
 	async start(): Promise<void> {
 		if (this.child) throw new Error("Pi RPC client is already started.");
 		this.stopping = false;
-		this.stdoutBuffer = "";
+		this.stdoutFragments.length = 0;
 		this.stderrBuffer = "";
 		const configuredExecutable =
 			this.options.executable ?? resolveDefaultPiExecutable();
@@ -506,12 +506,20 @@ export class PiRpcClient extends EventEmitter {
 
 	private consumeStdout(chunk: string): void {
 		const receivedAt = Date.now();
-		this.stdoutBuffer += chunk;
-		while (true) {
-			const newline = this.stdoutBuffer.indexOf("\n");
-			if (newline < 0) break;
-			const line = this.stdoutBuffer.slice(0, newline).trim();
-			this.stdoutBuffer = this.stdoutBuffer.slice(newline + 1);
+		// A single tool result can be several MiB. Avoid repeatedly copying the
+		// entire unfinished line whenever stdout delivers another small chunk.
+		let start = 0;
+		for (let newline = chunk.indexOf("\n", start);
+			newline >= 0;
+			newline = chunk.indexOf("\n", start)) {
+			let line = chunk.slice(start, newline);
+			if (this.stdoutFragments.length > 0) {
+				this.stdoutFragments.push(line);
+				line = this.stdoutFragments.join("");
+				this.stdoutFragments.length = 0;
+			}
+			start = newline + 1;
+			line = line.trim();
 			if (!line) continue;
 			let value: unknown;
 			try {
@@ -548,6 +556,7 @@ export class PiRpcClient extends EventEmitter {
 			this.options.logger?.rpc("event", value);
 			this.emit("event", value as PiEvent, receivedAt);
 		}
+		if (start < chunk.length) this.stdoutFragments.push(chunk.slice(start));
 	}
 
 	private data<T>(response: RpcResponse): T {

@@ -51,6 +51,27 @@ describe("PiRpcClient", () => {
     expect(events.some((event) => event.type === "agent_settled")).toBe(true);
   });
 
+  test("parses multi-megabyte tool results across many stdout chunks without duplicating events", () => {
+    const client = new PiRpcClient({ cwd: process.cwd() });
+    const events: PiEvent[] = [];
+    client.onEvent((event) => events.push(event));
+    const payload = "X".repeat(2 * 1024 * 1024);
+    const line = JSON.stringify({
+      type: "tool_execution_end",
+      toolCallId: "large-read",
+      toolName: "read",
+      result: { content: [{ type: "text", text: payload }] },
+      isError: false,
+    });
+    const stream = line + "\n" + JSON.stringify({ type: "agent_settled" }) + "\n";
+    const feed = client as unknown as { consumeStdout(chunk: string): void };
+    for (let offset = 0; offset < stream.length; offset += 4096)
+      feed.consumeStdout(stream.slice(offset, offset + 4096));
+    expect(events).toHaveLength(2);
+    expect((events[0] as Record<string, any>).result.content[0].text).toBe(payload);
+    expect(events[1]?.type).toBe("agent_settled");
+  });
+
   test("passes the stdout read time to event listeners", async () => {
     const client = new PiRpcClient({ cwd: process.cwd(), executable: path.resolve("scripts/mock-pi-rpc.mjs") });
     clients.push(client);

@@ -14,6 +14,8 @@ export type MessageUpdateBatcherOptions = {
 	schedule?: MessageUpdateScheduler;
 	cancel?: MessageUpdateCanceller;
 	maxPending?: number;
+	/** Only UI state opts in. Timing metrics continue to see raw streamed events. */
+	mergeTextDeltas?: boolean;
 };
 
 function eventType(event: PiEvent): string | undefined {
@@ -34,6 +36,7 @@ export class MessageUpdateBatcher {
 	private readonly schedule: MessageUpdateScheduler;
 	private readonly cancel: MessageUpdateCanceller;
 	private readonly maxPending: number;
+	private readonly mergeTextDeltas: boolean;
 
 	constructor(options: MessageUpdateBatcherOptions) {
 		this.applyEvent = options.applyEvent;
@@ -42,6 +45,7 @@ export class MessageUpdateBatcher {
 		this.schedule = options.schedule ?? ((callback, delayMs) => setTimeout(callback, delayMs));
 		this.cancel = options.cancel ?? ((handle) => clearTimeout(handle));
 		this.maxPending = Math.max(1, options.maxPending ?? MAX_PENDING_MESSAGE_UPDATES);
+		this.mergeTextDeltas = options.mergeTextDeltas === true;
 	}
 
 	handle(event: PiEvent): void {
@@ -50,6 +54,29 @@ export class MessageUpdateBatcher {
 			this.flush();
 			this.applyEvent(event);
 			return;
+		}
+		if (this.mergeTextDeltas && this.pending.length > 0) {
+			const previous = this.pending[this.pending.length - 1] as Record<string, unknown>;
+			const latest = event as Record<string, unknown>;
+			const previousDelta = previous.assistantMessageEvent as Record<string, unknown> | undefined;
+			const currentDelta = latest.assistantMessageEvent as Record<string, unknown> | undefined;
+			const kind = currentDelta?.type;
+			if (
+				previous.message === undefined && latest.message === undefined &&
+				(kind === "text_delta" || kind === "thinking_delta" || kind === "reasoning_delta") &&
+				previousDelta?.type === kind && currentDelta !== undefined &&
+				previousDelta.contentIndex === currentDelta?.contentIndex &&
+				typeof previousDelta.delta === "string" && typeof currentDelta.delta === "string"
+			) {
+				this.pending[this.pending.length - 1] = {
+					...previous, ...latest,
+					assistantMessageEvent: {
+						...previousDelta, ...currentDelta,
+						delta: previousDelta.delta + currentDelta.delta,
+					},
+				} as PiEvent;
+				return;
+			}
 		}
 		if (this.pending.length >= this.maxPending) this.flush();
 		this.pending.push(event);

@@ -1,6 +1,6 @@
 import { requestModelIdentity, type RequestModelSnapshot } from "./request-metrics.ts";
 
-export const REQUEST_TIMING_VERSION: 2 = 2;
+export const REQUEST_TIMING_VERSION: 3 = 3;
 
 type RequestTimingVersion = typeof REQUEST_TIMING_VERSION;
 
@@ -15,6 +15,10 @@ export type RequestTiming = {
 	toolCallCount?: number;
 	/** Wall time covered by the union of tool execution intervals for this model call. */
 	toolWallMs?: number;
+	/** Tool argument completion -> Pi tool_execution_start, UI-observed. */
+	toolDispatchMs?: number[];
+	/** First emitted tool-call block -> Pi tool_execution_start, includes argument generation. */
+	toolAppearanceToStartMs?: number[];
 };
 
 export const MAX_REQUEST_TIMING_HISTORY = 1_000;
@@ -22,12 +26,14 @@ export const MAX_REQUEST_TIMING_HISTORY = 1_000;
 export type RequestTimingStats = {
 	medianTurnMs: number;
 	medianModelToToolMs?: number;
-	/** Median model-call Turn duration per tool call, from samples with a positive call count. */
-	medianTurnPerToolMs?: number;
+	/** Median execution of individual tools, not model generation divided by call count. */
+	medianToolExecutionMs?: number;
+	medianToolDispatchMs?: number;
 };
 
 type TimingTurn = {
 	startedAt: number;
+	hasTurnStart: boolean;
 	messageStarted: boolean;
 	messageEndedAt?: number;
 	failed: boolean;
@@ -37,6 +43,12 @@ type TimingTurn = {
 	modelId?: string;
 	activeTools: Map<string, number>;
 	toolIntervals: TimingInterval[];
+	toolDurationsMs: number[];
+	toolCallOpenedAt: Map<number, number>;
+	toolCallFirstSeenAt: Map<string, number>;
+	toolCallReadyAt: Map<string, number>;
+	toolDispatchMs: number[];
+	toolAppearanceToStartMs: number[];
 	toolCallCount: number;
 	toolTimingIncomplete: boolean;
 };
@@ -119,14 +131,21 @@ function validTimestamp(value: unknown): number | undefined {
 		: undefined;
 }
 
-function createTurn(startedAt: number): TimingTurn {
+function createTurn(startedAt: number, hasTurnStart = false): TimingTurn {
 	return {
 		startedAt,
+		hasTurnStart,
 		messageStarted: false,
 		failed: false,
 		modelToToolRecorded: false,
 		activeTools: new Map(),
 		toolIntervals: [],
+		toolDurationsMs: [],
+		toolCallOpenedAt: new Map(),
+		toolCallFirstSeenAt: new Map(),
+		toolCallReadyAt: new Map(),
+		toolDispatchMs: [],
+		toolAppearanceToStartMs: [],
 		toolCallCount: 0,
 		toolTimingIncomplete: false,
 	};
@@ -154,14 +173,17 @@ export class RequestTimingTracker {
 		const endedAt = turn.messageEndedAt;
 		const intervals = turn.toolTimingIncomplete ? [] : turn.toolIntervals;
 		const turnMs = endedAt - turn.startedAt;
-		if (turn.failed || turnMs <= 0 || turn.activeTools.size > 0) return undefined;
+		if (turn.failed || !turn.hasTurnStart || turnMs <= 0 || turn.activeTools.size > 0) return undefined;
 		const timing: RequestTiming = {
 			timingVersion: REQUEST_TIMING_VERSION,
 			turnMs,
-			toolCallDurationsMs: intervals.map(
-				(interval) => interval.endedAt - interval.startedAt,
-			),
+			// Use Pi's native tool duration when provided. UI receive times
+			// can be stretched by stdout buffering or a busy renderer.
+			toolCallDurationsMs: turn.toolTimingIncomplete ? [] : turn.toolDurationsMs,
 			toolCallCount: turn.toolCallCount,
+			...(turn.toolDispatchMs.length ? { toolDispatchMs: turn.toolDispatchMs } : {}),
+			...(turn.toolAppearanceToStartMs.length
+				? { toolAppearanceToStartMs: turn.toolAppearanceToStartMs } : {}),
 			...(turn.provider ? { provider: turn.provider } : {}),
 			...(turn.modelId ? { modelId: turn.modelId } : {}),
 			...(turn.modelToToolMs !== undefined
@@ -194,7 +216,7 @@ export class RequestTimingTracker {
 		if (type === "turn_start") {
 			const prior = this.finishTurn();
 			if (active.turn) delete active.turn;
-			active.turn = createTurn(receivedAt);
+			active.turn = createTurn(receivedAt, true);
 			return prior;
 		}
 		if (type === "message_start") {
@@ -206,14 +228,30 @@ export class RequestTimingTracker {
 				return undefined;
 			}
 			turn.messageStarted = true;
-			turn.startedAt = validTimestamp(message?.timestamp) ?? receivedAt;
+			// Keep turn_start as the observable boundary. Message timestamps
+			// are provider-defined and may be generated after network latency.
 			updateModelIdentity(turn, message, model);
 			return undefined;
 		}
 		if (type === "message_update") {
 			const assistantEvent = assistantEventFromEvent(record);
 			const deltaType = stringField(assistantEvent, "type");
-			if (deltaType === "toolcall_start") recordModelToTool(active, receivedAt);
+			const turn = active.turn;
+			if (deltaType === "toolcall_start") {
+				recordModelToTool(active, receivedAt);
+				const index = assistantEvent?.contentIndex;
+				if (turn && typeof index === "number" && Number.isInteger(index) && index >= 0)
+					turn.toolCallOpenedAt.set(index, receivedAt);
+			} else if (deltaType === "toolcall_end" && turn) {
+				const call = isRecord(assistantEvent?.toolCall) ? assistantEvent.toolCall : undefined;
+				const id = stringField(call, "id");
+				if (id) {
+					const index = assistantEvent?.contentIndex;
+					const opened = typeof index === "number" ? turn.toolCallOpenedAt.get(index) : undefined;
+					turn.toolCallFirstSeenAt.set(id, opened ?? receivedAt);
+					turn.toolCallReadyAt.set(id, receivedAt);
+				}
+			}
 			return undefined;
 		}
 		if (type === "message_end") {
@@ -226,8 +264,7 @@ export class RequestTimingTracker {
 			}
 			if (!turn.messageStarted) {
 				turn.messageStarted = true;
-				const timestamp = validTimestamp(message?.timestamp);
-				if (timestamp !== undefined) turn.startedAt = timestamp;
+				// A missing turn_start makes this sample ineligible for v3.
 			}
 			updateModelIdentity(turn, message, model);
 			turn.messageEndedAt = receivedAt;
@@ -244,6 +281,14 @@ export class RequestTimingTracker {
 			}
 			recordModelToTool(active, receivedAt);
 			turn.activeTools.set(toolCallId, receivedAt);
+			const appearedAt = turn.toolCallFirstSeenAt.get(toolCallId);
+			if (appearedAt !== undefined && receivedAt >= appearedAt)
+				turn.toolAppearanceToStartMs.push(receivedAt - appearedAt);
+			const readyAt = turn.toolCallReadyAt.get(toolCallId);
+			// Both events may arrive in the same stdout chunk. Zero then means
+			// "unresolved below timestamp granularity", not zero dispatch cost.
+			if (readyAt !== undefined && receivedAt > readyAt)
+				turn.toolDispatchMs.push(receivedAt - readyAt);
 			turn.toolCallCount += 1;
 			return undefined;
 		}
@@ -260,9 +305,16 @@ export class RequestTimingTracker {
 				return undefined;
 			}
 			turn.activeTools.delete(toolCallId);
-			if (receivedAt >= startedAt)
+			if (receivedAt >= startedAt) {
 				turn.toolIntervals.push({ startedAt, endedAt: receivedAt });
-			else turn.toolTimingIncomplete = true;
+				const nativeDuration = record?.durationMs;
+				turn.toolDurationsMs.push(
+					typeof nativeDuration === "number" &&
+					Number.isFinite(nativeDuration) && nativeDuration >= 0
+						? nativeDuration
+						: receivedAt - startedAt,
+				);
+			} else turn.toolTimingIncomplete = true;
 			return undefined;
 		}
 		if (type === "turn_end") {
@@ -321,19 +373,20 @@ export function requestTimingStats(
 	const modelToTool = samples.flatMap((sample) =>
 		sample.modelToToolMs === undefined ? [] : [sample.modelToToolMs],
 	);
-	const turnPerTool = samples.flatMap((sample) => {
-		const count = sample.toolCallCount;
-		if (count === undefined || !Number.isInteger(count) || count <= 0) return []
-		const value = sample.turnMs / count;
-		return Number.isFinite(value) && value > 0 ? [value] : [];
-	});
+	const actualToolTimes = samples.flatMap((sample) => sample.toolCallDurationsMs.filter(
+		(value) => Number.isFinite(value) && value >= 0,
+	));
 	const stats: RequestTimingStats = {
 		medianTurnMs: median(samples.map((sample) => sample.turnMs))!,
 	};
 	const medianModelToToolMs = median(modelToTool);
 	if (medianModelToToolMs !== undefined)
 		stats.medianModelToToolMs = medianModelToToolMs;
-	const medianTurnPerToolMs = median(turnPerTool);
-	if (medianTurnPerToolMs !== undefined) stats.medianTurnPerToolMs = medianTurnPerToolMs;
+	const medianToolExecutionMs = median(actualToolTimes);
+	if (medianToolExecutionMs !== undefined)
+		stats.medianToolExecutionMs = medianToolExecutionMs;
+	const medianToolDispatchMs = median(samples.flatMap((sample) => sample.toolDispatchMs ?? []));
+	if (medianToolDispatchMs !== undefined)
+		stats.medianToolDispatchMs = medianToolDispatchMs;
 	return stats;
 }

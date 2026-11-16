@@ -8,13 +8,13 @@ export type ModelPerformanceSample = {
   ttftMs: number;
   outputTokensPerSecond: number;
   /**
-   * 2 = measured over the streamed window with burst/short-reply rejection.
-   * Earlier samples (undefined) timed the whole tail up to message_end and could
-   * record absurd rates for buffered replies; stats use them only as a fallback.
+   * 3 = latency starts at the Pi turn boundary. Earlier versions could record
+   * near-zero first-output delay when a provider stamped messages late.
+   * Output rate continues to exclude prefill and rejects buffered bursts.
    */
-  version?: 2;
+  version?: 2 | 3;
 };
-const SAMPLE_VERSION: 2 = 2;
+const SAMPLE_VERSION: 3 = 3;
 export type ModelPerformanceHistory = Record<string, ModelPerformanceSample[]>;
 export type ModelPerformanceStats = { medianTtftMs: number; medianOutputTokensPerSecond: number };
 const RETENTION_MS = 31 * 24 * 60 * 60 * 1000;
@@ -196,12 +196,12 @@ function median(values: number[]): number {
 }
 export function modelPerformanceStats(history: ModelPerformanceHistory, provider: string, modelId: string): ModelPerformanceStats | undefined {
   const all = history[modelPerformanceKey(provider, modelId)] ?? [];
-  // Prefer samples taken with the current method; legacy ones only fill in until a model has any.
-  const current = all.filter((sample) => sample.version === SAMPLE_VERSION);
-  const samples = current.length ? current : all;
+  // Do not mix incompatible measurement boundaries into the same median.
+  // Older samples remain in the file for inspection, not current comparisons.
+  const samples = all.filter((sample) => sample.version === SAMPLE_VERSION);
   if (!samples.length) return undefined;
   return { medianTtftMs: median(samples.map((sample) => sample.ttftMs)), medianOutputTokensPerSecond: median(samples.map((sample) => sample.outputTokensPerSecond)) };
 }
 export function formatModelPerformanceStats(stats: ModelPerformanceStats | undefined): string {
-  return stats ? `{${Math.round(stats.medianOutputTokensPerSecond)} tok/s · ${Math.round(stats.medianTtftMs)}ms TTFT}` : "";
+  return stats ? `{${Math.round(stats.medianOutputTokensPerSecond)} tok/s · ${Math.round(stats.medianTtftMs)}ms turn→first}` : "";
 }

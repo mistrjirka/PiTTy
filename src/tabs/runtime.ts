@@ -66,7 +66,7 @@ export type TabRuntimeOptions = {
 	conversation?: ConversationModel;
 	onEvent?: (event: PiEvent, runtime: ConversationTabRuntime) => void;
 	onCacheWarning?: (warning: CacheWarning, runtime: ConversationTabRuntime) => void;
-	onConversationChange?: (runtime: ConversationTabRuntime) => void;
+	onConversationChange?: (runtime: ConversationTabRuntime, reason?: "stream" | "structure") => void;
 };
 
 export function blankTabPiArgs(args: readonly string[]): string[] {
@@ -173,7 +173,8 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		runtime.conversation.apply(event);
 		options.onEvent?.(event, runtime);
 	};
-	const notifyConversationChange = (): void => options.onConversationChange?.(runtime);
+	const notifyConversationChange = (reason: "stream" | "structure" = "structure"): void =>
+		options.onConversationChange?.(runtime, reason);
 	const coalescer = new ToolEventCoalescer({
 		applyEvent: (event) => {
 			applyConversationEvent(event);
@@ -182,7 +183,14 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 	});
 	const messageUpdates = new MessageUpdateBatcher({
 		applyEvent: applyConversationEvent,
-		onBatchComplete: notifyConversationChange,
+		onBatchComplete: (events) => {
+			const hasStructure = events.some((event) =>
+				event.type !== "message_update" ||
+				("message" in event && event.message !== undefined),
+			);
+			notifyConversationChange(hasStructure ? "structure" : "stream");
+		},
+		mergeTextDeltas: true,
 	});
 	runtime = {
 		id: options.id,
@@ -348,11 +356,7 @@ export async function prepareForkedTabRuntime(
 	]);
 	if (!state.sessionFile) throw new Error("Fork did not return a session file.");
 	runtime.sessionState = state;
-	runtime.conversation.items.splice(
-		0,
-		runtime.conversation.items.length,
-		...initialItems(messages),
-	);
+	runtime.conversation.replaceItems(initialItems(messages));
 	await refreshRuntimeEntries(runtime);
 	return { ...state, sessionFile: state.sessionFile };
 }

@@ -39,8 +39,8 @@ describe("request timing", () => {
 			timingVersion: REQUEST_TIMING_VERSION,
 			provider: "openai",
 			modelId: "gpt-5",
-			turnMs: 1_000,
-			modelToToolMs: 300,
+			turnMs: 1_050,
+			modelToToolMs: 350,
 			toolCallDurationsMs: [1_000, 1_000],
 			toolCallCount: 2,
 			toolWallMs: 1_050,
@@ -70,20 +70,20 @@ describe("request timing", () => {
 		const second = tracker.handle({ type: "turn_end" }, 1_450);
 		tracker.handle({ type: "agent_settled" }, 1_500);
 
-		expect(first?.turnMs).toBe(290);
+		expect(first?.turnMs).toBe(300);
 		expect(first).toMatchObject({ provider: "openai", modelId: "first" });
 		expect(first?.toolCallDurationsMs).toEqual([300]);
 		expect(second).toMatchObject({
 			timingVersion: REQUEST_TIMING_VERSION,
 			provider: "openai",
 			modelId: "second",
-			turnMs: 350,
+			turnMs: 400,
 			toolCallDurationsMs: [],
 			toolCallCount: 0,
 		});
 	});
 
-	test("uses a valid assistant timestamp and safely falls back for malformed metadata", () => {
+	test("starts at the turn boundary regardless of assistant timestamp metadata", () => {
 		const timestamped = new RequestTimingTracker();
 		timestamped.handle({ type: "agent_start" }, 100);
 		timestamped.handle({ type: "turn_start" }, 150);
@@ -92,7 +92,7 @@ describe("request timing", () => {
 			300,
 		);
 		timestamped.handle({ type: "message_end", message: assistantMessage("openai", "gpt-5", 200) }, 700);
-		expect(timestamped.handle({ type: "turn_end" }, 800)?.turnMs).toBe(500);
+		expect(timestamped.handle({ type: "turn_end" }, 800)?.turnMs).toBe(550);
 
 		const fallback = new RequestTimingTracker();
 		fallback.handle({ type: "agent_start" }, 100);
@@ -102,7 +102,7 @@ describe("request timing", () => {
 			300,
 		);
 		fallback.handle({ type: "message_end", message: assistantMessage("openai", "gpt-5", Number.POSITIVE_INFINITY) }, 700);
-		expect(fallback.handle({ type: "turn_end" }, 800)?.turnMs).toBe(400);
+		expect(fallback.handle({ type: "turn_end" }, 800)?.turnMs).toBe(550);
 	});
 
 	test("does not publish turns without a completed assistant message", () => {
@@ -122,6 +122,55 @@ describe("request timing", () => {
 			500,
 		);
 		expect(aborted.handle({ type: "agent_settled" }, 600)).toBeUndefined();
+	});
+
+	test("separately measures first tool appearance, completed arguments, and execution start", () => {
+		const tracker = new RequestTimingTracker();
+		tracker.handle({ type: "agent_start" }, 100);
+		tracker.handle({ type: "turn_start" }, 100);
+		tracker.handle({ type: "message_start", message: assistantMessage() }, 120);
+		tracker.handle({ type: "message_update", assistantMessageEvent: { type: "toolcall_start", contentIndex: 0 } }, 200);
+		tracker.handle({ type: "message_update", assistantMessageEvent: { type: "toolcall_end", contentIndex: 0, toolCall: { id: "one" } } }, 230);
+		tracker.handle({ type: "message_update", assistantMessageEvent: { type: "toolcall_start", contentIndex: 1 } }, 250);
+		tracker.handle({ type: "message_update", assistantMessageEvent: { type: "toolcall_end", contentIndex: 1, toolCall: { id: "two" } } }, 300);
+		tracker.handle({ type: "message_end", message: assistantMessage() }, 305);
+		tracker.handle({ type: "tool_execution_start", toolCallId: "one" }, 315);
+		tracker.handle({ type: "tool_execution_start", toolCallId: "two" }, 350);
+		tracker.handle({ type: "tool_execution_end", toolCallId: "one", durationMs: 10 }, 370);
+		tracker.handle({ type: "tool_execution_end", toolCallId: "two", durationMs: 25 }, 400);
+		const timing = tracker.handle({ type: "turn_end" }, 430)!;
+		expect(timing.toolAppearanceToStartMs).toEqual([115, 100]);
+		expect(timing.toolDispatchMs).toEqual([85, 50]);
+		expect(timing.toolCallDurationsMs).toEqual([10, 25]);
+		expect(requestTimingStats([timing], "openai", "gpt-5")?.medianToolDispatchMs).toBe(67.5);
+	});
+
+	test("does not report a fictional zero dispatch time for batched events", () => {
+		const tracker = new RequestTimingTracker();
+		tracker.handle({ type: "agent_start" }, 100);
+		tracker.handle({ type: "turn_start" }, 100);
+		tracker.handle({ type: "message_start", message: assistantMessage() }, 110);
+		tracker.handle({ type: "message_update", assistantMessageEvent: { type: "toolcall_start", contentIndex: 0 } }, 200);
+		tracker.handle({ type: "message_update", assistantMessageEvent: { type: "toolcall_end", contentIndex: 0, toolCall: { id: "one" } } }, 300);
+		tracker.handle({ type: "tool_execution_start", toolCallId: "one" }, 300);
+		tracker.handle({ type: "message_end", message: assistantMessage() }, 320);
+		tracker.handle({ type: "tool_execution_end", toolCallId: "one" }, 400);
+		const timing = tracker.handle({ type: "turn_end" }, 410);
+		expect(timing?.toolDispatchMs).toBeUndefined();
+	});
+
+	test("uses Pi-reported tool runtime instead of delayed UI receive times", () => {
+		const tracker = new RequestTimingTracker();
+		tracker.handle({ type: "agent_start" }, 100);
+		tracker.handle({ type: "turn_start" }, 100);
+		tracker.handle({ type: "message_start", message: assistantMessage() }, 110);
+		tracker.handle({ type: "message_end", message: assistantMessage() }, 150);
+		tracker.handle({ type: "tool_execution_start", toolCallId: "one" }, 200);
+		tracker.handle({ type: "tool_execution_end", toolCallId: "one", durationMs: 12 }, 800);
+		expect(tracker.handle({ type: "turn_end" }, 810)).toMatchObject({
+			toolCallDurationsMs: [12],
+			toolWallMs: 600,
+		});
 	});
 
 	test("keeps parallel tool durations separate from their union wall time", () => {
@@ -170,13 +219,13 @@ describe("request timing", () => {
 		expect(requestTimingStats(history, "openai", "gpt-5")).toEqual({
 			medianTurnMs: 2_000,
 			medianModelToToolMs: 200,
-			medianTurnPerToolMs: 750,
+			medianToolExecutionMs: 600,
 		});
 	});
 
 	test("ignores samples without a positive tool call count", () => {
 		const base = {
-			timingVersion: REQUEST_TIMING_VERSION as 2,
+			timingVersion: REQUEST_TIMING_VERSION,
 			provider: "openai",
 			modelId: "gpt-5",
 			toolCallDurationsMs: [900],
@@ -188,7 +237,15 @@ describe("request timing", () => {
 				{ ...base, turnMs: 3_000, toolCallCount: -1 },
 				{ ...base, turnMs: 4_000, toolCallCount: 1.5 },
 			], "openai", "gpt-5"),
-		).toEqual({ medianTurnMs: 2_500 });
+		).toEqual({ medianTurnMs: 2_500, medianToolExecutionMs: 900 });
+	});
+
+	test("never claims a current timing sample when Pi omitted turn_start", () => {
+		const tracker = new RequestTimingTracker();
+		tracker.handle({ type: "agent_start" }, 100);
+		tracker.handle({ type: "message_start", message: assistantMessage("openai", "test", 3_000) }, 3_000);
+		tracker.handle({ type: "message_end", message: assistantMessage("openai", "test", 3_000) }, 4_000);
+		expect(tracker.handle({ type: "turn_end" }, 5_000)).toBeUndefined();
 	});
 
 	test("discards incompatible request-level samples", () => {
@@ -201,6 +258,7 @@ describe("request timing", () => {
 		};
 		const retained = retainCurrentRequestTimings([
 			{ provider: "openai", modelId: "gpt-5", requestMs: 9_000, toolCallDurationsMs: [] },
+			{ ...valid, timingVersion: 2 },
 			valid,
 		]);
 		expect(retained).toEqual([valid]);

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import * as path from "node:path";
 import { createTwoFilesPatch } from "diff";
 import { stableHash } from "../subagents/cache-key.ts";
@@ -188,11 +188,21 @@ function mutationContent(
 }
 
 
+const MAX_PREVIEW_BYTES = 1_048_576;
+
+function isFileMutationTool(toolName: string): boolean {
+	const name = toolName.toLowerCase();
+	return name === "write" || name.endsWith(".write") || name.includes("write_file") ||
+		name === "edit" || name.endsWith(".edit") || name.includes("edit_file");
+}
+
 function createMutationDiff(
 	toolName: string,
 	args: unknown,
 	cwd: string | undefined,
 ): { diff?: string; path?: string } {
+	// Read-only tools must not read their target again on the UI event loop.
+	if (!isFileMutationTool(toolName)) return {};
 	const requestedPath = mutationPath(args);
 	if (!requestedPath) return {};
 	const absolutePath = path.isAbsolute(requestedPath)
@@ -201,11 +211,14 @@ function createMutationDiff(
 	let before = "";
 	let existed = false;
 	try {
+		const source = statSync(absolutePath);
+		if (!source.isFile() || source.size > MAX_PREVIEW_BYTES) return { path: requestedPath };
 		before = readFileSync(absolutePath, "utf8");
 		existed = true;
 	} catch {}
 	const after = mutationContent(toolName, args, before);
-	if (after === undefined || after === before) return { path: requestedPath };
+	if (after === undefined || after === before || Buffer.byteLength(after, "utf8") > MAX_PREVIEW_BYTES)
+		return { path: requestedPath };
 	const oldName = existed ? `a/${requestedPath}` : "/dev/null";
 	const newName = `b/${requestedPath}`;
 	return {
@@ -215,6 +228,7 @@ function createMutationDiff(
 		}),
 	};
 }
+
 
 function eventDelta(event: Record<string, unknown>): {
 	text: string;
@@ -472,6 +486,10 @@ export function isConversationEvent(event: PiEvent): boolean {
 export class ConversationModel {
 	readonly items: ConversationItem[] = [];
 	private liveAssistantMessage: Record<string, unknown> | undefined;
+	// Repeated stream updates must not scan the complete chat transcript.
+	private activeAssistantIndex = -1;
+	private readonly toolIndices = new Map<string, number>();
+	private readonly userIndices = new Map<string, number[]>();
 	isStreaming = false;
 	isCompacting = false;
 	steering: readonly string[] = [];
@@ -482,6 +500,40 @@ export class ConversationModel {
 		private readonly cwd?: string,
 	) {
 		this.items.push(...seed);
+		this.rebuildIndices();
+	}
+
+	/** Keep lookup indexes consistent when loading a different session or removing an optimistic item. */
+	replaceItems(items: readonly ConversationItem[]): void {
+		this.items.splice(0, this.items.length, ...items);
+		this.liveAssistantMessage = undefined;
+		this.rebuildIndices();
+	}
+
+	removeItem(itemId: string): boolean {
+		const index = this.items.findIndex((item) => item.id === itemId);
+		if (index < 0) return false;
+		this.items.splice(index, 1);
+		this.rebuildIndices();
+		return true;
+	}
+
+	private rebuildIndices(): void {
+		this.toolIndices.clear();
+		this.userIndices.clear();
+		this.activeAssistantIndex = -1;
+		for (const [index, item] of this.items.entries()) {
+			if (item.kind === "tool") this.toolIndices.set(item.toolCallId, index);
+			else if (item.kind === "user") this.indexUser(normalizedText(item.text), index);
+			else if (item.kind === "assistant" && item.status === "streaming")
+				this.activeAssistantIndex = index;
+		}
+	}
+
+	private indexUser(text: string, index: number): void {
+		const found = this.userIndices.get(text);
+		if (found) found.push(index);
+		else this.userIndices.set(text, [index]);
 	}
 
 	optimisticUser(text: string): string {
@@ -493,6 +545,7 @@ export class ConversationModel {
 			timestamp: Date.now(),
 			optimistic: true,
 		});
+		this.indexUser(normalizedText(text), this.items.length - 1);
 		return itemId;
 	}
 
@@ -639,10 +692,11 @@ export class ConversationModel {
 			const timestamp = messageTimestamp(message);
 			const normalized = normalizedText(text);
 			let existingIndex = -1;
-			for (let index = this.items.length - 1; index >= 0; index--) {
+			const matches = this.userIndices.get(normalized) ?? [];
+			for (let offset = matches.length - 1; offset >= 0; offset--) {
+				const index = matches[offset]!;
 				const item = this.items[index];
-				if (item?.kind !== "user" || normalizedText(item.text) !== normalized)
-					continue;
+				if (item?.kind !== "user") continue;
 				if (item.optimistic || Math.abs(item.timestamp - timestamp) < 60_000) {
 					existingIndex = index;
 					break;
@@ -664,56 +718,29 @@ export class ConversationModel {
 					timestamp,
 					optimistic: false,
 				});
+				this.indexUser(normalized, this.items.length - 1);
 			}
 			return;
 		}
 		if (role !== "assistant") return;
 
 		const timestamp = messageTimestamp(message);
-		const fullText = extractText(message);
-		const fullThinking = extractThinking(message);
+		// Delta-only events carry no cumulative message. Extracting content from
+		// the growing assistant snapshot on each token caused quadratic work.
+		// message_end supplies the authoritative complete text when it arrives.
+		const fullText = suppliedMessage ? extractText(suppliedMessage) : "";
+		const fullThinking = suppliedMessage ? extractThinking(suppliedMessage) : "";
 		const authoritativeEnd = event.type === "message_end" && Boolean(suppliedMessage);
 		const deltaOnly = !suppliedMessage && Boolean(this.liveAssistantMessage);
 		const delta = eventDelta(event);
-		if (!suppliedMessage && this.liveAssistantMessage && (delta.text || delta.thinking)) {
-			const blocks = contentBlocks(this.liveAssistantMessage).map((block) => ({ ...block }));
-			const rawAssistantEvent = event.assistantMessageEvent;
-			const assistantEvent =
-				rawAssistantEvent && typeof rawAssistantEvent === "object"
-					? (rawAssistantEvent as Record<string, unknown>)
-					: undefined;
-			const contentIndex =
-				typeof assistantEvent?.contentIndex === "number" && assistantEvent.contentIndex >= 0
-					? Math.floor(assistantEvent.contentIndex)
-					: 0;
-			const blockType = delta.thinking ? "thinking" : "text";
-			const block = blocks[contentIndex];
-			if (block?.type === blockType) {
-				const field = blockType === "thinking" ? "thinking" : "text";
-				block[field] = `${typeof block[field] === "string" ? block[field] : ""}${
-					delta.thinking || delta.text
-				}`;
-			} else {
-				blocks[contentIndex] =
-					blockType === "thinking"
-						? { type: "thinking", thinking: delta.thinking }
-						: { type: "text", text: delta.text };
-			}
-			this.liveAssistantMessage.content = blocks;
-		}
 
-		let currentIndex = -1;
-		for (let index = this.items.length - 1; index >= 0; index--) {
-			const item = this.items[index];
-			if (
-				item?.kind === "assistant" &&
-				item.status === "streaming" &&
-				item.timestamp === timestamp
-			) {
-				currentIndex = index;
-				break;
-			}
+		let currentIndex = this.activeAssistantIndex;
+		if (currentIndex >= 0) {
+			const previous = this.items[currentIndex];
+			if (previous?.kind !== "assistant" || previous.status !== "streaming")
+				currentIndex = -1;
 		}
+		// Fallback for restored sessions, replaced rows, or nonstandard streams.
 		if (currentIndex < 0) {
 			for (let index = this.items.length - 1; index >= 0; index--) {
 				const item = this.items[index];
@@ -740,6 +767,7 @@ export class ConversationModel {
 			currentIndex = this.items.length - 1;
 		}
 		if (currentIndex < 0) return;
+		this.activeAssistantIndex = currentIndex;
 
 		const current = this.items[currentIndex] as AssistantItem;
 		const assistantEvent = event.assistantMessageEvent;
@@ -787,20 +815,25 @@ export class ConversationModel {
 			...(stop ? { stopReason: stop } : {}),
 		};
 		this.items[currentIndex] = updated;
+		if (updated.status !== "streaming") this.activeAssistantIndex = -1;
 
 		if (event.type === "message_end") this.removeEmptyAssistantItems();
 	}
 
 	private removeEmptyAssistantItems(): void {
+		let removed = false;
 		for (let index = this.items.length - 1; index >= 0; index--) {
 			const item = this.items[index];
 			if (
 				item?.kind === "assistant" &&
 				!item.text.trim() &&
 				!item.thinking.trim()
-			)
+			) {
 				this.items.splice(index, 1);
+				removed = true;
+			}
 		}
+		if (removed) this.rebuildIndices();
 	}
 
 	private applyToolEvent(event: Record<string, unknown>): void {
@@ -808,13 +841,20 @@ export class ConversationModel {
 			typeof event.toolCallId === "string"
 				? event.toolCallId
 				: id("unknown-tool");
-		let index = this.items.findIndex(
-			(entry) => entry.kind === "tool" && entry.toolCallId === toolCallId,
-		);
+		let index = this.toolIndices.get(toolCallId) ?? -1;
+		if (index >= 0) {
+			const match = this.items[index];
+			if (match?.kind !== "tool" || match.toolCallId !== toolCallId)
+				index = -1;
+		}
+		let initialPreview: { diff?: string; path?: string } | undefined;
 		if (index < 0) {
 			const toolName =
 				typeof event.toolName === "string" ? event.toolName : "tool";
-			const preview = createMutationDiff(toolName, event.args, this.cwd);
+			initialPreview = event.type === "tool_execution_start"
+				? createMutationDiff(toolName, event.args, this.cwd)
+				: {};
+			const preview = initialPreview;
 			const item: ToolItem = {
 				kind: "tool",
 				id: id("tool"),
@@ -832,12 +872,13 @@ export class ConversationModel {
 			};
 			this.items.push(item);
 			index = this.items.length - 1;
+			this.toolIndices.set(toolCallId, index);
 		}
 
 		const current = this.items[index] as ToolItem;
 		if (event.type === "tool_execution_start") {
 			const nextArgs = event.args ?? current.args;
-			const preview = createMutationDiff(current.name, nextArgs, this.cwd);
+			const preview = initialPreview ?? createMutationDiff(current.name, nextArgs, this.cwd);
 			this.items[index] = {
 				...current,
 				args: nextArgs,

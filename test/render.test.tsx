@@ -533,7 +533,7 @@ describe("OpenTUI components", () => {
 		await modelSetup.mockInput.typeText("beta");
 		await modelSetup.flush();
 		expect(modelSetup.captureCharFrame()).toContain("anthropic/beta");
-		expect(modelSetup.captureCharFrame()).toContain("Turn 2s · Tool 2s");
+		expect(modelSetup.captureCharFrame()).toContain("Turn 2s · Tool 900ms");
 		modelSetup.mockInput.pressArrow("down");
 		await modelSetup.flush();
 		modelSetup.mockInput.pressEnter();
@@ -3484,6 +3484,7 @@ describe("OpenTUI components", () => {
 								timestamp: Date.now(),
 								ttftMs: 800,
 								outputTokensPerSecond: 42,
+								version: 3,
 							},
 						],
 					}}
@@ -3500,7 +3501,7 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("openai-codex/gpt-5.6-terra");
 		expect(frame).toContain("400k ctx");
 		expect(frame).toContain("1M ctx");
-		expect(frame).toContain("{42 tok/s · 800ms TTFT}");
+		expect(frame).toContain("{42 tok/s · 800ms turn→first}");
 		expect(formatContextWindow(128000)).toBe("128k ctx");
 		expect(filterModelChoices(models, "SOL").map((model) => model.id)).toEqual([
 			"gpt-5.6-sol",
@@ -3595,9 +3596,23 @@ describe("OpenTUI components", () => {
 		);
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("Timing");
-		expect(frame).toContain("Turn 7s · Tool 5s");
+		expect(frame).toContain("Turn 7s · Tool 800ms");
 		expect(frame).not.toContain("Turn 2s");
 		expect(frame).not.toContain("other-model");
+	});
+
+	test("does not display another model's last measured output speed", async () => {
+		const setup = await mount(() => (
+			<Sidebar
+				state={{ sessionName: "Running", model: { provider: "openai", id: "new-model", contextWindow: 100000 } } as RpcSessionState}
+				runs={[]}
+				lastRequestPerformance={{ provider: "openai", modelId: "old-model", ttftMs: 100, outputTokens: 100, generationMs: 1000 }}
+				subagentsAvailable={false}
+				todosAvailable={false}
+				height={24}
+			/>
+		), 80, 24);
+		expect(setup.captureCharFrame()).not.toContain("Turn→output");
 	});
 
 	test("hides timing until the selected model has produced a request", async () => {

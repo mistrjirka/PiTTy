@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.56
+
+### Hot-path latency and measurement corrections
+
+- Parse multi-megabyte Pi RPC messages using fragmented buffers instead of repeated whole-buffer copies.
+- Index active conversation rows by tool call and user message, avoid rebuilding full assistant snapshots for every streamed token, and avoid copying the full transcript for visible-window updates.
+- Merge adjacent UI text and thinking deltas without changing the raw events used for latency measurements.
+- Bound live edit/write diff previews to files of at most 1 MiB, and do not read files for read-only tool calls.
+- Batch diagnostic debug writes while preserving every RPC event and flushing before warnings, errors, and shutdown.
+- Use the Pi turn boundary for UI-observed first-output latency. Discard stale sample versions rather than mixing incomparable measurements.
+- Measure real tool execution durations instead of dividing model generation time by tool count. Record separate first-tool-appearance and ready-to-execute handoff intervals when the RPC stream provides enough information.
+- Never display a previous model's speed under the currently selected model.
+
 ## 0.6.55
 
 - Avoid parsing full tool output when collapsed. Large code and shell results now use a bounded preview, with complete output preserved on expansion.
