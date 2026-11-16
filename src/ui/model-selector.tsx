@@ -114,8 +114,7 @@ export function normalizeModelChoices(values: unknown[]): ModelChoice[] {
 ): string {
 	if (!stats) return "";
 	const parts = [`Turn ${formatDuration(stats.medianTurnMs)}`];
-	if (stats.medianToolDispatchMs !== undefined)
-		parts.push(`Dispatch ${formatDuration(stats.medianToolDispatchMs)}`);
+	// Keep picker rows short. Dispatch remains visible in the sidebar header.
 	if (stats.medianToolExecutionMs !== undefined)
 		parts.push(`Tool ${formatDuration(stats.medianToolExecutionMs)}`);
 	return parts.join(" · ");

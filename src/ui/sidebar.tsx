@@ -459,14 +459,13 @@ export function Sidebar(props: {
 				{(stats) => (
 					<>
 						<box height={1} />
-						<text width="100%" height={1} fg={colors.textBright} attributes={1}>
-							Timing
+						<text width="100%" height={1} fg={colors.textBright} attributes={1} wrapMode="none">
+							Timing{stats().medianToolDispatchMs !== undefined
+								? ` · dispatch ${formatDuration(stats().medianToolDispatchMs)}`
+								: ""}
 						</text>
 						<text width="100%" height={1} fg={colors.muted} wrapMode="none">
 							Turn {formatDuration(stats().medianTurnMs)}
-							{stats().medianToolDispatchMs !== undefined
-								? ` · Dispatch ${formatDuration(stats().medianToolDispatchMs)}`
-								: ""}
 							{stats().medianToolExecutionMs !== undefined
 								? ` · Tool ${formatDuration(stats().medianToolExecutionMs)}`
 								: ""}

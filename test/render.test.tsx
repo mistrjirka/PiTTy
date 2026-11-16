@@ -3601,6 +3601,46 @@ describe("OpenTUI components", () => {
 		expect(frame).not.toContain("other-model");
 	});
 
+	test("keeps timing and tool dispatch readable in a 38-column sidebar", async () => {
+		const history: RequestTiming[] = [{
+			timingVersion: REQUEST_TIMING_VERSION, provider: "openai", modelId: "gpt",
+			turnMs: 7_200, toolCallDurationsMs: [980], toolDispatchMs: [55],
+			toolCallCount: 1,
+		}];
+		const setup = await mount(() => (
+			<Sidebar
+				state={{ sessionName: "Example", model: { provider: "openai", id: "gpt", contextWindow: 100_000 } } as RpcSessionState}
+				runs={[]}
+				timingHistory={history}
+				subagentsAvailable={false}
+				todosAvailable={false}
+				height={24}
+			/>
+		), 38, 24);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("Timing · dispatch 55ms");
+		expect(frame).toContain("Turn 7s · Tool 980ms");
+		const timingRows = frame.split("\n").filter((line) =>
+			line.includes("Timing · dispatch") || line.includes("Turn 7s · Tool"));
+		expect(timingRows).toHaveLength(2);
+		expect(timingRows.every((line) => line.length <= 38)).toBe(true);
+	});
+
+	test("keeps model-picker timing compact when dispatch metrics exist", async () => {
+		const history: RequestTiming[] = [{
+			timingVersion: REQUEST_TIMING_VERSION, provider: "openai", modelId: "gpt",
+			turnMs: 7_200, toolCallDurationsMs: [980], toolDispatchMs: [55],
+			toolCallCount: 1,
+		}];
+		const setup = await mount(() => (
+			<ModelSelectorDialog models={[{ provider: "openai", id: "gpt" }]}
+				timingHistory={history} onSelect={() => {}} onCancel={() => {}} />
+		), 75, 20);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("Turn 7s · Tool 980ms");
+		expect(frame).not.toContain("Dispatch 55ms");
+	});
+
 	test("does not display another model's last measured output speed", async () => {
 		const setup = await mount(() => (
 			<Sidebar

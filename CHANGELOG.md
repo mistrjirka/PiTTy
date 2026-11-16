@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.57
+
+- Keep sidebar timing readable at its fixed 38-column width: show dispatch latency in the Timing header and leave the second row for Turn and Tool execution.
+- Keep the model picker compact by excluding the extra dispatch metric from its inline summaries.
+- Add narrow-width rendering tests for both surfaces, preserving all measurements.
+
 ## 0.6.56
 
 ### Hot-path latency and measurement corrections
