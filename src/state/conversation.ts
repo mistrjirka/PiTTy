@@ -93,6 +93,19 @@ function customItemFromMessage(
 	};
 }
 
+/** Pi's code tool returns opaque resume state in details.state, often >10 MiB.
+ * Its state belongs to the Pi session, not the terminal view. Retaining every
+ * snapshot in conversation items can consume hundreds of MiB.
+ */
+function displayToolDetails(toolName: string, details: unknown): unknown {
+	if (toolName.toLowerCase() !== "code") return details;
+	const record = objectRecord(details);
+	if (!record || !("state" in record)) return details;
+	const visible = { ...record };
+	delete visible.state;
+	return Object.keys(visible).length > 0 ? visible : undefined;
+}
+
 function toolOutput(result: unknown): string {
 	if (!result || typeof result !== "object") return "";
 	const content = (result as Record<string, unknown>).content;
@@ -448,7 +461,7 @@ export function initialItems(messages: unknown[], options?: { stableIds?: boolea
 				output,
 				...(normalizedResult.diff ? { diff: normalizedResult.diff } : {}),
 				...(normalizedResult.path ? { diffPath: normalizedResult.path } : {}),
-				details: record.details,
+				details: displayToolDetails(call?.name ?? toolName, record.details),
 				timestamp: messageTimestamp(message, stable),
 				startedAt: messageTimestamp(message, stable),
 				endedAt: messageTimestamp(message, stable),
@@ -902,7 +915,7 @@ export class ConversationModel {
 			...current,
 			output: toolOutput(result),
 			...(objectRecord(result)?.details !== undefined
-				? { details: objectRecord(result)?.details }
+				? { details: displayToolDetails(current.name, objectRecord(result)?.details) }
 				: {}),
 			...(settledDiff ? { diff: settledDiff } : {}),
 			...(normalizedResult.path ? { diffPath: normalizedResult.path } : {}),
