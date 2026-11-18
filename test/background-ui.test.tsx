@@ -4,6 +4,7 @@ import { testRender } from "@opentui/solid";
 import type { JSX } from "solid-js";
 import { BackgroundTaskDialog } from "../src/ui/background-task-dialog.tsx";
 import { Sidebar } from "../src/ui/sidebar.tsx";
+import type { SubagentTarget } from "../src/subagents/targets.ts";
 import type { BackgroundOutputPage, BackgroundTask } from "../src/state/background-tasks.ts";
 
 const active: TestRendererSetup[] = [];
@@ -65,6 +66,25 @@ describe("background jobs in sidebar and viewer", () => {
 		await clickText(setup, "bg-1");
 		expect(clicked).toEqual(["bg-1"]);
 	});
+	test("keeps a live profile-driven subagent visible alongside background commands", async () => {
+		const target: SubagentTarget = {
+			key: "profiled:owner-june", label: "@june · implementer — torch processing",
+			state: "running", active: true, canSteer: true,
+			run: {
+				runId: "profiled:owner-june", mode: "profiled", control: "profiled",
+				runtime: "profiled-subagents", agentId: "june", profile: "implementer",
+				parentAgentId: "root", treeId: "tree-torch", label: "torch processing",
+				state: "running", steps: [],
+			},
+		};
+		const setup = await mount(() => <Sidebar runs={[]} targetSource={() => [target]} backgroundTasks={[task]} height={39} />, 120, 40);
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("Subagents (1 active)");
+		expect(frame).toContain("@june");
+		expect(frame).toContain("Background (1 active");
+		expect(frame).toContain("bg-1");
+	});
+
 	test("scrolls through a long background output without truncating the selected page", async () => {
 		const longPage: BackgroundOutputPage = {
 			...logPage,

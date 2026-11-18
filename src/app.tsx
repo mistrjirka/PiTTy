@@ -1587,7 +1587,7 @@ export function App(props: AppOptions) {
 	onCleanup(() => transcriptSelectionCache.dispose());
 
 	const reconcileSteers = (nextRuns: readonly SubagentRun[]) => {
-		const nextTargets = subagentTargets(nextRuns, subagentTools(), { contextWindowForModel });
+		const nextTargets = subagentTargets(nextRuns, subagentTools(), { contextWindowForModel, ownerPid: activeRuntime().client.getProcessPid() });
 		setPendingSteers((entries) =>
 			reconcilePendingSteers(
 				entries,
@@ -1887,9 +1887,16 @@ export function App(props: AppOptions) {
 			structureItems().filter((item): item is ToolItem => item.kind === "tool"),
 		),
 	);
-	const availableSubagentTargets = createMemo(() =>
-		subagentTargets(runs(), subagentTools(), { contextWindowForModel }),
-	);
+	// A separate memo prevents expensive filesystem discovery every second.
+	// The live status can change without any Pi RPC event.
+	const profiledSubagentScanTick = createMemo(() => Math.floor(clockNow() / 3_000));
+	const availableSubagentTargets = createMemo(() => {
+		profiledSubagentScanTick();
+		return subagentTargets(runs(), subagentTools(), {
+			contextWindowForModel,
+			ownerPid: activeRuntime().client.getProcessPid(),
+		});
+	});
 	const displaySubagentTargets = createMemo(() =>
 		subagentTreeRows(availableSubagentTargets()).map((row) => row.target),
 	);
@@ -1995,7 +2002,7 @@ export function App(props: AppOptions) {
 		if (digest !== lastRunsDigest) {
 			lastRunsDigest = digest;
 			setRuns(nextRuns);
-			const nextTargets = subagentTargets(nextRuns, subagentTools(), { contextWindowForModel });
+			const nextTargets = subagentTargets(nextRuns, subagentTools(), { contextWindowForModel, ownerPid: activeRuntime().client.getProcessPid() });
 			const nextDisplayTargets = subagentTreeRows(nextTargets).map((row) => row.target);
 			setSelectedTargetKey(
 				reconcileSubagentSelection(
@@ -4314,7 +4321,11 @@ export function App(props: AppOptions) {
 				status: status(),
 				streaming: streaming(),
 				messages: activeRuntime().conversation.items.length,
-				subagents: runs().length,
+				subagents: runs().length, // legacy/mission runs only
+				profiledSubagentTargets: availableSubagentTargets().length,
+				activeSubagents: availableSubagentTargets().filter((target) => target.active).length,
+				backgroundTasks: activeRuntime().background?.tasks.length ?? 0,
+				activeBackgroundTasks: activeRuntime().background?.tasks.filter((task) => task.state === "running").length ?? 0,
 				memoryUsage: process.memoryUsage(),
 			});
 		}, 30_000);
@@ -5280,6 +5291,7 @@ export function App(props: AppOptions) {
 						timingHistory={requestTimingHistory()}
 						runs={runs}
 						tools={subagentTools}
+						targetSource={availableSubagentTargets}
 						contextWindowForModel={contextWindowForModel}
 						selectedTargetKey={selectedTargetKey()}
 						now={clockNow()}

@@ -23,6 +23,28 @@ describe("read-only pi-bg observer", () => {
 		assert.equal(snapshot[0].state, "exited");
 	});
 
+	it("retries an unchanged snapshot after transient setStatus failure", async () => {
+		const original = globalThis[KEY];
+		const handlers = new Map();
+		let attempts = 0;
+		let successful = 0;
+		globalThis[KEY] = { tasks: new Map([["bg-1", makeTask("bg-1", SESSION, "sleep 3")]]) };
+		try {
+			backgroundObserver({ on(name, handler) { handlers.set(name, handler); } });
+			handlers.get("session_start")({}, {
+				sessionManager: { getSessionId() { return SESSION; } },
+				ui: { setStatus() { attempts++; if (attempts === 1) throw new Error("transient UI failure"); successful++; } },
+			});
+			await new Promise((resolve) => setTimeout(resolve, 1_250));
+			assert.ok(attempts >= 2);
+			assert.ok(successful >= 1);
+		} finally {
+			handlers.get("session_shutdown")?.({ reason: "quit" });
+			if (original === undefined) delete globalThis[KEY];
+			else globalThis[KEY] = original;
+		}
+	});
+
 	it("emits UI-only status and no tool/model hooks", () => {
 		const original = globalThis[KEY];
 		const handlers = new Map();

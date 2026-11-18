@@ -75,6 +75,11 @@ export class PiRpcClient extends EventEmitter {
 		this.startupArgs = [...(options.args ?? [])];
 	}
 
+	/** PID of this tab's Pi process. Used to find its own live child agents, never other sessions. */
+	getProcessPid(): number | undefined {
+		return this.child?.pid;
+	}
+
 	/** Read the launched Pi process's effective Claude profile. Linux only. */
 	getClaudeConfigDir(): string | undefined {
 		if (process.platform !== "linux" || !this.child?.pid) return this.options.env?.CLAUDE_CONFIG_DIR ?? process.env.CLAUDE_CONFIG_DIR;

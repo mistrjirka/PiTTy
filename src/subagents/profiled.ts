@@ -236,6 +236,8 @@ const PROFILED_NON_TERMINAL_STATES = ["running", "queued", "waiting", "idle"];
 
 export type ProfiledSubagentOptions = {
   contextWindowForModel?: (model: string | undefined) => number | undefined;
+  /** Pi process PID. Discovers live direct children when their spawn tool was compacted away. */
+  ownerPid?: number | undefined;
   /**
    * Explicitly scan all profiled runtime roots for terminal runs that are not
    * referenced by the current conversation. This is intentionally off in
@@ -352,6 +354,31 @@ function statusDirectoriesAll(): Array<{ controlDir: string; status: ProfiledSta
       if (!controlDir) continue;
       const status = parseStatus(controlDir);
       if (status) rows.push({ controlDir, status });
+    }
+  }
+  return rows;
+}
+
+/**
+ * Discover *only* direct children owned by the currently running Pi process.
+ * Status directories are named `<owner pid>-<agent>-<random>` by pi-subagent.
+ * The PID is supplied by our own PiRpcClient, not inferred from old session
+ * history, so other tabs/sessions cannot leak into this sidebar. This also
+ * recovers the live roster if compaction removed the original agent_spawn tool.
+ */
+function statusDirectoriesForOwner(ownerPid: number | undefined): Array<{ controlDir: string; status: ProfiledStatus }> {
+  if (!Number.isSafeInteger(ownerPid) || ownerPid === undefined || ownerPid <= 0) return [];
+  const prefix = `${ownerPid}-`;
+  const rows: Array<{ controlDir: string; status: ProfiledStatus }> = [];
+  for (const root of runtimeRoots()) {
+    let names: string[];
+    try { names = fs.readdirSync(root); } catch { continue; }
+    for (const name of names) {
+      if (!name.startsWith(prefix)) continue;
+      const controlDir = safeControlDir(path.join(root, name));
+      if (!controlDir) continue;
+      const status = parseStatus(controlDir);
+      if (status && status.parentAgentId === "root") rows.push({ controlDir, status });
     }
   }
   return rows;
@@ -498,8 +525,20 @@ export function profiledSubagentRunsFromTools(tools: readonly ToolItem[], option
   }
   const byRunId = new Map<string, SubagentRun>();
   for (const run of seeds) byRunId.set(run.runId, run);
+  // A completed agent_spawn result may have been dropped by Pi compaction,
+  // while the child still runs and agent_wait remains valid. Source-of-truth
+  // status under this parent Pi PID keeps the sidebar populated in that case.
+  for (const { controlDir, status } of statusDirectoriesForOwner(options.ownerPid)) {
+    const run = runFromStatus(controlDir, status, options);
+    if (!profiledRunIsLive(run)) continue;
+    byRunId.set(run.runId, run);
+    treeIds.add(status.treeId);
+  }
   for (const { controlDir, status } of statusDirectoriesForTrees(treeIds)) {
     const run = runFromStatus(controlDir, status, options);
+    // Tree IDs alone are not owner authorization. A different Pi process
+    // could have a coincidentally matching tree ID, but not this tab's PID.
+    if (options.ownerPid !== undefined && status.parentAgentId === "root" && !byRunId.has(run.runId)) continue;
     byRunId.set(run.runId, run);
   }
   // Fallback discovery for restarted PiTTy / reloaded conversations without

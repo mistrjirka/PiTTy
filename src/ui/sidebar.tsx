@@ -178,6 +178,8 @@ export function Sidebar(props: {
 	timingHistory?: RequestTiming[] | Accessor<RequestTiming[]> | undefined;
 	runs: SubagentRun[] | Accessor<SubagentRun[]>;
 	tools?: ToolItem[] | Accessor<ToolItem[]> | undefined;
+	/** Reuse the main UI's current Pi-PID-scoped roster instead of re-discovering it. */
+	targetSource?: Accessor<SubagentTarget[]> | undefined;
 	contextWindowForModel?: (model: string | undefined) => number | undefined;
 	selectedTargetKey?: string | undefined;
 	selectedRunId?: string | undefined;
@@ -303,7 +305,7 @@ export function Sidebar(props: {
 	);
 	const hasNotifications = () => orderedNotifications().length > 0;
 	const targets = createMemo(() =>
-		subagentTargets(
+		props.targetSource?.() ?? subagentTargets(
 			runs(),
 			tools(),
 			props.contextWindowForModel ? { contextWindowForModel: props.contextWindowForModel } : {},
