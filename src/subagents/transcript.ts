@@ -1,3 +1,4 @@
+import { readSessionTail } from "./session-tail.ts";
 import * as fs from "node:fs";
 import { initialItems, sessionToolCalls, type SessionToolCall } from "../state/conversation.ts";
 import { normalizeResultDetails } from "../state/result-diff.ts";
@@ -689,7 +690,7 @@ function readSessionMessages(run: SubagentRun, stepIndex?: number): unknown[] {
   if (!sessionFile) return [];
   let content: string;
   try {
-    content = fs.readFileSync(sessionFile, "utf8");
+    content = readSessionTail(sessionFile, 24 * 1024 * 1024);
   } catch {
     return [];
   }

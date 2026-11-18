@@ -108,10 +108,10 @@ export function targetFreshness(target: SubagentTarget, now: number): string {
  * state reports nothing (`""`) because the sibling freshness/activity row
  * already names the state — restating it would print the state word twice.
  */
-export function targetToolUsage(target: SubagentTarget): string {
+export function targetToolUsage(target: SubagentTarget, now = Date.now()): string {
 	const parts: string[] = [];
 	const toolCount = target.step?.toolCount ?? target.run.toolCount;
-	if (toolCount !== undefined) parts.push(`${toolCount} tools`);
+	if (toolCount !== undefined && toolCount > 0) parts.push(`${toolCount} tools`);
 	// Residents (`idle`) and parent-waiters (`waiting`) are live-but-idle:
 	// their context window is stale (nothing is running), so the row keeps
 	// only the tool count. Deliberately keeps `${toolCount} tools`.
@@ -127,7 +127,17 @@ export function targetToolUsage(target: SubagentTarget): string {
 		if (tokens !== undefined) parts.push(`${formatTokens(tokens)} tok`);
 	}
 	if (parts.length > 0) return parts.join(" · ");
-	if (target.state === "running" || target.state === "queued") return "starting…";
+	const turns = target.step?.turnCount ?? target.run.turnCount;
+	if (turns !== undefined && turns > 0) return `${turns} ${turns === 1 ? "turn" : "turns"} · usage unavailable`;
+	if (target.state === "running" || target.state === "queued") {
+		const startedAt = target.run.startedAt ?? target.startedAt;
+		const lastActivityAt = target.step?.lastActivityAt ?? target.run.lastActivityAt;
+		if (startedAt !== undefined && (now - startedAt >= 15_000 ||
+			(lastActivityAt !== undefined && lastActivityAt - startedAt >= 1_000))) {
+			return "working · usage unavailable";
+		}
+		return "starting…";
+	}
 	return "";
 }
 

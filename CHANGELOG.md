@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.63
+
+### Extract runtime controllers and fix false subagent startup labels
+
+- Move Pi session loading/switching, prompt queue/abort dispatch, two-lane compaction state, and background/MCP status into typed controllers. Keep SolidJS view and dialog ownership in `App`.
+- Consume pi-subagent >=0.5.16 live turn/tool counts and latest context usage from validated status instead of scanning child session files. New agents with completed turns no longer show `starting…` without usage.
+- Keep a bounded compatibility telemetry reader for older children and load only a bounded tail when opening a subagent transcript. Do not parse giant opaque `code` result rows just to find the last usage window.
+- Regression tests cover 1.5 MiB code-result rows, status validation, compaction, prompt queue/abort and callback behavior. No global Pi code or running sessions were modified.
+
+Validation: 711 tests passed, one optional PowerShell fixture skipped, TypeScript and runtime build passed locally.
+
 ## 0.6.62
 
 ### Keep custom compaction output inside the terminal viewport
