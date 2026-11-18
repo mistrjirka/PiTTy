@@ -9,6 +9,7 @@ import {
 } from "../state/compaction-telemetry.ts";
 import type { OneRoundLaneTexts } from "../state/compaction-telemetry.ts";
 import type { BackgroundTask } from "../state/background-tasks.ts";
+import { backgroundTaskDuration } from "./background-task-duration.ts";
 import { formatDuration } from "./duration.ts";
 import { colors, getMarkdownStyle } from "./theme.ts";
 
@@ -259,7 +260,7 @@ export function CompactionPanel(props: {
 						}}
 					>
 						<text height={1} fg={colors.muted} wrapMode="none" minWidth={0} width="100%">
-							{`● ${job.id} · ${job.command.replace(/\s+/g, " ").trim()} · ${formatDuration(Math.max(0, props.now - job.startedAt))}`}
+							{`● ${job.id} · ${backgroundTaskDuration(job, props.now) ?? "?"} running · ${job.command.replace(/\s+/g, " ").trim()}`}
 						</text>
 					</box>
 				))}

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.67
+
+### Fix slash-separated model search
+
+- Treat `/` and whitespace as search separators in the Ctrl+P model selector. A standalone `/` no longer hides every model.
+- Match all query terms across provider, model ID and display name, so full paths such as `openai-codex/gpt-5.6-sol` and flexible searches such as `codex / terra` work without requiring a slash inside an individual field.
+- Add both filtering and real OpenTUI tests for `/` and provider/model queries. Existing case-insensitive name search and model selection remain unchanged.
+- Show elapsed background-command runtime prominently in the sidebar, compaction panel, and task-output dialog. Keep the timer visible before long command previews and freeze completed durations at their recorded end time. Added live-clock and narrow-terminal UI regressions.
+
 ## 0.6.66
 
 ### Full slash catalog and visible running commands during compaction

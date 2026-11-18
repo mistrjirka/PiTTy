@@ -3509,6 +3509,10 @@ describe("OpenTUI components", () => {
 		expect(
 			filterModelChoices(models, "terra").map((model) => model.id),
 		).toEqual(["gpt-5.6-terra"]);
+		expect(filterModelChoices(models, "/")).toEqual(models);
+		expect(filterModelChoices(models, " /  / ")).toEqual(models);
+		expect(filterModelChoices(models, "openai-codex/gpt-5.6-sol").map((model) => model.id)).toEqual(["gpt-5.6-sol"]);
+		expect(filterModelChoices(models, "codex / terra").map((model) => model.id)).toEqual(["gpt-5.6-terra"]);
 		expect(filterModelChoices(models, "missing")).toEqual([]);
 		const emptySetup = await mount(
 			() => (
@@ -3523,6 +3527,26 @@ describe("OpenTUI components", () => {
 		);
 		expect(emptySetup.captureCharFrame()).toContain("Tab list");
 		expect(emptySetup.captureCharFrame()).toContain("No matching models.");
+	});
+
+	test("Ctrl+P slash alone keeps all models visible instead of clearing results", async () => {
+		const setup = await mount(() => (
+			<ModelSelectorDialog
+				models={[
+					{ provider: "openai-codex", id: "gpt-5.6-terra" },
+					{ provider: "anthropic", id: "claude-sonnet" },
+				]}
+				onSelect={() => {}}
+				onCancel={() => {}}
+			/>
+		), 90, 24);
+		await setup.mockInput.typeText("/");
+		await setup.flush();
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("2 matches");
+		expect(frame).toContain("openai-codex/gpt-5.6-terra");
+		expect(frame).toContain("anthropic/claude-sonnet");
+		expect(frame).not.toContain("No matching models.");
 	});
 
 	test("model selector shows the Pi sync notice when set", async () => {

@@ -64,13 +64,14 @@ export function filterModelChoices(
 	models: ModelChoice[],
 	query: string,
 ): ModelChoice[] {
-	const normalized = query.trim().toLowerCase();
-	if (!normalized) return models;
-	return models.filter((model) =>
-		[model.provider, model.id, model.name ?? ""].some((value) =>
-			value.toLowerCase().includes(normalized),
-		),
-	);
+	// The picker displays provider/model. Treat '/' as a separator, not a
+	// required character in one field. A lone '/' must show every model.
+	const terms = query.toLowerCase().split(/[\/\s]+/).filter(Boolean);
+	if (terms.length === 0) return models;
+	return models.filter((model) => {
+		const searchable = `${model.provider} ${model.id} ${model.name ?? ""}`.toLowerCase();
+		return terms.every((term) => searchable.includes(term));
+	});
 }
 
 export function normalizeModelChoices(values: unknown[]): ModelChoice[] {
