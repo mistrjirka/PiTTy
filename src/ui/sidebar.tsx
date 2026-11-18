@@ -363,7 +363,7 @@ export function Sidebar(props: {
 		// leaving a blank third row. Both stay accessors so the reserved
 		// height always follows the usage line instead of freezing at the
 		// values captured when the row was created.
-		const usage = () => targetToolUsage(target);
+		const usage = () => targetToolUsage(target, props.now ?? Date.now());
 		const detailPrefix = () => " ".repeat(prefix.length);
 		const rows = () => (target.active ? (usage() ? 3 : 2) : 1);
 		return (

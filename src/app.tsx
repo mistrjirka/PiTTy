@@ -55,13 +55,7 @@ import {
 import {
 	shouldRecoverPromptDraft,
 } from "./state/prompt-history.ts";
-import {
-	MCP_ADAPTER_STATUS_KEY,
-	MCP_STATUS_KEY,
-	isEmptyMcpStatus,
-	parseMcpAdapterStatusText,
-	parseMcpStatusSnapshot,
-} from "./state/mcp-status.ts";
+
 import {
 	createPromptPasteBlock,
 	expandPromptPasteTokens,
@@ -103,6 +97,10 @@ import {
 } from "./subagents/control.ts";
 import { ExtensionDialog } from "./ui/dialog.tsx";
 import { MessageView } from "./ui/message.tsx";
+import { CompactionController } from "./tabs/compaction-controller.ts";
+import { SessionController } from "./tabs/session-controller.ts";
+import { InputController } from "./tabs/input-controller.ts";
+import { ExtensionStatusController } from "./tabs/extension-status-controller.ts";
 import { CompactedSummary, CompactionPanel } from "./ui/compaction-panel.tsx";
 import { TabManager, type ConversationTab } from "./tabs/manager.ts";
 import { blankTabPiArgs, createTabRuntime, planForkTab, prepareForkedTabRuntime, provisionalExtensionUiResponse, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
@@ -204,7 +202,7 @@ import {
 } from "./integrations/memory-store.ts";
 import { Sidebar } from "./ui/sidebar.tsx";
 import { BackgroundTaskDialog } from "./ui/background-task-dialog.tsx";
-import { BG_STATUS_KEY, parseBackgroundSnapshot, readBackgroundOutput, type BackgroundOutputPage } from "./state/background-tasks.ts";
+import { readBackgroundOutput, type BackgroundOutputPage } from "./state/background-tasks.ts";
 import { cleanInline, clip } from "./ui/model-context.tsx";
 import { NotificationDialog } from "./ui/notification-dialog.tsx";
 import { SubagentInspector, inspectedTargetScrollY } from "./ui/subagent-inspector.tsx";
@@ -913,7 +911,6 @@ export function App(props: AppOptions) {
 	const [activeTabId, setActiveTabId] = createSignal(tabManager.snapshot.activeId);
 	const [runtimeMap, setRuntimeMap] = createSignal<Map<string, ConversationTabRuntime>>(new Map());
 	const extensionRouter = new ExtensionRequestRouter();
-	const invalidCompactionTelemetryWarnings = new Set<string>();
 	const provisionalRuntimes = new Set<ConversationTabRuntime>();
 	const activeRuntime = () => runtimeMap().get(activeTabId()) ?? bootRuntime;
 	const claudeEffectiveSlot = () => {
@@ -1067,207 +1064,19 @@ export function App(props: AppOptions) {
 		setDialogOwnerRuntimeId(envelope.runtimeId);
 		setDialog(event);
 	};
-	const updateCompactionSystemItem = (
-		tabRuntime: ConversationTabRuntime,
-		text: string,
-	): void => {
-		for (let index = tabRuntime.conversation.items.length - 1; index >= 0; index -= 1) {
-			const item = tabRuntime.conversation.items[index];
-			if (item?.kind === "system" && item.text.startsWith("Context compacted")) {
-				tabRuntime.conversation.items[index] = { ...item, text };
-				return;
-			}
-		}
-	};
 	const notifyCompactionChange = (tabRuntime: ConversationTabRuntime): void => {
 		if (tabRuntime.id === activeTabId()) setCompactionRevision((value) => value + 1);
 		tabRuntime.onConversationChange();
 	};
+	const compactionController = new CompactionController(notifyCompactionChange, props.logger);
+	const extensionStatusController = new ExtensionStatusController((runtime) => {
+		if (runtime.id === activeTabId()) touch();
+	});
 	const routeRuntimeEvent = (event: PiEvent, tabRuntime: ConversationTabRuntime): void => {
-		if (event.type === "compaction_start") {
-			const usage = tabRuntime.sessionStats?.contextUsage;
-			tabRuntime.compactionAttempt += 1;
-			delete tabRuntime.lastCompactionCompletion;
-			tabRuntime.compactionTelemetry = {
-				version: 1,
-				phase: "preparing",
-				attempt: tabRuntime.compactionAttempt,
-				...(isCompactionReason(event.reason) ? { reason: event.reason } : {}),
-				...(typeof usage?.tokens === "number"
-					? { tokensBefore: usage.tokens }
-					: {}),
-				...(typeof usage?.contextWindow === "number"
-					? { contextWindow: usage.contextWindow }
-					: {}),
-				...(typeof usage?.percent === "number"
-					? { contextPercent: usage.percent }
-					: {}),
-				startedAt: Date.now(),
-			};
-			notifyCompactionChange(tabRuntime);
-		}
+		compactionController.handleStart(event, tabRuntime);
 		if (isExtensionUiRequest(event)) {
-			if (
-				event.method === "setStatus" &&
-				event.statusKey === SMART_COMPACT_PROGRESS_KEY
-			) {
-				const progress = parseSmartCompactProgress(event.statusText);
-				if (progress === undefined) {
-					if (tabRuntime.smartCompactProgress !== undefined) {
-						delete tabRuntime.smartCompactProgress;
-						notifyCompactionChange(tabRuntime);
-					}
-				} else {
-					tabRuntime.smartCompactProgress = progress;
-					notifyCompactionChange(tabRuntime);
-				}
-				return;
-			}
-			if (
-				event.method === "setStatus" &&
-				(event.statusKey === ONE_ROUND_PROGRESS_KEY || event.statusKey === ONE_ROUND_LEGACY_PROGRESS_KEY)
-			) {
-				const progress =
-					typeof event.statusText === "string"
-						? parseOneRoundProgress(event.statusText)
-						: undefined;
-				if (progress === undefined) {
-					if (
-						tabRuntime.oneRoundProgress !== undefined ||
-						tabRuntime.oneRoundLaneTexts !== undefined
-					) {
-						delete tabRuntime.oneRoundProgress;
-						delete tabRuntime.oneRoundLaneTexts;
-						notifyCompactionChange(tabRuntime);
-					}
-				} else if (
-					progress.phase === "complete" ||
-					progress.phase === "error" ||
-					progress.phase === "aborted"
-				) {
-					delete tabRuntime.oneRoundProgress;
-					notifyCompactionChange(tabRuntime);
-				} else {
-					tabRuntime.oneRoundLaneTexts = applyOneRoundLaneDeltas(
-						tabRuntime.oneRoundLaneTexts,
-						progress,
-					);
-					if (tabRuntime.oneRoundProgress !== progress) {
-						tabRuntime.oneRoundProgress = progress;
-						notifyCompactionChange(tabRuntime);
-					}
-				}
-				return;
-			}
-			if (
-				event.method === "setStatus" &&
-				event.statusKey === COMPACTION_STATUS_KEY
-			) {
-				const telemetry =
-					typeof event.statusText === "string"
-						? parseCompactionTelemetry(event.statusText)
-						: undefined;
-				const current = tabRuntime.compactionTelemetry;
-				const completion = tabRuntime.lastCompactionCompletion;
-				if (
-					telemetry &&
-					telemetry.attempt !== undefined &&
-					((current && telemetry.attempt !== current.attempt) ||
-						(completion && telemetry.attempt !== completion.attempt))
-				)
-					return;
-				if (telemetry?.phase === "complete" && telemetry.attempt === undefined)
-					return;
-				if (telemetry?.phase === "failed") {
-					delete tabRuntime.compactionTelemetry;
-					delete tabRuntime.lastCompactionCompletion;
-					notifyCompactionChange(tabRuntime);
-				} else if (telemetry) {
-					if (telemetry.phase === "complete" && !current && !completion)
-						return;
-					if (current) {
-						tabRuntime.compactionTelemetry = {
-							...current,
-							...telemetry,
-							...(current.startedAt !== undefined
-								? { startedAt: current.startedAt }
-								: {}),
-						};
-					}
-					if (telemetry.phase === "complete" && completion) {
-						tabRuntime.lastCompactionCompletion = {
-							...completion,
-							...(telemetry.retainedContextMessages !== undefined
-								? { retainedContextMessages: telemetry.retainedContextMessages }
-								: {}),
-						};
-						updateCompactionSystemItem(
-							tabRuntime,
-							compactionSuccessText(tabRuntime.lastCompactionCompletion),
-						);
-					}
-					notifyCompactionChange(tabRuntime);
-				} else if (!invalidCompactionTelemetryWarnings.has(tabRuntime.id)) {
-					invalidCompactionTelemetryWarnings.add(tabRuntime.id);
-					props.logger.warn("compaction.telemetry_invalid", {
-						runtimeId: tabRuntime.id,
-					});
-				}
-				return;
-			}
-			if (event.method === "setStatus" && event.statusKey === BG_STATUS_KEY) {
-				const snapshot = typeof event.statusText === "string"
-					? parseBackgroundSnapshot(event.statusText)
-					: undefined;
-				if (snapshot && (!tabRuntime.sessionState?.sessionId ||
-					snapshot.sessionId === tabRuntime.sessionState.sessionId)) {
-					tabRuntime.background = snapshot;
-					if (tabRuntime.id === activeTabId()) touch();
-				}
-				return;
-			}
-			if (event.method === "setStatus" && event.statusKey === MCP_STATUS_KEY) {
-				const snapshot =
-					typeof event.statusText === "string"
-						? parseMcpStatusSnapshot(event.statusText)
-						: undefined;
-				if (!snapshot || isEmptyMcpStatus(snapshot)) {
-					if (
-						tabRuntime.mcpStatus !== undefined ||
-						tabRuntime.mcpCounts !== undefined
-					) {
-						delete tabRuntime.mcpStatus;
-						delete tabRuntime.mcpCounts;
-						if (tabRuntime.id === activeTabId()) touch();
-					}
-				} else {
-					tabRuntime.mcpStatus = snapshot;
-					if (tabRuntime.id === activeTabId()) touch();
-				}
-				return;
-			}
-			if (
-				event.method === "setStatus" &&
-				event.statusKey === MCP_ADAPTER_STATUS_KEY
-			) {
-				// The adapter's deferred startup path publishes only this footer text.
-				// Keep the counts for the sidebar, then let the generic setStatus
-				// handling below keep the footer and response behavior unchanged.
-				const counts = parseMcpAdapterStatusText(event.statusText);
-				if (counts) {
-					tabRuntime.mcpCounts = counts;
-					if (tabRuntime.id === activeTabId()) touch();
-				} else if (
-					event.statusText === undefined ||
-					event.statusText === null ||
-					event.statusText === ""
-				) {
-					if (tabRuntime.mcpCounts !== undefined) {
-						delete tabRuntime.mcpCounts;
-						if (tabRuntime.id === activeTabId()) touch();
-					}
-				}
-			}
+			if (compactionController.handleStatus(event, tabRuntime)) return;
+			if (extensionStatusController.handle(event, tabRuntime)) return;
 			const envelope = extensionRouter.enqueue(tabRuntime.id, event);
 			if (tabRuntime.id !== activeTabId()) {
 				tabManager.incrementBadge(tabRuntime.id, "extension");
@@ -1275,31 +1084,7 @@ export function App(props: AppOptions) {
 			} else if (envelope) handleExtensionRequest(envelope);
 			return;
 		}
-		if (event.type === "compaction_end") {
-			const retained = tabRuntime.compactionTelemetry?.retainedContextMessages;
-			delete tabRuntime.smartCompactProgress;
-			delete tabRuntime.oneRoundProgress;
-			delete tabRuntime.oneRoundLaneTexts;
-			if (!event.aborted && !event.errorMessage) {
-				const completion: CompactionCompletion = {
-					...compactionCompletionFromResult(
-						event.result,
-						retained,
-						tabRuntime.compactionTelemetry?.attempt,
-					),
-					...(tabRuntime.compactionTelemetry?.startedAt !== undefined
-						? { durationMs: Date.now() - tabRuntime.compactionTelemetry.startedAt }
-						: {}),
-					...(isCompactionReason(event.reason) ? { reason: event.reason } : {}),
-				};
-				tabRuntime.lastCompactionCompletion = completion;
-				updateCompactionSystemItem(tabRuntime, "Context compacted.");
-			} else {
-				delete tabRuntime.lastCompactionCompletion;
-			}
-			delete tabRuntime.compactionTelemetry;
-			notifyCompactionChange(tabRuntime);
-		}
+		compactionController.handleEnd(event, tabRuntime);
 		if (
 			tabRuntime.id === activeTabId() &&
 			(event.type === "message_end" || event.type === "agent_settled")
@@ -1481,21 +1266,13 @@ export function App(props: AppOptions) {
 		}
 	};
 	const tabRuntimeIsActive = (id: string) => activeTabId() === id;
+	const sessionController = new SessionController(props.logger);
 	const loadRuntimeHistory = async (runtime: ConversationTabRuntime) => {
-		const before = [...runtime.conversation.items];
-		const messages = await runtime.client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS);
-		const liveConversationChanged =
-			runtime.conversation.items.length !== before.length ||
-			runtime.conversation.items.some((item, index) => item !== before[index]);
-		if (liveConversationChanged) {
-			props.logger.warn("tabs.history_load_raced_live_events", { runtimeId: runtime.id });
-			return;
+		const loaded = await sessionController.loadHistory(runtime, SESSION_LOAD_REQUEST_TIMEOUT_MS);
+		if (loaded && tabRuntimeIsActive(runtime.id)) {
+			resetMessageWindow(runtime.conversation.items.length);
+			conversationTouch();
 		}
-		runtime.conversation.replaceItems(initialItems(messages));
-		await refreshRuntimeEntries(runtime).catch((error) =>
-			props.logger.warn("tabs.entry_refresh_failed", error),
-		);
-		if (tabRuntimeIsActive(runtime.id)) { resetMessageWindow(runtime.conversation.items.length); conversationTouch(); }
 	};
 	const notifyCacheWarning = (warning: import("./tabs/cache-miss-watch.ts").CacheWarning, runtime: ConversationTabRuntime) => {
 		props.logger.warn("cache.large_rewrite", { runtimeId: runtime.id, ...warning });
@@ -2304,25 +2081,18 @@ export function App(props: AppOptions) {
 		}
 	};
 
-	const loadCurrentSession = async (runtime: ConversationTabRuntime = activeRuntime()) => {
-		const [state, messages] = await Promise.all([
-			runtime.client.getState(SESSION_LOAD_REQUEST_TIMEOUT_MS),
-			runtime.client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS),
-		]);
-		const historyItems = initialItems(messages);
-		runtime.conversation.replaceItems(historyItems);
-		runtime.conversation.isStreaming = state.isStreaming;
-		runtime.conversation.steering = [];
-		runtime.conversation.followUp = [];
-		runtime.sessionState = state;
+	const afterSessionLoaded = async (runtime: ConversationTabRuntime, historyLength: number) => {
 		rememberThinkingLevel(runtime);
-		runtime.queuedFollowUps = [];
 		if (tabRuntimeIsActive(runtime.id)) {
-			resetMessageWindow(historyItems.length);
+			resetMessageWindow(historyLength);
 			conversationTouch();
 			queueMicrotask(scrollToBottom);
 		}
 		await refreshState(runtime);
+	};
+	const loadCurrentSession = async (runtime: ConversationTabRuntime = activeRuntime()) => {
+		const historyLength = await sessionController.loadCurrent(runtime, SESSION_LOAD_REQUEST_TIMEOUT_MS);
+		await afterSessionLoaded(runtime, historyLength);
 	};
 
 	const settingsSummary = () => {
@@ -2597,50 +2367,19 @@ export function App(props: AppOptions) {
 		}
 	};
 
-	const sendText = async (text: string, runtime: ConversationTabRuntime = activeRuntime()): Promise<"sent" | "queued"> => {
-		const wasStreaming = runtime.conversation.isStreaming;
-		props.logger.info("ui.submit", {
-			chars: text.length,
-			streaming: wasStreaming,
-			compacting: runtime.conversation.isCompacting,
-		});
-		if (runtime.conversation.isCompacting) {
-			// Pi tears down its agent connection for the duration of compaction, so a
-			// prompt sent right now can wait on a response that never arrives (the
-			// client-side RPC timeout fires, and the message never reaches the model).
-			// Queue it locally and flush once compaction_end confirms it's safe.
-			runtime.queuedFollowUps = [...runtime.queuedFollowUps, { id: crypto.randomUUID(), text }];
-			touch();
-			props.logger.info("ui.followup_queued_for_compaction", {
-				chars: text.length,
-			});
-			toast("Compacting context… message queued until it finishes.", "info");
-			return "queued";
-		}
-		if (!wasStreaming) {
-			const optimisticId = runtime.conversation.optimisticUser(text);
-			if (tabRuntimeIsActive(runtime.id)) {
-				trimMessageWindowIfFollowingLatest();
-				conversationTouch();
-				scrollToBottom();
-			}
-			try {
-				await runtime.client.prompt(text);
-			} catch (error) {
-				runtime.conversation.removeItem(optimisticId);
-				if (tabRuntimeIsActive(runtime.id)) conversationTouch();
-				throw error;
-			}
-			return "sent";
-		}
-		// Match Pi's native Enter behavior while a turn is running. prompt(...,
-		// {streamingBehavior:"steer"}) buffers or defers delivery, including
-		// extension commands and prompt templates. Do not add an optimistic transcript item: Pi exposes
-		// the pending text through queue_update and emits the user message once it
-		// is actually consumed.
-		await runtime.client.prompt(text, "steer");
-		return "sent";
-	};
+	const inputController = new InputController<ConversationTabRuntime>(props.logger, {
+		isActive: tabRuntimeIsActive,
+		onChange: () => touch(),
+		onOptimisticSubmit: () => {
+			trimMessageWindowIfFollowingLatest();
+			conversationTouch();
+			scrollToBottom();
+		},
+		onQueuedPromptSent: (runtime, text) => clearRuntimeMainDraftIfMatches(runtime, text),
+		notify: (message, tone) => toast(message, tone),
+	});
+	const sendText = (text: string, runtime: ConversationTabRuntime = activeRuntime()): Promise<"sent" | "queued"> =>
+		inputController.sendText(text, runtime);
 
 	const submit = async () => {
 		const runtime = activeRuntime();
@@ -2699,8 +2438,7 @@ export function App(props: AppOptions) {
 		}
 		clearMainDraft();
 		const runtime = activeRuntime();
-		runtime.queuedFollowUps = [...runtime.queuedFollowUps, { id: crypto.randomUUID(), text }];
-		touch();
+		inputController.queueFollowUp(runtime, text);
 		props.logger.info("ui.followup_queued", { chars: text.length });
 		toast("Follow-up queued. Alt+Up restores it for editing.", "success");
 	};
@@ -2735,55 +2473,9 @@ export function App(props: AppOptions) {
 		editQueuedFollowUp(last.id);
 	};
 
-	const flushQueuedFollowUp = async (runtime: ConversationTabRuntime = activeRuntime()) => {
-		const decision = settledDispatchDecision(
-			runtime.dispatchGate,
-			runtime.queuedFollowUps.length > 0,
-			runtime.conversation.isStreaming,
-		);
-		if (decision === "busy" || decision === "empty") return;
-		if (decision === "suppressed") {
-			runtime.dispatchGate = { ...runtime.dispatchGate, suppressNextSettled: false };
-			return;
-		}
-		const snapshot = snapshotQueue(runtime.queuedFollowUps);
-		runtime.dispatchGate = { ...runtime.dispatchGate, inFlight: true };
-		runtime.queuedFollowUps = runtime.queuedFollowUps.filter(
-			(item) => !snapshot.items.some((queued) => queued.id === item.id),
-		);
-		touch();
-		try {
-			const result = await sendText(snapshot.prompt, runtime);
-			if (result === "sent")
-				clearRuntimeMainDraftIfMatches(runtime, snapshot.prompt);
-		} catch (error) {
-			runtime.queuedFollowUps = restoreQueue(snapshot.items, runtime.queuedFollowUps);
-			touch();
-			runtime.conversation.system(
-				`Failed to send queued follow-ups: ${error instanceof Error ? error.message : String(error)}`,
-				"error",
-			);
-			runtime.onConversationChange();
-		} finally {
-			runtime.dispatchGate = { ...runtime.dispatchGate, inFlight: false };
-		}
-	};
-
-	const abortActiveWork = () => {
-		const runtime = activeRuntime();
-		if (runtime.abortInFlight) return;
-		runtime.dispatchGate = markAbort(runtime.dispatchGate);
-		runtime.abortInFlight = runtime.client
-			.abort()
-			.then(() => toast("Aborting current Pi turn", "warning"))
-			.catch((error) => {
-				runtime.dispatchGate = abortFailed(runtime.dispatchGate);
-				toast(String(error), "error");
-			})
-			.finally(() => {
-				delete runtime.abortInFlight;
-			});
-	};
+	const flushQueuedFollowUp = (runtime: ConversationTabRuntime = activeRuntime()): Promise<void> =>
+		inputController.flushQueuedFollowUp(runtime);
+	const abortActiveWork = (): void => inputController.abort(activeRuntime());
 
 	const copySelection = (): boolean => {
 		if (!renderer.getSelection()) {
@@ -3855,14 +3547,14 @@ export function App(props: AppOptions) {
 		}
 		setSessionSwitching(true);
 		try {
-			const result = await runtime.client.switchSession(choice.path);
+			const result = await sessionController.switchAndLoad(runtime, choice.path, SESSION_LOAD_REQUEST_TIMEOUT_MS);
 			if (result.cancelled) {
 				setPendingSession(undefined);
 				setPendingSessionReason(undefined);
 				toast("Session switch was cancelled by Pi", "warning");
 				return;
 			}
-			await loadCurrentSession(runtime);
+			await afterSessionLoaded(runtime, result.historyLength);
 			setSessionSelectorOpen(false);
 			if (settingsRoute() === "session-switch") setSettingsRoute("root");
 			setPendingSession(undefined);

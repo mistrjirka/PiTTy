@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { SubagentActiveTool, SubagentRun, ToolItem } from "../types.ts";
-import { fileContentKey } from "./cache-key.ts";
+import { SessionTelemetryService } from "./session-telemetry.ts";
 import { PROFILED_RUNTIME_ROOT_PREFIX, profiledScanBase, safeProfiledControlDir } from "./profiled-paths.ts";
 
 const RUNTIME = "profiled-subagents" as const;
@@ -24,6 +24,10 @@ type ProfiledStatus = {
   pendingQuestion?: string;
   pendingQuestionContext?: string;
   activeTools?: SubagentActiveTool[];
+  turnCount?: number;
+  toolCount?: number;
+  windowTokens?: number;
+  lastActivityAt?: number;
 };
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -149,6 +153,10 @@ function parseStatus(controlDir: string, statusPath?: string): ProfiledStatus | 
   const state = text(value.state);
   const startedAt = number(value.startedAt);
   const updatedAt = number(value.updatedAt);
+  const turnCount = number(value.turnCount);
+  const toolCount = number(value.toolCount);
+  const windowTokens = number(value.windowTokens);
+  const lastActivityAt = number(value.lastActivityAt);
   if (!agentId || !profile || !treeId || !parentAgentId || !label || !state || startedAt === undefined || updatedAt === undefined) return undefined;
   return {
     version: 1,
@@ -168,6 +176,10 @@ function parseStatus(controlDir: string, statusPath?: string): ProfiledStatus | 
     ...(value.waitingForParent === true && text(value.pendingQuestion) ? { pendingQuestion: text(value.pendingQuestion)! } : {}),
     ...(value.waitingForParent === true && text(value.pendingQuestionContext) ? { pendingQuestionContext: text(value.pendingQuestionContext)! } : {}),
     ...(Array.isArray(value.activeTools) ? { activeTools: activeTools(value.activeTools)! } : {}),
+    ...(turnCount !== undefined && Number.isSafeInteger(turnCount) && turnCount >= 0 ? { turnCount } : {}),
+    ...(toolCount !== undefined && Number.isSafeInteger(toolCount) && toolCount >= 0 ? { toolCount } : {}),
+    ...(windowTokens !== undefined && Number.isSafeInteger(windowTokens) && windowTokens > 0 ? { windowTokens } : {}),
+    ...(lastActivityAt !== undefined && lastActivityAt > 0 ? { lastActivityAt } : {}),
   };
 }
 
@@ -231,7 +243,6 @@ function profiledOwnerIsAlive(run: SubagentRun): boolean {
   if (pid === undefined) return true;
   return profiledOwnerPidAlive(pid);
 }
-const PROFILED_SESSION_TAIL_BYTES = 200 * 1024;
 const PROFILED_NON_TERMINAL_STATES = ["running", "queued", "waiting", "idle"];
 
 export type ProfiledSubagentOptions = {
@@ -247,75 +258,7 @@ export type ProfiledSubagentOptions = {
   includeHistoricalFallback?: boolean;
 };
 
-type ProfiledSessionSnapshot = {
-  window?: number;
-  lastActivityAt?: number;
-};
-
-	type ProfiledSessionCacheEntry = {
-	  key: string;
-	  snapshot: ProfiledSessionSnapshot;
-	};
-
-	const profiledSessionCache = new Map<string, ProfiledSessionCacheEntry>();
-	const MAX_PROFILED_SESSION_CACHE_ENTRIES = 128;
-
-function profiledSessionSnapshot(sessionPath: string | undefined): ProfiledSessionSnapshot {
-  if (!sessionPath) return {};
-  let stat: fs.Stats;
-  let content: string;
-  try {
-    stat = fs.statSync(sessionPath);
-    if (!stat.isFile()) return {};
-    const fd = fs.openSync(sessionPath, "r");
-    try {
-      const length = Math.min(stat.size, PROFILED_SESSION_TAIL_BYTES);
-      const buffer = Buffer.alloc(length);
-      const bytes = fs.readSync(fd, buffer, 0, length, Math.max(0, stat.size - length));
-      content = buffer.subarray(0, bytes).toString("utf8");
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return {};
-  }
-  const key = fileContentKey(stat, content);
-  const cached = profiledSessionCache.get(sessionPath);
-  if (cached && cached.key === key) return cached.snapshot;
-  let window: number | undefined;
-  let lastActivityAt: number | undefined = stat.mtimeMs;
-  for (const line of content.split("\n").reverse()) {
-    if (!line.trim()) continue;
-    try {
-      const value = record(JSON.parse(line));
-      const timestamp = typeof value?.timestamp === "string"
-        ? Date.parse(value.timestamp)
-        : number(value?.ts);
-      if (timestamp !== undefined && Number.isFinite(timestamp) && (lastActivityAt === undefined || timestamp > lastActivityAt)) lastActivityAt = timestamp;
-      const message = record(value?.message);
-      const usage = record(message?.usage);
-      if (window !== undefined || message?.role !== "assistant" || !usage) continue;
-      const input = number(usage.input) ?? 0;
-      const cacheRead = number(usage.cacheRead) ?? 0;
-      const cacheWrite = number(usage.cacheWrite) ?? 0;
-      window = input + cacheRead + cacheWrite;
-    } catch {
-      // Ignore malformed or incomplete JSONL records.
-    }
-  }
-  // Reverse order finds the newest assistant usage first; the full bounded scan still finds the newest timestamp.
-  const snapshot = { ...(window !== undefined ? { window } : {}), ...(lastActivityAt !== undefined ? { lastActivityAt } : {}) };
-  profiledSessionCache.delete(sessionPath);
-  // Key on stat + content, not (mtimeMs, size): same-size rewrites inside one
-  // mtime tick must not serve the previous snapshot.
-  profiledSessionCache.set(sessionPath, { key: fileContentKey(stat, content), snapshot });
-  while (profiledSessionCache.size > MAX_PROFILED_SESSION_CACHE_ENTRIES) {
-    const oldest = profiledSessionCache.keys().next().value;
-    if (typeof oldest !== "string") break;
-    profiledSessionCache.delete(oldest);
-  }
-  return snapshot;
-}
+const legacySessionTelemetry = new SessionTelemetryService();
 
 export function profiledRunIsLive(run: SubagentRun, now = Date.now()): boolean {
   if (!PROFILED_NON_TERMINAL_STATES.includes(run.state)) return false;
@@ -405,7 +348,10 @@ function statusDirectoriesForTrees(treeIds: ReadonlySet<string>): Array<{ contro
 }
 
 function runFromStatus(controlDir: string, status: ProfiledStatus, options: ProfiledSubagentOptions = {}): SubagentRun {
-  const session = profiledSessionSnapshot(status.sessionPath);
+  // New runtimes publish usage and progress directly. The disk reader exists
+  // only for older already-running agents that cannot be restarted safely.
+  const session = status.turnCount === undefined && status.windowTokens === undefined
+    ? legacySessionTelemetry.read(status.sessionPath) : {};
   const contextWindow = options.contextWindowForModel?.(status.model);
   const eventsPath = safeEventsPath(controlDir);
   const run: SubagentRun = {
@@ -429,14 +375,16 @@ function runFromStatus(controlDir: string, status: ProfiledStatus, options: Prof
     lastUpdate: status.updatedAt,
     // Heartbeats prove liveness, not progress. A real execution start is activity.
     lastActivityAt: status.activeTools?.length
-      ? Math.max(session.lastActivityAt ?? 0, ...status.activeTools.map((tool) => tool.startedAt))
-      : session.lastActivityAt,
+      ? Math.max(status.lastActivityAt ?? session.lastActivityAt ?? 0, ...status.activeTools.map((tool) => tool.startedAt))
+      : (status.lastActivityAt ?? session.lastActivityAt),
     ...(status.state === "running" && status.activeTools ? { activeTools: status.activeTools } : {}),
     activityState: status.state,
     agent: status.profile,
     model: status.model,
     thinking: status.thinking,
-    ...(session.window !== undefined ? { tokens: { window: session.window } } : {}),
+    ...(status.turnCount !== undefined ? { turnCount: status.turnCount } : {}),
+    ...(status.toolCount !== undefined ? { toolCount: status.toolCount } : {}),
+    ...((status.windowTokens ?? session.window) !== undefined ? { tokens: { window: status.windowTokens ?? session.window } } : {}),
     ...(contextWindow !== undefined ? { contextWindow } : {}),
     sessionFile: status.sessionPath,
     steps: [],
@@ -490,7 +438,7 @@ function runFromTool(item: ToolItem, details: Record<string, unknown>, options: 
     agent: profile ?? agentId ?? label,
     profiledToolInFlight: item.status === "streaming" || item.status === "pending",
     ...(() => {
-      const session = profiledSessionSnapshot(text(details.sessionPath));
+      const session = legacySessionTelemetry.read(text(details.sessionPath));
       return session.window !== undefined ? { tokens: { window: session.window } } : {};
     })(),
     ...(() => {
