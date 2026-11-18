@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.64
+
+### Extract built-in slash-command routing from the UI
+
+- Move built-in `/` command parsing, model/session RPC actions and status/help rendering into a typed `SlashCommandController`, leaving PiTTy `App()` with one controller call and explicit UI callbacks.
+- Give the controller a minimal compile-time `SlashRuntime` port, preserving Pi's default handling of unknown extension, template and skill commands.
+- Use `ModelChoice` directly for `/models` instead of repeatedly casting to `Record<string, unknown>`. Keep input queue, compaction and session services from v0.6.63 intact.
+- Add six regression tests for RPC ordering, UI toggles, queue-sensitive commands, navigation and unknown-command delegation.
+
+Validation: 717 tests passed, one optional PowerShell fixture skipped, TypeScript and runtime build passed locally.
+
 ## 0.6.63
 
 ### Extract runtime controllers and fix false subagent startup labels

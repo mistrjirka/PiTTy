@@ -100,6 +100,7 @@ import { MessageView } from "./ui/message.tsx";
 import { CompactionController } from "./tabs/compaction-controller.ts";
 import { SessionController } from "./tabs/session-controller.ts";
 import { InputController } from "./tabs/input-controller.ts";
+import { SlashCommandController, isThinkingLevel } from "./tabs/slash-commands.ts";
 import { ExtensionStatusController } from "./tabs/extension-status-controller.ts";
 import { CompactedSummary, CompactionPanel } from "./ui/compaction-panel.tsx";
 import { TabManager, type ConversationTab } from "./tabs/manager.ts";
@@ -324,9 +325,6 @@ const NOTIFICATION_HISTORY_CAP = 100;
 const SESSION_LOAD_REQUEST_TIMEOUT_MS = 120_000;
 const STARTUP_DEADLINE_MS = 180_000;
 
-const LOGIN_GUIDANCE =
-	"Sorry, login is not supported in PiTTy yet. Run `pi` and use /login there; your credentials will then be available to PiTTy.";
-
 export type DetailToggleState = {
 	toolsExpanded: boolean;
 	thinkingExpanded: boolean;
@@ -550,24 +548,6 @@ export function isUnmodifiedEnterKey(event: KeyEvent): boolean {
 	);
 }
 
-function parseOnOff(value: string | undefined): boolean | undefined {
-	if (
-		value === "on" ||
-		value === "true" ||
-		value === "enable" ||
-		value === "enabled"
-	)
-		return true;
-	if (
-		value === "off" ||
-		value === "false" ||
-		value === "disable" ||
-		value === "disabled"
-	)
-		return false;
-	return undefined;
-}
-
 function isExtensionUiRequest(value: unknown): value is RpcExtensionUIRequest {
 	return Boolean(
 		value &&
@@ -631,10 +611,6 @@ function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
 			error: step.error,
 		})),
 	};
-}
-
-function isThinkingLevel(value: string): value is ThinkingLevel {
-	return THINKING_LEVELS.some((level) => level === value);
 }
 
 function modelThinkingKey(provider: string, modelId: string): string {
@@ -2095,277 +2071,25 @@ export function App(props: AppOptions) {
 		await afterSessionLoaded(runtime, historyLength);
 	};
 
-	const settingsSummary = () => {
-		const state = sessionState();
-		return [
-			"Settings available in this RPC UI:",
-			`  thinking blocks: ${thinkingExpanded() ? "expanded" : "collapsed"} by default (click each heading)`,
-			`  tools: ${expandedTools() ? "expanded" : "collapsed"}`,
-			`  sidebar: ${sidebarEnabled() ? "on" : "off"}`,
-			`  auto compaction: ${state?.autoCompactionEnabled ? "on" : "off"}`,
-			`  auto retry: ${autoRetryEnabled() ? "on" : "off"}`,
-			`  steering mode: ${state?.steeringMode ?? "unknown"}`,
-			`  follow-up mode: ${state?.followUpMode ?? "unknown"}`,
-			"",
-			"Change them with:",
-			"  /tools on|off       /sidebar on|off",
-			"  /autocompact on|off /retry on|off",
-			"  /steering-mode all|one-at-a-time",
-			"  /followup-mode all|one-at-a-time",
-			"  /thinking minimal|low|medium|high|xhigh|max",
-			"  /thoughts expanded|collapsed",
-			"  /model provider/model-id  /prompts",
-		].join("\n");
-	};
-
-	const handleSlashCommand = async (
+	const slashCommandController = new SlashCommandController<ConversationTabRuntime>({
+		addSystem: addSystemToRuntime,
+		openSessionSelector: () => openSessionSelector(),
+		openSettings: () => openSettings(),
+		expandedTools, setExpandedTools,
+		setExpandedToolIds: (ids) => setExpandedToolIds(ids),
+		sidebarEnabled, setSidebarEnabled,
+		refreshState, autoRetryEnabled, setAutoRetryEnabled,
+		rememberThinkingLevel, applyRememberedThinkingLevel,
+		fetchAvailableModels: () => fetchAvailableModels(), loadCurrentSession,
+		setSkillSelectorOpen, setAllThinkingExpanded, thinkingExpanded,
+		promptMapCount: () => promptMapEntries().length,
+		setPromptMapOpen,
+		openMemoryBrowser: () => openMemoryBrowser(),
+	});
+	const handleSlashCommand = (
 		text: string,
 		runtime: ConversationTabRuntime = activeRuntime(),
-	): Promise<boolean> => {
-		const addSystem = (
-			message: string,
-			tone: "muted" | "info" | "warning" | "error" | "success" = "info",
-		): void => addSystemToRuntime(runtime, message, tone);
-		if (!text.startsWith("/")) return false;
-		const [rawName = "", ...parts] = text.slice(1).trim().split(/\s+/);
-		const name = rawName.toLowerCase();
-		const argument = parts.join(" ").trim();
-
-		switch (name) {
-			case "login":
-				addSystem(LOGIN_GUIDANCE, "warning");
-				return true;
-			case "help":
-				addSystem(
-					[
-						"UI commands:",
-						"  /settings /status /commands /sessions /resume",
-						"  /model [provider/model] /thinking [level]",
-						"  /thoughts expanded|collapsed /prompts",
-						"  /compact [instructions] /new /name <name>",
-						"  /memory (Ctrl+M, or Settings > Memory) browse/search/remove persistent memory",
-						"  /tools on|off /sidebar on|off",
-						"  /autocompact on|off /retry on|off",
-						"  /steering-mode all|one-at-a-time",
-						"  /followup-mode all|one-at-a-time",
-						"  Ctrl+T (or Shift+Tab) cycles thinking effort; click a Thinking heading to expand/collapse it.",
-						"",
-						"Unknown /commands are passed to Pi, so extension, prompt-template, and skill commands still work.",
-						"Session browsing is available through /sessions and /resume.",
-					].join("\n"),
-				);
-				return true;
-			case "sessions":
-			case "resume":
-				openSessionSelector();
-				return true;
-			case "settings":
-				openSettings();
-				return true;
-			case "status":
-				addSystem(settingsSummary());
-				return true;
-			case "tools": {
-				const value = parseOnOff(parts[0]);
-				const next = value ?? !expandedTools();
-				setExpandedTools(next);
-				if (!next) setExpandedToolIds(new Set());
-				addSystem(`Tool output ${next ? "expanded" : "collapsed"}.`, "success");
-				return true;
-			}
-			case "sidebar": {
-				const value = parseOnOff(parts[0]);
-				const next = value ?? !sidebarEnabled();
-				setSidebarEnabled(next);
-				addSystem(`Sidebar ${next ? "enabled" : "disabled"}.`, "success");
-				return true;
-			}
-			case "autocompact": {
-				const value = parseOnOff(parts[0]);
-				if (value === undefined) {
-					addSystem("Usage: /autocompact on|off", "warning");
-					return true;
-				}
-				await runtime.client.setAutoCompaction(value);
-				await refreshState(runtime);
-				addSystem(
-					`Automatic compaction ${value ? "enabled" : "disabled"}.`,
-					"success",
-				);
-				return true;
-			}
-			case "retry": {
-				const value = parseOnOff(parts[0]);
-				if (value === undefined) {
-					addSystem("Usage: /retry on|off", "warning");
-					return true;
-				}
-				await runtime.client.setAutoRetry(value);
-				setAutoRetryEnabled(value);
-				addSystem(
-					`Automatic retry ${value ? "enabled" : "disabled"}.`,
-					"success",
-				);
-				return true;
-			}
-			case "steering-mode": {
-				const mode = parts[0];
-				if (mode !== "all" && mode !== "one-at-a-time") {
-					addSystem("Usage: /steering-mode all|one-at-a-time", "warning");
-					return true;
-				}
-				await runtime.client.setSteeringMode(mode);
-				await refreshState(runtime);
-				addSystem(`Steering mode set to ${mode}.`, "success");
-				return true;
-			}
-			case "followup-mode":
-			case "follow-up-mode": {
-				const mode = parts[0];
-				if (mode !== "all" && mode !== "one-at-a-time") {
-					addSystem("Usage: /followup-mode all|one-at-a-time", "warning");
-					return true;
-				}
-				await runtime.client.setFollowUpMode(mode);
-				await refreshState(runtime);
-				addSystem(`Follow-up mode set to ${mode}.`, "success");
-				return true;
-			}
-			case "thinking": {
-				if (!argument) {
-					addSystem(
-						`Thinking level: ${runtime.sessionState?.thinkingLevel ?? "unknown"}. Thinking text stays visible; click each Thinking heading to expand or collapse it.`,
-					);
-					return true;
-				}
-				if (!isThinkingLevel(argument)) {
-					addSystem(
-						"Usage: /thinking minimal|low|medium|high|xhigh|max",
-						"warning",
-					);
-					return true;
-				}
-				await runtime.client.setThinkingLevel(argument);
-				await refreshState(runtime);
-				rememberThinkingLevel(runtime, argument);
-				addSystem(`Thinking level set to ${argument}.`, "success");
-				return true;
-			}
-			case "model": {
-				if (!argument) {
-					const model = runtime.sessionState?.model;
-					addSystem(
-						`Current model: ${model ? `${model.provider}/${model.id}` : "unknown"}. Press Ctrl+P to choose from a list, or use /model provider/model-id.`,
-					);
-					return true;
-				}
-				const slash = argument.indexOf("/");
-				if (slash <= 0 || slash === argument.length - 1) {
-					addSystem("Usage: /model provider/model-id", "warning");
-					return true;
-				}
-				rememberThinkingLevel(runtime);
-				const provider = argument.slice(0, slash);
-				const modelId = argument.slice(slash + 1);
-				await runtime.client.setModel(provider, modelId);
-				await applyRememberedThinkingLevel(runtime, provider, modelId);
-				await refreshState(runtime);
-				addSystem(`Model set to ${argument}.`, "success");
-				return true;
-			}
-			case "models": {
-				const models = await fetchAvailableModels();
-				const labels = models.flatMap((value) => {
-					if (!value || typeof value !== "object") return [];
-					const record = value as Record<string, unknown>;
-					return typeof record.provider === "string" &&
-						typeof record.id === "string"
-						? [`${record.provider}/${record.id}`]
-						: [];
-				});
-				addSystem(
-					`Available models (${labels.length}):\n${labels.slice(0, 80).join("\n")}${labels.length > 80 ? "\n…" : ""}`,
-				);
-				return true;
-			}
-			case "compact":
-				if (runtime.conversation.isCompacting) {
-					addSystem("Compaction is already running.", "warning");
-					return true;
-				}
-				addSystem("Starting compaction…");
-				await runtime.client.compact(argument || undefined);
-				await refreshState(runtime);
-				return true;
-			case "new":
-				await runtime.client.newSession();
-				await loadCurrentSession(runtime);
-				addSystem("Started a new session.", "success");
-				return true;
-			case "name":
-				if (!argument) {
-					addSystem("Usage: /name <session name>", "warning");
-					return true;
-				}
-				await runtime.client.setSessionName(argument);
-				await refreshState(runtime);
-				addSystem(`Session named “${argument}”.`, "success");
-				return true;
-			case "skills":
-				setSkillSelectorOpen(true);
-				return true;
-			case "commands": {
-				const commands = await runtime.client.getCommands();
-				const rows = commands.map(
-					(command) =>
-						`/${command.name}${command.description ? ` — ${command.description}` : ""}`,
-				);
-				addSystem(
-					rows.length
-						? `Pi extension/template/skill commands:\n${rows.join("\n")}`
-						: "No extension, prompt-template, or skill commands were reported by Pi.",
-				);
-				return true;
-			}
-			case "thoughts": {
-				const mode = argument.toLowerCase();
-				if (!mode || mode === "toggle") {
-					setAllThinkingExpanded(!thinkingExpanded());
-				} else if (
-					mode === "expanded" ||
-					mode === "expand" ||
-					mode === "open"
-				) {
-					setAllThinkingExpanded(true);
-				} else if (
-					mode === "collapsed" ||
-					mode === "collapse" ||
-					mode === "closed"
-				) {
-					setAllThinkingExpanded(false);
-				} else {
-					addSystem("Usage: /thoughts expanded|collapsed|toggle", "warning");
-					return true;
-				}
-				addSystem(
-					`Thinking blocks ${thinkingExpanded() ? "expanded" : "collapsed"} by default. Individual blocks remain clickable.`,
-					"success",
-				);
-				return true;
-			}
-			case "prompts":
-			case "map":
-				if (!promptMapEntries().length)
-					addSystem("No user requests in this session yet.", "warning");
-				else setPromptMapOpen(true);
-				return true;
-			case "memory":
-				openMemoryBrowser();
-				return true;
-			default:
-				return false;
-		}
-	};
+	): Promise<boolean> => slashCommandController.handle(text, runtime);
 
 	const inputController = new InputController<ConversationTabRuntime>(props.logger, {
 		isActive: tabRuntimeIsActive,

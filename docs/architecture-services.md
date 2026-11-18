@@ -7,6 +7,7 @@ The OpenTUI `App` creates reactive signals and renders components. Process, inpu
 | `tabs/runtime.ts` | Holds one tab's per-session state and subscribes to Pi events |
 | `tabs/session-controller.ts` | Loads/replaces Pi conversation history and switches sessions; guards against history races with live events |
 | `tabs/input-controller.ts` | Sends prompts, queues during compaction, dispatches deferred messages, handles abort suppression and failed sends |
+| `tabs/slash-commands.ts` | Handles built-in `/` commands with a narrow statically typed runtime and explicit UI ports; unknown extension commands remain routed to Pi. Formats `/status` and uses inferred model descriptors instead of dynamic record casts |
 | `tabs/compaction-controller.ts` | Maintains per-tab compaction attempts, statuses, live lane text and completion |
 | `tabs/extension-status-controller.ts` | Validates background-command and MCP status updates and ignores other sessions' task snapshots |
 | `subagents/session-telemetry.ts` | Compatibility-only bounded reader for historical children that do not publish token usage |
