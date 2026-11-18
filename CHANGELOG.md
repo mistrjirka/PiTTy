@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+### OpenTUI 0.9.2 native renderer migration
+
+- Upgrade both `@opentui/core` and `@opentui/solid` from 0.4.3 to 0.9.2. This is a significant change to OpenTUI's native rendering, cell/layout measurement, and incremental repainting. It is intended to address intermittent stale characters and overlapping wrapped text, but the reported intermittent host-terminal corruption could not be reproduced deterministically.
+- Migrate syntax/Markdown theme styles to an explicit process-scoped `ResourceContext`, which OpenTUI 0.9.2 requires. Preserve dynamic theme switching.
+- Give the fork picker more vertical room because the native renderer now clips child rows to their actual panel.
+- Explicitly route wheel events over expanded tool and diff previews to the parent transcript until the user chooses nested output scrolling, preserving the existing scroll-ownership behavior.
+- Add native rendering regression tests for text shrinking, wrapping, user messages, assistant output and tools.
+
+Compatibility: PiTTy continues to launch OpenTUI through bundled Bun 1.4.4; the installer and source-release procedure remain unchanged. Keep the entire library upgrade isolated from running Pi sessions until a restart.
+
 ## 0.6.67
 
 ### Fix slash-separated model search
