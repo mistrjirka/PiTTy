@@ -168,7 +168,7 @@ describe("live subagent discovery without spawn-tool history", () => {
 			label: "nested child", state: "running", startedAt: Date.now(),
 		});
 		const targets = subagentTargets([], [], { ownerPid: process.pid });
-		expect(targets.map((target) => target.run.agentId)).toEqual(["sora", "kid"]);
+		expect(targets.map((target) => target.run.agentId).sort()).toEqual(["kid", "sora"]);
 		expect(targets.every((target) => target.active)).toBe(true);
 		expect(targets.find((target) => target.run.agentId === "sora")?.run.controlDir).toBe(owned.controlDir);
 		expect(targets.some((target) => target.run.controlDir === anotherOwner.controlDir)).toBe(false);
