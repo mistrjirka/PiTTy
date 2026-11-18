@@ -97,7 +97,11 @@ describe("cswap account selection", () => {
       expect(readClaudeAccountPreference(file)).toBe(1);
       saveClaudeAccountPreference("auto", file);
       expect(readClaudeAccountPreference(file)).toBe("auto");
-      expect(fs.statSync(file).mode & 0o077).toBe(0);
+      // POSIX mode bits do not represent Windows ACL permissions. File-content
+      // round trips above remain tested on every supported platform.
+      if (process.platform !== "win32") {
+        expect(fs.statSync(file).mode & 0o077).toBe(0);
+      }
       expect(claudeAccountPreferencePath({ XDG_CONFIG_HOME: root }, "/not-used")).toBe(path.join(root, "pitty", "claude-usage-account.json"));
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });

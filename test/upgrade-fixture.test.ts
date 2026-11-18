@@ -27,7 +27,13 @@ if (process.env.PITTY_PI_BIN_MARKER) writeFileSync(process.env.PITTY_PI_BIN_MARK
   }
   return root;
 }
-afterEach(async () => { await Promise.all(temporary.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+// On Windows the executable copied into each fixture can remain locked briefly
+// after its child process exits. Retry cleanup instead of failing a passed test.
+afterEach(async () => {
+  await Promise.all(temporary.splice(0).map((directory) => rm(directory, {
+    recursive: true, force: true, maxRetries: 20, retryDelay: 100,
+  })));
+});
 
 describe("launcher pending activation fixture", () => {
   test("promotes pending and runs Bun from the new root", async () => {
