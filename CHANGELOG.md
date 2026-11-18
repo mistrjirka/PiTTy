@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.6
+
+### Complete typed App shell decomposition under 500 lines
+
+- Reduce `src/app.tsx` from 1,949 to **96 formatted lines**. The App entrypoint now creates the Pi client and typed signal owner, then delegates session, workflow, UI, and keyboard wiring to focused modules.
+- Separate root session and editor state, app controller graph, tab/runtime scope, session projections, transcript scrolling, transcript actions, settings orchestration, startup monitoring, account-independent input actions, and keyboard bindings. Preserve runtime and lifecycle sequencing through explicit accessor ports.
+- Move screen and modal property assembly to typed `AppScreenContext`, `createAppMainProps`, and `createAppDialogProps` adapters. Maintain theme-driven remounting and owner-bound dialog delivery.
+- Keep **all newly extracted production files below 500 formatted lines**. Add a regression test enforcing the limit in CI.
+- Use source-defined TypeScript interfaces for every new boundary. No type suppression, `any`/`unknown`/`never` casts, or runtime type probing was added. Remove unused imports and bindings instead of hiding warnings.
+
+Validation: TypeScript typecheck, runtime build and full regression suite on Linux. The release must pass Linux, macOS and Windows CI before publication. Running PiTTy sessions are not restarted by the refactor.
+
 ## 0.7.5
 
 ### Split the app shell into typed controllers and view components

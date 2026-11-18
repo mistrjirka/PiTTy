@@ -1,25 +1,25 @@
 /** Footer status, usage budgets and current-session hints. */
-import type { Accessor, Setter } from "solid-js";
-import { cleanInline, clip } from "../ui/model-context.tsx";
+import type { Accessor } from "solid-js";
+import type { CswapSnapshot } from "../integrations/claude-swap.ts";
+import type { CodexUsage } from "../integrations/codex-usage.ts";
+import type { UsageStats } from "../integrations/codex-usage-history.ts";
+import type { ClaudeUsage } from "../integrations/doppelclaude-usage.ts";
+import type { OpencodeUsage } from "../integrations/opencode-usage.ts";
+import type { SubagentTarget } from "../subagents/targets.ts";
 import { footerHintTiers, selectFooterHint } from "../ui/footer-hints.ts";
+import { cleanInline, clip } from "../ui/model-context.tsx";
 import {
 	USAGE_FOOTER_SEPARATOR,
+	type UsageFooterSegment,
 	usageFooterSegments,
 	usageFooterWidth,
-	type UsageFooterSegment,
 } from "../ui/usage-footer.ts";
 import type { ConversationTabRuntime } from "./runtime.ts";
-import type { ClaudeUsage } from "../integrations/doppelclaude-usage.ts";
-import type { CodexUsage } from "../integrations/codex-usage.ts";
-import type { OpencodeUsage } from "../integrations/opencode-usage.ts";
-import type { UsageStats } from "../integrations/codex-usage-history.ts";
-import type { CswapSnapshot } from "../integrations/claude-swap.ts";
-import type { SubagentTarget } from "../subagents/targets.ts";
 
 export interface FooterModelPorts {
 	forkingConversation: () => boolean;
 	status: Accessor<string>;
-	setStatus: Setter<string>;
+	setStatus: (value: string) => void;
 	streaming: () => boolean;
 	activeRuntime: () => ConversationTabRuntime;
 	inspectSubagent: () => boolean;
