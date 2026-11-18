@@ -1,11 +1,13 @@
 import { Show, type Accessor } from "solid-js";
 import { backgroundStatus, type BackgroundOutputPage, type BackgroundTask } from "../state/background-tasks.ts";
 import { colors } from "./theme.ts";
+import { backgroundTaskDuration } from "./background-task-duration.ts";
 
 export function BackgroundTaskDialog(props: {
 	task: Accessor<BackgroundTask | undefined>;
 	output: Accessor<BackgroundOutputPage | undefined>;
 	busy: boolean;
+	now?: number | undefined;
 	error?: string | undefined;
 	onPage: (page: number) => void;
 	onAnalyze: () => void;
@@ -13,6 +15,7 @@ export function BackgroundTaskDialog(props: {
 }) {
 	const page = () => props.output();
 	const task = () => props.task();
+	const duration = () => { const item = task(); return item ? backgroundTaskDuration(item, props.now ?? Date.now()) : undefined; };
 	const commandHeading = () => task()?.commandTruncated
 		? "Original command (observer excerpt, long command)"
 		: "Original command";
@@ -42,7 +45,7 @@ export function BackgroundTaskDialog(props: {
 			>
 				<box height={1} flexDirection="row" flexShrink={0}>
 					<text fg={colors.textBright} attributes={1}>
-						Background {task()?.id ?? "task"} · {task() ? backgroundStatus(task()!) : "unavailable"}
+						Background {task()?.id ?? "task"} · {task() ? backgroundStatus(task()!) : "unavailable"}{duration() ? ` · ${duration()}` : ""}
 					</text>
 					<box flexGrow={1} />
 					<text

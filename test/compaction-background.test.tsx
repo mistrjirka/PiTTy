@@ -44,6 +44,7 @@ test("compaction shows running commands with elapsed duration and opens the orig
   const frame = setup.captureCharFrame();
   expect(frame).toContain("Background commands (1 running)");
   expect(frame).toContain("bg-1");
+  expect(frame).toContain("12s running");
   expect(frame).toContain("gh run watch 234");
   expect(frame).toContain("AFTER_COMPACTION_PANEL");
   const row = setup.renderer.root.findDescendantById("compaction-background-bg-1");
@@ -68,6 +69,7 @@ test("many background jobs stay bounded on a 16-row terminal", async () => {
   const frame = setup.captureCharFrame();
   expect(frame).toContain("Background commands (10 running)");
   expect(frame).toContain("bg-1");
+  expect(frame).toContain("12s running");
   expect(frame).not.toContain("bg-10");
   expect(frame).toContain("AFTER_COMPACTION_PANEL");
 });

@@ -4978,6 +4978,7 @@ export function App(props: AppOptions) {
 			<Show when={backgroundSelection() && selectedBackgroundTask()}>
 				<BackgroundTaskDialog
 					task={selectedBackgroundTask}
+					now={clockNow()}
 					output={backgroundOutput}
 					busy={backgroundOutputBusy()}
 					{...(backgroundOutputError() ? { error: backgroundOutputError() } : {})}

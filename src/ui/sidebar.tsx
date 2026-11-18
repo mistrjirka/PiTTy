@@ -37,6 +37,7 @@ import {
 } from "../state/mcp-status.ts";
 import type { McpConfiguredSummary } from "../config/mcp-config.ts";
 import { backgroundStatus, type BackgroundTask } from "../state/background-tasks.ts";
+import { backgroundTaskDuration } from "./background-task-duration.ts";
 export type SidebarPanelVisibility = {
 	subagents: boolean;
 	todos: boolean;
@@ -609,7 +610,7 @@ export function Sidebar(props: {
 													fg={task.state === "running" ? colors.textBright : colors.muted}
 													wrapMode="none"
 												>
-													{clip(`${task.state === "running" ? "●" : task.state === "exited" && task.exitCode === 0 ? "✓" : "×"} ${task.id} ${task.command.replace(/\\s+/g, " ").trim() || backgroundStatus(task)}`, 31)}
+													{clip(`${task.state === "running" ? "●" : task.state === "exited" && task.exitCode === 0 ? "✓" : "×"} ${task.id} ${backgroundTaskDuration(task, now()) ?? ""} ${task.command.replace(/\s+/g, " ").trim() || backgroundStatus(task)}`, 31)}
 												</text>
 											</box>
 										)}

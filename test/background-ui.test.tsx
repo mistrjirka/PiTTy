@@ -4,6 +4,8 @@ import { testRender } from "@opentui/solid";
 import type { JSX } from "solid-js";
 import { BackgroundTaskDialog } from "../src/ui/background-task-dialog.tsx";
 import { Sidebar } from "../src/ui/sidebar.tsx";
+import { backgroundTaskDuration } from "../src/ui/background-task-duration.ts";
+import { createSignal } from "solid-js";
 import type { SubagentTarget } from "../src/subagents/targets.ts";
 import type { BackgroundOutputPage, BackgroundTask } from "../src/state/background-tasks.ts";
 
@@ -43,6 +45,34 @@ const logPage: BackgroundOutputPage = {
 };
 
 describe("background jobs in sidebar and viewer", () => {
+  test("running duration uses the live clock, while exited duration stays fixed", () => {
+    expect(backgroundTaskDuration(task, 13_234)).toBe("12s");
+    expect(backgroundTaskDuration(task, 61_234)).toBe("1m 0s");
+    expect(backgroundTaskDuration({ ...task, state: "exited", endedAt: 21_234 }, 100_000)).toBe("20s");
+    expect(backgroundTaskDuration({ ...task, state: "exited" }, 100_000)).toBeUndefined();
+  });
+
+  test("sidebar shows a running timer and updates it on clock ticks", async () => {
+    const [now, setNow] = createSignal(13_234);
+    const setup = await mount(() => <Sidebar runs={[]} backgroundTasks={[task]} now={now()} height={28} />, 45, 29);
+    expect(setup.captureCharFrame()).toContain("bg-1 12s");
+    setNow(14_234);
+    await setup.flush();
+    expect(setup.captureCharFrame()).toContain("bg-1 13s");
+  });
+
+  test("background details show running duration before output", async () => {
+    const setup = await mount(() => <BackgroundTaskDialog
+      task={() => task}
+      output={() => logPage}
+      busy={false}
+      now={13_234}
+      onPage={() => {}}
+      onAnalyze={() => {}}
+      onClose={() => {}}
+    />, 110, 30);
+    expect(setup.captureCharFrame()).toContain("Background bg-1 · running · 12s");
+  });
 	test("uses no extra sidebar rows when background jobs are absent", async () => {
 		const setup = await mount(() => <Sidebar runs={[]} />, 45, 28);
 		expect(setup.captureCharFrame()).not.toContain("Background (");
