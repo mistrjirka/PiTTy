@@ -35,14 +35,32 @@ export function filterCommandChoices(
 	const match = input.match(/^\/([^\s]*)$/);
 	if (!match) return [];
 	const query = (match[1] ?? "").toLowerCase();
+	const featured = [
+		"help", "model", "thinking", "compact", "settings", "skills", "commands",
+		"sessions", "resume", "new", "status", "models", "thoughts", "sidebar",
+	];
+	// Show the common UI commands first for bare '/'. With a query, prefer
+	// exact and prefix matches, then name segments and descriptions. This
+	// finds /skill:... when users remember only the actual skill name.
+	const rank = (command: CommandChoice): number | undefined => {
+		const name = command.name.toLowerCase();
+		if (!query) {
+			const index = featured.indexOf(name);
+			return index >= 0 ? index : 100;
+		}
+		if (name === query) return 0;
+		if (name.startsWith(query)) return 1;
+		if (name.split(/[:_\-/]/).some((segment) => segment.startsWith(query))) return 2;
+		if (name.includes(query)) return 3;
+		if (query.length >= 2 && command.description?.toLowerCase().includes(query)) return 4;
+		return undefined;
+	};
 	return commands
-		.filter((command) => command.name.toLowerCase().startsWith(query))
-		.sort((a, b) => {
-			const aExact = a.name.toLowerCase() === query ? 0 : 1;
-			const bExact = b.name.toLowerCase() === query ? 0 : 1;
-			return aExact - bExact || a.name.localeCompare(b.name);
-		})
-		.slice(0, limit);
+		.map((command) => ({ command, rank: rank(command) }))
+		.filter((match): match is { command: CommandChoice; rank: number } => match.rank !== undefined)
+		.sort((a, b) => a.rank - b.rank || a.command.name.localeCompare(b.command.name))
+		.slice(0, limit)
+		.map(({ command }) => command);
 }
 
 export type CommandSuggestionsProps = {

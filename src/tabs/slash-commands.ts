@@ -2,6 +2,7 @@
 import type { ThinkingLevel } from "../rpc/pi-rpc-client.ts";
 import type { SystemItem } from "../types.ts";
 import type { ModelChoice } from "../ui/model-selector.tsx";
+import type { CommandChoice } from "../ui/command-suggestions.tsx";
 import { THINKING_LEVELS } from "../ui/thinking-selector.tsx";
 import type { PiRpcClient } from "../rpc/pi-rpc-client.ts";
 
@@ -44,6 +45,7 @@ export type SlashCommandPorts<T extends SlashRuntime> = {
   sidebarEnabled(): boolean;
   setSidebarEnabled(value: boolean): void;
   refreshState(runtime: T): Promise<boolean>;
+  refreshCommands(runtime: T): Promise<readonly CommandChoice[]>;
   autoRetryEnabled(): boolean;
   setAutoRetryEnabled(value: boolean): void;
   rememberThinkingLevel(runtime: T, level?: ThinkingLevel): void;
@@ -66,7 +68,7 @@ export class SlashCommandController<T extends SlashRuntime> {
     const {
       openSessionSelector, openSettings,
       expandedTools, setExpandedTools, setExpandedToolIds,
-      sidebarEnabled, setSidebarEnabled, refreshState, setAutoRetryEnabled,
+      sidebarEnabled, setSidebarEnabled, refreshState, refreshCommands, setAutoRetryEnabled,
       rememberThinkingLevel, applyRememberedThinkingLevel,
       fetchAvailableModels, loadCurrentSession, setSkillSelectorOpen,
       setAllThinkingExpanded, thinkingExpanded, setPromptMapOpen, openMemoryBrowser,
@@ -87,7 +89,7 @@ export class SlashCommandController<T extends SlashRuntime> {
 				addSystem(
 					[
 						"UI commands:",
-						"  /settings /status /commands /sessions /resume",
+						"  /settings /status /commands [search] /sessions /resume",
 						"  /model [provider/model] /thinking [level]",
 						"  /thoughts expanded|collapsed /prompts",
 						"  /compact [instructions] /new /name <name>",
@@ -253,18 +255,25 @@ export class SlashCommandController<T extends SlashRuntime> {
 				addSystem(`Session named “${argument}”.`, "success");
 				return true;
 			case "skills":
+				// Show cached skills immediately. Refresh in the background so an
+				// overloaded Pi RPC process cannot block opening the picker.
 				setSkillSelectorOpen(true);
+				void refreshCommands(runtime).catch(() => {});
 				return true;
 			case "commands": {
-				const commands = await runtime.client.getCommands();
-				const rows = commands.map(
-					(command) =>
-						`/${command.name}${command.description ? ` — ${command.description}` : ""}`,
+				const choices = await refreshCommands(runtime);
+				const query = argument.toLowerCase();
+				const matches = query
+					? choices.filter((command) => command.name.toLowerCase().includes(query) ||
+						command.description?.toLowerCase().includes(query))
+					: choices;
+				const rows = matches.slice(0, 100).map((command) =>
+					`/${command.name}${command.description ? ` — ${command.description}` : ""}`,
 				);
 				addSystem(
-					rows.length
-						? `Pi extension/template/skill commands:\n${rows.join("\n")}`
-						: "No extension, prompt-template, or skill commands were reported by Pi.",
+					matches.length > 0
+						? `Available commands (${matches.length}${query ? ` matching ${argument}` : ""}):\n${rows.join("\n")}${matches.length > rows.length ? "\n… refine with /commands <search>" : ""}`
+						: `No commands match ${JSON.stringify(argument)}.`,
 				);
 				return true;
 			}
