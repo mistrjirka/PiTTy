@@ -1,7 +1,46 @@
+import { PromptComposer } from "./ui/prompt-composer.tsx";
+import { AppFooter, ToastOverlay } from "./ui/app-footer.tsx";
+import { buildSettingsDescriptors } from "./ui/settings-descriptors.ts";
+import {
+  type SettingsRoute,
+  type DetailToggleState,
+  type SubagentInspectDecision,
+  type SubagentNavigationAction,
+  type SubagentKeyModifiers,
+  settingsBackRoute,
+  subagentNavigationAction,
+  subagentInspectDecision,
+  nextDetailToggle,
+  isEnterKey,
+  isUnmodifiedEnterKey,
+  hasAlt,
+  keyIs,
+} from "./ui/app-navigation.ts";
+export {
+  settingsBackRoute,
+  subagentNavigationAction,
+  subagentInspectDecision,
+  nextDetailToggle,
+  isUnmodifiedEnterKey,
+} from "./ui/app-navigation.ts";
+export type {
+  SettingsRoute, DetailToggleState, SubagentInspectDecision,
+  SubagentNavigationAction, SubagentKeyModifiers,
+} from "./ui/app-navigation.ts";
+import { footerHintTiers, globalFooterHint, selectFooterHint } from "./ui/footer-hints.ts";
+export { footerHintTiers, globalFooterHint, selectFooterHint } from "./ui/footer-hints.ts";
+import { subagentLogSummary } from "./subagents/log-summary.ts";
+import { appendNotificationHistory } from "./state/notification-history.ts";
+export { appendNotificationHistory } from "./state/notification-history.ts";
+import { attachTranscriptSelectionCache } from "./ui/transcript-selection-cache.ts";
+export { attachTranscriptSelectionCache } from "./ui/transcript-selection-cache.ts";
+export type { TranscriptSelectionCache } from "./ui/transcript-selection-cache.ts";
+
 import {
 	CliRenderEvents,
 	type CliRenderer,
 	type KeyEvent,
+	type MouseEvent,
 	type PasteEvent,
 	type ScrollBoxRenderable,
 	type Selection,
@@ -88,13 +127,9 @@ import {
 import { listSubagentRuns } from "./subagents/artifacts.ts";
 import { mergeMissionRuns } from "./subagents/missions.ts";
 import { subagentActivityAt } from "./subagents/transcript.ts";
+import { createSubagentControlActions } from "./subagents/action-controller.ts";
 import { createSubagentTranscriptCache } from "./subagents/transcript-cache.ts";
-import {
-	pauseSubagent,
-	resumeSubagent,
-	steerSubagent,
-	stopSubagent,
-} from "./subagents/control.ts";
+
 import { ExtensionDialog } from "./ui/dialog.tsx";
 import { MessageView } from "./ui/message.tsx";
 import { CompactionController } from "./tabs/compaction-controller.ts";
@@ -322,117 +357,8 @@ function contextWindowForModel(modelName: string | undefined): number | undefine
 	if (exact) return exact.contextWindow;
 	return availableModelsCache.find((model) => model.id === modelName)?.contextWindow;
 }
-const NOTIFICATION_HISTORY_CAP = 100;
 const SESSION_LOAD_REQUEST_TIMEOUT_MS = 120_000;
 const STARTUP_DEADLINE_MS = 180_000;
-
-export type DetailToggleState = {
-	toolsExpanded: boolean;
-	thinkingExpanded: boolean;
-	compactionExpanded?: boolean;
-	hasExpandedToolOverride?: boolean;
-	hasExpandedThinkingOverride?: boolean;
-};
-
-export type SettingsRoute =
-	| "closed"
-	| "root"
-	| "model"
-	| "thinking"
-	| "compaction"
-	| "compaction-model"
-	| "compaction-thinking"
-	| "subagents"
-	| "subagent"
-	| "subagent-model"
-	| "subagent-thinking"
-	| "claude-account"
-	| "session"
-	| "session-switch"
-	| "session-rename"
-	| "theme"
-	| "theme-editor"
-	| "mcp"
-	| "memory";
-
-export function settingsBackRoute(route: SettingsRoute): SettingsRoute {
-	if (route === "root") return "closed";
-	if (route === "session-switch" || route === "session-rename")
-		return "session";
-	if (route === "theme-editor") return "theme";
-	if (route === "compaction-model" || route === "compaction-thinking")
-		return "compaction";
-	if (route === "subagent") return "subagents";
-	if (route === "subagent-model" || route === "subagent-thinking")
-		return "subagent";
-	return "root";
-}
-
-export type SubagentInspectDecision = "close" | "warning" | "direct" | "choose";
-
-export type SubagentNavigationAction = "inspect" | "previous" | "next" | "main";
-export type SubagentKeyModifiers = {
-	ctrl?: boolean;
-	meta?: boolean;
-	option?: boolean;
-	shift?: boolean;
-	super?: boolean;
-};
-
-export function subagentNavigationAction(
-	inspectorOpen: boolean,
-	name: string,
-	modifiers: SubagentKeyModifiers = {},
-): SubagentNavigationAction | undefined {
-	if (inspectorOpen) {
-		if (name === "left") return "previous";
-		if (name === "right") return "next";
-		if (name === "up") return "main";
-		return undefined;
-	}
-	return name === "down" && modifiers.ctrl ? "inspect" : undefined;
-}
-
-export function subagentInspectDecision(
-	inspectorOpen: boolean,
-	targetCount: number,
-): SubagentInspectDecision {
-	if (inspectorOpen) return "close";
-	if (targetCount === 0) return "warning";
-	return targetCount === 1 ? "direct" : "choose";
-}
-
-export function nextDetailToggle(state: DetailToggleState): boolean {
-	const hasVisibleDetails =
-		state.toolsExpanded ||
-		state.thinkingExpanded ||
-		state.compactionExpanded === true ||
-		state.hasExpandedToolOverride === true ||
-		state.hasExpandedThinkingOverride === true;
-	return !hasVisibleDetails;
-}
-
-
-function isEnterKey(event: KeyEvent): boolean {
-	return (
-		event.name === "enter" ||
-		event.name === "return" ||
-		event.name === "kpenter" ||
-		event.name === "linefeed"
-	);
-}
-
-export function isUnmodifiedEnterKey(event: KeyEvent): boolean {
-	return (
-		isEnterKey(event) &&
-		!event.ctrl &&
-		!event.meta &&
-		!event.shift &&
-		!event.option &&
-		!event.super &&
-		!hasAlt(event)
-	);
-}
 
 function isExtensionUiRequest(value: unknown): value is RpcExtensionUIRequest {
 	return Boolean(
@@ -442,123 +368,8 @@ function isExtensionUiRequest(value: unknown): value is RpcExtensionUIRequest {
 	);
 }
 
-function hasAlt(event: KeyEvent): boolean {
-	return Boolean(event.meta || event.option);
-}
-
-function keyIs(
-	event: KeyEvent,
-	name: string,
-	modifiers: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {},
-): boolean {
-	return (
-		event.name === name &&
-		(modifiers.ctrl === undefined || Boolean(event.ctrl) === modifiers.ctrl) &&
-		(modifiers.shift === undefined ||
-			Boolean(event.shift) === modifiers.shift) &&
-		(modifiers.alt === undefined || hasAlt(event) === modifiers.alt)
-	);
-}
-
-function subagentLogSummary(run: SubagentRun): Record<string, unknown> {
-	return {
-		runId: run.runId,
-		agent: run.agent,
-		mode: run.mode,
-		state: run.state,
-		activityState: run.activityState,
-		lastActivityAt: subagentActivityAt(run),
-		model: run.model,
-		thinking: run.thinking,
-		contextWindow: run.contextWindow,
-		currentTool: run.currentTool,
-		activeTools: run.activeTools,
-		currentPath: run.currentPath,
-		currentStep: run.currentStep,
-		chainStepCount: run.chainStepCount,
-		turnCount: run.turnCount,
-		toolCount: run.toolCount,
-		totalTokens: run.totalTokens,
-		error: run.error,
-		steps: run.steps.map((step) => ({
-			index: step.index,
-			agent: step.agent,
-			status: step.status,
-			activityState: step.activityState,
-			lastActivityAt: subagentActivityAt(run, step.index),
-			model: step.model,
-			thinking: step.thinking,
-			contextWindow: step.contextWindow,
-			currentTool: step.currentTool,
-			currentPath: step.currentPath,
-			turnCount: step.turnCount,
-			toolCount: step.toolCount,
-			tokens: step.tokens?.total,
-			error: step.error,
-		})),
-	};
-}
-
 function modelThinkingKey(provider: string, modelId: string): string {
 	return `${provider}\0${modelId}`;
-}
-
-export function footerHintTiers(
-	inspectorOpen: boolean,
-	targetCount = 0,
-): string[] {
-	if (inspectorOpen) {
-		const switchHint = targetCount > 1 ? "←/→ or ctrl+←/→ switch  " : "";
-		return [`${switchHint}↑/ctrl+↑ main chat  esc/ctrl+i close`];
-	}
-	const targetHint = targetCount > 0 ? "  ctrl+down inspect" : "";
-	const inspectHint = targetCount > 0 ? `  ctrl+i inspect${targetHint}` : "";
-	return [
-		`ctrl+x settings  ctrl+s sidebar  ctrl+p models${targetHint}`,
-		`ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}`,
-		`ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}  alt+enter queue  ctrl+o details`,
-	];
-}
-
-export function globalFooterHint(
-	width: number,
-	inspectorOpen: boolean,
-	targetCount = 0,
-): string {
-	const tiers = footerHintTiers(inspectorOpen, targetCount);
-	if (tiers.length === 1) return tiers[0]!;
-	// Usage lives in this row now, so the hint ladder has three tiers: keep the
-	// model/request/effort affordances at 120+, and only reach for the full list
-	// when there is room for three provider summaries as well.
-	if (width < 120) return tiers[0]!;
-	if (width < 145) return tiers[1]!;
-	return tiers[2]!;
-}
-
-/**
- * Longest hint tier that fits alongside the status text and the already-chosen
- * usage segments. Usage summaries win over hint verbosity: the full hint list
- * only appears when every usage segment still fits next to it.
- */
-export function selectFooterHint(
-	totalWidth: number,
-	statusLength: number,
-	usedUsageWidth: number,
-	inspectorOpen: boolean,
-	targetCount = 0,
-): string {
-	const tiers = footerHintTiers(inspectorOpen, targetCount);
-	for (let index = tiers.length - 1; index >= 0; index--) {
-		const hint = tiers[index]!;
-		const row =
-			2 +
-			statusLength +
-			(usedUsageWidth ? USAGE_FOOTER_SEPARATOR.length + usedUsageWidth : 0) +
-			2 +
-			hint.length;
-		if (row <= totalWidth) return hint;
-	}
-	return tiers[0]!;
 }
 
 export function shouldShowEmptyDashboard(renderedItemCount: number): boolean {
@@ -571,65 +382,6 @@ export function streamingCtrlCDecision(
 	abortInFlight: boolean,
 ): StreamingCtrlCDecision {
 	return abortInFlight ? "force-exit" : "abort";
-}
-
-export function appendNotificationHistory(
-	current: NotificationRecord[],
-	record: NotificationRecord,
-): NotificationRecord[] {
-	return [...current.slice(-(NOTIFICATION_HISTORY_CAP - 1)), record];
-}
-
-export interface TranscriptSelectionCache {
-	getCopyText: () => string;
-	clear: () => void;
-	dispose: () => void;
-}
-
-/**
- * Mitigation for stale transcript copies: opentui's `Selection` re-resolves
- * stored per-node coordinates against the nodes' current positions at
- * `getSelectedText()` time, so stream chunks or node swaps between mouse-up
- * and Ctrl+C yield text from earlier content. Snapshot the text when a mouse
- * selection finishes (the `selection` event fires after the final walk) and
- * prefer the snapshot on the copy path.
- */
-export function attachTranscriptSelectionCache(
-	renderer: Pick<CliRenderer, "getSelection" | "getSelectionContainer"> & {
-		on(
-			event: typeof CliRenderEvents.SELECTION,
-			listener: (selection: Selection) => void,
-		): void;
-		off(
-			event: typeof CliRenderEvents.SELECTION,
-			listener: (selection: Selection) => void,
-		): void;
-	},
-	isTranscriptContainer?: (container: Renderable | null) => boolean,
-): TranscriptSelectionCache {
-	let cached: string | null = null;
-	const handleSelection = (selection: Selection) => {
-		if (!selection || selection.isDragging) return;
-		if (
-			isTranscriptContainer &&
-			!isTranscriptContainer(renderer.getSelectionContainer())
-		) {
-			return;
-		}
-		const text = selection.getSelectedText();
-		cached = text ? text : null;
-	};
-	renderer.on(CliRenderEvents.SELECTION, handleSelection);
-	return {
-		getCopyText: () =>
-			cached ?? renderer.getSelection()?.getSelectedText() ?? "",
-		clear: () => {
-			cached = null;
-		},
-		dispose: () => {
-			renderer.off(CliRenderEvents.SELECTION, handleSelection);
-		},
-	};
 }
 
 export function App(props: AppOptions) {
@@ -2984,140 +2736,26 @@ export function App(props: AppOptions) {
 				setMcpError(error instanceof Error ? error.message : String(error));
 			});
 	};
-	const settingsDescriptors = (): SettingsSectionDescriptor[] => {
-		const state = sessionState();
-		const unavailable = rpcAvailable() ? undefined : "Pi RPC unavailable";
-		return [
-			{
-				id: "model",
-				label: "Model",
-				summary: () =>
-					state?.model
-						? `${state.model.provider}/${state.model.id}`
-						: "Unavailable",
-				disabledReason: () => unavailable,
-				busy: () => settingsBusy() === "model",
-				inlineError: () => settingsErrors().model,
-				open: () => {
-					if (!unavailable) {
-						void loadModels(true);
-					}
-				},
-			},
-			{
-				id: "thinking",
-				label: "Thinking effort",
-				summary: () => state?.thinkingLevel ?? "Unavailable",
-				disabledReason: () => unavailable,
-				busy: () => settingsBusy() === "thinking",
-				inlineError: () => settingsErrors().thinking,
-				open: () => {
-					if (!unavailable) setSettingsRoute("thinking");
-				},
-			},
-			{
-				id: "compaction",
-				label: "Compaction model",
-				summary: () => {
-					const compaction = compactionModelState();
-					if (!compaction)
-						return settingsErrors().compaction ? "Unavailable" : "Loading…";
-					if (!compaction.model) return "Extension default";
-					const lanes = compaction.effectiveThinking;
-					const thinking =
-						lanes.audit === lanes.execution
-							? ` · ${lanes.audit}`
-							: ` · lanes ${lanes.audit}/${lanes.execution}`;
-					const laneOverride =
-						compaction.laneModels.audit || compaction.laneModels.execution
-							? " · model lane"
-							: "";
-					return `${compaction.model}${thinking}${laneOverride}`;
-				},
-				disabledReason: () => undefined,
-				busy: () => settingsBusy() === "compaction",
-				inlineError: () => settingsErrors().compaction,
-				open: () => void openCompactionSettings(),
-			},
-			{
-				id: "subagents",
-				label: "Subagent models",
-				summary: () => {
-					const entries = subagentModelEntries();
-					if (!entries.length)
-						return settingsErrors().subagents ? "Unavailable" : "Loading…";
-					const agents = entries.filter((entry) => entry.kind === "agent");
-					return agents.length
-						? `Defaults + ${agents.length} agent${agents.length === 1 ? "" : "s"}`
-						: "Defaults only";
-				},
-				disabledReason: () => undefined,
-				busy: () => settingsBusy() === "subagents",
-				inlineError: () => settingsErrors().subagents,
-				open: () => void openSubagentModels(),
-			},
-			...(cswapSnapshot()?.accounts.length ? [{
-				id: "claude-account",
-				label: "Claude usage account (cswap)",
-				summary: () => cswapSnapshot()?.accounts.find((a) => a.number === claudeEffectiveSlot())?.label ?? "Automatic",
-				disabledReason: () => undefined,
-				busy: () => false,
-				inlineError: () => undefined,
-				open: () => setSettingsRoute("claude-account"),
-			}] : []),
-			{
-				id: "session",
-				label: "Session",
-				summary: () => state?.sessionName || "Unnamed",
-				disabledReason: () => unavailable,
-				busy: () => false,
-				inlineError: () => settingsErrors().rename,
-				open: () => {
-					if (!unavailable) setSettingsRoute("session");
-				},
-			},
-			{
-				id: "theme",
-				label: "Theme",
-				summary: () => themeConfig().theme.preset,
-				disabledReason: () => undefined,
-				busy: () => settingsBusy() === "theme",
-				inlineError: () => settingsErrors().theme,
-				open: () => setSettingsRoute("theme"),
-			},
-			{
-				id: "mcp",
-				label: "MCP servers",
-				summary: () =>
-					mcpInstallState() === "ready"
-						? "Adapter ready"
-						: mcpInstallState() === "native"
-							? "Built-in MCP"
-							: mcpInstallState() === "native-disabled"
-								? "Built-in MCP disabled"
-								: "Adapter optional",
-				disabledReason: () => undefined,
-				busy: () => mcpInstallState() === "installing",
-				inlineError: () => mcpError(),
-				open: openMcpSettings,
-			},
-			{
-				id: "memory",
-				label: "Memory",
-				summary: () =>
-					props.integrations.memory.installed
-						? "Browse, search, remove"
-						: "Requires pi-hermes-memory",
-				disabledReason: () =>
-					props.integrations.memory.installed
-						? undefined
-						: "Install pi-hermes-memory",
-				busy: () => false,
-				inlineError: () => undefined,
-				open: () => openMemoryBrowser(true),
-			},
-		];
-	};
+	const settingsDescriptors = () => buildSettingsDescriptors({
+        sessionState,
+        rpcAvailable,
+        settingsBusy,
+        settingsErrors,
+        loadModels,
+        setRoute: setSettingsRoute,
+        compactionModelState,
+        openCompactionSettings,
+        subagentModelEntries,
+        openSubagentModels,
+        cswapSnapshot,
+        claudeEffectiveSlot,
+        themeConfig,
+        mcpInstallState,
+        mcpError,
+        openMcpSettings,
+        memoryInstalled: () => props.integrations.memory.installed,
+        openMemoryBrowser,
+    });
 
 	const discoverCurrentSessions = async () => {
 		const generation = ++sessionDiscoveryGeneration;
@@ -3706,126 +3344,21 @@ export function App(props: AppOptions) {
 			queueMicrotask(() => subagentScroll?.scrollTo(inspectedTargetScrollY(next)));
 	};
 
-	const sendSubagentSteer = (message: string) => {
-		const target = selectedSubagentTarget();
-		if (!target?.canSteer) {
-			toast("This subagent is not currently steerable", "warning");
-			return;
-		}
-		try {
-			const request = steerSubagent(target.run, message, target.stepIndex);
-			setPendingSteers((entries) => [
-				...entries,
-				{
-					requestId: request.requestId,
-					targetKey: target.key,
-					runId: target.run.runId,
-					text: message.trim(),
-					submittedAt: request.submittedAt,
-					baselineSteerCount: request.baselineSteerCount,
-				},
-			]);
-			clearTargetDraft(currentDrafts(), target.key);
-			touch();
-			props.logger.info("subagent.steer_requested", {
-				runId: target.run.runId,
-				index: target.stepIndex,
-				agent: target.label,
-				requestId: request.requestId,
-			});
-			toast(`Steering queued for ${target.label}`, "success");
-		} catch (error) {
-			props.logger.error("subagent.steer_failed", {
-				runId: target.run.runId,
-				index: target.stepIndex,
-				error,
-			});
-			toast(error instanceof Error ? error.message : String(error), "error");
-		}
-	};
-
-	const subagentControlGuard = (): { target?: SubagentTarget; run?: SubagentRun } => {
-		if (!inspectSubagent()) return {};
-		if (!subagentsAvailable()) {
-			toast("Install a supported subagent runtime to control child agents", "info", 5000);
-			return {};
-		}
-		const target = selectedSubagentTarget();
-		const run = target?.run;
-		const profiled = run?.control === "profiled";
-		const controllableState = profiled
-			? ["running", "queued", "waiting", "idle"].includes(run?.state ?? "")
-			: run?.state === "running" || run?.state === "paused" || run?.state === "queued";
-		const controllable = controllableState && (target?.canSteer || (!profiled && run?.state === "paused"));
-		const hasControlPath = profiled ? Boolean(run?.controlDir) : Boolean(run?.asyncDir);
-		if (!target || !run || !controllable || !hasControlPath || run.control === "foreground") {
-			toast("No steerable subagent selected", "warning");
-			return {};
-		}
-		return { target, run };
-	};
-
-	const requestPauseSubagent = () => {
-		const { run } = subagentControlGuard();
-		if (!run) return;
-		if (run.control === "profiled") {
-			toast("Profiled subagents support steer/stop, not pause/resume", "info");
-			return;
-		}
-		if (run.state !== "running") {
-			toast("Only running subagents can be paused", "warning");
-			return;
-		}
-		try {
-			pauseSubagent(run);
-			props.logger.info("subagent.pause_requested", { runId: run.runId, agent: run.agent, pid: run.pid });
-			toast(`Pause requested for ${run.agent ?? run.runId}`, "warning");
-		} catch (error) {
-			props.logger.error("subagent.pause_failed", { runId: run.runId, error });
-			toast(error instanceof Error ? error.message : String(error), "error");
-		}
-	};
-
-	const requestResumeSubagent = () => {
-		const { run } = subagentControlGuard();
-		if (!run) return;
-		if (run.control === "profiled") {
-			toast("Profiled subagents support steer/stop, not pause/resume", "info");
-			return;
-		}
-		if (run.state !== "paused") {
-			toast("Only paused subagents can be resumed", "warning");
-			return;
-		}
-		try {
-			resumeSubagent(run);
-			props.logger.info("subagent.resume_requested", { runId: run.runId, agent: run.agent, pid: run.pid });
-			toast(`Resume requested for ${run.agent ?? run.runId}`, "info");
-		} catch (error) {
-			props.logger.error("subagent.resume_failed", { runId: run.runId, error });
-			toast(error instanceof Error ? error.message : String(error), "error");
-		}
-	};
-
-	const requestStopSubagent = () => {
-		const { run } = subagentControlGuard();
-		if (!run) return;
-		const stoppable = run.control === "profiled"
-			? ["running", "queued", "waiting", "idle"].includes(run.state)
-			: ["running", "paused", "queued"].includes(run.state);
-		if (!stoppable) {
-			toast("No active controllable subagent selected", "warning");
-			return;
-		}
-		try {
-			stopSubagent(run);
-			props.logger.info("subagent.stop_requested", { runId: run.runId, agent: run.agent, pid: run.pid });
-			toast(`Stop requested for ${run.agent ?? run.runId}`, "warning");
-		} catch (error) {
-			props.logger.error("subagent.stop_failed", { runId: run.runId, error });
-			toast(error instanceof Error ? error.message : String(error), "error");
-		}
-	};
+	const {
+        sendSubagentSteer,
+        requestPauseSubagent,
+        requestResumeSubagent,
+        requestStopSubagent,
+    } = createSubagentControlActions({
+        selectedTarget: selectedSubagentTarget,
+        inspectorOpen: inspectSubagent,
+        runtimeAvailable: subagentsAvailable,
+        setPendingSteers,
+        clearDraft: (key) => clearTargetDraft(currentDrafts(), key),
+        touch,
+        logger: props.logger,
+        toast,
+    });
 
 	useKeyboard((event) => {
 		if (event.eventType === "release") return;
@@ -4234,6 +3767,77 @@ export function App(props: AppOptions) {
 	// The transcript selection snapshot is captured via attachTranscriptSelectionCache
 	// above. The live selection is intentionally retained until Ctrl+C or Escape.
 
+	const onPromptEditor = (value: TextareaRenderable) => {
+prompt = value;
+									const valueText = currentDrafts().main;
+									if (value.plainText !== valueText) value.setText(valueText);
+									syncPromptPlaceholder(valueText);
+    };
+    const onPromptMouseDown = (event: MouseEvent) => {
+const blocks = currentDrafts().mainPastes;
+									if (!blocks.length || !prompt) return;
+									const localX = Math.floor(event.x - prompt.x);
+									const localY = Math.floor(event.y - prompt.y);
+									const viewport = prompt.editorView.getViewport();
+									if (
+										localX < 0 ||
+										localY < 0 ||
+										localX >= prompt.width ||
+										localY >= prompt.height
+									)
+										return;
+									// Mouse events report visual rows; getTextRangeByCoords expects logical
+									// rows. Map through the editor view's per-visual-line source line and
+									// wrap-start columns so clicks on wrapped lines resolve to the text
+									// actually under the cursor (or fail closed).
+									const visualRow = localY + Math.floor(viewport.offsetY);
+									const lineInfo = prompt.editorView.getLineInfo();
+									const logicalRow = lineInfo.lineSources[visualRow];
+									if (logicalRow === undefined || logicalRow < 0) return;
+									const column =
+										localX +
+										Math.floor(viewport.offsetX) +
+										Math.floor(lineInfo.lineStartCols[visualRow] ?? 0);
+									const line = prompt.getTextRangeByCoords(
+										logicalRow,
+										0,
+										logicalRow,
+										8192,
+									);
+									if (!line) return;
+									const block = blocks.find((entry) => {
+										const start = line.indexOf(entry.token);
+										return start >= 0 && column >= start && column < start + entry.token.length;
+									});
+									if (!block) return;
+									event.preventDefault();
+									event.stopPropagation();
+									expandCollapsedPromptPaste(block.id);
+    };
+    const onPromptContentChange = () => {
+if (draftSwitchGuard) return;
+									const drafts = currentDrafts();
+									const rawText = prompt?.plainText ?? "";
+									const text = stripCollapsedPromptPasteFragments(
+										rawText,
+										drafts.mainPastes,
+									);
+									if (prompt && text !== rawText) prompt.replaceText(text);
+									drafts.main = text;
+									syncPromptPlaceholder(text);
+									drafts.mainPastes = prunePromptPasteBlocks(
+										text,
+										drafts.mainPastes,
+									);
+									activeRuntime().promptHistory.noteEditorChange(text);
+									setPromptText(text);
+									setPromptCursorOffset(prompt?.cursorOffset ?? text.length);
+									setCommandSuggestionIndex(0);
+    };
+    const onPromptCursorChange = () => {
+setPromptCursorOffset(prompt?.cursorOffset ?? 0);
+    };
+
 	const MainContents = () => (
 		<box
 			width="100%"
@@ -4480,135 +4084,23 @@ export function App(props: AppOptions) {
 						/>
 					</Show>
 					<Show when={!inspectSubagent()}>
-						<box
-							border={["top"]}
-							borderColor={streaming() ? colors.green : colors.borderStrong}
-							backgroundColor={colors.panel}
-							paddingLeft={2}
-							paddingRight={2}
-							paddingTop={1}
-							paddingBottom={1}
-							minHeight={4}
-							maxHeight={12}
-						>
-							<textarea
-								ref={(value) => {
-									prompt = value;
-									const valueText = currentDrafts().main;
-									if (value.plainText !== valueText) value.setText(valueText);
-									syncPromptPlaceholder(valueText);
-								}}
-								focused={
-									startupPhase().kind === "ready" &&
-									!dialog() &&
-									!backgroundSelection() &&
-									!modelSelectorOpen() &&
-									!sessionSelectorOpen() &&
-									!forkPickerOpen() &&
-									!promptMapOpen() &&
-									!subagentSelectorOpen() &&
-									!notificationDetailId() &&
-									!todoDetailId()
-								}
-								placeholder={
-									promptValue().length > 0
-										? null
-										: streaming()
-											? "Enter queues steering for the next model step · Alt+Enter queues editable follow-up"
-											: "Ask Pi anything… (/help for commands)"
-								}
-								wrapMode="word"
-								backgroundColor={colors.panel}
-								focusedBackgroundColor={colors.panel}
-								textColor={colors.textBright}
-								focusedTextColor={colors.textBright}
-								placeholderColor={colors.muted}
-								selectionBg={colors.selection}
-								keyBindings={[
-									{ name: "return", action: "submit" },
-									{ name: "enter", action: "submit" },
-									{ name: "kpenter", action: "submit" },
-									// Many terminals cannot report the shift modifier on Enter without
-									// the Kitty keyboard protocol, and instead send a bare linefeed for
-									// Shift+Enter. Treat unmodified linefeed as a newline (not submit) so
-									// Shift+Enter reliably inserts a line in those terminals too.
-									{ name: "linefeed", action: "newline" },
-									{ name: "return", shift: true, action: "newline" },
-									{ name: "enter", shift: true, action: "newline" },
-									{ name: "kpenter", shift: true, action: "newline" },
-									{ name: "linefeed", shift: true, action: "newline" },
-								]}
-								minHeight={2}
-								maxHeight={10}
-								onPaste={handlePromptPaste}
-								onKeyDown={handlePromptKeyDown}
-								onMouseDown={(event) => {
-									const blocks = currentDrafts().mainPastes;
-									if (!blocks.length || !prompt) return;
-									const localX = Math.floor(event.x - prompt.x);
-									const localY = Math.floor(event.y - prompt.y);
-									const viewport = prompt.editorView.getViewport();
-									if (
-										localX < 0 ||
-										localY < 0 ||
-										localX >= prompt.width ||
-										localY >= prompt.height
-									)
-										return;
-									// Mouse events report visual rows; getTextRangeByCoords expects logical
-									// rows. Map through the editor view's per-visual-line source line and
-									// wrap-start columns so clicks on wrapped lines resolve to the text
-									// actually under the cursor (or fail closed).
-									const visualRow = localY + Math.floor(viewport.offsetY);
-									const lineInfo = prompt.editorView.getLineInfo();
-									const logicalRow = lineInfo.lineSources[visualRow];
-									if (logicalRow === undefined || logicalRow < 0) return;
-									const column =
-										localX +
-										Math.floor(viewport.offsetX) +
-										Math.floor(lineInfo.lineStartCols[visualRow] ?? 0);
-									const line = prompt.getTextRangeByCoords(
-										logicalRow,
-										0,
-										logicalRow,
-										8192,
-									);
-									if (!line) return;
-									const block = blocks.find((entry) => {
-										const start = line.indexOf(entry.token);
-										return start >= 0 && column >= start && column < start + entry.token.length;
-									});
-									if (!block) return;
-									event.preventDefault();
-									event.stopPropagation();
-									expandCollapsedPromptPaste(block.id);
-								}}
-								onContentChange={() => {
-									if (draftSwitchGuard) return;
-									const drafts = currentDrafts();
-									const rawText = prompt?.plainText ?? "";
-									const text = stripCollapsedPromptPasteFragments(
-										rawText,
-										drafts.mainPastes,
-									);
-									if (prompt && text !== rawText) prompt.replaceText(text);
-									drafts.main = text;
-									syncPromptPlaceholder(text);
-									drafts.mainPastes = prunePromptPasteBlocks(
-										text,
-										drafts.mainPastes,
-									);
-									activeRuntime().promptHistory.noteEditorChange(text);
-									setPromptText(text);
-									setPromptCursorOffset(prompt?.cursorOffset ?? text.length);
-									setCommandSuggestionIndex(0);
-								}}
-								onCursorChange={() => {
-									setPromptCursorOffset(prompt?.cursorOffset ?? 0);
-								}}
-								onSubmit={() => void submit()}
-							/>
-						</box>
+						<PromptComposer
+                            streaming={streaming}
+                            focused={() => startupPhase().kind === "ready" &&
+                                !dialog() && !backgroundSelection() && !modelSelectorOpen() &&
+                                !sessionSelectorOpen() && !forkPickerOpen() && !promptMapOpen() &&
+                                !subagentSelectorOpen() && !notificationDetailId() && !todoDetailId()}
+                            placeholder={() => promptValue().length > 0 ? null : streaming()
+                                ? "Enter queues steering for the next model step · Alt+Enter queues editable follow-up"
+                                : "Ask Pi anything… (/help for commands)"}
+                            onEditor={onPromptEditor}
+                            onPaste={handlePromptPaste}
+                            onKeyDown={handlePromptKeyDown}
+                            onMouseDown={onPromptMouseDown}
+                            onContentChange={onPromptContentChange}
+                            onCursorChange={onPromptCursorChange}
+                            onSubmit={() => void submit()}
+                        />
 					</Show>
 				</box>
 				<Show when={visibleSidebar()}>
@@ -4647,60 +4139,14 @@ export function App(props: AppOptions) {
 					/>
 				</Show>
 			</box>
-			<box
-				height={1}
-				flexDirection="row"
-				paddingLeft={1}
-				paddingRight={1}
-				backgroundColor={colors.background}
-				overflow="hidden"
-			>
-				<text fg={streaming() ? colors.green : colors.muted} wrapMode="none">{footerStatusText()}</text>
-				<For each={footerUsageSegments()}>
-					{(segment) => (
-						<>
-							<text fg={colors.muted} flexShrink={0}>{USAGE_FOOTER_SEPARATOR}</text>
-							<text
-								fg={segment.tone === "critical" ? colors.red : segment.tone === "warning" ? colors.yellow : colors.muted}
-								flexShrink={0}
-								wrapMode="none"
-							>{segment.text}</text>
-						</>
-					)}
-				</For>
-				<box flexGrow={1} />
-				<text fg={colors.subtle} wrapMode="none">
-					{footerHintText()}
-				</text>
-			</box>
-			<For each={toasts()}>
-				{(entry, index) => (
-					<box
-						position="absolute"
-						right={2}
-						bottom={3 + index() * 3}
-						maxWidth="55%"
-						backgroundColor={colors.panelRaised}
-						border
-						borderColor={
-							entry.tone === "error"
-								? colors.red
-								: entry.tone === "warning"
-									? colors.yellow
-									: entry.tone === "success"
-										? colors.green
-										: colors.borderStrong
-						}
-						paddingLeft={1}
-						paddingRight={1}
-						zIndex={200}
-					>
-						<text fg={colors.text} wrapMode="word">
-							{entry.text}
-						</text>
-					</box>
-				)}
-			</For>
+			<AppFooter
+                streaming={streaming}
+                statusText={footerStatusText}
+                segments={footerUsageSegments}
+                hintText={footerHintText}
+            />
+            <ToastOverlay entries={toasts} />
+
 		</box>
 	);
 	const EvenTheme = () => <MainContents />;
