@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.62
+
+### Keep custom compaction output inside the terminal viewport
+
+- Bound the live audit and execution lane previews to a fixed fraction of the terminal height, even while expanded, so streaming output never pushes later transcript rows off screen.
+- Prevent long unbroken stream lines and progress labels from exceeding the compaction panel width.
+- Render completed compaction summaries in a bounded vertical scrollbox instead of expanding into adjacent transcript content.
+- Add real OpenTUI regression tests for 16-row and narrow terminals, expanded streaming, long lines and completed summaries.
+
+Validation: 697 tests passed, one optional PowerShell test skipped, TypeScript and runtime build passed locally.
+
 ## 0.6.61
 
 ### Filter code-tool resume state before PiTTy receives it

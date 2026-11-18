@@ -2235,6 +2235,7 @@ export function App(props: AppOptions) {
 					completion={completion}
 					expanded={compactionSummaryExpanded}
 					onToggle={() => setCompactionSummaryExpanded((value) => !value)}
+					viewportHeight={dimensions().height}
 				/>
 			);
 		}
@@ -5082,6 +5083,7 @@ export function App(props: AppOptions) {
 									oneRoundProgress={compactionView().oneRoundProgress}
 									laneTexts={compactionView().laneTexts}
 									expanded={compactionExpanded}
+									viewportHeight={dimensions().height}
 									onToggle={() => setCompactionExpanded((value) => !value)}
 								/>
 							</Show>
