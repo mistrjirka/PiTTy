@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.4
+
+### Restore Windows PowerShell 5.1 installation compatibility
+
+- On Windows PowerShell 5.1, use the supported two-argument .NET `ZipFile.ExtractToDirectory` overload to unpack the release into the unique temporary staging directory. Newer PowerShell versions retain `Expand-Archive`.
+- Fix the v0.7.3 merged-branch Windows CI failure where `Expand-Archive -Force` attempted a missing three-argument `ExtractToDirectory` overload. Keep SHA256 validation, staging, rollback, plugin handling and no-mutation failure policy unchanged.
+- Extend installer source regression coverage. The existing Windows executable installer fixture tests the actual staged path, version checks and rollback on CI.
+
 ## 0.7.3
 
 ### Extract typed startup, session discovery and settings controllers

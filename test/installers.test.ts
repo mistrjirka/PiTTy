@@ -44,6 +44,8 @@ describe("public installers", () => {
     expect(script).toContain("scripts/build-runtime.ts");
     expect(script).toContain("dist\\index.js");
     expect(script).toContain("dist\\.pitty-runtime-build-v1");
+    expect(script).toContain("if ($PSVersionTable.PSVersion.Major -lt 6)");
+    expect(script).toContain("[System.IO.Compression.ZipFile]::ExtractToDirectory($Archive, $Source)");
     const uninstall = fs.readFileSync(path.join(root, "uninstall.ps1"), "utf8");
     expect(uninstall).toContain("pitty-resume.cmd");
   });
