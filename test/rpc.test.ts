@@ -137,7 +137,8 @@ describe("PiRpcClient", () => {
     clients.push(client);
     await client.start();
     await expect(client.getState()).rejects.toBeInstanceOf(PiRpcTimeoutError);
-    await expect(client.getState(120)).resolves.toMatchObject({
+    // The override must outlive the mock response, even under CI runner scheduling delays.
+    await expect(client.getState(1_500)).resolves.toMatchObject({
       sessionName: "Mock Pi Session",
     });
   });

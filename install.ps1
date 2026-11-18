@@ -72,7 +72,16 @@ try {
   $Actual = ([BitConverter]::ToString($HashBytes) -replace "-", "").ToLowerInvariant()
   if ($Expected -ne $Actual) { Fail "Checksum mismatch for $Asset (expected $Expected, got $Actual)" }
 
-  $Source = Join-Path $Temp "source"; Expand-Archive -Path $Archive -DestinationPath $Source -Force
+  # PowerShell 5.1 can dispatch Expand-Archive -Force to a three-argument
+  # ExtractToDirectory overload that its .NET Framework does not provide.
+  # The staging directory is unique and empty, so the two-argument overload is sufficient.
+  $Source = Join-Path $Temp "source"
+  if ($PSVersionTable.PSVersion.Major -lt 6) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($Archive, $Source)
+  } else {
+    Expand-Archive -Path $Archive -DestinationPath $Source -Force
+  }
   $Root = Get-ChildItem -Path $Source -Directory | Select-Object -First 1
   if (-not $Root) { Fail "Release archive had no top-level directory." }
   $NewDir = "$InstallDir.new"; Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $NewDir; New-Item -ItemType Directory -Force -Path $NewDir | Out-Null
