@@ -26,7 +26,7 @@ export function selectCommandChoice(
 export function filterCommandChoices(
 	commands: CommandChoice[],
 	input: string,
-	limit = 7,
+	limit = Number.POSITIVE_INFINITY,
 	cursorOffset?: number,
 ): CommandChoice[] {
 	// Only offer suggestions while the caret is at the end of the prompt so
@@ -35,19 +35,11 @@ export function filterCommandChoices(
 	const match = input.match(/^\/([^\s]*)$/);
 	if (!match) return [];
 	const query = (match[1] ?? "").toLowerCase();
-	const featured = [
-		"help", "model", "thinking", "compact", "settings", "skills", "commands",
-		"sessions", "resume", "new", "status", "models", "thoughts", "sidebar",
-	];
-	// Show the common UI commands first for bare '/'. With a query, prefer
-	// exact and prefix matches, then name segments and descriptions. This
-	// finds /skill:... when users remember only the actual skill name.
+	// Offer all registered commands, without a privileged priority subset.
+	// Search still favors exact, prefix, segment, and description matches.
 	const rank = (command: CommandChoice): number | undefined => {
 		const name = command.name.toLowerCase();
-		if (!query) {
-			const index = featured.indexOf(name);
-			return index >= 0 ? index : 100;
-		}
+		if (!query) return 0;
 		if (name === query) return 0;
 		if (name.startsWith(query)) return 1;
 		if (name.split(/[:_\-/]/).some((segment) => segment.startsWith(query))) return 2;

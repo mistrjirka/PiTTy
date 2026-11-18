@@ -31,4 +31,8 @@ The remaining large `App()` owns application navigation, settings, modal orchest
 
 ## Command inventory
 
-Pi RPC `get_commands` reports registered extension commands, prompt templates and skills, but not every command of Pi's interactive terminal. PiTTy only advertises UI commands it implements plus the live RPC registry. When `/` opens, it refreshes a per-tab command list if older than 30 seconds. Polling stops when the menu closes or Pi is streaming. `/commands [search]` refreshes immediately. Installing an extension or changing skill files still requires Pi to reload those resources before RPC can report the changes.
+Pi RPC `get_commands` reports registered extension commands, prompt templates and skills, but not every command of Pi's interactive terminal. PiTTy only advertises UI commands it implements plus the live RPC registry. The entire catalog is available to scroll when typing `/`, alphabetically when no query is present. When `/` opens, it refreshes a per-tab command list if older than 30 seconds. Polling stops when the menu closes or Pi is streaming. `/commands [search]` refreshes immediately. Installing an extension or changing skill files still requires Pi to reload those resources before RPC can report the changes.
+
+## Background shell continuity
+
+The active Pi tab's validated `pitty.bg.v1` status feeds the sidebar and the live compaction panel. Only `state=running` jobs are shown in the compaction panel, with a viewport-bounded list and links to the existing task output dialog. PiTTy never invents process state from a saved checkpoint. One-round compaction v0.4.5 independently captures a bounded task roster for the **model checkpoint**. The PiTTy view does not mutate the running shell processes.

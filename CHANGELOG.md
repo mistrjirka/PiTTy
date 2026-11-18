@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.66
+
+### Full slash catalog and visible running commands during compaction
+
+- `/` now offers **all** commands exposed by Pi's live RPC registry, with no hidden 24-item limit or priority-only subset. The existing bounded scroll viewport navigates the full catalog; names are alphabetical until a query ranks exact, prefix, segment and description matches.
+- The compaction panel shows active background shell-task IDs, command previews, elapsed time, and a clickable row for the existing background-output viewer. Running tasks remain visible during both one-round and normal compaction. Rows are bounded to avoid repeating the viewport overflow regression.
+- The separately updated one-round compaction extension v0.4.5 also captures the current session's running background commands in its token-budgeted checkpoint. This is model context, independent of the UI preview.
+- Regression tests cover full command discovery and background task rendering on short and narrow terminals, including clicks and completed-task exclusion.
+
 ## 0.6.65
 
 ### Discover commands automatically without restarting PiTTy
