@@ -68,6 +68,22 @@ function laneLine(lane: OneRoundLaneProgress): string {
 const LANE_TEXT_LINES = 6;
 const EXPANDED_LANE_TEXT_LINES = 18;
 
+/** Keep live compaction from monopolizing a small terminal's transcript viewport. */
+export function compactionLaneRowBudget(viewportHeight: number | undefined, expanded: boolean): number {
+	const preferred = expanded ? EXPANDED_LANE_TEXT_LINES : LANE_TEXT_LINES;
+	if (viewportHeight === undefined || !Number.isFinite(viewportHeight)) return preferred;
+	// Reserve five rows for header, lane labels, status and trailing plan.
+	// The live panel should use at most about half the terminal height.
+	const available = Math.max(2, Math.floor(viewportHeight * 0.52) - 5);
+	return Math.max(1, Math.min(preferred, Math.floor(available / 2)));
+}
+
+/** Allow long completed summaries to scroll without stretching the transcript. */
+export function compactionSummaryRowBudget(viewportHeight: number | undefined): number {
+	const height = viewportHeight ?? 24;
+	return Math.max(2, Math.min(12, Math.floor(height * 0.35)));
+}
+
 /** Tail window of a streamed lane text; a leading ellipsis line marks clipped content above. */
 export function laneTailLines(
 	text: string,
@@ -75,7 +91,8 @@ export function laneTailLines(
 ): string[] {
 	const lines = text.replace(/\r/g, "").split("\n");
 	while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-	if (lines.length === 0) return [];
+	if (lines.length === 0 || maxLines < 1) return [];
+	if (maxLines === 1) return [lines[lines.length - 1]!];
 	if (lines.length <= maxLines) return lines;
 	return ["…", ...lines.slice(-(maxLines - 1))];
 }
@@ -90,6 +107,7 @@ export function CompactionPanel(props: {
 	laneTexts?: OneRoundLaneTexts | undefined;
 	expanded?: () => boolean;
 	onToggle?: () => void;
+	viewportHeight?: number;
 }) {
 	const elapsed = () =>
 		Math.max(0, props.now - (props.telemetry.startedAt ?? props.now));
@@ -127,7 +145,7 @@ export function CompactionPanel(props: {
 	};
 
 	const isExpanded = () => props.expanded?.() ?? false;
-	const laneTextLines = () => (isExpanded() ? EXPANDED_LANE_TEXT_LINES : LANE_TEXT_LINES);
+	const laneTextLines = () => compactionLaneRowBudget(props.viewportHeight, isExpanded());
 	const phaseLine = () => {
 		const progress = props.oneRoundProgress;
 		if (!progress) return "";
@@ -139,6 +157,9 @@ export function CompactionPanel(props: {
 	return (
 		<box
 			{...(props.oneRoundProgress ? {} : { height: 4, minHeight: 4 })}
+			width="100%"
+			minWidth={0}
+			overflow="hidden"
 			flexShrink={0}
 			flexDirection="column"
 			paddingLeft={1}
@@ -148,8 +169,8 @@ export function CompactionPanel(props: {
 			border={["left"]}
 			borderColor={colors.cyan}
 		>
-			<box height={1} flexDirection="row" flexShrink={0}>
-				<text height={1} fg={colors.cyan} attributes={1} wrapMode="none" flexShrink={1}>
+			<box height={1} flexDirection="row" flexShrink={0} minWidth={0} overflow="hidden">
+				<text height={1} fg={colors.cyan} attributes={1} wrapMode="none" minWidth={0} flexShrink={1}>
 					{props.spinner} Compacting{phaseLine()}
 					{props.telemetry.reason ? ` · ${props.telemetry.reason}` : ""} ·{" "}
 					{formatDuration(elapsed())} elapsed
@@ -176,25 +197,25 @@ export function CompactionPanel(props: {
 				const primaryText = progress.v === 2 ? (props.laneTexts?.audit ?? "") : (props.laneTexts?.intent ?? "");
 				return (
 					<>
-						<text height={1} fg={colors.subtle} wrapMode="none">
+						<text height={1} width="100%" fg={colors.subtle} wrapMode="none">
 							{laneLine(primaryLane)}
 						</text>
 						<Show when={primaryText.length > 0}>
 							<box height={laneTextLines()} overflow="hidden" paddingLeft={2} flexShrink={0} flexDirection="column">
 								{laneTailLines(primaryText, laneTextLines()).map((line) => (
-									<text height={1} fg={colors.muted} wrapMode="none" flexShrink={0}>
+									<text height={1} width="100%" fg={colors.muted} wrapMode="none" flexShrink={0}>
 										{line}
 									</text>
 								))}
 							</box>
 						</Show>
-						<text height={1} fg={colors.subtle} wrapMode="none">
+						<text height={1} width="100%" fg={colors.subtle} wrapMode="none">
 							{laneLine(progress.lanes.execution)}
 						</text>
 						<Show when={(props.laneTexts?.execution ?? "").length > 0}>
 							<box height={laneTextLines()} overflow="hidden" paddingLeft={2} flexShrink={0} flexDirection="column">
 								{laneTailLines(props.laneTexts?.execution ?? "", laneTextLines()).map((line) => (
-									<text height={1} fg={colors.muted} wrapMode="none" flexShrink={0}>
+									<text height={1} width="100%" fg={colors.muted} wrapMode="none" flexShrink={0}>
 										{line}
 									</text>
 								))}
@@ -203,14 +224,14 @@ export function CompactionPanel(props: {
 					</>
 				);
 			})() : (
-				<text height={1} fg={colors.subtle} wrapMode="none">
+				<text height={1} width="100%" fg={colors.subtle} wrapMode="none">
 					Activity [{indeterminateCompactionBar(props.frame)}] indeterminate{props.smartCompactProgress ? ` · ${props.smartCompactProgress}` : ""}
 				</text>
 			)}
-			<text height={1} fg={colors.muted} wrapMode="none">
+			<text height={1} width="100%" fg={colors.muted} wrapMode="none">
 				{contextLine()}
 			</text>
-			<text height={1} fg={colors.muted} wrapMode="none">
+			<text height={1} width="100%" fg={colors.muted} wrapMode="none">
 				{messageLine()}
 			</text>
 		</box>
@@ -221,6 +242,7 @@ export function CompactedSummary(props: {
 	completion: CompactionCompletion;
 	expanded: () => boolean;
 	onToggle: () => void;
+	viewportHeight?: number;
 }) {
 	const expanded = createMemo(() => props.expanded());
 	const finalizeSummary = function (this: MarkdownRenderable) {
@@ -231,6 +253,9 @@ export function CompactedSummary(props: {
 	};
 	return (
 		<box
+			width="100%"
+			minWidth={0}
+			overflow="hidden"
 			flexDirection="column"
 			paddingLeft={1}
 			paddingRight={1}
@@ -281,19 +306,28 @@ export function CompactedSummary(props: {
 							</text>
 						</box>,
 						Boolean(props.completion.summary) ? (
-							<markdown
-								content={props.completion.summary ?? ""}
-								syntaxStyle={getMarkdownStyle()}
-								fg={colors.textBright}
-								conceal
-								streaming
-								renderAfter={finalizeSummary}
-								tableOptions={{
-									style: "columns",
-									wrapMode: "word",
-									selectable: true,
-								}}
-							/>
+							<scrollbox
+								height={compactionSummaryRowBudget(props.viewportHeight)}
+								width="100%"
+								minWidth={0}
+								scrollY
+								scrollX={false}
+								viewportCulling
+							>
+								<markdown
+									content={props.completion.summary ?? ""}
+									syntaxStyle={getMarkdownStyle()}
+									fg={colors.textBright}
+									conceal
+									streaming
+									renderAfter={finalizeSummary}
+									tableOptions={{
+										style: "columns",
+										wrapMode: "word",
+										selectable: true,
+									}}
+								/>
+							</scrollbox>
 						) : null,
 					]
 				))()}
