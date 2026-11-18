@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.5
+
+### Split the app shell into typed controllers and view components
+
+- Move core settings, extension settings, session selection and utility dialogs into separate Solid UI modules with explicit interfaces. Keep modal ordering and active-session guards.
+- Extract tab activation, extension-event routing and cleanup into `tabs/tab-lifecycle.ts`, and session forking into `tabs/tab-fork-actions.ts`. Both modules remain under 500 lines. Child runtimes still start and stop at the same boundaries.
+- Extract input submission, explicit slash handling, editable follow-up queuing, and abort control into `tabs/input-actions.ts`. Extract single-flight RPC refresh and scoped child roster updates into `tabs/runtime-refresh.ts`. Add regression coverage for slash submission, startup guard, and follow-up restoration.
+- Extract the prompt-draft and collapsed-paste editor to `tabs/prompt-draft-actions.ts`, and background command paging/analysis to `tabs/background-actions.ts`.
+- Move shared model discovery to `tabs/model-catalog-actions.ts` and message-card rendering to `ui/message-renderer.tsx`. Preserve the shared cached model list and original render identities.
+- Split the conversation reducer's stable history, message-field helpers and file mutation previews into small state modules. Preserve `conversation.ts` public exports.
+- Split profiled status parsing and validated file paths into `subagents/profiled-status.ts`, and extension profile markdown discovery into `config/extension-profile-discovery.ts`.
+- Move the main terminal view to `ui/app-main-contents.tsx` and route all settings/session/utility overlays through `ui/app-dialogs.tsx`. Keep live values as accessors and the existing theme-driven view remount.
+- Move all initial UI signals, settings values, tab registry and command catalog into the explicitly typed `state/app-signals.ts` state owner.
+- Extract account selection and usage projection, sanitized footer text and sizing, inspector transcript projection, and conversation/command render selectors to small dedicated modules.
+- Extract prompt-map and memory navigation plus owner-bound extension-dialog responses to `tabs/modal-navigation.ts`.
+- Add regression tests for typed state defaults, extension-status sanitization, tab activation, prompt drafts, submission, and editable follow-up restoration.
+- Reduce **formatted** `src/app.tsx` from 2,975 to **1,949 lines**, compared with 5,057 before the refactor series. All newly extracted production modules are each below 500 lines. Further state and callback decomposition remains possible.
+
+Validation: TypeScript typecheck and runtime build pass. 759 tests pass, 0 fail, 1 optional PowerShell fixture skipped on Linux. All newly extracted controllers use explicit source-defined types, with no new `as any`, `as never`, `as unknown` or TypeScript suppression directives.
+
 ## 0.7.4
 
 ### Restore Windows PowerShell 5.1 installation compatibility

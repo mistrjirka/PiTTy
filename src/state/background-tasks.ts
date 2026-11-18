@@ -12,6 +12,9 @@ const SESSION_ID = /^[a-zA-Z0-9-]{8,80}$/;
 const TASK_ID = /^bg-[1-9]\d{0,6}$/;
 const STATES = new Set(["running", "exited", "exit-unknown", "killed"]);
 
+/** Selection stays associated with the exact owning session and runtime. */
+export type BackgroundTaskSelection = { runtimeId: string; sessionId: string; id: string };
+
 export type BackgroundTask = {
 	id: string;
 	command: string;
