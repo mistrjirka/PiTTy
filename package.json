@@ -1,6 +1,6 @@
 {
   "name": "pitty-pi-ui",
-  "version": "0.6.67",
+  "version": "0.7.0",
   "private": false,
   "type": "module",
   "description": "PiTTy: a fast, extensible OpenTUI frontend for the Pi coding agent",
@@ -19,8 +19,8 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.84.4",
-    "@opentui/core": "0.4.3",
-    "@opentui/solid": "0.4.3",
+    "@opentui/core": "0.9.2",
+    "@opentui/solid": "0.9.2",
     "diff": "^9.0.0",
     "solid-js": "1.9.12",
     "strip-ansi": "7.1.2",

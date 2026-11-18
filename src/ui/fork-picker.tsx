@@ -41,7 +41,7 @@ export function ForkPicker(props: ForkPickerProps) {
 		}
 	});
 	return (
-		<box position="absolute" left="12%" right="12%" top="8%" bottom={5} flexDirection="column" backgroundColor={colors.panelRaised} border borderColor={colors.borderStrong} padding={1} zIndex={150}>
+		<box position="absolute" left="12%" right="12%" top="8%" bottom={1} flexDirection="column" backgroundColor={colors.panelRaised} border borderColor={colors.borderStrong} padding={1} zIndex={150}>
 			<box flexDirection="row"><text fg={colors.textBright} attributes={1}>Fork conversation</text><box flexGrow={1} /><text fg={colors.muted} onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); props.onCancel(); }}>× Close</text></box>
 			<textarea ref={(value) => { search = value; }} focused={focus.focusTarget() === "search"} height={1} minHeight={1} maxHeight={1} placeholder="Search messages…" backgroundColor={colors.panel} focusedBackgroundColor={colors.panel} textColor={colors.textBright} placeholderColor={colors.muted} onKeyDown={cancel} onContentChange={() => { setQuery(search?.plainText ?? ""); queueMicrotask(() => select?.setSelectedIndex(0)); }} />
 			<text fg={colors.subtle}>Message list · ↑/↓ move · Enter select · Esc close</text>

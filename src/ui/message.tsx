@@ -1,9 +1,9 @@
 import { For, Show, createEffect, createMemo, createSignal, type Accessor } from "solid-js";
+import { ScrollBoxRenderable, type MouseEvent } from "@opentui/core";
 import type {
 	BoxRenderable,
 	MarkdownRenderable,
 	TextRenderable,
-	ScrollBoxRenderable,
 } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
 import stripAnsi from "strip-ansi";
@@ -373,6 +373,26 @@ function ToolDetails(props: {
 		syncView(owner);
 	});
 
+	// OpenTUI 0.9 receives wheel events on the visible tool preview, but no
+	// longer forwards the movement to the enclosing transcript automatically.
+	// Explicitly forward to the nearest parent scrollbox until the user opts
+	// into scrolling the nested tool output or diff.
+	const scrollTranscriptFromPreview = (source: BoxRenderable | undefined, event: MouseEvent) => {
+		if (scrollOwner() !== "transcript") return;
+		const direction = event.scroll?.direction;
+		if (direction !== "up" && direction !== "down") return;
+		let ancestor = source?.parent;
+		while (ancestor) {
+			if (ancestor instanceof ScrollBoxRenderable) {
+				ancestor.scrollBy((direction === "down" ? 1 : -1) * Math.max(1, event.scroll?.delta ?? 1) * 3, "absolute");
+				event.preventDefault();
+				event.stopPropagation();
+				return;
+			}
+			ancestor = ancestor.parent;
+		}
+	};
+
 	return (
 		<>
 			<Show when={output()}>
@@ -471,6 +491,9 @@ function ToolDetails(props: {
 								height={expandedOutputRows()}
 								minHeight={6}
 								overflow="hidden"
+								onMouseScroll={(event) => {
+									scrollTranscriptFromPreview(outputPreviewBox, event);
+								}}
 							>
 								<text fg={colors.muted} selectable wrapMode="word">
 									{expandedOutputText()}
@@ -601,6 +624,7 @@ function ToolDetails(props: {
 							minHeight={6}
 							overflow="hidden"
 							backgroundColor={colors.diffBg}
+							onMouseScroll={(event) => scrollTranscriptFromPreview(diffPreviewBox, event)}
 						>
 							<For each={expandedDiffLines()}>
 								{(line) => (

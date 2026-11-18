@@ -1,4 +1,4 @@
-import { SyntaxStyle } from "@opentui/core";
+import { ResourceContext, SyntaxStyle } from "@opentui/core";
 import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { themeColorTokens, themePresetNames, themePresets, type ThemePresetName } from "./theme-presets.ts";
@@ -25,6 +25,12 @@ export type ThemeController = {
   attachRenderer: (renderer: ThemeRenderer) => void;
 };
 
+// OpenTUI 0.9 owns SyntaxStyle handles in a native resource context.
+// Theme styles are shared before the CLI renderer is mounted and copied
+// into each render scene by OpenTUI's MarkdownRenderable. A process-scoped
+// resource owner keeps the handles valid across live theme transitions.
+const themeResources = new ResourceContext({ objectCapacity: 4096, renderCellsMax: 262_144 });
+
 const [colors, setColors] = createStore<ThemePalette>({ ...themePresets["PiTTy Midnight"] });
 export { colors };
 
@@ -49,7 +55,7 @@ function createStyles(palette: ThemePalette, thinking: boolean): SyntaxStyle {
     type: { fg: palette.cyan },
     operator: { fg: palette.purple },
     punctuation: { fg: palette.muted },
-  });
+  }, themeResources);
 }
 
 const [globalRevision, setGlobalRevision] = createSignal(0);
