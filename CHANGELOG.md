@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.68
+
+### Prevent old terminal text from smearing across growing and wrapping messages
+
+- Work around the OpenTUI 0.4.x incremental cursor-diff desynchronization that can leave stale characters after text grows or wraps at the terminal's right edge. Disable DECAWM terminal autowrap **only while PiTTy owns an interactive POSIX TTY**, then restore it once native OpenTUI teardown completes, on crash, or at process exit. This affects all message, tool, subagent, and sidebar renderers without extra per-frame work.
+- Preserve normal terminal modes for redirected output and Windows. To opt out of the mitigation, set `PITTY_ALLOW_AUTOWRAP=1`.
+- Confirm the underlying right-edge behavior in two isolated tmux windows: `ABCD` at the last column wrapped `BCD` into the next row with autowrap enabled, and did not wrap with autowrap disabled. Reproduce dynamic content changes in seven actual OpenTUI rendering tests plus four terminal-mode lifecycle tests.
+- Audit application stdout writes: tool RPC writes to the child pipe, diagnostics to files; no general app-level console stream interferes with the terminal.
+
+Upstream reference: https://github.com/anomalyco/opentui/issues/1187
+
 ## 0.6.67
 
 ### Fix slash-separated model search

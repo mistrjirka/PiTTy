@@ -197,6 +197,11 @@ A `·stale 3h32m` marker on the Claude segment means cswap's live usage needs a 
 
 Use a modern monospace terminal font with box-drawing support. Very small terminals fall back to the plain `PiTTy` wordmark to avoid clipping.
 
+PiTTy v0.6.68 and newer temporarily disable terminal autowrap in interactive Linux/macOS sessions. This works around an [OpenTUI 0.4.x right-edge cursor desynchronization](https://github.com/anomalyco/opentui/issues/1187), which can leave old characters in messages, tool output, subagent panels, and the sidebar. The normal terminal setting is restored when PiTTy exits. This is a terminal output mitigation, not a change to model text or session files.
+
+If you need the terminal's original autowrap behavior while PiTTy runs, launch with `PITTY_ALLOW_AUTOWRAP=1 pitty`. If a force-killed process leaves shell text wrapping disabled, run `printf '\033[?7h'` or `reset` in that terminal to restore it. A normal exit restores the setting automatically.
+
+
 ### Login is unavailable
 
 Run the regular `pi` interface, complete `/login`, exit Pi, and start PiTTy again.
