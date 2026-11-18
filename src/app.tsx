@@ -1887,11 +1887,11 @@ export function App(props: AppOptions) {
 			structureItems().filter((item): item is ToolItem => item.kind === "tool"),
 		),
 	);
+	// A separate memo prevents expensive filesystem discovery every second.
+	// The live status can change without any Pi RPC event.
+	const profiledSubagentScanTick = createMemo(() => Math.floor(clockNow() / 3_000));
 	const availableSubagentTargets = createMemo(() => {
-		// Status files update independently of the model stream. Refresh without
-		// depending on agent_spawn surviving transcript compaction.
-		const liveRefreshTick = Math.floor(clockNow() / 3_000);
-		void liveRefreshTick;
+		profiledSubagentScanTick();
 		return subagentTargets(runs(), subagentTools(), {
 			contextWindowForModel,
 			ownerPid: activeRuntime().client.getProcessPid(),
