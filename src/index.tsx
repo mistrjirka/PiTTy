@@ -9,6 +9,7 @@ import { defaultThemeConfig, loadThemeConfig, type ThemeConfigLoadResult } from 
 import { registerBundledParsers } from "./ui/parsers.ts";
 import { detectOptionalIntegrations } from "./integrations/detect.ts";
 import { appVersion } from "./version.ts";
+import { disableTerminalAutowrap } from "./ui/terminal-autowrap.ts";
 import { resolveDefaultPiExecutable } from "./pi-command.ts";
 import { resolveBundledBackgroundObserverPath, resolveBundledMcpObserverPath, resolveBundledPiExtensionPath } from "./runtime-paths.ts";
 
@@ -61,6 +62,9 @@ const logger = new DiagnosticLogger({
   verboseRpc: parsed.values["verbose-rpc-logs"] === true,
 });
 let renderer: Awaited<ReturnType<typeof createCliRenderer>> | undefined;
+let restoreTerminalAutowrap: () => void = () => {};
+// An exit handler also restores DECAWM when the renderer was not destroyed.
+process.once("exit", () => restoreTerminalAutowrap());
 const removeProcessDiagnostics = installProcessDiagnostics(logger, (error, origin, crashPath) => {
   try { renderer?.destroy(); } catch (destroyError) {
     // Best-effort teardown on the crash path; never let it mask the crash report.
@@ -113,6 +117,16 @@ try {
     externalOutputMode: "passthrough",
     backgroundColor: colors.background,
     openConsoleOnError: false,
+    // Called after native teardown restores the terminal and releases stdout.
+    onDestroy: () => restoreTerminalAutowrap(),
+  });
+  // OpenTUI 0.4.x can write a right-edge cell into the following terminal
+  // row when DECAWM is enabled. The renderer's next diff then leaves those
+  // stale characters in place until resize. Scoped autowrap suppression
+  // avoids smears across messages, tool panes, and the sidebar. Restore on
+  // normal shutdown, renderer destruction, or process exit.
+  restoreTerminalAutowrap = disableTerminalAutowrap(process.stdout, {
+    allowAutowrap: process.env.PITTY_ALLOW_AUTOWRAP === "1",
   });
   // Every ScrollBoxRenderable registers one lightweight `selection` listener
   // on the shared renderer. A conversation with many expandable tool outputs
@@ -157,6 +171,7 @@ try {
   if (logger.enabled) process.stderr.write(`Run log: ${logger.logPath}\n`);
   process.exitCode = 1;
 } finally {
+  restoreTerminalAutowrap();
   removeProcessDiagnostics();
   logger.close();
 }
