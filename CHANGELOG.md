@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.59
+
+### Lower long-session memory retention and runtime stability
+
+- Drop opaque `code` tool `details.state` resume snapshots from the PiTTy display model while preserving the original Pi session data, visible output, and other metadata. A captured session contained about 691 MiB of repeated state data. Startup RPC transfers are not yet filtered.
+- Update the bundled Bun runtime from 1.4.0 to 1.4.4.
+- Fix Windows CI: check POSIX-only file permissions on POSIX, and retry temporary executable cleanup when Windows briefly holds files open.
+
 ## 0.6.57
 
 - Keep sidebar timing readable at its fixed 38-column width: show dispatch latency in the Timing header and leave the second row for Turn and Tool execution.
