@@ -1492,7 +1492,7 @@ export function App(props: AppOptions) {
 		filterCommandChoices(
 			commandChoices(),
 			promptText(),
-			24,
+			Number.POSITIVE_INFINITY,
 			promptCursorOffset(),
 		),
 	);
@@ -4408,6 +4408,8 @@ export function App(props: AppOptions) {
 									laneTexts={compactionView().laneTexts}
 									expanded={compactionExpanded}
 									viewportHeight={dimensions().height}
+									backgroundTasks={backgroundTasks}
+									onOpenBackgroundTask={openBackgroundTask}
 									onToggle={() => setCompactionExpanded((value) => !value)}
 								/>
 							</Show>

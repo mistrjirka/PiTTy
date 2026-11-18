@@ -112,10 +112,13 @@ describe("slash command discoverability", () => {
     { name: "agent_spawn", source: "extension", description: "Run implementer" },
     { name: "skill:documentation", source: "skill", description: "Welding instructions" },
   ];
-  test("bare slash ranks the common commands before alphabetical extensions", () => {
-    expect(filterCommandChoices(choices, "/", 7).map((item) => item.name)).toEqual([
-      "help", "model", "thinking", "compact", "settings", "skills", "commands",
-    ]);
+  test("bare slash includes all registered commands in alphabetical order", () => {
+    const results = filterCommandChoices(choices, "/");
+    expect(results).toHaveLength(choices.length);
+    expect(results.map((item) => item.name)).toEqual(
+      [...choices.map((item) => item.name)].sort((a, b) => a.localeCompare(b)),
+    );
+    expect(results.map((item) => item.name)).toContain("skill:documentation");
   });
   test("finds segment, substring and description matches without hiding exact commands", () => {
     expect(filterCommandChoices(choices, "/spawn").map((item) => item.name)).toContain("agent_spawn");

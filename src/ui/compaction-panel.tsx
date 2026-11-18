@@ -8,6 +8,7 @@ import {
 	type OneRoundProgress,
 } from "../state/compaction-telemetry.ts";
 import type { OneRoundLaneTexts } from "../state/compaction-telemetry.ts";
+import type { BackgroundTask } from "../state/background-tasks.ts";
 import { formatDuration } from "./duration.ts";
 import { colors, getMarkdownStyle } from "./theme.ts";
 
@@ -108,7 +109,18 @@ export function CompactionPanel(props: {
 	expanded?: () => boolean;
 	onToggle?: () => void;
 	viewportHeight?: number;
+	backgroundTasks?: readonly BackgroundTask[] | (() => readonly BackgroundTask[]);
+	onOpenBackgroundTask?: (id: string) => void;
 }) {
+	const runningJobs = () => {
+		const tasks = typeof props.backgroundTasks === "function" ? props.backgroundTasks() : (props.backgroundTasks ?? []);
+		return tasks.filter((task) => task.state === "running");
+	};
+	const visibleJobs = () => {
+		const height = props.viewportHeight ?? 24;
+		const capacity = height <= 12 ? 0 : Math.max(1, Math.min(isExpanded() ? 4 : 2, Math.floor(height * 0.18) - 1));
+		return runningJobs().slice(0, capacity);
+	};
 	const elapsed = () =>
 		Math.max(0, props.now - (props.telemetry.startedAt ?? props.now));
 	const percent = () => compactionContextPercent(props.telemetry);
@@ -156,7 +168,7 @@ export function CompactionPanel(props: {
 
 	return (
 		<box
-			{...(props.oneRoundProgress ? {} : { height: 4, minHeight: 4 })}
+			{...(props.oneRoundProgress || runningJobs().length ? {} : { height: 4, minHeight: 4 })}
 			width="100%"
 			minWidth={0}
 			overflow="hidden"
@@ -228,6 +240,30 @@ export function CompactionPanel(props: {
 					Activity [{indeterminateCompactionBar(props.frame)}] indeterminate{props.smartCompactProgress ? ` · ${props.smartCompactProgress}` : ""}
 				</text>
 			)}
+			<Show when={runningJobs().length > 0}>
+				<text height={1} width="100%" fg={colors.yellow} attributes={1} wrapMode="none">
+					Background commands ({runningJobs().length} running){runningJobs().length > visibleJobs().length ? ` · ${runningJobs().length - visibleJobs().length} more in sidebar` : ""}
+				</text>
+				{visibleJobs().map((job) => (
+					<box
+						id={`compaction-background-${job.id}`}
+						height={1}
+						width="100%"
+						minWidth={0}
+						overflow="hidden"
+						flexShrink={0}
+						onMouseDown={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+							props.onOpenBackgroundTask?.(job.id);
+						}}
+					>
+						<text height={1} fg={colors.muted} wrapMode="none" minWidth={0} width="100%">
+							{`● ${job.id} · ${job.command.replace(/\s+/g, " ").trim()} · ${formatDuration(Math.max(0, props.now - job.startedAt))}`}
+						</text>
+					</box>
+				))}
+			</Show>
 			<text height={1} width="100%" fg={colors.muted} wrapMode="none">
 				{contextLine()}
 			</text>

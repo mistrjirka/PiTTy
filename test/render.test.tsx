@@ -4715,7 +4715,7 @@ describe("OpenTUI components", () => {
 				})),
 				"/",
 			),
-		).toHaveLength(7);
+		).toHaveLength(12);
 		expect(filterCommandChoices(commands, "/thinking high")).toEqual([]);
 		expect(filterCommandChoices(commands, "/th", 7, 0)).toEqual([]);
 		expect(
