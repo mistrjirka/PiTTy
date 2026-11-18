@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.1
+
+### Split the main UI into typed, testable responsibilities
+
+- Extract subagent steer/pause/resume/stop orchestration into `subagents/action-controller.ts` and model/compaction/MCP section descriptions into `ui/settings-descriptors.ts`.
+- Move keyboard navigation decisions, footer hints, transcript selection snapshots, and notification-history retention to independent modules. Keep existing public app helper exports for compatibility.
+- Extract the prompt editor layout, footer usage row, and notification overlay into small Solid components. Keep active session ownership, prompt dispatch, and render lifecycle inside `App`.
+- Reduce `src/app.tsx` from 5,057 to 4,503 lines. No changes to running session state, RPC wire formats, or OpenTUI 0.9.2 behavior were intended.
+- Add regression tests for RPC-disabled settings, MCP/memory summaries, and unavailable subagent control paths.
+
+Validation: TypeScript and runtime build pass, 741 unit tests pass, one optional PowerShell fixture skipped. Installed Pi sessions are not restarted by this source release.
+
 ## 0.7.0
 
 ### OpenTUI 0.9.2 native renderer migration
