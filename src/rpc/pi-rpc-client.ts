@@ -6,6 +6,7 @@ import {
 	type DiagnosticLogger,
 } from "../diagnostics/logger.ts";
 import { resolveDefaultPiExecutable, resolvePiCommand } from "../pi-command.ts";
+import { locateDisplayRpcLoader, resolveDisplayRpcLaunch } from "../pi-display/command.ts";
 import type {
 	PiEvent,
 	RpcCommand,
@@ -66,6 +67,7 @@ export class PiRpcClient extends EventEmitter {
 	private readonly pending = new Map<string, PendingRequest>();
 	private nextId = 0;
 	private readonly stdoutFragments: string[] = [];
+	private displayRpcEnabled = false;
 	private stderrBuffer = "";
 	private stopping = false;
 	private startupArgs: string[];
@@ -100,9 +102,18 @@ export class PiRpcClient extends EventEmitter {
 		const configuredExecutable =
 			this.options.executable ?? resolveDefaultPiExecutable();
 		const piArgs = ["--mode", "rpc", ...this.startupArgs];
-		const command = resolvePiCommand(configuredExecutable, piArgs);
+		const normalCommand = resolvePiCommand(configuredExecutable, piArgs);
+		const loader = locateDisplayRpcLoader(import.meta.dir);
+		const displayCommand = loader
+			? resolveDisplayRpcLaunch(configuredExecutable, piArgs, loader, {
+				...((this.options.env?.PATH ?? process.env.PATH) ? { path: this.options.env?.PATH ?? process.env.PATH } : {}),
+			})
+			: undefined;
+		const command = displayCommand ?? normalCommand;
 		const executable = command.executable;
 		const args = command.args;
+		this.displayRpcEnabled = Boolean(displayCommand);
+		if (displayCommand) this.options.logger?.info("rpc.display_adapter_enabled", { piVersion: displayCommand.piVersion });
 		this.options.logger?.info("pi.spawn", {
 			executable,
 			args: summarizePiArgs(args),
@@ -110,7 +121,7 @@ export class PiRpcClient extends EventEmitter {
 		});
 		const child = spawn(executable, args, {
 			cwd: this.options.cwd,
-			env: { ...process.env, ...this.options.env },
+			env: { ...process.env, ...this.options.env, ...(displayCommand?.environment ?? {}) },
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		this.child = child;
@@ -257,10 +268,18 @@ export class PiRpcClient extends EventEmitter {
 	}
 
 	async getMessages(timeoutMsOverride?: number): Promise<unknown[]> {
-		const data = this.data<{ messages: unknown[] }>(
-			await this.request({ type: "get_messages" }, timeoutMsOverride),
-		);
-		return data.messages;
+		if (this.displayRpcEnabled) {
+			const response = await this.request({ type: "get_display_messages" }, timeoutMsOverride);
+			if (response.success) return this.data<{ messages: unknown[] }>(response).messages;
+			// An upgraded Pi can change internal RPC handler layout. The loader
+			// intentionally avoids patching unsupported versions. Fall back only
+			// for the missing optional command, not other RPC failures.
+			if (!/unknown command|unsupported command|unrecognized command/i.test(response.error ?? ""))
+				return this.data<{ messages: unknown[] }>(response).messages;
+			this.displayRpcEnabled = false;
+			this.options.logger?.warn("rpc.display_adapter_fallback", { error: response.error });
+		}
+		return this.data<{ messages: unknown[] }>(await this.request({ type: "get_messages" }, timeoutMsOverride)).messages;
 	}
 
 	async getSessionStats(): Promise<SessionStats> {
@@ -421,7 +440,7 @@ export class PiRpcClient extends EventEmitter {
 	}
 
 	private request(
-		command: RpcCommand,
+		command: RpcCommand | { type: "get_display_messages" },
 		timeoutMsOverride?: number,
 	): Promise<RpcResponse> {
 		if (!this.child?.stdin.writable)

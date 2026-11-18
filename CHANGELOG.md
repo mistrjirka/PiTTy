@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.61
+
+### Filter code-tool resume state before PiTTy receives it
+
+- Add a display-only RPC history command for recognized unbundled Pi npm installations. Strip opaque `code` tool `details.state` from the serialized UI response in the Pi subprocess, while preserving the original persisted session and resumable tool data.
+- Apply the same projection to live tool updates and assistant/turn completion events so they cannot retransmit large snapshots.
+- Use a process-local Node loader, with no modifications to the globally installed Pi files. For unsupported Pi executables or changed RPC sources, retain the original RPC path and PiTTy display-model filtering.
+- Validate a 16 MB synthetic code state: compact response under 1 KB, original response unchanged; verify end-to-end PiTTy RPC integration and full cross-platform tests.
+
+
 ## 0.6.60
 
 ### Reliable live subagent discovery and background command visibility
