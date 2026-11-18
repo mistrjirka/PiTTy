@@ -42,9 +42,11 @@ export default function backgroundObserver(pi) {
 		if (!tasks.length && !previous) return;
 		const next = JSON.stringify({ version: 1, sessionId, tasks });
 		if (next === previous) return;
-		previous = next;
 		try {
 			ctx.ui.setStatus(STATUS_KEY, next);
+			// Do not mark an undelivered snapshot as published. Retry on the
+			// next tick if the Pi UI temporarily rejects this update.
+			previous = next;
 		} catch {
 			// UI observer must never block a tool, model request, or compaction.
 		}

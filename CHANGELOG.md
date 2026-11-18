@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.60
+
+### Reliable live subagent discovery and background command visibility
+
+- Find running, waiting and idle profile-driven subagents from the current Pi process's validated runtime status directories, even when `agent_spawn` has been removed from the compacted visible conversation. Discover nested children by tree ID. Do not import other Pi sessions.
+- Refresh live discovery every three seconds, and use the same target list for sidebar, selection and inspector. Expose active/total profile-driven targets separately from legacy runs in diagnostic heartbeats.
+- Retry `pi-bg-bash` task status snapshots after a transient Pi UI delivery failure instead of marking undelivered snapshots as sent. Existing read-only command/output viewer behavior remains unchanged.
+- Log active and total background task counts for diagnosis.
+
+Validation: full suite, typecheck, runtime build, actual live Torch session PID-scoped discovery, and archived background log decoding.
+
 ## 0.6.59
 
 ### Lower long-session memory retention and runtime stability
