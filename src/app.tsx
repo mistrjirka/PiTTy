@@ -1,3 +1,8 @@
+import { createSettingsMutations, type ThemeViewportSnapshot } from "./tabs/settings-mutations.ts";
+import { createExtensionModelActions } from "./tabs/extension-model-actions.ts";
+import { createSessionPickerActions } from "./tabs/session-picker-actions.ts";
+import { createMcpActions, mcpInstallStateFor } from "./tabs/mcp-controller.ts";
+import { startInitialSession } from "./tabs/initial-session.ts";
 import { startUiMonitoring } from "./tabs/ui-monitoring.ts";
 import { startUsagePolling } from "./tabs/usage-polling.ts";
 export { streamingCtrlCDecision } from "./ui/app-navigation.ts";
@@ -34,13 +39,13 @@ import type { RpcExtensionUIRequest, PiEvent, RpcSessionState, SubagentRun, Tool
 import type { DiagnosticLogger } from "./diagnostics/logger.ts";
 
 import { PiRpcClient, PiRpcTimeoutError } from "./rpc/pi-rpc-client.ts";
-import { ConversationModel, initialItems } from "./state/conversation.ts";
+import { ConversationModel } from "./state/conversation.ts";
 import { compactionCompletionForItem } from "./state/compaction-telemetry.ts";
 
 
 import { createPromptPasteBlock, expandPromptPasteTokens, insertPromptPasteBlock, promptPasteDeletionRange, promptPasteRange, prunePromptPasteBlocks, shouldCollapsePromptPaste, stripCollapsedPromptPasteFragments } from "./state/paste-blocks.ts";
 import { clearTargetDraft, queuedPromptMatchesDraft, reconcilePendingSteers, sessionDrafts, type PendingSteerEntry } from "./state/input-continuity.ts";
-import { createSingleFlight, startupFailureReason, type StartupPhase, type SingleFlight, withStartupDeadline } from "./state/startup.ts";
+import { createSingleFlight, type StartupPhase, type SingleFlight } from "./state/startup.ts";
 import { listSubagentRuns } from "./subagents/artifacts.ts";
 import { mergeMissionRuns } from "./subagents/missions.ts";
 
@@ -73,20 +78,20 @@ let availableModelsFetch: Promise<ModelChoice[]> | undefined;
 
 import { SettingsHub } from "./ui/settings-hub.tsx";
 import { ThemePresetBrowser, ThemeTokenEditor } from "./ui/theme-settings.tsx";
-import { writeThemeConfig, type ThemeConfigDocument } from "./config/theme-config.ts";
-import { commitMcpMutation, enableBuiltinMcp, loadMcpConfig, loadNativeMcpSummary, previewMcpMutation, type McpConfigBackend, type McpConfigSnapshot, type McpConfiguredSummary, type McpPreview, type McpScope, type McpServerForm } from "./config/mcp-config.ts";
-import { McpSettings, type McpConfigState, type McpFormConfirmations, type McpInstallState, type McpSettingsView } from "./ui/mcp-settings.tsx";
-import { createThemeController, type ThemeController, type ThemePalette } from "./ui/theme.ts";
-import { commitThemeDocument } from "./ui/theme-transaction.ts";
-import type { ThemePresetName } from "./ui/theme-presets.ts";
-import { ThinkingSelector, THINKING_LEVELS, compatibleThinkingLevels, visibleThinkingLevels, type ThinkingLevelMap } from "./ui/thinking-selector.tsx";
+import { type ThemeConfigDocument } from "./config/theme-config.ts";
+import { loadNativeMcpSummary, type McpConfigBackend, type McpConfigSnapshot, type McpConfiguredSummary, type McpPreview, type McpScope } from "./config/mcp-config.ts";
+import { McpSettings, type McpConfigState, type McpInstallState, type McpSettingsView } from "./ui/mcp-settings.tsx";
+import { createThemeController, type ThemeController } from "./ui/theme.ts";
+
+
+import { ThinkingSelector, THINKING_LEVELS, visibleThinkingLevels, type ThinkingLevelMap } from "./ui/thinking-selector.tsx";
 import { SessionSettings, SessionRename } from "./ui/session-settings.tsx";
-import { EXTENSION_THINKING_LEVELS, loadCompactionModelState, loadSubagentModelEntries, parseModelRef, writeCompactionModel, writeCompactionThinking, writeSubagentModel, writeSubagentThinking, type CompactionModelState, type ExtensionThinkingLevel, type SubagentModelEntry } from "./config/extension-models.ts";
-import { ExtensionSettingsList, type ExtensionSettingRow } from "./ui/extension-settings.tsx";
-import type { ThinkingLevel } from "./rpc/pi-rpc-client.ts";
+import { parseModelRef, type CompactionModelState, type SubagentModelEntry } from "./config/extension-models.ts";
+import { ExtensionSettingsList } from "./ui/extension-settings.tsx";
 
 
-import { discoverSessions, type SessionChoice, type SessionDiscoveryState } from "./sessions.ts";
+
+import { type SessionChoice, type SessionDiscoveryState } from "./sessions.ts";
 import { PromptMapDialog, type PromptMapEntry } from "./ui/prompt-map.tsx";
 import { MemoryBrowserDialog } from "./ui/memory-browser.tsx";
 import { loadMemorySnapshot, removeMemoryEntry, type MemoryEntry, type MemorySnapshot } from "./integrations/memory-store.ts";
@@ -107,7 +112,7 @@ import { CommandSuggestions, filterCommandChoices, type CommandChoice } from "./
 import { deriveTodos, type TodoViewItem } from "./ui/todos.tsx";
 import { TodoDialog } from "./ui/todo-dialog.tsx";
 import { preserveEquivalentTodos, preserveReferencedList } from "./ui/list-stability.ts";
-import { detectOptionalIntegrations, installOptionalIntegrationAsync, type OptionalIntegrationStatus } from "./integrations/detect.ts";
+import { type OptionalIntegrationStatus } from "./integrations/detect.ts";
 import { type CodexUsage } from "./integrations/codex-usage.ts";
 import { type OpencodeUsage } from "./integrations/opencode-usage.ts";
 import { type ClaudeUsage } from "./integrations/doppelclaude-usage.ts";
@@ -117,21 +122,10 @@ import os from "node:os";
 import { resolveCswapSlot, type CswapSnapshot, type ClaudeAccountChoice } from "./integrations/claude-swap.ts";
 import { readClaudeAccountPreference, resolveClaudeLaunchConfig, saveClaudeAccountPreference } from "./config/claude-account.ts";
 import { ClaudeAccountSelector } from "./ui/claude-account-selector.tsx";
-import { appVersion } from "./version.ts";
-import { defaultUpdateCheckConfig, isUpdateCheckDisabled, checkForUpdates } from "./update/check.ts";
+
+
 import { INITIAL_MESSAGE_WINDOW, MAX_LIVE_MESSAGE_WINDOW, MESSAGE_LOAD_BATCH, clampMessageWindowStart, initialMessageWindowStart, loadOlderMessageWindowStart, trimMessageWindowStart } from "./ui/message-window.ts";
 
-function mcpInstallStateFor(
-	integrations: OptionalIntegrationStatus,
-): McpInstallState {
-	if (integrations.mcpAdapter.installed) return "ready";
-	if (integrations.mcpBuiltin.supported) {
-		return integrations.mcpBuiltin.disabledBySettings
-			? "native-disabled"
-			: "native";
-	}
-	return "missing";
-}
 
 export type AppOptions = {
 	cwd: string;
@@ -742,7 +736,6 @@ export function App(props: AppOptions) {
 	let scroll: ScrollBoxRenderable | undefined;
 	let subagentScroll: ScrollBoxRenderable | undefined;
 	let lastRunsDigest = "";
-	let sessionDiscoveryGeneration = 0;
 	let tabCounter = 0;
 	// Snapshot of the last finished transcript mouse selection. Stream chunks
 	// or node swaps between mouse-up and Ctrl+C would otherwise make the live
@@ -1271,10 +1264,6 @@ export function App(props: AppOptions) {
 		setShowJumpLatest(scroll.scrollTop < maxTop - 2);
 	};
 
-	type ThemeViewportSnapshot = {
-		mainTop: number | undefined;
-		subagentTop: number | undefined;
-	};
 	const captureThemeViewport = (): ThemeViewportSnapshot => ({
 		mainTop: scroll?.scrollTop,
 		subagentTop: subagentScroll?.scrollTop,
@@ -1871,646 +1860,104 @@ export function App(props: AppOptions) {
 			if (fromSettings) setSettingsBusy(undefined);
 		}
 	};
-	const applySettingsModel = async (model: ModelChoice) => {
-		if (settingsBusy()) return;
-		const runtime = activeRuntime();
-		rememberThinkingLevel(runtime);
-		setSettingsRoute("root");
-		setSettingsSelectedId("model");
-		setSettingsBusy("model");
-		setSettingsErrors((errors) => {
-			const next = { ...errors };
-			delete next.model;
-			return next;
-		});
-		try {
-			await runtime.client.setModel(model.provider, model.id);
-			await applyRememberedThinkingLevel(runtime, model.provider, model.id);
-			if (!(await refreshState(runtime)))
-				throw new Error(
-					"Pi accepted the model change but state refresh failed.",
-				);
-			setSettingsRoute("root");
-		} catch (error) {
-			setSettingsErrors((errors) => ({
-				...errors,
-				model: error instanceof Error ? error.message : String(error),
-			}));
-		} finally {
-			setSettingsBusy(undefined);
-		}
-	};
-	const refreshCompactionModel = async (): Promise<boolean> => {
-		try {
-			setCompactionModelState(
-				await loadCompactionModelState({ cwd: props.cwd }),
-			);
-			setSettingsErrors((errors) => {
-				const next = { ...errors };
-				delete next.compaction;
-				return next;
-			});
-			return true;
-		} catch (error) {
-			setSettingsErrors((errors) => ({
-				...errors,
-				compaction: error instanceof Error ? error.message : String(error),
-			}));
-			return false;
-		}
-	};
-	const refreshSubagentModels = async (): Promise<boolean> => {
-		try {
-			setSubagentModelEntries(
-				await loadSubagentModelEntries({ cwd: props.cwd }),
-			);
-			setSettingsErrors((errors) => {
-				const next = { ...errors };
-				delete next.subagents;
-				return next;
-			});
-			return true;
-		} catch (error) {
-			setSettingsErrors((errors) => ({
-				...errors,
-				subagents: error instanceof Error ? error.message : String(error),
-			}));
-			return false;
-		}
-	};
-	const ensureExtensionModels = async (
-		key: "compaction" | "subagents",
-	): Promise<boolean> => {
-		if (!activeRuntime().startupResolved) {
-			toast("This tab is still starting…", "info");
-			return false;
-		}
-		if (modelSelectorLoading()) return false;
-		setSettingsBusy(key);
-		setSettingsErrors((errors) => {
-			const next = { ...errors };
-			delete next[key];
-			return next;
-		});
-		setModelSelectorLoading(true);
-		try {
-			setModelOptions(await fetchAvailableModels());
-			return true;
-		} catch (error) {
-			setSettingsErrors((errors) => ({
-				...errors,
-				[key]: error instanceof Error ? error.message : String(error),
-			}));
-			return false;
-		} finally {
-			setModelSelectorLoading(false);
-			setSettingsBusy(undefined);
-		}
-	};
-	const openCompactionSettings = async () => {
-		setSettingsSelectedId("compaction");
-		if (await refreshCompactionModel()) {
-			setDetailSettingSelectedId("model");
-			setSettingsRoute("compaction");
-		}
-	};
-	const openCompactionModelPicker = async () => {
-		if (await ensureExtensionModels("compaction"))
-			setSettingsRoute("compaction-model");
-	};
-	const openSubagentModels = async () => {
-		setSettingsSelectedId("subagents");
-		if (await refreshSubagentModels()) setSettingsRoute("subagents");
-	};
-	const openSubagentSettings = (entry: SubagentModelEntry) => {
-		setSelectedSubagentModelId(entry.id);
-		setDetailSettingSelectedId("model");
-		setSettingsRoute("subagent");
-	};
-	const openSubagentModelPicker = async () => {
-		if (await ensureExtensionModels("subagents"))
-			setSettingsRoute("subagent-model");
-	};
-	const applyCompactionModel = async (model: ModelChoice) => {
-		if (settingsBusy()) return;
-		setSettingsRoute("compaction");
-		setDetailSettingSelectedId("model");
-		setSettingsBusy("compaction");
-		setSettingsErrors((errors) => {
-			const next = { ...errors };
-			delete next.compaction;
-			return next;
-		});
-		try {
-			await writeCompactionModel(`${model.provider}/${model.id}`, {
-				cwd: props.cwd,
-			});
-			await refreshCompactionModel();
-		} catch (error) {
-			setSettingsErrors((errors) => ({
-				...errors,
-				compaction: error instanceof Error ? error.message : String(error),
-			}));
-		} finally {
-			setSettingsBusy(undefined);
-		}
-	};
-	const applySubagentModel = async (model: ModelChoice) => {
-		if (settingsBusy()) return;
-		const id = selectedSubagentModelId();
-		const entry = subagentModelEntries().find(
-			(candidate) => candidate.id === id,
-		);
-		if (!entry) return;
-		setSettingsRoute("subagent");
-		setDetailSettingSelectedId("model");
-		setSettingsBusy("subagents");
-		setSettingsErrors((errors) => {
-			const next = { ...errors };
-			delete next.subagents;
-			return next;
-		});
-		try {
-			await writeSubagentModel(
-				id,
-				`${model.provider}/${model.id}`,
-				entry.scope,
-				{ cwd: props.cwd },
-			);
-			await refreshSubagentModels();
-		} catch (error) {
-			setSettingsErrors((errors) => ({
-				...errors,
-				subagents: error instanceof Error ? error.message : String(error),
-			}));
-		} finally {
-			setSettingsBusy(undefined);
-		}
-	};
-	const applyCompactionThinking = async (level: string) => {
-		if (settingsBusy()) return;
-		const thinkingLevel = EXTENSION_THINKING_LEVELS.find(
-			(candidate) => candidate === level,
-		);
-		if (!thinkingLevel) return;
-		setSettingsRoute("compaction");
-		setDetailSettingSelectedId("thinking");
-		setSettingsBusy("compaction");
-		setSettingsErrors((errors) => {
-			const next = { ...errors };
-			delete next.compaction;
-			return next;
-		});
-		try {
-			await writeCompactionThinking(thinkingLevel, { cwd: props.cwd });
-			await refreshCompactionModel();
-		} catch (error) {
-			setSettingsErrors((errors) => ({
-				...errors,
-				compaction: error instanceof Error ? error.message : String(error),
-			}));
-		} finally {
-			setSettingsBusy(undefined);
-		}
-	};
-	const applySubagentThinking = async (level: string) => {
-		if (settingsBusy()) return;
-		const thinkingLevel: ExtensionThinkingLevel | undefined =
-			EXTENSION_THINKING_LEVELS.find((candidate) => candidate === level);
-		const id = selectedSubagentModelId();
-		const entry = subagentModelEntries().find(
-			(candidate) => candidate.id === id,
-		);
-		if (!thinkingLevel || !entry) return;
-		setSettingsRoute("subagent");
-		setDetailSettingSelectedId("thinking");
-		setSettingsBusy("subagents");
-		setSettingsErrors((errors) => {
-			const next = { ...errors };
-			delete next.subagents;
-			return next;
-		});
-		try {
-			await writeSubagentThinking(
-				id,
-				thinkingLevel,
-				entry.thinkingScope,
-				{ cwd: props.cwd },
-			);
-			await refreshSubagentModels();
-		} catch (error) {
-			setSettingsErrors((errors) => ({
-				...errors,
-				subagents: error instanceof Error ? error.message : String(error),
-			}));
-		} finally {
-			setSettingsBusy(undefined);
-		}
-	};
-	const selectedSubagentModelEntry = () =>
-		subagentModelEntries().find(
-			(entry) => entry.id === selectedSubagentModelId(),
-		);
-	const subagentListRows = (): ExtensionSettingRow[] =>
-		subagentModelEntries().map((entry) => ({
-			id: entry.id,
-			label: entry.kind === "defaults" ? "Defaults" : entry.id,
-			summary: [
-				entry.model ?? "no model",
-				entry.thinking ? `thinking ${entry.thinking}` : "",
-				entry.source ?? "",
-			]
-				.filter(Boolean)
-				.join(" · "),
-		}));
-	const subagentSettingsRows = (): ExtensionSettingRow[] => {
-		const entry = selectedSubagentModelEntry();
-		if (!entry) return [];
-		return [
-			{
-				id: "model",
-				label: "Model",
-				summary: `${entry.model ?? "no model"}${entry.source ? ` · ${entry.source}` : ""}`,
-			},
-			{
-				id: "thinking",
-				label: "Thinking level",
-				summary: `${entry.thinking ?? "default"}${entry.thinkingSource ? ` · ${entry.thinkingSource}` : ""}`,
-			},
-		];
-	};
-	const compactionSettingsRows = (): ExtensionSettingRow[] => {
-		const state = compactionModelState();
-		if (!state) return [];
-		const laneNote = (audit?: string, execution?: string): string =>
-			audit && execution
-				? "audit+execution lanes override"
-				: audit
-					? "audit lane overrides"
-					: execution
-						? "execution lane overrides"
-						: "";
-		const modelLane = laneNote(state.laneModels.audit, state.laneModels.execution);
-		const effective = state.effectiveThinking;
-		const thinkingSummary =
-			effective.audit === effective.execution
-				? `${effective.audit} · both lanes`
-				: `audit ${effective.audit} · execution ${effective.execution}`;
-		return [
-			{
-				id: "model",
-				label: "Model",
-				summary: [
-					state.model ?? "extension default",
-					state.scope,
-					modelLane,
-				]
-					.filter(Boolean)
-					.join(" · "),
-			},
-			{
-				id: "thinking",
-				label: "Thinking level",
-				summary: [thinkingSummary, state.thinkingScope]
-					.filter(Boolean)
-					.join(" · "),
-			},
-		];
-	};
-	const openCompactionThinking = async () => {
-		if (await ensureExtensionModels("compaction"))
-			setSettingsRoute("compaction-thinking");
-	};
-	const openSubagentThinking = async () => {
-		if (await ensureExtensionModels("subagents"))
-			setSettingsRoute("subagent-thinking");
-	};
-	const openCompactionSetting = (id: string) => {
-		setDetailSettingSelectedId(id);
-		if (id === "model") void openCompactionModelPicker();
-		else void openCompactionThinking();
-	};
-	const openSubagentSetting = (id: string) => {
-		setDetailSettingSelectedId(id);
-		if (id === "model") void openSubagentModelPicker();
-		else void openSubagentThinking();
-	};
-	const modelChoiceForRef = (
-		value: string | undefined,
-	): ModelChoice | undefined => {
-		const ref = parseModelRef(value);
-		if (!ref) return undefined;
-		const matches = (model: ModelChoice) =>
-			model.provider === ref.provider && model.id === ref.id;
-		return modelOptions().find(matches) ?? availableModelsCache?.find(matches);
-	};
-	const compactionModelChoice = () =>
-		modelChoiceForRef(compactionModelState()?.model);
-	const subagentModelChoice = () =>
-		modelChoiceForRef(selectedSubagentModelEntry()?.model);
-	const compactionThinkingLevels = () =>
-		compatibleThinkingLevels(compactionModelChoice());
-	const subagentThinkingLevels = () =>
-		compatibleThinkingLevels(subagentModelChoice());
-	const thinkingContextFor = (
-		model: string | undefined,
-		current: string | undefined,
-		levels: readonly string[],
-		fallback: string,
-	): string => {
-		const shown = current ?? fallback;
-		return [
-			model ?? "extension default model",
-			`current ${shown}`,
-			levels.some((level) => level === shown)
-				? ""
-				: "not supported by this model",
-		]
-			.filter(Boolean)
-			.join(" · ");
-	};
-	const compactionThinkingContext = () =>
-		thinkingContextFor(
-			compactionModelState()?.model,
-			compactionModelState()?.thinkingLevel,
-			compactionThinkingLevels(),
-			"low",
-		);
-	const subagentThinkingContext = () => {
-		const entry = selectedSubagentModelEntry();
-		return thinkingContextFor(
-			entry?.model,
-			entry?.thinking,
-			subagentThinkingLevels(),
-			"default",
-		);
-	};
-	const compactionModelContext = () => {
-		const state = compactionModelState();
-		if (!state) return undefined;
-		return [
-			`Compaction: ${state.model ?? "extension default"}`,
-			...(state.thinkingLevel ? [`thinking ${state.thinkingLevel}`] : []),
-			state.scope,
-		].join(" · ");
-	};
-	const subagentModelContext = () => {
-		const entry = selectedSubagentModelEntry();
-		if (!entry) return undefined;
-		return [
-			`${entry.kind === "defaults" ? "Defaults" : entry.id}: ${entry.model ?? "no model"}`,
-			...(entry.thinking ? [`thinking ${entry.thinking}`] : []),
-			entry.source ?? "unset",
-		].join(" · ");
-	};
-	const applySettingsThinking = async (level: ThinkingLevel) => {
-		if (settingsBusy()) return;
-		setSettingsRoute("root");
-		setSettingsSelectedId("thinking");
-		const runtime = activeRuntime();
-		setSettingsBusy("thinking");
-		setSettingsErrors((errors) => {
-			const next = { ...errors };
-			delete next.thinking;
-			return next;
-		});
-		try {
-			await runtime.client.setThinkingLevel(level);
-			rememberThinkingLevel(runtime, level);
-			if (!(await refreshState(runtime)))
-				throw new Error(
-					"Pi accepted the effort change but state refresh failed.",
-				);
-			rememberThinkingLevel(runtime, level);
-			setSettingsRoute("root");
-		} catch (error) {
-			setSettingsErrors((errors) => ({
-				...errors,
-				thinking: error instanceof Error ? error.message : String(error),
-			}));
-		} finally {
-			setSettingsBusy(undefined);
-		}
-	};
-	const applyThemeDocument = async (document: ThemeConfigDocument) => {
-		if (settingsBusy() === "theme") return;
-		const previous = themeConfig();
-		setSettingsBusy("theme");
-		setSettingsErrors((errors) => {
-			const next = { ...errors };
-			delete next.theme;
-			return next;
-		});
-		const viewport = captureThemeViewport();
-		setThemeConfig(document);
-		const pendingCommit = commitThemeDocument(
-			themeController,
-			previous,
-			document,
-			writeThemeConfig,
-		);
-		restoreThemeViewport(viewport);
-		const result = await pendingCommit;
-		setThemeConfig(result.document);
-		if (!result.ok) {
-			restoreThemeViewport(viewport);
-			setSettingsErrors((errors) => ({ ...errors, theme: result.error }));
-		}
-		setSettingsBusy(undefined);
-	};
-	const applyThemePreset = (preset: ThemePresetName) =>
-		void applyThemeDocument({ version: 1, theme: { preset, overrides: {} } });
-	const applyThemeToken = (token: keyof ThemePalette, value: string) =>
-		void applyThemeDocument({
-			version: 1,
-			theme: {
-				preset: themeConfig().theme.preset,
-				overrides: {
-					...themeConfig().theme.overrides,
-					[token]: value.toUpperCase(),
-				},
-			},
-		});
-	const resetTheme = () =>
-		void applyThemeDocument({
-			version: 1,
-			theme: { preset: themeConfig().theme.preset, overrides: {} },
-		});
-
-	const applySettingsRename = async (name: string) => {
-		if (settingsBusy()) return;
-		const runtime = activeRuntime();
-		setSettingsBusy("rename");
-		setSettingsErrors((errors) => {
-			const next = { ...errors };
-			delete next.rename;
-			return next;
-		});
-		try {
-			await runtime.client.setSessionName(name);
-			if (!(await refreshState(runtime)))
-				throw new Error("Rename accepted but session refresh failed.");
-			setSettingsRoute("session");
-		} catch (error) {
-			setSettingsErrors((errors) => ({
-				...errors,
-				rename: error instanceof Error ? error.message : String(error),
-			}));
-		} finally {
-			setSettingsBusy(undefined);
-		}
-	};
-	const openMcpSettings = () => {
-		const snapshot = loadMcpConfig(
-			mcpScope(),
-			props.cwd,
-			undefined,
-			mcpBackend(),
-		);
-		setMcpView("list");
-		setMcpPreview(undefined);
-		setMcpSnapshot(snapshot);
-		setMcpConfigState(
-			snapshot.readOnlyReason
-				? "malformed-readonly"
-				: Object.keys(snapshot.servers).length
-					? "loaded"
-					: "empty",
-		);
-		setMcpError(undefined);
-		setSettingsRoute("mcp");
-	};
-	const activateMcp = async (): Promise<boolean> => {
-		const runtime = activeRuntime();
-		try {
-			const sessionFile = runtime.sessionState?.sessionFile;
-			if (!sessionFile)
-				throw new Error("Pi did not report a current session file.");
-			await runtime.client.restart(sessionFile);
-			const integrations = detectOptionalIntegrations({
-				...(props.piExecutable ? { piExecutable: props.piExecutable } : {}),
-				cwd: props.cwd,
-			});
-			const nextState = mcpInstallStateFor(integrations);
-			setMcpInstallState(nextState);
-			setNativeMcpSummary(
-				nextState === "ready" ? undefined : loadNativeMcpSummary(props.cwd),
-			);
-			await loadCurrentSession(runtime);
-			commandCatalog.invalidate(runtime.client);
-			await refreshCommandChoices(runtime, true);
-			setMcpConfigState("saved-active");
-			setMcpActivationPending(false);
-			return true;
-		} catch (error) {
-			setMcpConfigState("saved-inactive-retry");
-			setMcpError(error instanceof Error ? error.message : String(error));
-			return false;
-		}
-	};
-	const enableBuiltinMcpInSettings = () => {
-		void enableBuiltinMcp(props.cwd)
-			.then(async (result) => {
-				if (!result.changed.length) {
-					setMcpError("No -builtin:mcp entry was found in settings.json.");
-					return;
-				}
-				setMcpError(undefined);
-				const integrations = detectOptionalIntegrations({
-					...(props.piExecutable ? { piExecutable: props.piExecutable } : {}),
-					cwd: props.cwd,
-				});
-				const nextState = mcpInstallStateFor(integrations);
-				setMcpInstallState(nextState);
-				setNativeMcpSummary(
-					nextState === "ready" ? undefined : loadNativeMcpSummary(props.cwd),
-				);
-				if (streaming()) {
-					setMcpActivationPending(true);
-					setMcpConfigState("saved-pending-busy");
-				} else await activateMcp();
-			})
-			.catch((error: unknown) => {
-				setMcpError(error instanceof Error ? error.message : String(error));
-			});
-	};
-	const installMcpAdapter = () => {
-		setMcpInstallState("installing");
-		void installOptionalIntegrationAsync("pi-mcp-adapter", {
-			...(props.piExecutable ? { piExecutable: props.piExecutable } : {}),
-			cwd: props.cwd,
-		})
-			.then(async (result) => {
-				if (!result.ok) {
-					setMcpInstallState("install-failed");
-					setMcpError(
-						`Failed to install ${result.packageName}; command ${result.command.join(" ")}; exit ${result.exitCode ?? "unknown"}; log ${result.logPath}`,
-					);
-					return;
-				}
-				setMcpInstallState("ready");
-				if (streaming()) {
-					setMcpActivationPending(true);
-					setMcpConfigState("saved-pending-busy");
-				} else await activateMcp();
-			})
-			.catch((error: unknown) => {
-				setMcpInstallState("install-failed");
-				setMcpError(error instanceof Error ? error.message : String(error));
-			});
-	};
-	const prepareMcpMutation = (
-		form: McpServerForm,
-		confirmations: McpFormConfirmations = {},
-	) => {
-		const snapshot = mcpSnapshot();
-		if (!snapshot) return;
-		try {
-			setMcpPreview(
-				previewMcpMutation(
-					snapshot,
-					{ kind: "upsert", server: form },
-					confirmations.confirmPlaintext === true,
-					confirmations.confirmDuplicate === true,
-				),
-			);
-			setMcpConfigState("mutation-preview");
-			setMcpError(undefined);
-		} catch (error) {
-			setMcpError(error instanceof Error ? error.message : String(error));
-		}
-	};
-	const deleteMcpServer = (name: string) => {
-		const snapshot = mcpSnapshot();
-		if (!snapshot) return;
-		try {
-			setMcpPreview(previewMcpMutation(snapshot, { kind: "delete", name }));
-			setMcpConfigState("mutation-preview");
-		} catch (error) {
-			setMcpError(error instanceof Error ? error.message : String(error));
-		}
-	};
-	const confirmMcpMutation = () => {
-		const preview = mcpPreview();
-		if (!preview) return;
-		void commitMcpMutation(preview)
-			.then(async () => {
-				setMcpSnapshot(
-					loadMcpConfig(mcpScope(), props.cwd, undefined, mcpBackend()),
-				);
-				if (mcpBackend() === "native")
-					setNativeMcpSummary(loadNativeMcpSummary(props.cwd));
-				setMcpPreview(undefined);
-				if (streaming()) {
-					setMcpActivationPending(true);
-					setMcpConfigState("saved-pending-busy");
-				} else await activateMcp();
-			})
-			.catch((error: unknown) => {
-				setMcpConfigState("saved-inactive-retry");
-				setMcpError(error instanceof Error ? error.message : String(error));
-			});
-	};
+	const {
+        refreshCompactionModel,
+        refreshSubagentModels,
+        openCompactionSettings,
+        openSubagentModels,
+        openSubagentSettings,
+        applyCompactionModel,
+        applySubagentModel,
+        applyCompactionThinking,
+        applySubagentThinking,
+        selectedSubagentModelEntry,
+        subagentListRows,
+        subagentSettingsRows,
+        compactionSettingsRows,
+        openCompactionSetting,
+        openSubagentSetting,
+        compactionThinkingLevels,
+        subagentThinkingLevels,
+        compactionThinkingContext,
+        subagentThinkingContext,
+        compactionModelContext,
+        subagentModelContext,
+    } = createExtensionModelActions({
+        cwd: props.cwd,
+        activeRuntime,
+        toast,
+        modelSelectorLoading,
+        setModelSelectorLoading,
+        settingsBusy,
+        setSettingsBusy,
+        setSettingsErrors,
+        setModelOptions,
+        modelOptions,
+        cachedModels: () => availableModelsCache,
+        fetchAvailableModels,
+        compactionModelState,
+        setCompactionModelState,
+        subagentModelEntries,
+        setSubagentModelEntries,
+        selectedSubagentModelId,
+        setSelectedSubagentModelId,
+        setSettingsSelectedId,
+        setDetailSettingSelectedId,
+        setSettingsRoute,
+    });
+	const {
+        applySettingsModel,
+        applySettingsThinking,
+        applyThemePreset,
+        applyThemeToken,
+        resetTheme,
+        applySettingsRename,
+    } = createSettingsMutations({
+        activeRuntime,
+        settingsBusy,
+        setSettingsBusy,
+        setSettingsErrors,
+        setSettingsRoute,
+        setSettingsSelectedId,
+        rememberThinkingLevel,
+        applyRememberedThinkingLevel,
+        refreshState,
+        themeConfig,
+        setThemeConfig,
+        themeController,
+        captureThemeViewport,
+        restoreThemeViewport,
+    });
+	const {
+        openMcpSettings,
+        activateMcp,
+        enableBuiltinMcpInSettings,
+        installMcpAdapter,
+        prepareMcpMutation,
+        deleteMcpServer,
+        confirmMcpMutation,
+    } = createMcpActions({
+        cwd: props.cwd,
+        piExecutable: props.piExecutable,
+        activeRuntime,
+        streaming,
+        commandCatalog,
+        loadCurrentSession,
+        refreshCommandChoices,
+        mcpScope,
+        mcpBackend,
+        mcpSnapshot,
+        mcpPreview,
+        setMcpView,
+        setMcpPreview,
+        setMcpSnapshot,
+        setMcpConfigState,
+        setMcpError,
+        setSettingsRoute,
+        setMcpInstallState,
+        setNativeMcpSummary,
+        setMcpActivationPending,
+    });
 	const settingsDescriptors = () => buildSettingsDescriptors({
         sessionState,
         rpcAvailable,
@@ -2532,97 +1979,32 @@ export function App(props: AppOptions) {
         openMemoryBrowser,
     });
 
-	const discoverCurrentSessions = async () => {
-		const generation = ++sessionDiscoveryGeneration;
-		setSessionDiscovery({ kind: "loading" });
-		try {
-			const choices = await discoverSessions(
-				props.cwd,
-				sessionState()?.sessionFile,
-				(loaded, total) => {
-					if (generation === sessionDiscoveryGeneration)
-						setSessionDiscovery({
-							kind: "loading",
-							progress: { loaded, total },
-						});
-				},
-			);
-			if (generation !== sessionDiscoveryGeneration) return;
-			setSessionDiscovery(
-				choices.length
-					? { kind: "success", choices }
-					: { kind: "empty", choices: [] },
-			);
-		} catch (error) {
-			if (generation !== sessionDiscoveryGeneration) return;
-			setSessionDiscovery({
-				kind: "error",
-				error: error instanceof Error ? error.message : String(error),
-			});
-		}
-	};
-
-	const openSessionSelector = () => {
-		setSessionSelectorOpen(true);
-		void discoverCurrentSessions();
-	};
-
-	const closeSessionSelector = () => {
-		if (sessionSwitching()) return;
-		setPendingSession(undefined);
-		setPendingSessionReason(undefined);
-		setSessionSelectorOpen(false);
-		if (settingsRoute() === "session-switch") setSettingsRoute("session");
-		else focusMainPrompt();
-	};
-
-	const switchToSession = async (choice: SessionChoice) => {
-		const runtime = activeRuntime();
-		if (sessionSwitching()) return;
-		if (!pendingSession() && runtime.queuedFollowUps.length) {
-			setPendingSession(choice);
-			setPendingSessionReason("queued");
-			return;
-		}
-		if (runtime.conversation.isStreaming && !pendingSession()) {
-			setPendingSession(choice);
-			setPendingSessionReason("streaming");
-			return;
-		}
-		if (pendingSessionReason() === "queued") {
-			runtime.queuedFollowUps = [];
-			touch();
-		}
-		setSessionSwitching(true);
-		try {
-			const result = await sessionController.switchAndLoad(runtime, choice.path, SESSION_LOAD_REQUEST_TIMEOUT_MS);
-			if (result.cancelled) {
-				setPendingSession(undefined);
-				setPendingSessionReason(undefined);
-				toast("Session switch was cancelled by Pi", "warning");
-				return;
-			}
-			await afterSessionLoaded(runtime, result.historyLength);
-			setSessionSelectorOpen(false);
-			if (settingsRoute() === "session-switch") setSettingsRoute("root");
-			setPendingSession(undefined);
-			setPendingSessionReason(undefined);
-			toast(`Resumed ${choice.name}`, "success");
-		} catch (error) {
-			setPendingSession(undefined);
-			setPendingSessionReason(undefined);
-			const message = error instanceof Error ? error.message : String(error);
-			toast(
-				message.includes("switch_session")
-					? "Session switching requires a Pi version with RPC switch_session support."
-					: `Failed to switch session: ${message}`,
-				"error",
-			);
-		} finally {
-			setSessionSwitching(false);
-			focusMainPrompt();
-		}
-	};
+	const {
+        discoverCurrentSessions,
+        openSessionSelector,
+        closeSessionSelector,
+        switchToSession,
+    } = createSessionPickerActions({
+        cwd: props.cwd,
+        sessionLoadTimeoutMs: SESSION_LOAD_REQUEST_TIMEOUT_MS,
+        sessionState,
+        setSessionDiscovery,
+        sessionSwitching,
+        setSessionSwitching,
+        pendingSession,
+        setPendingSession,
+        pendingSessionReason,
+        setPendingSessionReason,
+        setSessionSelectorOpen,
+        settingsRoute,
+        setSettingsRoute,
+        focusMainPrompt,
+        activeRuntime,
+        touch,
+        sessionController,
+        afterSessionLoaded,
+        toast,
+    });
 
 	const closeModelSelector = () => {
 		setModelSelectorOpen(false);
@@ -2770,144 +2152,37 @@ export function App(props: AppOptions) {
 	};
 
 	onMount(() => {
-		props.logger.info("ui.mount", { cwd: props.cwd, sidebar: props.sidebar });
-		const themeWarning = props.themeWarning;
-		if (themeWarning)
-			queueMicrotask(() => toast(themeWarning, "warning", 10_000));
-		if (!isUpdateCheckDisabled(process.env)) {
-			void checkForUpdates(
-				defaultUpdateCheckConfig(
-					appVersion,
-					process.env,
-					props.logger,
-					(version) => {
-						toast(
-							`A newer PiTTy release is available (${version}). Run \`pitty upgrade\`.`,
-							"info",
-							7000,
-						);
-					},
-				),
-			);
-		}
-		const missingIntegrations = [
-			!props.integrations.subagents.installed
-				? "a supported subagent runtime (@mistrjirka/pi-subagent or pi-subagents)"
-				: undefined,
-			!props.integrations.todos.installed
-				? "@juicesharp/rpiv-todo (Todo panel)"
-				: undefined,
-		].filter((value): value is string => Boolean(value));
-		if (missingIntegrations.length) {
-			queueMicrotask(() =>
-				toast(
-					`Optional Pi packages not detected: ${missingIntegrations.join(", ")}. PiTTy will continue without them.`,
-					"info",
-					7000,
-				),
-			);
-		}
-		let startupFailure: Error | undefined;
-		const startupRuntime = bootRuntime;
-		startupRuntime.client.on("protocol-error", (error: Error) => {
-			if (startupPhase().kind !== "ready") {
-				startupFailure = error;
-				setStartupPhase({ kind: "failed", reason: "protocol" });
-			}
-			props.logger.error("ui.protocol_error", error);
-		});
-		startupRuntime.client.on("stderr", (chunk: string) => {
-			if (!tabRuntimeIsActive(startupRuntime.id)) return;
-			const line = chunk.trim().split("\n").at(-1);
-			if (!line) return;
-			if (startupPhase().kind === "ready") setExtensionStatus(line);
-			else setStatus("loading extensions/session…");
-		});
-		startupRuntime.client.on("exit", (error: Error) => {
-			if (startupPhase().kind !== "ready") {
-				startupFailure = error;
-				setStartupPhase({ kind: "failed", reason: "exit" });
-			}
-			props.logger.error("ui.pi_exit", error);
-			if (tabRuntimeIsActive(startupRuntime.id)) setRpcAvailable(false);
-		});
-		void (async () => {
-			try {
-				await startupRuntime.client.start();
-				props.logger.info("ui.pi_started");
-				const startupDeadlineAt = Date.now() + STARTUP_DEADLINE_MS;
-				const remainingStartupMs = () =>
-					Math.max(1, startupDeadlineAt - Date.now());
-				const state = await withStartupDeadline(
-					startupRuntime.client.getState(SESSION_LOAD_REQUEST_TIMEOUT_MS),
-					remainingStartupMs(),
-				);
-				if (startupFailure) throw startupFailure;
-				setStartupPhase({ kind: "history" });
-				setStatus("loading conversation…");
-				const [messages, remoteCommands] = await withStartupDeadline(
-					Promise.all([
-						startupRuntime.client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS),
-						commandCatalog.refresh(startupRuntime.client, { force: true }),
-					]),
-					remainingStartupMs(),
-				);
-				if (startupFailure) throw startupFailure;
-				setCommandChoices(remoteCommands);
-				const historyItems = initialItems(messages);
-				startupRuntime.conversation.replaceItems(historyItems);
-				resetMessageWindow(historyItems.length);
-				props.logger.info("ui.history_loaded", {
-					rpcMessages: messages.length,
-					renderedItems: historyItems.length,
-					userItems: historyItems.filter((item) => item.kind === "user").length,
-					assistantItems: historyItems.filter(
-						(item) => item.kind === "assistant",
-					).length,
-					toolItems: historyItems.filter((item) => item.kind === "tool").length,
-					textChars: historyItems.reduce(
-						(sum, item) =>
-							sum +
-							("text" in item
-								? item.text.length
-								: item.kind === "tool"
-									? item.output.length
-									: 0),
-						0,
-					),
-				});
-				startupRuntime.sessionState = state;
-				rememberThinkingLevel(startupRuntime);
-				startupRuntime.startupResolved = true;
-				void fetchAvailableModels().catch(() => undefined);
-				startupRuntime.conversation.isStreaming = state.isStreaming;
-				setStartupPhase({ kind: "ready" });
-				setStatus(state.isStreaming ? "working" : "ready");
-				touch();
-				conversationTouch();
-				queueMicrotask(() =>
-					scroll?.scrollTo({ x: 0, y: Number.MAX_SAFE_INTEGER }),
-				);
-				if (props.openSessionSelector) openSessionSelector();
-				else prompt?.focus();
-				if (!props.openSessionSelector) void discoverCurrentSessions();
-				if (tabRuntimeIsActive(startupRuntime.id)) await refreshState(startupRuntime);
-			} catch (error) {
-				setRpcAvailable(false);
-				const previousPhase = startupPhase();
-				const reason = startupFailureReason(error, previousPhase);
-				setStartupPhase({ kind: "failed", reason });
-				const message = error instanceof Error ? error.message : String(error);
-				props.logger.error("ui.start_failed", error);
-				if (previousPhase.kind !== "failed")
-					startupRuntime.conversation.system(message, "error");
-				touch();
-				conversationTouch();
-				setStatus(
-					reason === "timeout" ? "startup timed out" : "failed to start Pi",
-				);
-			}
-		})();
+        startInitialSession({
+            runtime: bootRuntime,
+            logger: props.logger,
+            cwd: props.cwd,
+            sidebar: props.sidebar,
+            themeWarning: props.themeWarning,
+            integrations: props.integrations,
+            openSessionSelectorOnStartup: props.openSessionSelector === true,
+            startupPhase,
+            setStartupPhase,
+            setStatus,
+            setExtensionStatus,
+            setRpcAvailable,
+            isRuntimeActive: tabRuntimeIsActive,
+            commandCatalog,
+            setCommandChoices,
+            resetMessageWindow,
+            rememberThinkingLevel,
+            fetchAvailableModels,
+            touch,
+            conversationTouch: () => conversationTouch(),
+            scrollToLatest: () => scroll?.scrollTo({ x: 0, y: Number.MAX_SAFE_INTEGER }),
+            openSessionSelector,
+            focusPrompt: () => prompt?.focus(),
+            discoverCurrentSessions,
+            refreshState,
+            toast,
+            sessionLoadTimeoutMs: SESSION_LOAD_REQUEST_TIMEOUT_MS,
+            startupDeadlineMs: STARTUP_DEADLINE_MS,
+            updateEnvironment: process.env,
+        });
         const stopUsagePolling = startUsagePolling({
             logger: props.logger,
             doppelclaudeInstalled: props.integrations.doppelclaude.installed,

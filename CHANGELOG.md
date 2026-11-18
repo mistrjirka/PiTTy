@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.3
+
+### Extract typed startup, session discovery and settings controllers
+
+- Move initial Pi RPC startup, history loading, error reporting, optional-integration notices and update checks into `tabs/initial-session.ts`. Keep the same load order, progress updates, startup deadlines and active-tab guard. Expose the startup Promise and update-check environment for deterministic tests.
+- Move MCP configuration, install/restart, preview/commit and native-versus-adapter selection into `tabs/mcp-controller.ts`. Preserve atomic writes and delayed activation when Pi is busy.
+- Move session discovery, selection confirmation and session switching into `tabs/session-picker-actions.ts`. Keep per-instance discovery generation, queued-follow-up safeguards and cancellation semantics.
+- Move compaction/subagent model and thinking settings to `tabs/extension-model-actions.ts`, with explicit exported action/port interfaces and exact source-defined level types.
+- Move primary model, reasoning, theme and session-name mutations to `tabs/settings-mutations.ts`. Preserve theme rollback, viewport restoration and settings busy/error handling.
+- Remove unused imports left by extraction. `src/app.tsx` shrinks from 3,700 to 2,975 lines (5,057 before the refactor series).
+
+Validation: TypeScript and runtime build pass, with targeted controller and startup tests. No `any`, `unknown`/`never` casts, runtime type deduction or suppression pragmas were added to the new controllers. Running PiTTy instances are not restarted by this source release.
+
 ## 0.7.2
 
 ### Isolate transcript rendering, keyboard routing and monitoring lifetimes
