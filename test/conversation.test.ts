@@ -45,6 +45,39 @@ describe("conversation content boundaries", () => {
 		});
 	});
 
+	test("drops opaque code resume state from restored tool details but retains visible metadata", () => {
+		const opaqueState = "resume-state".repeat(100_000);
+		const messages = [{
+			role: "toolResult", toolCallId: "code-history", toolName: "code",
+			content: [{ type: "text", text: "42" }],
+			details: { state: opaqueState, status: "ok", calls: [{ name: "list" }] },
+		}];
+		const items = initialItems(messages);
+		expect(items[0]).toMatchObject({
+			kind: "tool", name: "code", output: "42",
+			details: { status: "ok", calls: [{ name: "list" }] },
+		});
+		expect(items[0]?.kind === "tool" && items[0].details).not.toHaveProperty("state");
+		// The actual Pi session remains unchanged; only the view drops state.
+		expect(messages[0]?.details.state).toBe(opaqueState);
+	});
+
+	test("drops opaque code resume state on live updates and preserves unrelated tool details", () => {
+		const model = new ConversationModel();
+		model.apply(event({ type: "tool_execution_start", toolCallId: "code-live", toolName: "code", args: {} }));
+		model.apply(event({ type: "tool_execution_end", toolCallId: "code-live", result: {
+			content: [{ type: "text", text: "done" }],
+			details: { state: "large-opaque-state", status: "ok" },
+		} }));
+		expect(model.items[0]).toMatchObject({ kind: "tool", output: "done", details: { status: "ok" } });
+		expect(model.items[0]?.kind === "tool" && model.items[0].details).not.toHaveProperty("state");
+		model.apply(event({ type: "tool_execution_start", toolCallId: "other", toolName: "subagent", args: {} }));
+		model.apply(event({ type: "tool_execution_end", toolCallId: "other", result: {
+			content: [], details: { state: "must-remain", results: [] },
+		} }));
+		expect(model.items[1]?.kind === "tool" && model.items[1].details).toEqual({ state: "must-remain", results: [] });
+	});
+
 	test("normalizes structured diffs in initial history", () => {
 		const items = initialItems([
 			{
