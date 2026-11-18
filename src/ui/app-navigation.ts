@@ -125,3 +125,11 @@ export function keyIs(
 		(modifiers.alt === undefined || hasAlt(event) === modifiers.alt)
 	);
 }
+
+export type StreamingCtrlCDecision = "abort" | "force-exit";
+
+export function streamingCtrlCDecision(
+	abortInFlight: boolean,
+): StreamingCtrlCDecision {
+	return abortInFlight ? "force-exit" : "abort";
+}
