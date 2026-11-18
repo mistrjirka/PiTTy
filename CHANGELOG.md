@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.2
+
+### Isolate transcript rendering, keyboard routing and monitoring lifetimes
+
+- Extract the transcript scrollbox, message groups, startup/empty views, compaction progress and working indicator into the typed `TranscriptPane` component, preserving the existing scroll position callbacks and full command display.
+- Move keyboard registration and global shortcuts into `tabs/app-keyboard.ts`, with separate modal, slash suggestion and contract modules. Keep modal precedence, Ctrl+C behavior, subagent shortcuts and native Enter passthrough for complete slash commands. Add five keyboard regression tests.
+- Move Codex/OpenCode/Claude usage polling into `tabs/usage-polling.ts`, and UI refresh, spinner, heartbeat and event-loop stall timers into `tabs/ui-monitoring.ts`. Both services return cleanup functions, with the same polling intervals and no Pi child process ownership.
+- Remove 57 stale TypeScript imports left by prior extractions. Preserve public helper exports and runtime wire formats.
+- Reduce `src/app.tsx` from 4,503 to 3,700 lines, versus 5,057 before the refactor series.
+
+Validation: TypeScript, runtime build and 746 unit tests pass. One optional PowerShell fixture is skipped. Source builds do not restart active Pi sessions.
+
 ## 0.7.1
 
 ### Split the main UI into typed, testable responsibilities

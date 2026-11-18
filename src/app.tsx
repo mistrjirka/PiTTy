@@ -1,21 +1,12 @@
+import { startUiMonitoring } from "./tabs/ui-monitoring.ts";
+import { startUsagePolling } from "./tabs/usage-polling.ts";
+export { streamingCtrlCDecision } from "./ui/app-navigation.ts";
+import { registerAppKeyboard } from "./tabs/app-keyboard.ts";
+import { TranscriptPane } from "./ui/transcript-pane.tsx";
 import { PromptComposer } from "./ui/prompt-composer.tsx";
 import { AppFooter, ToastOverlay } from "./ui/app-footer.tsx";
 import { buildSettingsDescriptors } from "./ui/settings-descriptors.ts";
-import {
-  type SettingsRoute,
-  type DetailToggleState,
-  type SubagentInspectDecision,
-  type SubagentNavigationAction,
-  type SubagentKeyModifiers,
-  settingsBackRoute,
-  subagentNavigationAction,
-  subagentInspectDecision,
-  nextDetailToggle,
-  isEnterKey,
-  isUnmodifiedEnterKey,
-  hasAlt,
-  keyIs,
-} from "./ui/app-navigation.ts";
+import { type SettingsRoute, settingsBackRoute } from "./ui/app-navigation.ts";
 export {
   settingsBackRoute,
   subagentNavigationAction,
@@ -27,7 +18,7 @@ export type {
   SettingsRoute, DetailToggleState, SubagentInspectDecision,
   SubagentNavigationAction, SubagentKeyModifiers,
 } from "./ui/app-navigation.ts";
-import { footerHintTiers, globalFooterHint, selectFooterHint } from "./ui/footer-hints.ts";
+import { footerHintTiers, selectFooterHint } from "./ui/footer-hints.ts";
 export { footerHintTiers, globalFooterHint, selectFooterHint } from "./ui/footer-hints.ts";
 import { subagentLogSummary } from "./subagents/log-summary.ts";
 import { appendNotificationHistory } from "./state/notification-history.ts";
@@ -36,97 +27,23 @@ import { attachTranscriptSelectionCache } from "./ui/transcript-selection-cache.
 export { attachTranscriptSelectionCache } from "./ui/transcript-selection-cache.ts";
 export type { TranscriptSelectionCache } from "./ui/transcript-selection-cache.ts";
 
-import {
-	CliRenderEvents,
-	type CliRenderer,
-	type KeyEvent,
-	type MouseEvent,
-	type PasteEvent,
-	type ScrollBoxRenderable,
-	type Selection,
-	type TextareaRenderable,
-	type Renderable,
-} from "@opentui/core";
-import {
-	For,
-	Show,
-	createEffect,
-	createMemo,
-	createSignal,
-	onCleanup,
-	onMount,
-} from "solid-js";
-import {
-	createDynamic,
-	useKeyboard,
-	useRenderer,
-	useTerminalDimensions,
-} from "@opentui/solid";
-import type {
-	RpcExtensionUIRequest,
-	PiEvent,
-	RpcSessionState,
-	SubagentRun,
-	ToolItem,
-	Toast,
-	NotificationRecord,
-	ConversationItem,
-} from "./types.ts";
+import { type KeyEvent, type MouseEvent, type PasteEvent, type ScrollBoxRenderable, type TextareaRenderable, type Renderable } from "@opentui/core";
+import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { createDynamic, useRenderer, useTerminalDimensions } from "@opentui/solid";
+import type { RpcExtensionUIRequest, PiEvent, RpcSessionState, SubagentRun, ToolItem, Toast, NotificationRecord, ConversationItem } from "./types.ts";
 import type { DiagnosticLogger } from "./diagnostics/logger.ts";
-import { createDiagnosticBundle } from "./diagnostics/bundle.ts";
+
 import { PiRpcClient, PiRpcTimeoutError } from "./rpc/pi-rpc-client.ts";
 import { ConversationModel, initialItems } from "./state/conversation.ts";
-import {
-	COMPACTION_STATUS_KEY,
-	ONE_ROUND_PROGRESS_KEY,
-	ONE_ROUND_LEGACY_PROGRESS_KEY,
-	SMART_COMPACT_PROGRESS_KEY,
-	compactionCompletionFromResult,
-	compactionSuccessText,
-	isCompactionReason,
-	parseCompactionTelemetry,
-	parseOneRoundProgress,
-	parseSmartCompactProgress,
-	compactionCompletionForItem,
-	applyOneRoundLaneDeltas,
-	type CompactionCompletion,
-} from "./state/compaction-telemetry.ts";
-import {
-	shouldRecoverPromptDraft,
-} from "./state/prompt-history.ts";
+import { compactionCompletionForItem } from "./state/compaction-telemetry.ts";
 
-import {
-	createPromptPasteBlock,
-	expandPromptPasteTokens,
-	insertPromptPasteBlock,
-	promptPasteDeletionRange,
-	promptPasteRange,
-	prunePromptPasteBlocks,
-	shouldCollapsePromptPaste,
-	stripCollapsedPromptPasteFragments,
-} from "./state/paste-blocks.ts";
-import {
-	abortFailed,
-	clearTargetDraft,
-	markAbort,
-	queuedPromptMatchesDraft,
-	reconcilePendingSteers,
-	restoreQueue,
-	sessionDrafts,
-	settledDispatchDecision,
-	snapshotQueue,
-	type PendingSteerEntry,
-} from "./state/input-continuity.ts";
-import {
-	createSingleFlight,
-	startupFailureReason,
-	type StartupPhase,
-	type SingleFlight,
-	withStartupDeadline,
-} from "./state/startup.ts";
+
+import { createPromptPasteBlock, expandPromptPasteTokens, insertPromptPasteBlock, promptPasteDeletionRange, promptPasteRange, prunePromptPasteBlocks, shouldCollapsePromptPaste, stripCollapsedPromptPasteFragments } from "./state/paste-blocks.ts";
+import { clearTargetDraft, queuedPromptMatchesDraft, reconcilePendingSteers, sessionDrafts, type PendingSteerEntry } from "./state/input-continuity.ts";
+import { createSingleFlight, startupFailureReason, type StartupPhase, type SingleFlight, withStartupDeadline } from "./state/startup.ts";
 import { listSubagentRuns } from "./subagents/artifacts.ts";
 import { mergeMissionRuns } from "./subagents/missions.ts";
-import { subagentActivityAt } from "./subagents/transcript.ts";
+
 import { createSubagentControlActions } from "./subagents/action-controller.ts";
 import { createSubagentTranscriptCache } from "./subagents/transcript-cache.ts";
 
@@ -138,105 +55,41 @@ import { InputController } from "./tabs/input-controller.ts";
 import { SlashCommandController, isThinkingLevel } from "./tabs/slash-commands.ts";
 import { CommandCatalogService, localCommandChoices } from "./tabs/command-catalog.ts";
 import { ExtensionStatusController } from "./tabs/extension-status-controller.ts";
-import { CompactedSummary, CompactionPanel } from "./ui/compaction-panel.tsx";
+import { CompactedSummary } from "./ui/compaction-panel.tsx";
 import { TabManager, type ConversationTab } from "./tabs/manager.ts";
-import { blankTabPiArgs, createTabRuntime, planForkTab, prepareForkedTabRuntime, provisionalExtensionUiResponse, refreshRuntimeEntries, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
+import { blankTabPiArgs, createTabRuntime, planForkTab, prepareForkedTabRuntime, provisionalExtensionUiResponse, resolveTabDraftSwitch, startTabRuntime, type ConversationTabRuntime } from "./tabs/runtime.ts";
 import { readModelPerformanceHistory } from "./tabs/model-performance-history.ts";
 import { ExtensionRequestRouter, type ExtensionRequestEnvelope } from "./tabs/extension-router.ts";
 import { TabStrip } from "./ui/tab-strip.tsx";
 import { ForkPicker } from "./ui/fork-picker.tsx";
 import { alignLatestUserEntryIds, forkPickerOptions, type ForkPickerOption } from "./tabs/entry-index.ts";
-import {
-	PendingInputPanel,
-} from "./ui/pending-input-panel.tsx";
-import {
-	ModelSelectorDialog,
-	normalizeModelChoices,
-	type ModelChoice,
-} from "./ui/model-selector.tsx";
+import { PendingInputPanel } from "./ui/pending-input-panel.tsx";
+import { ModelSelectorDialog, normalizeModelChoices, type ModelChoice } from "./ui/model-selector.tsx";
 import { SessionSelector } from "./ui/session-selector.tsx";
 import { SkillSelector } from "./ui/skill-selector.tsx";
 
 let availableModelsCache: ModelChoice[] | undefined;
 let availableModelsFetch: Promise<ModelChoice[]> | undefined;
 
-import {
-	SettingsHub,
-	type SettingsSectionDescriptor,
-} from "./ui/settings-hub.tsx";
+import { SettingsHub } from "./ui/settings-hub.tsx";
 import { ThemePresetBrowser, ThemeTokenEditor } from "./ui/theme-settings.tsx";
-import {
-	writeThemeConfig,
-	type ThemeConfigDocument,
-} from "./config/theme-config.ts";
-import {
-	commitMcpMutation,
-	enableBuiltinMcp,
-	loadMcpConfig,
-	loadNativeMcpSummary,
-	previewMcpMutation,
-	type McpConfigBackend,
-	type McpConfigSnapshot,
-	type McpConfiguredSummary,
-	type McpPreview,
-	type McpScope,
-	type McpServerForm,
-} from "./config/mcp-config.ts";
-import {
-	McpSettings,
-	type McpConfigState,
-	type McpFormConfirmations,
-	type McpInstallState,
-	type McpSettingsView,
-} from "./ui/mcp-settings.tsx";
-import {
-	createThemeController,
-	type ThemeController,
-	type ThemePalette,
-} from "./ui/theme.ts";
+import { writeThemeConfig, type ThemeConfigDocument } from "./config/theme-config.ts";
+import { commitMcpMutation, enableBuiltinMcp, loadMcpConfig, loadNativeMcpSummary, previewMcpMutation, type McpConfigBackend, type McpConfigSnapshot, type McpConfiguredSummary, type McpPreview, type McpScope, type McpServerForm } from "./config/mcp-config.ts";
+import { McpSettings, type McpConfigState, type McpFormConfirmations, type McpInstallState, type McpSettingsView } from "./ui/mcp-settings.tsx";
+import { createThemeController, type ThemeController, type ThemePalette } from "./ui/theme.ts";
 import { commitThemeDocument } from "./ui/theme-transaction.ts";
 import type { ThemePresetName } from "./ui/theme-presets.ts";
-import {
-	ThinkingSelector,
-	THINKING_LEVELS,
-	compatibleThinkingLevels,
-	visibleThinkingLevels,
-	type ThinkingLevelMap,
-} from "./ui/thinking-selector.tsx";
+import { ThinkingSelector, THINKING_LEVELS, compatibleThinkingLevels, visibleThinkingLevels, type ThinkingLevelMap } from "./ui/thinking-selector.tsx";
 import { SessionSettings, SessionRename } from "./ui/session-settings.tsx";
-import {
-	EXTENSION_THINKING_LEVELS,
-	loadCompactionModelState,
-	loadSubagentModelEntries,
-	parseModelRef,
-	writeCompactionModel,
-	writeCompactionThinking,
-	writeSubagentModel,
-	writeSubagentThinking,
-	type CompactionModelState,
-	type ExtensionThinkingLevel,
-	type SubagentModelEntry,
-} from "./config/extension-models.ts";
-import {
-	ExtensionSettingsList,
-	type ExtensionSettingRow,
-} from "./ui/extension-settings.tsx";
+import { EXTENSION_THINKING_LEVELS, loadCompactionModelState, loadSubagentModelEntries, parseModelRef, writeCompactionModel, writeCompactionThinking, writeSubagentModel, writeSubagentThinking, type CompactionModelState, type ExtensionThinkingLevel, type SubagentModelEntry } from "./config/extension-models.ts";
+import { ExtensionSettingsList, type ExtensionSettingRow } from "./ui/extension-settings.tsx";
 import type { ThinkingLevel } from "./rpc/pi-rpc-client.ts";
-import { EmptyDashboard } from "./ui/empty-dashboard.tsx";
-import { StartupPanel } from "./ui/startup-panel.tsx";
-import {
-	discoverSessions,
-	type SessionChoice,
-	type SessionDiscoveryState,
-} from "./sessions.ts";
+
+
+import { discoverSessions, type SessionChoice, type SessionDiscoveryState } from "./sessions.ts";
 import { PromptMapDialog, type PromptMapEntry } from "./ui/prompt-map.tsx";
 import { MemoryBrowserDialog } from "./ui/memory-browser.tsx";
-import {
-	loadMemorySnapshot,
-	removeMemoryEntry,
-	type MemoryEntry,
-	type MemorySnapshot,
-} from "./integrations/memory-store.ts";
+import { loadMemorySnapshot, removeMemoryEntry, type MemoryEntry, type MemorySnapshot } from "./integrations/memory-store.ts";
 import { Sidebar } from "./ui/sidebar.tsx";
 import { BackgroundTaskDialog } from "./ui/background-task-dialog.tsx";
 import { readBackgroundOutput, type BackgroundOutputPage } from "./state/background-tasks.ts";
@@ -246,84 +99,27 @@ import { SubagentInspector, inspectedTargetScrollY } from "./ui/subagent-inspect
 import { spinnerFrames } from "./ui/spinner.ts";
 import { resolveLiveChildTranscriptPath } from "./subagents/artifacts.ts";
 import { SubagentSelectorDialog } from "./ui/subagent-selector.tsx";
-import {
-	ownedSubagentTargetsForItems,
-	reconcileSubagentSelection,
-	subagentTargets,
-	type SubagentTarget,
-} from "./subagents/targets.ts";
+import { ownedSubagentTargetsForItems, reconcileSubagentSelection, subagentTargets, type SubagentTarget } from "./subagents/targets.ts";
 import { subagentTreeRows } from "./subagents/tree.ts";
 import { colors } from "./ui/theme.ts";
-import {
-	computeSpawnGroups,
-	SpawnGroupCard,
-	type SpawnGroup,
-} from "./ui/spawn-group.tsx";
-import {
-	CommandSuggestions,
-	filterCommandChoices,
-	selectCommandChoice,
-	type CommandChoice,
-} from "./ui/command-suggestions.tsx";
+import { computeSpawnGroups, type SpawnGroup } from "./ui/spawn-group.tsx";
+import { CommandSuggestions, filterCommandChoices, type CommandChoice } from "./ui/command-suggestions.tsx";
 import { deriveTodos, type TodoViewItem } from "./ui/todos.tsx";
 import { TodoDialog } from "./ui/todo-dialog.tsx";
-import {
-	preserveEquivalentTodos,
-	preserveReferencedList,
-} from "./ui/list-stability.ts";
-import {
-	detectOptionalIntegrations,
-	installOptionalIntegrationAsync,
-	type OptionalIntegrationStatus,
-} from "./integrations/detect.ts";
-import {
-	fetchCodexUsage,
-	readCodexCredential,
-	type CodexUsage,
-} from "./integrations/codex-usage.ts";
-import {
-	defaultOpencodeUsageHistoryPath,
-	fetchOpencodeUsage,
-	type OpencodeUsage,
-} from "./integrations/opencode-usage.ts";
-import {
-	fetchDoppelclaudeUsage,
-	type ClaudeUsage,
-} from "./integrations/doppelclaude-usage.ts";
-import {
-	USAGE_FOOTER_SEPARATOR,
-	usageFooterSegments,
-	usageFooterWidth,
-} from "./ui/usage-footer.ts";
-import {
-	computeUsageStats,
-	loadUsageHistory,
-	recordUsageSample,
-	saveUsageHistory,
-	type UsageHistory,
-	defaultCodexUsageHistoryPath,
-	type UsageStats,
-	type UsageWindows,
-} from "./integrations/codex-usage-history.ts";
+import { preserveEquivalentTodos, preserveReferencedList } from "./ui/list-stability.ts";
+import { detectOptionalIntegrations, installOptionalIntegrationAsync, type OptionalIntegrationStatus } from "./integrations/detect.ts";
+import { type CodexUsage } from "./integrations/codex-usage.ts";
+import { type OpencodeUsage } from "./integrations/opencode-usage.ts";
+import { type ClaudeUsage } from "./integrations/doppelclaude-usage.ts";
+import { USAGE_FOOTER_SEPARATOR, usageFooterSegments, usageFooterWidth } from "./ui/usage-footer.ts";
+import { type UsageStats } from "./integrations/codex-usage-history.ts";
 import os from "node:os";
-import { fetchCswapSnapshot, resolveCswapSlot, type CswapSnapshot, type ClaudeAccountChoice } from "./integrations/claude-swap.ts";
+import { resolveCswapSlot, type CswapSnapshot, type ClaudeAccountChoice } from "./integrations/claude-swap.ts";
 import { readClaudeAccountPreference, resolveClaudeLaunchConfig, saveClaudeAccountPreference } from "./config/claude-account.ts";
 import { ClaudeAccountSelector } from "./ui/claude-account-selector.tsx";
 import { appVersion } from "./version.ts";
-import {
-	defaultUpdateCheckConfig,
-	isUpdateCheckDisabled,
-	checkForUpdates,
-} from "./update/check.ts";
-import {
-	INITIAL_MESSAGE_WINDOW,
-	MAX_LIVE_MESSAGE_WINDOW,
-	MESSAGE_LOAD_BATCH,
-	clampMessageWindowStart,
-	initialMessageWindowStart,
-	loadOlderMessageWindowStart,
-	trimMessageWindowStart,
-} from "./ui/message-window.ts";
+import { defaultUpdateCheckConfig, isUpdateCheckDisabled, checkForUpdates } from "./update/check.ts";
+import { INITIAL_MESSAGE_WINDOW, MAX_LIVE_MESSAGE_WINDOW, MESSAGE_LOAD_BATCH, clampMessageWindowStart, initialMessageWindowStart, loadOlderMessageWindowStart, trimMessageWindowStart } from "./ui/message-window.ts";
 
 function mcpInstallStateFor(
 	integrations: OptionalIntegrationStatus,
@@ -376,13 +172,6 @@ export function shouldShowEmptyDashboard(renderedItemCount: number): boolean {
 	return renderedItemCount === 0;
 }
 
-export type StreamingCtrlCDecision = "abort" | "force-exit";
-
-export function streamingCtrlCDecision(
-	abortInFlight: boolean,
-): StreamingCtrlCDecision {
-	return abortInFlight ? "force-exit" : "abort";
-}
 
 export function App(props: AppOptions) {
 	const selectedAccount = readClaudeAccountPreference();
@@ -952,23 +741,9 @@ export function App(props: AppOptions) {
 	let prompt: TextareaRenderable | undefined;
 	let scroll: ScrollBoxRenderable | undefined;
 	let subagentScroll: ScrollBoxRenderable | undefined;
-	let statsTimer: ReturnType<typeof setInterval> | undefined;
-	let subagentsTimer: ReturnType<typeof setInterval> | undefined;
-	let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
-	let stallProbeTimer: ReturnType<typeof setInterval> | undefined;
-	let spinnerTimer: ReturnType<typeof setInterval> | undefined;
-	let clockTimer: ReturnType<typeof setInterval> | undefined;
-	let codexUsageTimer: ReturnType<typeof setInterval> | undefined;
-	let codexUsageHistory: UsageHistory = loadUsageHistory(defaultCodexUsageHistoryPath());
-	let opencodeUsageTimer: ReturnType<typeof setInterval> | undefined;
-	let claudeUsageTimer: ReturnType<typeof setTimeout> | undefined;
-	let opencodeUsageHistory: UsageHistory = loadUsageHistory(
-		defaultOpencodeUsageHistoryPath(),
-	);
 	let lastRunsDigest = "";
 	let sessionDiscoveryGeneration = 0;
 	let tabCounter = 0;
-	let lastCtrlC = 0;
 	// Snapshot of the last finished transcript mouse selection. Stream chunks
 	// or node swaps between mouse-up and Ctrl+C would otherwise make the live
 	// query resolve against mutated content.
@@ -3133,165 +2908,33 @@ export function App(props: AppOptions) {
 				);
 			}
 		})();
-		const updateUsage = <T extends UsageWindows>(
-			usage: T | undefined,
-			setUsage: (value: T | undefined) => void,
-			historyPath: string,
-			history: UsageHistory,
-			setStats: (value: Record<number, UsageStats>) => void,
-		): UsageHistory => {
-			setUsage(usage);
-			if (!usage) return history;
-			const now = Date.now();
-			const nextHistory = recordUsageSample(
-				loadUsageHistory(historyPath),
-				usage,
-				now,
-			);
-			saveUsageHistory(nextHistory, historyPath);
-			const stats: Record<number, UsageStats> = {};
-			for (const window of usage.windows) {
-				stats[window.windowSeconds] = computeUsageStats(
-					nextHistory[window.windowSeconds] ?? [],
-					window,
-					now,
-				);
-			}
-			setStats(stats);
-			return nextHistory;
-		};
-		const updateCodexUsage = (usage: CodexUsage | undefined) => {
-			codexUsageHistory = updateUsage(
-				usage,
-				setCodexUsage,
-				defaultCodexUsageHistoryPath(),
-				codexUsageHistory,
-				setCodexUsageStats,
-			);
-		};
-		const pollCodex = () => {
-			void fetchCodexUsage().then((usage) => {
-				// A missing credential simply hides the segment; a failed fetch
-				// with a credential present is worth one diagnostics line so a
-				// vanishing codex segment can be told apart from width shedding.
-				if (!usage && readCodexCredential())
-					props.logger.warn("codex_usage.fetch_failed", {});
-				updateCodexUsage(usage);
-			});
-		};
-		pollCodex();
-		codexUsageTimer = setInterval(pollCodex, 5 * 60_000);
-		const updateOpencodeUsage = (usage: OpencodeUsage | undefined) => {
-			opencodeUsageHistory = updateUsage(
-				usage,
-				setOpencodeUsage,
-				defaultOpencodeUsageHistoryPath(),
-				opencodeUsageHistory,
-				setOpencodeUsageStats,
-			);
-		};
-		void fetchOpencodeUsage().then(updateOpencodeUsage);
-		opencodeUsageTimer = setInterval(() => {
-			void fetchOpencodeUsage().then(updateOpencodeUsage);
-		}, 5 * 60_000);
-		if (props.integrations.doppelclaude.installed) {
-			let claudeInFlight = false;
-			let disposed = false;
-			const scheduleClaude = (delayMs: number) => {
-				if (disposed) return;
-				claudeUsageTimer = setTimeout(() => void pollClaude(), delayMs);
-			};
-			const pollClaude = async () => {
-				if (claudeInFlight) return;
-				claudeInFlight = true;
-				// Match the Codex/OpenCode cadence; only back off when the endpoint
-				// pushes back (it is aggressively rate limited upstream).
-				let next = 5 * 60_000;
-				try {
-					const cswap = await fetchCswapSnapshot();
-					if (cswap) {
-						setCswapSnapshot(cswap);
-						applyCswapUsage(cswap);
-						props.logger.info("claude_usage.cswap", {
-							accounts: cswap.accounts.length,
-							selectedSlot: claudeEffectiveSlot(),
-						});
-						return;
-					}
-					setCswapSnapshot(undefined);
-					const outcome = await fetchDoppelclaudeUsage();
-					props.logger.info("claude_usage.fetch", {
-						status: outcome.status,
-						...(outcome.status === "ok"
-							? { limits: outcome.usage.limits.length }
-							: {}),
-						...(outcome.status === "http-error"
-							? { httpStatus: outcome.httpStatus }
-							: {}),
-					});
-					if (outcome.status === "ok") {
-						setClaudeUsage(outcome.usage);
-						setClaudeHint(undefined);
-					} else if (outcome.status === "expired") {
-						setClaudeUsage(undefined);
-						setClaudeHint("login expired (run Claude Code)");
-					} else if (outcome.status === "missing-credentials") {
-						setClaudeUsage(undefined);
-						setClaudeHint(undefined);
-					} else if (
-						outcome.status === "rate-limited" ||
-						outcome.status === "http-error"
-					) {
-						next = 30 * 60_000;
-					}
-				} finally {
-					claudeInFlight = false;
-					scheduleClaude(next);
-				}
-			};
-			scheduleClaude(3_000);
-			onCleanup(() => {
-				disposed = true;
-			});
-		}
-		statsTimer = setInterval(() => void refreshState(), 10_000);
-		subagentsTimer = setInterval(() => {
-			if (!props.integrations.subagents.installed) return;
-			const state = sessionState();
-			if (state) refreshSubagentRuns(state);
-		}, 750);
-		spinnerTimer = setInterval(() => {
-			setSpinnerIndex((value) => (value + 1) % spinnerFrames.length);
-		}, 250);
-		clockTimer = setInterval(() => setClockNow(Date.now()), 1000);
-		// Event-loop stall probe: a 100ms timer that fires late means the UI thread was
-		// busy (render, sync I/O, JSON parsing). Stalls are logged as they happen and the
-		// worst one since the previous heartbeat is attached to it.
-		let probeExpectedAt = Date.now() + 100;
-		let worstStallMs = 0;
-		stallProbeTimer = setInterval(() => {
-			const now = Date.now();
-			const lag = now - probeExpectedAt;
-			probeExpectedAt = now + 100;
-			if (lag > worstStallMs) worstStallMs = lag;
-			if (lag >= 250) props.logger.warn("ui.event_loop_stall", { lagMs: lag, status: status(), streaming: streaming() });
-		}, 100);
-		heartbeatTimer = setInterval(() => {
-			const stallMs = worstStallMs;
-			worstStallMs = 0;
-			props.logger.debug("ui.heartbeat", {
-				worstEventLoopStallMs: stallMs,
-				status: status(),
-				streaming: streaming(),
-				messages: activeRuntime().conversation.items.length,
-				subagents: runs().length, // legacy/mission runs only
-				profiledSubagentTargets: availableSubagentTargets().length,
-				activeSubagents: availableSubagentTargets().filter((target) => target.active).length,
-				backgroundTasks: activeRuntime().background?.tasks.length ?? 0,
-				activeBackgroundTasks: activeRuntime().background?.tasks.filter((task) => task.state === "running").length ?? 0,
-				memoryUsage: process.memoryUsage(),
-			});
-		}, 30_000);
+        const stopUsagePolling = startUsagePolling({
+            logger: props.logger,
+            doppelclaudeInstalled: props.integrations.doppelclaude.installed,
+            setCodexUsage,
+            setCodexUsageStats,
+            setOpencodeUsage,
+            setOpencodeUsageStats,
+            setCswapSnapshot,
+            setClaudeUsage,
+            setClaudeHint,
+            applyCswapUsage,
+            claudeEffectiveSlot,
+        });
+        const stopUiMonitoring = startUiMonitoring({
+            logger: props.logger,
+            subagentsInstalled: props.integrations.subagents.installed,
+            refreshState,
+            refreshSubagentRuns,
+            sessionState,
+            setSpinnerIndex,
+            setClockNow,
+            status,
+            streaming,
+            activeRuntime,
+            runs,
+            availableSubagentTargets,
+        });
 		onCleanup(() => {
 			for (const runtime of provisionalRuntimes) {
 				runtime.messageUpdates.dispose();
@@ -3304,15 +2947,8 @@ export function App(props: AppOptions) {
 				runtime.coalescer.flush();
 				void runtime.client.stop();
 			}
-			if (statsTimer) clearInterval(statsTimer);
-			if (subagentsTimer) clearInterval(subagentsTimer);
-			if (heartbeatTimer) clearInterval(heartbeatTimer);
-			if (stallProbeTimer) clearInterval(stallProbeTimer);
-			if (spinnerTimer) clearInterval(spinnerTimer);
-			if (clockTimer) clearInterval(clockTimer);
-			if (codexUsageTimer) clearInterval(codexUsageTimer);
-			if (opencodeUsageTimer) clearInterval(opencodeUsageTimer);
-			if (claudeUsageTimer) clearTimeout(claudeUsageTimer);
+			stopUiMonitoring();
+			stopUsagePolling();
 			props.logger.info("ui.cleanup");
 		});
 	});
@@ -3360,409 +2996,81 @@ export function App(props: AppOptions) {
         toast,
     });
 
-	useKeyboard((event) => {
-		if (event.eventType === "release") return;
-		if (event.ctrl && event.name === "tab" && !forkPickerOpen()) {
-			event.preventDefault();
-			event.stopPropagation();
-			const nextId = tabManager.cycle(event.shift ? -1 : 1);
-			activateTab(nextId);
-			return;
-		}
-		if (settingsRoute() !== "closed") {
-			if (event.name === "escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				const route = settingsRoute();
-				if (route === "root") closeSettings();
-				else if (route === "mcp" && mcpView() === "form") setMcpView("list");
-				else if (route === "model") {
-					setModelSelectorOpen(false);
-					setSettingsRoute("root");
-				} else if (route === "session-switch") closeSessionSelector();
-				else if (route === "memory") closeMemoryBrowser();
-				else setSettingsRoute(settingsBackRoute(route));
-			}
-			return;
-		}
-		if (backgroundSelection()) {
-			if (event.name === "escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				closeBackgroundTask();
-			}
-			return;
-		}
-		if (notificationDetailId()) {
-			if (event.name === "escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				closeNotification();
-			}
-			return;
-		}
-		if (todoDetailId()) {
-			if (event.name === "escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				closeTodo();
-			}
-			return;
-		}
-		if (subagentSelectorOpen()) {
-			if (event.name === "escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				setSubagentSelectorOpen(false);
-			}
-			return;
-		}
-		if (sessionSelectorOpen() || modelSelectorOpen() || memoryBrowserOpen() || forkPickerOpen() || skillSelectorOpen())
-			return;
-		if (promptMapOpen()) {
-			if (event.name === "escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				closePromptMap();
-			}
-			return;
-		}
-		if (dialog()) {
-			if (event.name === "escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				void completeDialog({ cancelled: true });
-			} else if (dialog()?.method === "confirm" && event.name === "enter") {
-				event.preventDefault();
-				event.stopPropagation();
-				void completeDialog({ confirmed: true });
-			}
-			return;
-		}
-		const suggestions = commandSuggestions();
-		if (suggestions.length && !inspectSubagent()) {
-			if (
-				!event.ctrl &&
-				!event.meta &&
-				!event.shift &&
-				!event.option &&
-				!event.super &&
-				!hasAlt(event) &&
-				(event.name === "up" || event.name === "down")
-			) {
-				event.preventDefault();
-				event.stopPropagation();
-				setCommandSuggestionIndex((current) => {
-					const direction = event.name === "up" ? -1 : 1;
-					return (
-						(current + direction + suggestions.length) % suggestions.length
-					);
-				});
-				return;
-			}
-			if (event.name === "tab" && !event.shift) {
-				event.preventDefault();
-				event.stopPropagation();
-				const command = selectCommandChoice(
-					suggestions,
-					commandSuggestionIndex(),
-				);
-				if (command) insertSuggestedCommand(command);
-				return;
-			}
-			if (isUnmodifiedEnterKey(event)) {
-				const currentText = prompt?.plainText.trim() ?? "";
-				const isCompleteCommand =
-					currentText.startsWith("/") && currentText.includes(" ");
-				if (isCompleteCommand) {
-					// Let the normal submit flow handle it
-					return false;
-				}
-				event.preventDefault();
-				event.stopPropagation();
-				const command = selectCommandChoice(
-					suggestions,
-					commandSuggestionIndex(),
-				);
-				if (command) insertSuggestedCommand(command);
-				return;
-			}
-		}
-		if (!inspectSubagent() && hasAlt(event) && isEnterKey(event)) {
-			event.preventDefault();
-			event.stopPropagation();
-			queueFollowUp();
-			return;
-		}
-		if (!inspectSubagent() && hasAlt(event) && event.name === "up") {
-			event.preventDefault();
-			event.stopPropagation();
-			restoreQueuedFollowUp();
-			return;
-		}
-		const navigation = subagentNavigationAction(
-			inspectSubagent(),
-			event.name,
-			event,
-		);
-		if (navigation) {
-			event.preventDefault();
-			event.stopPropagation();
-			if (navigation === "previous") cycleSubagent(-1);
-			else if (navigation === "next") cycleSubagent(1);
-			else if (navigation === "main") closeSubagentInspector();
-			else {
-				const targets = availableSubagentTargets();
-				if (!subagentsAvailable())
-					toast(
-						"Install a supported subagent runtime to inspect and steer child agents",
-						"info",
-						5000,
-					);
-				else if (targets.length === 0) toast("No subagent selected", "warning");
-				else if (targets.length > 1) setSubagentSelectorOpen(true);
-				else {
-					const target = targets[0];
-					if (target) {
-						setSelectedTargetKey(target.key);
-						setInspectSubagent(true);
-						queueMicrotask(() =>
-							subagentScroll?.scrollTo(inspectedTargetScrollY(target)),
-						);
-					}
-				}
-			}
-			return;
-		}
-		if (event.ctrl && event.name === "c") {
-			event.preventDefault();
-			event.stopPropagation();
-			if (copySelection()) return;
-			const draft = prompt?.plainText ?? "";
-			if (
-				prompt?.focused &&
-				shouldRecoverPromptDraft({ draft, hasCopyableSelection: false })
-			) {
-				activeRuntime().promptHistory.recordDraft(expandedPromptText());
-				clearMainDraft();
-				focusMainPrompt();
-				toast("Draft saved. Press Up to recover it.", "info");
-				return;
-			}
-			if (streaming()) {
-				if (streamingCtrlCDecision(Boolean(activeRuntime().abortInFlight)) === "force-exit") {
-					renderer.destroy();
-					return;
-				}
-				abortActiveWork();
-				return;
-			}
-			const now = Date.now();
-			if (now - lastCtrlC < 800) renderer.destroy();
-			else {
-				lastCtrlC = now;
-				toast("Press Ctrl+C again to exit", "info", 1000);
-			}
-			return;
-		}
-		if (
-			!inspectSubagent() &&
-			!event.ctrl &&
-			!event.meta &&
-			!event.shift &&
-			!event.option &&
-			!event.super &&
-			!hasAlt(event) &&
-			(event.name === "up" || event.name === "down") &&
-			(prompt?.lineCount ?? 1) === 1
-		) {
-			const result = activeRuntime().promptHistory.browse(
-				prompt?.plainText ?? "",
-				event.name === "up" ? "older" : "newer",
-			);
-			if (result.handled) {
-				event.preventDefault();
-				event.stopPropagation();
-				syncMainDraft(result.text ?? "");
-				// Keep the caret at the start so slash autocomplete does not steal
-				// further ArrowUp/Down presses while browsing history. Defer past
-				// setText cursor/content callbacks that may briefly move the caret.
-				queueMicrotask(() => {
-					if (prompt) prompt.cursorOffset = 0;
-					setPromptCursorOffset(0);
-				});
-				prompt?.focus();
-				return;
-			}
-		}
-		if (event.name === "pageup" || event.name === "pagedown") {
-			event.preventDefault();
-			event.stopPropagation();
-			const page = Math.max(4, dimensions().height - 10);
-			const target = inspectSubagent() ? subagentScroll : scroll;
-			target?.scrollBy(event.name === "pageup" ? -page : page);
-			queueMicrotask(updateScrollPosition);
-			return;
-		}
-		if (keyIs(event, "home", { ctrl: true })) {
-			event.preventDefault();
-			event.stopPropagation();
-			(inspectSubagent() ? subagentScroll : scroll)?.scrollTo(0);
-			queueMicrotask(updateScrollPosition);
-			return;
-		}
-		if (keyIs(event, "end", { ctrl: true })) {
-			event.preventDefault();
-			event.stopPropagation();
-			(inspectSubagent() ? subagentScroll : scroll)?.scrollTo(
-				Number.MAX_SAFE_INTEGER,
-			);
-			queueMicrotask(updateScrollPosition);
-			return;
-		}
-		if (keyIs(event, "x", { ctrl: true })) {
-			event.preventDefault();
-			event.stopPropagation();
-			openSettings();
-			return;
-		}
-		if (keyIs(event, "p", { ctrl: true })) {
-			event.preventDefault();
-			event.stopPropagation();
-			void openModelSelector();
-			return;
-		}
-		if (keyIs(event, "r", { ctrl: true })) {
-			event.preventDefault();
-			event.stopPropagation();
-			openPromptMap();
-			return;
-		}
-		if (keyIs(event, "m", { ctrl: true })) {
-			event.preventDefault();
-			event.stopPropagation();
-			openMemoryBrowser();
-			return;
-		}
-		if (keyIs(event, "t", { ctrl: true })) {
-			event.preventDefault();
-			event.stopPropagation();
-			void cycleThinkingEffort();
-			return;
-		}
-		if (event.name === "tab" && event.shift) {
-			event.preventDefault();
-			event.stopPropagation();
-			void cycleThinkingEffort();
-			return;
-		}
-		if (keyIs(event, "s", { ctrl: true })) {
-			event.preventDefault();
-			setSidebarEnabled((value) => !value);
-			return;
-		}
-		if (keyIs(event, "o", { ctrl: true })) {
-			event.preventDefault();
-			const next = nextDetailToggle({
-				toolsExpanded: expandedTools(),
-				thinkingExpanded: thinkingExpanded(),
-				compactionExpanded: compactionExpanded(),
-				hasExpandedToolOverride: activeRuntime().expandedToolIds.size > 0,
-				hasExpandedThinkingOverride: [
-					...activeRuntime().thinkingExpansionOverrides.values(),
-				].some(Boolean),
-			});
-			setExpandedTools(next);
-			setAllThinkingExpanded(next);
-			setCompactionExpanded(next);
-			setExpandedToolIds(new Set<string>());
-			return;
-		}
-		if (keyIs(event, "l", { ctrl: true, shift: true })) {
-			event.preventDefault();
-			event.stopPropagation();
-			try {
-				const archive = createDiagnosticBundle({
-					logDirectory: props.logger.directory,
-				});
-				const copied = renderer.copyToClipboardOSC52(archive);
-				props.logger.info("diagnostics.bundle_created", { archive });
-				toast(
-					`Diagnostics saved: ${archive}${copied ? " (path copied)" : ""}`,
-					"success",
-					7000,
-				);
-			} catch (error) {
-				props.logger.error("diagnostics.bundle_failed", error);
-				toast(
-					error instanceof Error ? error.message : String(error),
-					"error",
-					7000,
-				);
-			}
-			return;
-		}
-		if (keyIs(event, "i", { ctrl: true })) {
-			event.preventDefault();
-			event.stopPropagation();
-			const targets = displaySubagentTargets();
-			const decision = subagentInspectDecision(
-				inspectSubagent(),
-				targets.length,
-			);
-			if (decision === "close") {
-				closeSubagentInspector();
-				return;
-			}
-			if (!subagentsAvailable())
-				return toast(
-					"Install a supported subagent runtime to inspect and steer child agents",
-					"info",
-					5000,
-				);
-			if (decision === "warning")
-				return toast("No subagent selected", "warning");
-			if (decision === "choose") {
-				setSubagentSelectorOpen(true);
-				return;
-			}
-			const target = targets[0];
-			if (!target) return toast("No subagent selected", "warning");
-			setSelectedTargetKey(target.key);
-			setInspectSubagent(true);
-			queueMicrotask(() => subagentScroll?.scrollTo(inspectedTargetScrollY(target)));
-			return;
-		}
-		if (keyIs(event, "a", { ctrl: true, shift: false })) {
-			if (!inspectSubagent()) return;
-			event.preventDefault();
-			requestPauseSubagent();
-			return;
-		}
-		if (keyIs(event, "a", { ctrl: true, shift: true })) {
-			if (!inspectSubagent()) return;
-			event.preventDefault();
-			requestStopSubagent();
-			return;
-		}
-		if (event.name === "f6") {
-			event.preventDefault();
-			event.stopPropagation();
-			cycleSubagent(event.shift ? -1 : 1);
-			return;
-		}
-		if (event.name === "escape" && inspectSubagent()) {
-			event.preventDefault();
-			event.stopPropagation();
-			closeSubagentInspector();
-			return;
-		}
-		if (event.name === "escape" && streaming()) {
-			event.preventDefault();
-			event.stopPropagation();
-			abortActiveWork();
-		}
-	});
+	registerAppKeyboard({
+		abortActiveWork,
+		activateTab,
+		activeRuntime,
+		availableSubagentTargets,
+		backgroundSelection,
+		clearMainDraft,
+		closeBackgroundTask,
+		closeMemoryBrowser,
+		closeNotification,
+		closePromptMap,
+		closeSessionSelector,
+		closeSettings,
+		closeSubagentInspector,
+		closeTodo,
+		commandSuggestionIndex,
+		commandSuggestions,
+		compactionExpanded,
+		completeDialog,
+		copySelection,
+		cycleSubagent,
+		cycleThinkingEffort,
+		dialog,
+		dimensions,
+		displaySubagentTargets,
+		expandedPromptText,
+		expandedTools,
+		focusMainPrompt,
+		forkPickerOpen,
+		insertSuggestedCommand,
+		inspectSubagent,
+		mcpView,
+		memoryBrowserOpen,
+		modelSelectorOpen,
+		notificationDetailId,
+		openMemoryBrowser,
+		openModelSelector,
+		openPromptMap,
+		openSettings,
+		promptMapOpen,
+		queueFollowUp,
+		renderer,
+		requestPauseSubagent,
+		requestStopSubagent,
+		restoreQueuedFollowUp,
+		sessionSelectorOpen,
+		setAllThinkingExpanded,
+		setCommandSuggestionIndex,
+		setCompactionExpanded,
+		setExpandedToolIds,
+		setExpandedTools,
+		setInspectSubagent,
+		setMcpView,
+		setModelSelectorOpen,
+		setPromptCursorOffset,
+		setSelectedTargetKey,
+		setSettingsRoute,
+		setSidebarEnabled,
+		setSubagentSelectorOpen,
+		settingsRoute,
+		skillSelectorOpen,
+		streaming,
+		subagentSelectorOpen,
+		subagentsAvailable,
+		syncMainDraft,
+		tabManager,
+		thinkingExpanded,
+		toast,
+		todoDetailId,
+		updateScrollPosition,
+        getPrompt: () => prompt,
+        getScroll: () => scroll,
+        getSubagentScroll: () => subagentScroll,
+        logger: props.logger,
+    });
 
 	// The transcript selection snapshot is captured via attachTranscriptSelectionCache
 	// above. The live selection is intentionally retained until Ctrl+C or Escape.
@@ -3888,150 +3196,39 @@ setPromptCursorOffset(prompt?.cursorOffset ?? 0);
 						)}
 					</Show>
 					<Show when={!inspectSubagent()}>
-						<scrollbox
-							ref={(value) => {
-								scroll = value;
-							}}
-							flexGrow={1}
-							minHeight={1}
-							scrollY
-							scrollX={false}
-							stickyScroll
-							stickyStart="bottom"
-							viewportCulling
-							paddingLeft={2}
-							paddingRight={2}
-							verticalScrollbarOptions={{
-								showArrows: false,
-								trackOptions: {
-									foregroundColor: colors.borderStrong,
-									backgroundColor: colors.background,
-								},
-							}}
-							onMouseScroll={() => queueMicrotask(updateScrollPosition)}
-							onMouseDown={() => focusMainPrompt()}
-						>
-							<Show when={startupPhase().kind !== "ready"}>
-								<StartupPanel
-									phase={startupPhase()}
-									elapsedMs={clockNow() - startupStartedAt}
-									spinner={spinnerFrames[spinnerIndex()] ?? "◐"}
-								/>
-							</Show>
-							<Show
-								when={
-									startupPhase().kind === "ready" &&
-									shouldShowEmptyDashboard(items().length)
-								}
-							>
-								<EmptyDashboard
-									sessionState={sessionDiscovery()}
-									width={dimensions().width}
-									height={dimensions().height}
-									onSelectSession={(choice) => {
-										if (activeRuntime().conversation.isStreaming) setSessionSelectorOpen(true);
-										void switchToSession(choice);
-									}}
-								/>
-							</Show>
-							<Show when={hiddenMessageCount() > 0}>
-								<box
-									id="load-older-messages"
-									height={2}
-									minHeight={2}
-									flexShrink={0}
-									justifyContent="center"
-									alignItems="center"
-									marginBottom={1}
-									backgroundColor={colors.panelSoft}
-									border={["bottom"]}
-									borderColor={colors.borderStrong}
-									onMouseDown={(event) => {
-										event.preventDefault();
-										event.stopPropagation();
-										loadOlderMessages();
-									}}
-								>
-									<text fg={colors.cyan} attributes={1} wrapMode="none">
-										↑ Load older messages · {hiddenMessageCount()} hidden
-									</text>
-								</box>
-							</Show>
-							<For each={visibleMessageIds()}>
-								{(itemId) => {
-									// Non-first group members render inside their group card.
-									if (spawnGroupMemberIds().has(itemId)) return null;
-									const group = spawnGroupByFirstId().get(itemId);
-									if (group) {
-										const memberTools = group.memberIds.map((memberId) =>
-											visibleItems().find((candidate) => candidate.id === memberId),
-										);
-										const live = memberTools.some(
-											(member) =>
-												member?.kind === "tool" &&
-												(member.status === "streaming" ||
-													member.status === "pending"),
-										);
-										return (
-											<SpawnGroupCard
-												group={group}
-												expanded={toolExpanded(group.id)}
-												now={
-													live ||
-													group.targets.some((target) => target.active)
-														? clockNow()
-														: Math.max(
-																0,
-															...memberTools.map((member) =>
-																member?.kind === "tool"
-																	? (member.endedAt ??
-																			member.startedAt ??
-																			member.timestamp ??
-																			0)
-																	: 0,
-																),
-														)
-												}
-												onToggle={toggleTool}
-											onInspectSubagentTarget={inspectSubagentTarget}
-											renderMember={(memberId) => renderItemEntry(memberId)}
-											/>
-										);
-									}
-									return renderItemEntry(itemId);
-								}}
-							</For>
-							<Show when={compactionView().telemetry?.phase === "preparing"}>
-								<CompactionPanel
-									telemetry={compactionView().telemetry!}
-									now={clockNow()}
-									spinner={spinnerFrames[spinnerIndex()] ?? "◐"}
-									frame={spinnerIndex()}
-									smartCompactProgress={compactionView().smartCompactProgress}
-									oneRoundProgress={compactionView().oneRoundProgress}
-									laneTexts={compactionView().laneTexts}
-									expanded={compactionExpanded}
-									viewportHeight={dimensions().height}
-									backgroundTasks={backgroundTasks}
-									onOpenBackgroundTask={openBackgroundTask}
-									onToggle={() => setCompactionExpanded((value) => !value)}
-								/>
-							</Show>
-							<Show when={showWorkingIndicator()}>
-								<box
-									paddingLeft={1}
-									paddingTop={1}
-									paddingBottom={1}
-									marginBottom={1}
-									border={["left"]}
-									borderColor={colors.green}
-								>
-									<text fg={colors.green} attributes={1}>
-										{spinnerFrames[spinnerIndex()] ?? "◐"} Working…
-									</text>
-								</box>
-							</Show>
-						</scrollbox>
+						<TranscriptPane
+                            scrollRef={(value) => { scroll = value; }}
+                            onScroll={() => queueMicrotask(updateScrollPosition)}
+                            onFocusPrompt={focusMainPrompt}
+                            startupPhase={startupPhase}
+                            startupStartedAt={startupStartedAt}
+                            now={clockNow}
+                            frame={spinnerIndex}
+                            itemCount={() => items().length}
+                            sessionDiscovery={sessionDiscovery}
+                            width={() => dimensions().width}
+                            height={() => dimensions().height}
+                            onSelectSession={(choice) => {
+                                if (activeRuntime().conversation.isStreaming) setSessionSelectorOpen(true);
+                                void switchToSession(choice);
+                            }}
+                            hiddenCount={hiddenMessageCount}
+                            loadOlder={loadOlderMessages}
+                            visibleMessageIds={visibleMessageIds}
+                            spawnGroupMemberIds={spawnGroupMemberIds}
+                            spawnGroupByFirstId={spawnGroupByFirstId}
+                            visibleItems={visibleItems}
+                            toolExpanded={toolExpanded}
+                            toggleTool={toggleTool}
+                            inspectTarget={inspectSubagentTarget}
+                            renderItem={renderItemEntry}
+                            compactionView={compactionView}
+                            compactionExpanded={compactionExpanded}
+                            onToggleCompaction={() => setCompactionExpanded((value) => !value)}
+                            backgroundTasks={backgroundTasks}
+                            openBackgroundTask={openBackgroundTask}
+                            showWorkingIndicator={showWorkingIndicator}
+                        />
 					</Show>
 					{/* Keep a fixed one-row slot so showing/hiding the jump control does
               not resize the transcript and leave stale terminal cells. */}
