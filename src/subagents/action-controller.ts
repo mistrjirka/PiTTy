@@ -1,7 +1,6 @@
 /** Owns subagent steer/pause/resume/stop policy, not TUI selection or rendering. */
 import type { Setter } from "solid-js";
 import type { DiagnosticLogger } from "../diagnostics/logger.ts";
-import type { SubagentRun } from "../types.ts";
 import type { PendingSteerEntry } from "../state/input-continuity.ts";
 import {
 	pauseSubagent,
@@ -10,6 +9,7 @@ import {
 	stopSubagent,
 } from "../subagents/control.ts";
 import type { SubagentTarget } from "../subagents/targets.ts";
+import type { SubagentRun } from "../types.ts";
 
 export type SubagentControlPorts = {
 	selectedTarget: () => SubagentTarget | undefined;
@@ -26,7 +26,15 @@ export type SubagentControlPorts = {
 	) => void;
 };
 
-export function createSubagentControlActions(ports: SubagentControlPorts) {
+export interface SubagentControlActions {
+	sendSubagentSteer: (message: string) => void;
+	requestPauseSubagent: () => void;
+	requestResumeSubagent: () => void;
+	requestStopSubagent: () => void;
+}
+export function createSubagentControlActions(
+	ports: SubagentControlPorts,
+): SubagentControlActions {
 	const sendSubagentSteer = (message: string) => {
 		const target = ports.selectedTarget();
 		if (!target?.canSteer) {
