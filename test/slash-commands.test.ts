@@ -39,6 +39,7 @@ function fixture() {
     sidebarEnabled() { return sidebar; },
     setSidebarEnabled(value) { sidebar = value; calls.push("sidebar:" + value); },
     async refreshState() { calls.push("refresh"); return true; },
+    async refreshCommands() { calls.push("commands-refresh"); return [{ name: "plugin", description: "External" }]; },
     autoRetryEnabled() { return true; },
     setAutoRetryEnabled(value) { calls.push("local-retry:" + value); },
     rememberThinkingLevel(_runtime, level) { calls.push("remember:" + (level ?? "")); },
@@ -110,7 +111,7 @@ describe("typed built-in slash command controller", () => {
     await f.controller.handle("/memory", f.runtime);
     await f.controller.handle("/commands", f.runtime);
     await f.controller.handle("/models", f.runtime);
-    expect(f.calls).toEqual(["sessions", "settings", "thoughts:true", "promptmap:true", "skills:true", "memory"]);
+    expect(f.calls).toEqual(["sessions", "settings", "thoughts:true", "promptmap:true", "skills:true", "commands-refresh", "memory", "commands-refresh"]);
     expect(f.notices.some((n) => n.message.includes("Settings available in this RPC UI"))).toBe(true);
     expect(f.notices.some((n) => n.message.includes("/plugin — External"))).toBe(true);
     expect(f.notices.some((n) => n.message.includes("other/second"))).toBe(true);

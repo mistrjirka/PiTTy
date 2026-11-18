@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.65
+
+### Discover commands automatically without restarting PiTTy
+
+- Add a per-Pi-client `CommandCatalogService`. On startup, active tab switches, and when slash autocomplete is open, synchronize extensions, prompt templates and skill commands through Pi's existing `get_commands` RPC. Recheck at most every 30 seconds while the slash menu is open. Keep the last good list on RPC failure and prevent concurrent duplicate fetches.
+- Force a fresh query on `/commands [search]` and following a Pi restart for MCP activation. The `/skills` browser opens immediately from cache and refreshes asynchronously.
+- Rank common local commands first for bare `/`. Match exact names, prefixes, colon/hyphen-separated segments and descriptions to find commands such as `/skill:...` without typing `skill:`. Allow 24 scrollable suggestions instead of limiting the chooser to seven.
+- Validate remote entries and keep locally handled PiTTy commands authoritative on name collisions. Do not advertise Pi native terminal-only commands unsupported by the RPC host.
+- Add regression tests for independent tab catalogs, single-flight refresh, TTL, failed RPC fallback, source precedence and search ranking.
+
 ## 0.6.64
 
 ### Extract built-in slash-command routing from the UI

@@ -101,6 +101,7 @@ import { CompactionController } from "./tabs/compaction-controller.ts";
 import { SessionController } from "./tabs/session-controller.ts";
 import { InputController } from "./tabs/input-controller.ts";
 import { SlashCommandController, isThinkingLevel } from "./tabs/slash-commands.ts";
+import { CommandCatalogService, localCommandChoices } from "./tabs/command-catalog.ts";
 import { ExtensionStatusController } from "./tabs/extension-status-controller.ts";
 import { CompactedSummary, CompactionPanel } from "./ui/compaction-panel.tsx";
 import { TabManager, type ConversationTab } from "./tabs/manager.ts";
@@ -411,121 +412,6 @@ export function nextDetailToggle(state: DetailToggleState): boolean {
 	return !hasVisibleDetails;
 }
 
-const localCommandChoices: CommandChoice[] = [
-	{ name: "help", description: "Show UI commands", source: "ui" },
-	{ name: "login", description: "Use /login in the Pi CLI", source: "ui" },
-	{
-		name: "settings",
-		description: "Show current UI and Pi settings",
-		source: "ui",
-	},
-	{
-		name: "status",
-		description: "Show current UI and Pi settings",
-		source: "ui",
-	},
-	{
-		name: "commands",
-		description: "List Pi extension, template, and skill commands",
-		source: "ui",
-	},
-	{
-		name: "skills",
-		description: "Browse and send skill commands",
-		source: "ui",
-	},
-	{ name: "sessions", description: "Browse and resume sessions", source: "ui" },
-	{ name: "resume", description: "Alias for /sessions", source: "ui" },
-	{
-		name: "model",
-		description: "Show or change the current model",
-		source: "ui",
-	},
-	{ name: "models", description: "List available models", source: "ui" },
-	{
-		name: "thinking",
-		description: "Show or change reasoning effort",
-		source: "ui",
-	},
-	{
-		name: "thoughts",
-		description: "Expand or collapse thinking blocks",
-		source: "ui",
-	},
-	{ name: "prompts", description: "Open the request map", source: "ui" },
-	{
-		name: "memory",
-		description: "Browse, search, and remove persistent memory",
-		source: "ui",
-	},
-	{ name: "map", description: "Open the request map", source: "ui" },
-	{
-		name: "compact",
-		description: "Compact conversation context",
-		source: "ui",
-	},
-	{ name: "new", description: "Start a new Pi session", source: "ui" },
-	{ name: "name", description: "Set the session name", source: "ui" },
-	{
-		name: "tools",
-		description: "Expand or collapse tool output",
-		source: "ui",
-	},
-	{
-		name: "sidebar",
-		description: "Enable or disable the sidebar",
-		source: "ui",
-	},
-	{
-		name: "autocompact",
-		description: "Enable or disable automatic compaction",
-		source: "ui",
-	},
-	{
-		name: "retry",
-		description: "Enable or disable automatic retry",
-		source: "ui",
-	},
-	{
-		name: "steering-mode",
-		description: "Set steering delivery mode",
-		source: "ui",
-	},
-	{
-		name: "followup-mode",
-		description: "Set follow-up delivery mode",
-		source: "ui",
-	},
-];
-
-function mergeCommandChoices(
-	remote: Array<{
-		name: string;
-		description?: string;
-		source: string;
-		location?: unknown;
-	}>,
-): CommandChoice[] {
-	const map = new Map<string, CommandChoice>();
-	for (const command of [...localCommandChoices, ...remote]) {
-		const name = command.name.replace(/^\/+/, "").trim();
-		if (!name) continue;
-		const previous = map.get(name);
-		// The RPC payload is untrusted: only a non-blank string location
-		// survives; anything else falls back to the previous value.
-		const location =
-			typeof command.location === "string" && command.location.trim()
-				? command.location
-				: previous?.location;
-		map.set(name, {
-			name,
-			description: command.description ?? previous?.description,
-			source: command.source ?? previous?.source,
-			location,
-		});
-	}
-	return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-}
 
 function isEnterKey(event: KeyEvent): boolean {
 	return (
@@ -877,6 +763,7 @@ export function App(props: AppOptions) {
 	const [compactionExpanded, setCompactionExpanded] = createSignal(false);
 	const [promptText, setPromptText] = createSignal("");
 	const [promptCursorOffset, setPromptCursorOffset] = createSignal(0);
+	const commandCatalog = new CommandCatalogService(30_000, (error) => props.logger.warn("ui.commands_sync_failed", error));
 	const [commandChoices, setCommandChoices] =
 		createSignal<CommandChoice[]>(localCommandChoices);
 	const [commandSuggestionIndex, setCommandSuggestionIndex] = createSignal(0);
@@ -889,6 +776,16 @@ export function App(props: AppOptions) {
 	const extensionRouter = new ExtensionRequestRouter();
 	const provisionalRuntimes = new Set<ConversationTabRuntime>();
 	const activeRuntime = () => runtimeMap().get(activeTabId()) ?? bootRuntime;
+	const refreshCommandChoices = async (
+		runtime: ConversationTabRuntime,
+		force = false,
+		now = Date.now(),
+	): Promise<CommandChoice[]> => {
+		const choices = await commandCatalog.refresh(runtime.client, { force, now });
+		// In-flight tab switches must not replace the active tab's command list.
+		if (activeRuntime().client === runtime.client) setCommandChoices(choices);
+		return choices;
+	};
 	const claudeEffectiveSlot = () => {
 		const snapshot = cswapSnapshot();
 		return snapshot ? resolveCswapSlot(claudeAccountChoice(), snapshot, activeRuntime().client.getClaudeConfigDir(), os.homedir()) : undefined;
@@ -1085,6 +982,8 @@ export function App(props: AppOptions) {
 		}
 		tabManager.activate(id);
 		setActiveTabId(id);
+		setCommandChoices(commandCatalog.snapshot(targetRuntime.client));
+		if (targetRuntime.startupResolved) void refreshCommandChoices(targetRuntime);
 		tabManager.clearBadges(id);
 		refreshTabs();
 		const nextExtension = extensionRouter.setActive(id);
@@ -1141,6 +1040,7 @@ export function App(props: AppOptions) {
 			runtime.startupResolved = false;
 			await loadRuntimeHistory(runtime);
 			runtime.startupResolved = true;
+			void refreshCommandChoices(runtime);
 			if (tabRuntimeIsActive(id)) {
 				touch();
 				await refreshState(runtime);
@@ -1592,10 +1492,20 @@ export function App(props: AppOptions) {
 		filterCommandChoices(
 			commandChoices(),
 			promptText(),
-			7,
+			24,
 			promptCursorOffset(),
 		),
 	);
+	const slashQueryActive = createMemo(() => /^\/[^\s]*$/.test(promptText()));
+	const commandSyncTick = createMemo(() => Math.floor(clockNow() / 30_000));
+	createEffect(() => {
+		if (!slashQueryActive()) return;
+		commandSyncTick();
+		const runtime = activeRuntime();
+		if (startupPhase().kind !== "ready" || !runtime.startupResolved ||
+			runtime.conversation.isStreaming || runtime.conversation.isCompacting) return;
+		void refreshCommandChoices(runtime);
+	});
 	const thinkingIsExpanded = (itemId: string): boolean => {
 		revision();
 		return activeRuntime().thinkingExpansionOverrides.get(itemId) ?? thinkingExpanded();
@@ -2079,6 +1989,7 @@ export function App(props: AppOptions) {
 		setExpandedToolIds: (ids) => setExpandedToolIds(ids),
 		sidebarEnabled, setSidebarEnabled,
 		refreshState, autoRetryEnabled, setAutoRetryEnabled,
+		refreshCommands: (runtime) => refreshCommandChoices(runtime, true),
 		rememberThinkingLevel, applyRememberedThinkingLevel,
 		fetchAvailableModels: () => fetchAvailableModels(), loadCurrentSession,
 		setSkillSelectorOpen, setAllThinkingExpanded, thinkingExpanded,
@@ -2959,8 +2870,8 @@ export function App(props: AppOptions) {
 				nextState === "ready" ? undefined : loadNativeMcpSummary(props.cwd),
 			);
 			await loadCurrentSession(runtime);
-			const refreshedCommands = await runtime.client.getCommands();
-			setCommandChoices(mergeCommandChoices(refreshedCommands));
+			commandCatalog.invalidate(runtime.client);
+			await refreshCommandChoices(runtime, true);
 			setMcpConfigState("saved-active");
 			setMcpActivationPending(false);
 			return true;
@@ -3524,15 +3435,12 @@ export function App(props: AppOptions) {
 				const [messages, remoteCommands] = await withStartupDeadline(
 					Promise.all([
 						startupRuntime.client.getMessages(SESSION_LOAD_REQUEST_TIMEOUT_MS),
-						startupRuntime.client.getCommands().catch((error) => {
-							props.logger.warn("ui.commands_load_failed", error);
-							return [];
-						}),
+						commandCatalog.refresh(startupRuntime.client, { force: true }),
 					]),
 					remainingStartupMs(),
 				);
 				if (startupFailure) throw startupFailure;
-				setCommandChoices(mergeCommandChoices(remoteCommands));
+				setCommandChoices(remoteCommands);
 				const historyItems = initialItems(messages);
 				startupRuntime.conversation.replaceItems(historyItems);
 				resetMessageWindow(historyItems.length);
