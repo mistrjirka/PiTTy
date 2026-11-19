@@ -16,7 +16,7 @@ import { ensureManagedPi } from "../scripts/ensure-managed-pi.mjs";
 
 describe("managed Pi runtime installer", () => {
 	const managedTest = process.platform === "linux" || process.platform === "darwin" ? test : test.skip;
-	managedTest("a runtime missing a declared queue module is not reused", () => {
+	managedTest("a runtime missing a declared queue or code bridge module is not reused", () => {
 		const root = mkdtempSync(path.join(tmpdir(), "pitty-fork-modules-"));
 		try {
 			const manifestText = readFileSync(
@@ -25,12 +25,13 @@ describe("managed Pi runtime installer", () => {
 			);
 			const manifest = JSON.parse(manifestText) as {
 				pi: { modules: { target: string }[] };
+				codeTool: { modules: { target: string }[] };
 			};
 			const runtime = path.join(root, "fork-runtime");
 			const requiredFiles = [
 				"pi/dist/cli.js",
-				"pi-code-tool/dist/pi/state-codec.js",
 				...manifest.pi.modules.map((module) => "pi/" + module.target),
+				...manifest.codeTool.modules.map((module) => "pi-code-tool/" + module.target),
 			];
 			for (const file of requiredFiles) {
 				const destination = path.join(runtime, file);
@@ -56,6 +57,14 @@ describe("managed Pi runtime installer", () => {
 			rmSync(path.join(runtime, "pi", agentModule!.target));
 			expect(ensureManagedPi(root, env).status).toBe("unsupported");
 			expect(existsSync(path.join(runtime, "pi", "dist", "cli.js"))).toBe(true);
+			writeFileSync(path.join(runtime, "pi", agentModule!.target), "// restored module\n");
+			expect(ensureManagedPi(root, env).status).toBe("ready");
+			const bridgeModule = manifest.codeTool.modules.find((module) =>
+				module.target === "dist/pi/bridge.js",
+			);
+			expect(bridgeModule).toBeDefined();
+			rmSync(path.join(runtime, "pi-code-tool", bridgeModule!.target));
+			expect(ensureManagedPi(root, env).status).toBe("unsupported");
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}

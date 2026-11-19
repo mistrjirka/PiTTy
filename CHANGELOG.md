@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.10
+
+### Use registered Pi tools inside Python code
+
+- Route Python `code` helpers through the active Pi tool implementation, including extension overrides, validation, hooks, and cancellation.
+- Let commands started inside Python `code` use `pi-bg-bash`, so accepted input can promote the same process into the background and continue the conversation.
+- Convert Python dictionary arguments to ordinary JSON objects before validation. Fix bulk `edit` calls that failed with `Cannot read properties of undefined (reading 'replace')`.
+- Bundle and validate the complete managed code-tool bridge, with a reproducible source-to-patch builder and checks for missing runtime modules.
+- Fix the Windows compaction test's promise assertion without changing runtime behavior or timeout limits.
+
 ## 0.7.9
 
 ### Edit, cancel, and combine pending messages

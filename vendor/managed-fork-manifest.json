@@ -52,19 +52,37 @@
   "codeTool": {
     "version": "0.6.2",
     "originalExtensionSha256": "7b19b6f7eb57b08895cb796921293ea57aee0adaa3639b67d867305c89026018",
-    "forkCommit": "22a7a8958875277144c8f27f51f48f7bffb9b1f2",
-    "forkRepository": "https://github.com/mistrjirka/pi-code-tool"
+    "forkCommit": "7bcf48b47f40e6cfdda6363ebca19db708793085",
+    "forkRepository": "https://github.com/mistrjirka/pi-code-tool",
+    "modules": [
+      {
+        "source": "vendor/pi-code-tool-0.6.2/extension.js",
+        "target": "dist/pi/extension.js",
+        "originalSha256": "7b19b6f7eb57b08895cb796921293ea57aee0adaa3639b67d867305c89026018"
+      },
+      {
+        "source": "vendor/pi-code-tool-0.6.2/bridge.js",
+        "target": "dist/pi/bridge.js",
+        "originalSha256": "6535d0f9f9b2bbebfda348b3918c10afd91486af91b2f8f33bf1862d02aecbc6"
+      },
+      {
+        "source": "vendor/pi-code-tool-0.6.2/state-codec.js",
+        "target": "dist/pi/state-codec.js",
+        "originalSha256": null
+      }
+    ]
   },
   "patchFiles": {
     "vendor/pi-1.5.2/session-manager.js": "3fb824b02d6a575e6409d239b79072d0d750c54a497330c0829579da54923ba9",
     "vendor/pi-1.5.2/session-lazy-state.js": "c527d424944ff14dffb54b498f7778c4fddd702478e9ec6d15ff10b6e69fbe3f",
-    "vendor/pi-code-tool-0.6.2/extension.js": "6ad1ebd499d34b0b919da531adb0de8b7b765edca49f12ef295396f0d303fb93",
+    "vendor/pi-code-tool-0.6.2/extension.js": "cf2f8db2052481e9d545f7632134628ded78db8780fc785db08e2e16c9966210",
     "vendor/pi-code-tool-0.6.2/state-codec.js": "8871bfcd41753b85e3cb114d09ce25d8c9d475371b9e8a33d3e24ed1d96edf1b",
     "vendor/pi-1.5.2/agent-session.js": "c0c46875254c1a4a17bad11dc4fa87c9a33f0818aa7c1f41f9bcc095ca07bffb",
     "vendor/pi-1.5.2/queued-input.js": "e09b1a23b3abbcdb4d9994231c4a3630738de1dd9d6d73041ddea3f951336c78",
     "vendor/pi-1.5.2/rpc-mode.js": "be98820df7f65c4948ea95678c50842db679c41e6e18a44cb59532195083d434",
     "vendor/pi-1.5.2/agent.js": "ede5e0a5ddd758fcdc16d1f2a26619680209fed5e024d99c16717efbecbb76f0",
     "vendor/pi-1.5.2/agent-session-runtime.js": "b2005952a6c49638f7f9d7616a13cd5a97feab84a9657dbb5d6d0c64be7d20d9",
-    "vendor/pi-1.5.2/diagnostics-stderr.js": "6a0458320312dbe0c42c8f1dd8c66ea1c87b61ec1a38e66e97c1143b5135a6b7"
+    "vendor/pi-1.5.2/diagnostics-stderr.js": "6a0458320312dbe0c42c8f1dd8c66ea1c87b61ec1a38e66e97c1143b5135a6b7",
+    "vendor/pi-code-tool-0.6.2/bridge.js": "86075fa5ef6dfdcdef83388f6f92361ba9f786b7aa615edb7103c71c5d4231b6"
   }
 }

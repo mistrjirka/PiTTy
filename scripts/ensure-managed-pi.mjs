@@ -99,8 +99,8 @@ function hasValidRuntime(appRoot, patchSha, manifest) {
 			manifest.pi.modules.every(({ target: modulePath }) =>
 				existsSync(path.join(target, "pi", modulePath)),
 			) &&
-			existsSync(
-				path.join(target, "pi-code-tool", "dist", "pi", "state-codec.js"),
+			manifest.codeTool.modules.every(({ target: modulePath }) =>
+				existsSync(path.join(target, "pi-code-tool", modulePath)),
 			)
 		);
 	} catch {
@@ -146,13 +146,10 @@ function prepareStagedRuntime(stage, piRoot, codeToolRoot, manifest, patchSha) {
 		path.join(codeToolRoot, "package.json"),
 		path.join(codeTool, "package.json"),
 	);
-	const codePatch = path.join(
-		releaseRoot,
-		"vendor",
-		"pi-code-tool-" + manifest.codeTool.version,
-	);
-	for (const name of ["extension.js", "state-codec.js"]) {
-		cpSync(path.join(codePatch, name), path.join(codeTool, "dist", "pi", name));
+	for (const module of manifest.codeTool.modules) {
+		const destination = path.join(codeTool, module.target);
+		mkdirSync(path.dirname(destination), { recursive: true });
+		cpSync(path.join(releaseRoot, module.source), destination);
 	}
 
 	// Keep the forked code tool bound to the same copy of Pi used by the RPC
@@ -297,16 +294,15 @@ export function ensureManagedPi(appRoot, env = process.env) {
 				"Installed code-tool version differs from " + manifest.codeTool.version,
 		};
 	}
-	const matchingPi = manifest.pi.modules.every((module) => {
-		const original = path.join(piRoot, module.target);
+	const matchesOriginalModules = (packageRoot, modules) => modules.every((module) => {
+		const original = path.join(packageRoot, module.target);
 		return module.originalSha256 === null
 			? !existsSync(original)
 			: existsSync(original) && safeHash(original) === module.originalSha256;
 	});
 	if (
-		!matchingPi ||
-		safeHash(path.join(codeToolRoot, "dist", "pi", "extension.js")) !==
-			manifest.codeTool.originalExtensionSha256
+		!matchesOriginalModules(piRoot, manifest.pi.modules) ||
+		!matchesOriginalModules(codeToolRoot, manifest.codeTool.modules)
 	) {
 		return {
 			status: "unsupported",

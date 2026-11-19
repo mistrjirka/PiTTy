@@ -10,6 +10,7 @@
  */
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateHead, } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { MountDir } from '@pydantic/monty';
@@ -18,7 +19,7 @@ import { renderPythonToolRules, ToolRegistry } from '../core/registry.js';
 import { createBuiltinTools } from '../core/builtins.js';
 import { Session } from '../core/session.js';
 import { ToolStore } from '../core/toolstore.js';
-import { createPiBridgeTools } from './bridge.js';
+import { createPiBridgeTools, normalizePiToolValue, piBridgeContext } from './bridge.js';
 import { decodeSessionState, encodeSessionState } from './state-codec.js';
 const DEFAULT_TOOL_NAME = 'code';
 /**
@@ -67,10 +68,14 @@ export function createPythonExtension(options = {}) {
         }
         const bridge = options.bridgePiTools ?? true;
         const registry = new ToolRegistry(options.tools);
-        if (bridge) {
-            for (const tool of createPiBridgeTools(root))
-                registry.add(tool);
-        }
+        const bridgeExecution = new AsyncLocalStorage();
+        const bridgeTools = bridge ? createPiBridgeTools(root, {
+            getContext: () => bridgeExecution.getStore(),
+            exclude: toolName,
+        }) : [];
+        const bridgeNames = new Set(bridgeTools.map((tool) => tool.name));
+        for (const tool of bridgeTools)
+            registry.add(tool);
         if (!options.noBuiltins) {
             // the mount replaces read_file with plain open(); bridged ls replaces list_files
             for (const tool of createBuiltinTools({ root, readFile: !makeMount, listFiles: !bridge })) {
@@ -95,10 +100,6 @@ export function createPythonExtension(options = {}) {
             }
         }
         const savedSummary = store ? await store.renderSummary() : '';
-        const gatedNames = registry
-            .list()
-            .filter((t) => t.requiresApproval)
-            .map((t) => t.name);
         const sessionOptions = { tools: registry, limits: options.limits, typeCheck: options.typeCheck };
         // null until first use: a fresh session loads saved tools as a prelude,
         // which is async, so creation happens lazily in execute().
@@ -167,20 +168,22 @@ export function createPythonExtension(options = {}) {
             }
             restoredUnverified = Boolean(state);
         });
-        pi.registerTool({
-            name: toolName,
-            label: 'Code',
-            description: [
+        function describe(visibleRegistry = registry, sessionBacked = false) {
+            const gatedNames = visibleRegistry.list().filter((tool) => tool.requiresApproval).map((tool) => tool.name);
+            return [
                 'Run Python in a sandboxed interpreter with host tools available as plain',
                 'functions. Variables and functions persist across calls in this session.',
                 'Prefer this tool when you need to chain tool calls, loop, filter large',
                 'results, or compute — do the work in code and print only what you need.',
                 '',
-                'Python-only helper functions available INSIDE this tool:',
-                `- These names are NOT standalone pi tools; they only exist in Python code passed to ${toolName}.`,
-                `- Example: call ${toolName} with code like \`print(ls("."))\`; do not try to invoke \`ls\` as a separate pi tool.`,
+                'Python helper functions available inside this tool:',
+                `- Call listed helpers as Python functions in the code passed to ${toolName}.`,
+                ...(sessionBacked ? [
+                    '- Pi-backed helpers mirror callable registered Pi tools and follow the session tool settings.',
+                ] : []),
+                `- Example: call ${toolName} with code like \`${helperExample(visibleRegistry)}\`.`,
                 '',
-                registry.renderStubs(),
+                visibleRegistry.renderStubs(),
                 ...(savedSummary
                     ? [
                         '',
@@ -202,7 +205,26 @@ export function createPythonExtension(options = {}) {
                         `- The workspace is mounted READ-ONLY at /workspace: read files with open("/workspace/<path>") or pathlib. Helper-tool paths such as ls/find results are relative to the workspace root. Files are not iterable — use .read()/.readlines(); parse JSON with json.loads(text). Writes raise PermissionError; change real files with the regular edit/write tools.`,
                     ]
                     : []),
-            ].join('\n'),
+            ].join('\n');
+        }
+        // New Pi versions provide the callable loadout before each model request.
+        // Defaults expose read/bash/edit/write. ls/find/grep appear only when callable;
+        // this extension does not enable them or bypass an explicit tool restriction.
+        // Older versions ignore this optional hook and keep the standalone stubs.
+        const loadoutHooks = bridge ? {
+            prepareLoadout(loadout) {
+                const callable = new Set(loadout.callable.map((tool) => tool.name));
+                const visible = new ToolRegistry(registry.list().filter((tool) => !bridgeNames.has(tool.name) || callable.has(tool.name)));
+                return bridgeExecution.run({ tools: loadout.callable }, () => ({
+                    descriptions: { [toolName]: describe(visible, true) },
+                }));
+            },
+        } : {};
+        pi.registerTool({
+            name: toolName,
+            label: 'Code',
+            description: describe(),
+            ...loadoutHooks,
             promptSnippet: `${toolName}: run sandboxed Python; host tools are callable as functions; state persists`,
             promptGuidelines: [
                 `Use ${toolName} for multi-step tool workflows: loop/filter/aggregate in code and print only the result, instead of issuing many separate tool calls.`,
@@ -213,7 +235,7 @@ export function createPythonExtension(options = {}) {
                     : []),
                 ...(registry.list().length > 0
                     ? [
-                        `Names listed in the ${toolName} tool description are Python helper functions only, not top-level pi tools. If you need one (for example ${formatNameList(registry.list().slice(0, 6).map((t) => t.name))}), call ${toolName} and invoke it from Python code there.`,
+                        `Use only helper functions listed in the current ${toolName} tool description.`,
                     ]
                     : []),
                 ...(store
@@ -224,8 +246,9 @@ export function createPythonExtension(options = {}) {
             ],
             parameters: PythonParams,
             async execute(_toolCallId, params, signal, onUpdate, ctx) {
+                const inBridgeContext = (run) => bridgeExecution.run(piBridgeContext(ctx, signal), run);
                 if (params.reset || !session) {
-                    session = await freshSession();
+                    session = await inBridgeContext(() => freshSession());
                     restoredUnverified = false;
                 }
                 // gated calls freeze the script while the human decides in the TUI;
@@ -282,7 +305,7 @@ export function createPythonExtension(options = {}) {
                 let result;
                 if (params.resume) {
                     try {
-                        result = await session.resume(runOptions);
+                        result = await inBridgeContext(() => session.resume(runOptions));
                     }
                     catch {
                         return {
@@ -310,7 +333,7 @@ export function createPythonExtension(options = {}) {
                             details: { status: 'error', state: encodeSessionState(session.dump()), calls: [] },
                         };
                     }
-                    result = await session.run(params.code, runOptions);
+                    result = await inBridgeContext(() => session.run(params.code, runOptions));
                 }
                 const abandonNote = abandoned
                     ? '[note: discarded the previously suspended script]\n'
@@ -363,16 +386,21 @@ export function createPythonExtension(options = {}) {
         });
     };
 }
-function formatNameList(names) {
-    if (names.length === 0)
-        return 'the listed functions';
-    if (names.length === 1)
-        return names[0];
-    return `${names.slice(0, -1).join(', ')}, or ${names[names.length - 1]}`;
+function helperExample(registry) {
+    const examples = [
+        ['ls', '"."'], ['read', '"file.txt"'], ['find', '"*.ts"'], ['grep', '"TODO"'],
+    ];
+    for (const [name, argument] of examples) {
+        const helper = registry.get(name);
+        if (helper?.params[0]?.type === 'str' && helper.params.slice(1).every((param) => param.optional)) {
+            return `print(${name}(${argument}))`;
+        }
+    }
+    return 'print(1 + 1)';
 }
 function formatValue(value) {
     try {
-        return JSON.stringify(value) ?? String(value);
+        return JSON.stringify(normalizePiToolValue(value)) ?? String(value);
     }
     catch {
         return String(value);
