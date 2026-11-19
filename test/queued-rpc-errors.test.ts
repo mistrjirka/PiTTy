@@ -96,7 +96,8 @@ describe("queued-input RPC wire handling", () => {
 		const events: PiEvent[] = [];
 		client.onEvent((event) => { events.push(event); });
 		await client.getState();
-		await expect(client.prompt("during compaction", "steer", "during-id")).resolves.toBeUndefined();
+		const result = await client.prompt("during compaction", "steer", "during-id");
+		expect(result).toBeUndefined();
 		expect(events.map((event) => event.type)).toEqual(["compaction_start", "compaction_end"]);
 	});
 });
