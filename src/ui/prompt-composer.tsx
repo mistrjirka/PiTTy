@@ -27,6 +27,7 @@ export function PromptComposer(props: PromptComposerProps) {
 			border={["top"]}
 			borderColor={props.streaming() ? colors.green : colors.borderStrong}
 			backgroundColor={colors.panel}
+			flexShrink={0}
 			paddingLeft={2}
 			paddingRight={2}
 			paddingTop={1}

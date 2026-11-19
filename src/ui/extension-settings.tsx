@@ -1,5 +1,6 @@
 import type { SelectRenderable } from "@opentui/core";
 import { createEffect, createMemo } from "solid-js";
+import { selectOptionIndexAtMouse } from "./select-mouse.ts";
 import { colors } from "./theme.ts";
 
 export type ExtensionSettingRow = {
@@ -102,16 +103,8 @@ export function ExtensionSettingsList(props: {
 					if (!select) return;
 					event.preventDefault();
 					event.stopPropagation();
-					// SAFETY: OpenTUI exposes these fields at runtime but omits them from its public type.
-					const scrollOffset =
-						(select as unknown as { scrollOffset?: number }).scrollOffset ?? 0;
-					// SAFETY: OpenTUI exposes these fields at runtime but omits them from its public type.
-					const linesPerItem =
-						(select as unknown as { linesPerItem?: number }).linesPerItem ?? 2;
-					const visibleIndex = Math.floor(
-						(event.y - select.screenY) / Math.max(1, linesPerItem),
-					);
-					const index = scrollOffset + visibleIndex;
+					const index = selectOptionIndexAtMouse(select, event.y);
+					if (index === undefined) return;
 					const row = rows()[index];
 					if (!row) return;
 					select.setSelectedIndex(index);

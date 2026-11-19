@@ -31,25 +31,11 @@ import {
 	readClaudeAccountPreference,
 	resolveClaudeLaunchConfig,
 } from "./config/claude-account.ts";
-import type { ThemeConfigDocument } from "./config/theme-config.ts";
-import type { DiagnosticLogger } from "./diagnostics/logger.ts";
-import type { OptionalIntegrationStatus } from "./integrations/detect.ts";
 import { PiRpcClient } from "./rpc/pi-rpc-client.ts";
+import type { AppOptions } from "./state/app-options.ts";
 import { ConversationModel } from "./state/conversation.ts";
-import type { ThemeController } from "./ui/theme.ts";
 
-export type AppOptions = {
-	cwd: string;
-	piExecutable?: string | undefined;
-	piArgs: string[];
-	sidebar: boolean;
-	logger: DiagnosticLogger;
-	integrations: OptionalIntegrationStatus;
-	openSessionSelector?: boolean;
-	themeWarning?: string;
-	themeConfig?: ThemeConfigDocument;
-	themeController?: ThemeController;
-};
+export type { AppOptions } from "./state/app-options.ts";
 
 export function shouldShowEmptyDashboard(renderedItemCount: number): boolean {
 	return renderedItemCount === 0;

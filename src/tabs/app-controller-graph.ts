@@ -1,7 +1,7 @@
 import type { CliRenderer } from "@opentui/core";
 import type { Accessor } from "solid-js";
-import type { AppOptions } from "../app.tsx";
 import type { PiRpcClient } from "../rpc/pi-rpc-client.ts";
+import type { AppOptions } from "../state/app-options.ts";
 import type { AppSignals } from "../state/app-signals.ts";
 import type { ConversationModel } from "../state/conversation.ts";
 import { registerScreenKeyboard } from "../tabs/app-keyboard-wiring.ts";
@@ -153,6 +153,7 @@ export function createAppControllerGraph(
 		cwd: props.cwd,
 		subagentsInstalled: props.integrations.subagents.installed,
 		reconcileSteers,
+		pendingSteerCount: () => appSignals.pendingSteers[0]().length,
 		setRuns,
 		subagentTools,
 		contextWindowForModel,

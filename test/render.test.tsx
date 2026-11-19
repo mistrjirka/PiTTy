@@ -43,19 +43,33 @@ import {
 import { PromptMapDialog } from "../src/ui/prompt-map.tsx";
 import { MemoryBrowserDialog } from "../src/ui/memory-browser.tsx";
 import type { MemorySnapshot } from "../src/integrations/memory-store.ts";
-import { allocateSidebarPanels, Sidebar, targetToolActivity, targetToolUsage } from "../src/ui/sidebar.tsx";
+import {
+	allocateSidebarPanels,
+	Sidebar,
+	targetToolActivity,
+	targetToolUsage,
+} from "../src/ui/sidebar.tsx";
 import { friendlyTargetState } from "../src/ui/model-context.tsx";
 import {
 	REQUEST_TIMING_VERSION,
 	type RequestTiming,
 } from "../src/tabs/request-timing.ts";
 import { NotificationDialog } from "../src/ui/notification-dialog.tsx";
-import { SubagentInspector, inspectedTargetScrollY } from "../src/ui/subagent-inspector.tsx";
+import {
+	SubagentInspector,
+	inspectedTargetScrollY,
+} from "../src/ui/subagent-inspector.tsx";
 import { ForkPicker } from "../src/ui/fork-picker.tsx";
 import { TabStrip } from "../src/ui/tab-strip.tsx";
 import { forkPickerOptions } from "../src/tabs/entry-index.ts";
-import { SubagentSelectorDialog, subagentSelectorOptions } from "../src/ui/subagent-selector.tsx";
-import { subagentTargets, type SubagentTarget } from "../src/subagents/targets.ts";
+import {
+	SubagentSelectorDialog,
+	subagentSelectorOptions,
+} from "../src/ui/subagent-selector.tsx";
+import {
+	subagentTargets,
+	type SubagentTarget,
+} from "../src/subagents/targets.ts";
 import {
 	computeSpawnGroups,
 	SPAWN_GROUP_ID_PREFIX,
@@ -102,6 +116,7 @@ import type { SessionChoice, SessionDiscoveryState } from "../src/sessions.ts";
 import { deriveTodos, type TodoViewItem } from "../src/ui/todos.tsx";
 import { nextDetailToggle } from "../src/app.tsx";
 import { PendingInputPanel } from "../src/ui/pending-input-panel.tsx";
+import { AppPromptDock } from "../src/ui/app-prompt-dock.tsx";
 import { appVersion } from "../src/version.ts";
 import { ConversationModel } from "../src/state/conversation.ts";
 import { PiRpcTimeoutError } from "../src/rpc/pi-rpc-client.ts";
@@ -131,14 +146,18 @@ const tempDirs: string[] = [];
 // importing cleanly when src is stashed for a failing-before proof.
 const ORIGINAL_PROFILED_ROOT = process.env.PI_PITTY_PROFILED_ROOT;
 beforeEach(() => {
-	const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-profiled-isolated-"));
+	const isolated = fs.mkdtempSync(
+		path.join(os.tmpdir(), "pitty-profiled-isolated-"),
+	);
 	tempDirs.push(isolated);
 	process.env.PI_PITTY_PROFILED_ROOT = isolated;
 });
 afterEach(() => {
 	for (const setup of active.splice(0)) setup.renderer.destroy();
-	for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
-	if (ORIGINAL_PROFILED_ROOT === undefined) delete process.env.PI_PITTY_PROFILED_ROOT;
+	for (const dir of tempDirs.splice(0))
+		fs.rmSync(dir, { recursive: true, force: true });
+	if (ORIGINAL_PROFILED_ROOT === undefined)
+		delete process.env.PI_PITTY_PROFILED_ROOT;
 	else process.env.PI_PITTY_PROFILED_ROOT = ORIGINAL_PROFILED_ROOT;
 });
 
@@ -162,23 +181,56 @@ async function mount(
 describe("profiled command visibility", () => {
 	test("renders independent command clocks until actual completion, including unknown timeouts", async () => {
 		const startedAt = 1_000;
-		const first = { toolCallId: "a", toolName: "bash", startedAt, timeoutSeconds: 2100 };
-		const second = { toolCallId: "b", toolName: "read", startedAt: startedAt + 60_000 };
+		const first = {
+			toolCallId: "a",
+			toolName: "bash",
+			startedAt,
+			timeoutSeconds: 2100,
+		};
+		const second = {
+			toolCallId: "b",
+			toolName: "read",
+			startedAt: startedAt + 60_000,
+		};
 		const initial: SubagentRun = {
-			runId: "profiled:joy", mode: "profiled", runtime: "profiled-subagents", control: "profiled",
-			agentId: "joy", profile: "general", state: "running", startedAt, steps: [], activeTools: [first, second],
+			runId: "profiled:joy",
+			mode: "profiled",
+			runtime: "profiled-subagents",
+			control: "profiled",
+			agentId: "joy",
+			profile: "general",
+			state: "running",
+			startedAt,
+			steps: [],
+			activeTools: [first, second],
 		};
 		const [run, setRun] = createSignal(initial);
 		const [now, setNow] = createSignal(startedAt + 1_293_000);
 		const target = (): SubagentTarget => ({
-			key: "joy", run: run(), label: "Joy", state: run().state,
-			active: run().state === "running", canSteer: false, startedAt,
+			key: "joy",
+			run: run(),
+			label: "Joy",
+			state: run().state,
+			active: run().state === "running",
+			canSteer: false,
+			startedAt,
 		});
-		const setup = await mount(() => <SubagentInspector target={target()} items={[]} now={now()} />, 120, 24);
-		const flush = async () => { await setup.flush(); await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 }); };
+		const setup = await mount(
+			() => <SubagentInspector target={target()} items={[]} now={now()} />,
+			120,
+			24,
+		);
+		const flush = async () => {
+			await setup.flush();
+			await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
+		};
 		let frame = setup.captureCharFrame();
-		expect(frame).toContain("bash running · elapsed 21m 33s · command timeout 35m 0s · 13m 27s left");
-		expect(frame).toContain("read running · elapsed 20m 33s · command timeout not specified");
+		expect(frame).toContain(
+			"bash running · elapsed 21m 33s · command timeout 35m 0s · 13m 27s left",
+		);
+		expect(frame).toContain(
+			"read running · elapsed 20m 33s · command timeout not specified",
+		);
 		setNow(startedAt + 2_101_000);
 		await flush();
 		frame = setup.captureCharFrame();
@@ -656,7 +708,11 @@ describe("OpenTUI components", () => {
 			},
 		];
 		const setup = await mount(() => (
-			<SkillSelector commands={commands} onSelect={() => {}} onCancel={() => {}} />
+			<SkillSelector
+				commands={commands}
+				onSelect={() => {}}
+				onCancel={() => {}}
+			/>
 		));
 		await setup.mockInput.typeText("deploy");
 		await setup.flush();
@@ -699,7 +755,11 @@ describe("OpenTUI components", () => {
 		const setup = await mount(() => (
 			<SkillSelector
 				commands={[
-					{ name: "review-pr", description: "Extension command", source: "extension" },
+					{
+						name: "review-pr",
+						description: "Extension command",
+						source: "extension",
+					},
 				]}
 				onSelect={() => {}}
 				onCancel={() => {}}
@@ -762,7 +822,9 @@ describe("OpenTUI components", () => {
 		await setup.flush();
 		const selectedLine = (frame: string, id: string) =>
 			frame.split("\n").find((line) => line.includes(`openai/${id}`));
-		expect(selectedLine(setup.captureCharFrame(), "gamma") ?? "").toContain("▶");
+		expect(selectedLine(setup.captureCharFrame(), "gamma") ?? "").toContain(
+			"▶",
+		);
 		setup.mockInput.pressArrow("down");
 		await setup.flush();
 		const afterDown = setup.captureCharFrame();
@@ -1082,31 +1144,61 @@ describe("OpenTUI components", () => {
 	});
 
 	test("inspectedTargetScrollY opens finished runs at the top and keeps live runs at the tail", () => {
-		expect(inspectedTargetScrollY({ active: true })).toBe(Number.MAX_SAFE_INTEGER);
+		expect(inspectedTargetScrollY({ active: true })).toBe(
+			Number.MAX_SAFE_INTEGER,
+		);
 		expect(inspectedTargetScrollY({ active: false })).toBe(0);
 		expect(inspectedTargetScrollY(undefined)).toBe(0);
 	});
 
 	test("a finished inspector transcript shows the first thinking at the top and the tail at the bottom", async () => {
 		const items: ConversationItem[] = [
-			{ kind: "user", id: "scroll-user", text: "task", timestamp: 1, optimistic: false },
-			{ kind: "assistant", id: "scroll-first", text: "", thinking: "FIRST thinking section", timestamp: 2, status: "done" },
-			...Array.from({ length: 6 }, (_, index): ConversationItem => ({
-				kind: "tool",
-				id: `scroll-tool-${index}`,
-				toolCallId: `scroll-call-${index}`,
-				name: "bash",
-				args: "ls",
-				output: `output ${index}`,
-				timestamp: 3 + index,
-				startedAt: 3 + index,
-				endedAt: 3 + index,
+			{
+				kind: "user",
+				id: "scroll-user",
+				text: "task",
+				timestamp: 1,
+				optimistic: false,
+			},
+			{
+				kind: "assistant",
+				id: "scroll-first",
+				text: "",
+				thinking: "FIRST thinking section",
+				timestamp: 2,
 				status: "done",
-				isError: false,
-			})),
-			{ kind: "assistant", id: "scroll-second", text: "", thinking: "SECOND thinking section", timestamp: 20, status: "done" },
+			},
+			...Array.from(
+				{ length: 6 },
+				(_, index): ConversationItem => ({
+					kind: "tool",
+					id: `scroll-tool-${index}`,
+					toolCallId: `scroll-call-${index}`,
+					name: "bash",
+					args: "ls",
+					output: `output ${index}`,
+					timestamp: 3 + index,
+					startedAt: 3 + index,
+					endedAt: 3 + index,
+					status: "done",
+					isError: false,
+				}),
+			),
+			{
+				kind: "assistant",
+				id: "scroll-second",
+				text: "",
+				thinking: "SECOND thinking section",
+				timestamp: 20,
+				status: "done",
+			},
 		];
-		const run: SubagentRun = { runId: "scroll-run", mode: "single", state: "completed", steps: [] };
+		const run: SubagentRun = {
+			runId: "scroll-run",
+			mode: "single",
+			state: "completed",
+			steps: [],
+		};
 		let scroll: ScrollBoxRenderable | undefined;
 		const setup = await mount(
 			() => (
@@ -1146,23 +1238,45 @@ describe("OpenTUI components", () => {
 		// app's queued scrollTo races and loses on first open (the transcript
 		// box pins to stickyStart="bottom" by default).
 		const tallItems = (first: string, last: string): ConversationItem[] => [
-			{ kind: "assistant", id: `mount-first`, text: "", thinking: first, timestamp: 2, status: "done" },
-			...Array.from({ length: 12 }, (_, index): ConversationItem => ({
-				kind: "tool",
-				id: `mount-tool-${index}`,
-				toolCallId: `mount-call-${index}`,
-				name: "bash",
-				args: "ls",
-				output: `output ${index}`,
-				timestamp: 3 + index,
-				startedAt: 3 + index,
-				endedAt: 3 + index,
+			{
+				kind: "assistant",
+				id: `mount-first`,
+				text: "",
+				thinking: first,
+				timestamp: 2,
 				status: "done",
-				isError: false,
-			})),
-			{ kind: "assistant", id: `mount-last`, text: "", thinking: last, timestamp: 99, status: "done" },
+			},
+			...Array.from(
+				{ length: 12 },
+				(_, index): ConversationItem => ({
+					kind: "tool",
+					id: `mount-tool-${index}`,
+					toolCallId: `mount-call-${index}`,
+					name: "bash",
+					args: "ls",
+					output: `output ${index}`,
+					timestamp: 3 + index,
+					startedAt: 3 + index,
+					endedAt: 3 + index,
+					status: "done",
+					isError: false,
+				}),
+			),
+			{
+				kind: "assistant",
+				id: `mount-last`,
+				text: "",
+				thinking: last,
+				timestamp: 99,
+				status: "done",
+			},
 		];
-		const finishedRun: SubagentRun = { runId: "mount-finished", mode: "single", state: "completed", steps: [] };
+		const finishedRun: SubagentRun = {
+			runId: "mount-finished",
+			mode: "single",
+			state: "completed",
+			steps: [],
+		};
 		const finishedTarget = subagentTargets([finishedRun])[0]!;
 		expect(finishedTarget.active).toBe(false);
 		const finishedView = await mount(
@@ -1186,26 +1300,57 @@ describe("OpenTUI components", () => {
 		// tool, as the app holds it) keeps the tail so the stream is followed.
 		const now = Date.now();
 		const base = process.env.PI_PITTY_PROFILED_ROOT?.trim() || os.tmpdir();
-		const root = fs.mkdtempSync(path.join(base, "pi-profiled-subagents-mount-"));
+		const root = fs.mkdtempSync(
+			path.join(base, "pi-profiled-subagents-mount-"),
+		);
 		tempDirs.push(root);
 		const treeId = `tree-mount-${Date.now()}`;
 		const controlDir = path.join(root, "mount-live-");
-		fs.mkdirSync(path.join(controlDir, "control", "steer-requests"), { recursive: true });
+		fs.mkdirSync(path.join(controlDir, "control", "steer-requests"), {
+			recursive: true,
+		});
 		fs.mkdirSync(path.join(controlDir, "control", "acks"), { recursive: true });
 		const statusPath = path.join(controlDir, "status.json");
-		fs.writeFileSync(statusPath, JSON.stringify({
-			version: 1, runtime: "profiled-subagents", treeId, updatedAt: now,
-			agentId: "mount-liver", profile: "explore", parentAgentId: "root", label: "mount-liver",
-			state: "running", startedAt: now - 1000,
-		}));
+		fs.writeFileSync(
+			statusPath,
+			JSON.stringify({
+				version: 1,
+				runtime: "profiled-subagents",
+				treeId,
+				updatedAt: now,
+				agentId: "mount-liver",
+				profile: "explore",
+				parentAgentId: "root",
+				label: "mount-liver",
+				state: "running",
+				startedAt: now - 1000,
+			}),
+		);
 		const liveTool: ToolItem = {
-			kind: "tool", id: "spawn-mount-liver", toolCallId: "spawn-mount-liver-call", name: "agent_spawn",
-			args: { agent: "explore" }, output: "", details: {
-				runtime: "profiled-subagents", treeId, parentAgentId: "root", agentId: "mount-liver", profile: "explore",
-				label: "mount-liver", state: "running", controlDir, statusPath,
-			}, timestamp: now, status: "done", isError: false,
+			kind: "tool",
+			id: "spawn-mount-liver",
+			toolCallId: "spawn-mount-liver-call",
+			name: "agent_spawn",
+			args: { agent: "explore" },
+			output: "",
+			details: {
+				runtime: "profiled-subagents",
+				treeId,
+				parentAgentId: "root",
+				agentId: "mount-liver",
+				profile: "explore",
+				label: "mount-liver",
+				state: "running",
+				controlDir,
+				statusPath,
+			},
+			timestamp: now,
+			status: "done",
+			isError: false,
 		};
-		const liveTarget = subagentTargets([], [liveTool]).find((target) => target.run.agentId === "mount-liver")!;
+		const liveTarget = subagentTargets([], [liveTool]).find(
+			(target) => target.run.agentId === "mount-liver",
+		)!;
 		expect(liveTarget.active).toBe(true);
 		const liveView = await mount(
 			() => (
@@ -1363,14 +1508,25 @@ describe("OpenTUI components", () => {
 	test("only makes tool output expandable when it actually needs more space", () => {
 		expect(toolOutputExpandable("5 pass\n0 fail")).toBe(false);
 		expect(toolOutputExpandable("one\ntwo\nthree\nfour\nfive")).toBe(false);
-		expect(toolOutputExpandable(Array.from({ length: 25 }, (_, i) => `line ${i + 1}`).join("\n"))).toBe(true);
+		expect(
+			toolOutputExpandable(
+				Array.from({ length: 25 }, (_, i) => `line ${i + 1}`).join("\n"),
+			),
+		).toBe(true);
 		expect(toolOutputExpandable("x".repeat(200))).toBe(true);
 		expect(toolOutputExpandable(`${"alpha ".repeat(30)}\nshort`)).toBe(true);
 		expect(toolOutputExpandable("x".repeat(321))).toBe(true);
 	});
 
 	test("renders truthful compaction activity and context-size gauges", async () => {
-		expect(compactionContextPercent({ version: 1, phase: "preparing", tokensBefore: 150_000, contextWindow: 200_000 })).toBe(75);
+		expect(
+			compactionContextPercent({
+				version: 1,
+				phase: "preparing",
+				tokensBefore: 150_000,
+				contextWindow: 200_000,
+			}),
+		).toBe(75);
 		expect(determinateContextBar(50, 8)).toBe("████░░░░");
 		expect(indeterminateCompactionBar(2, 8)).toHaveLength(8);
 		const setup = await mount(
@@ -1410,21 +1566,35 @@ describe("OpenTUI components", () => {
 		expect(laneTailLines("one\ntwo\nthree\n")).toEqual(["one", "two", "three"]);
 		// The streamed window shows the newest 6 rows by default: an ellipsis row
 		// plus the newest 5 lines, so live text stays readable without overflowing.
-		expect(laneTailLines("l1\nl2\nl3\nl4\nl5")).toEqual(["l1", "l2", "l3", "l4", "l5"]);
+		expect(laneTailLines("l1\nl2\nl3\nl4\nl5")).toEqual([
+			"l1",
+			"l2",
+			"l3",
+			"l4",
+			"l5",
+		]);
 		expect(laneTailLines("l1\nl2\nl3\nl4\nl5", 3)).toEqual(["…", "l4", "l5"]);
-		expect(laneTailLines(Array.from({ length: 14 }, (_, i) => `line ${i + 1}`).join("\n"))).toEqual([
-			"…",
-			...Array.from({ length: 5 }, (_, i) => `line ${i + 10}`),
-		]);
-		expect(laneTailLines(Array.from({ length: 14 }, (_, i) => `line ${i + 1}`).join("\n"), 12)).toEqual([
-			"…",
-			...Array.from({ length: 11 }, (_, i) => `line ${i + 4}`),
-		]);
+		expect(
+			laneTailLines(
+				Array.from({ length: 14 }, (_, i) => `line ${i + 1}`).join("\n"),
+			),
+		).toEqual(["…", ...Array.from({ length: 5 }, (_, i) => `line ${i + 10}`)]);
+		expect(
+			laneTailLines(
+				Array.from({ length: 14 }, (_, i) => `line ${i + 1}`).join("\n"),
+				12,
+			),
+		).toEqual(["…", ...Array.from({ length: 11 }, (_, i) => `line ${i + 4}`)]);
 		const [expanded, setExpanded] = createSignal(false);
 		const setup = await mount(
 			() => (
 				<CompactionPanel
-					telemetry={{ version: 1, phase: "preparing", reason: "manual", startedAt: 1_000 }}
+					telemetry={{
+						version: 1,
+						phase: "preparing",
+						reason: "manual",
+						startedAt: 1_000,
+					}}
 					now={4_000}
 					spinner="◐"
 					frame={1}
@@ -1442,7 +1612,12 @@ describe("OpenTUI components", () => {
 						effectiveRecentTokenBudget: 30_250,
 						boundaryMode: "whole-turn",
 						lanes: {
-							audit: { role: "audit", state: "streaming", chars: 900, elapsedMs: 2500 },
+							audit: {
+								role: "audit",
+								state: "streaming",
+								chars: 900,
+								elapsedMs: 2500,
+							},
 							execution: { role: "execution", state: "queued", chars: 0 },
 						},
 					}}
@@ -1467,7 +1642,9 @@ describe("OpenTUI components", () => {
 		expect(frame).not.toContain("line one");
 		expect(frame).toContain("execution · queued · 0 chars");
 		expect(frame).toContain("expand");
-		const toggle = setup.renderer.root.findDescendantById("compaction-panel-toggle") as TextRenderable | undefined;
+		const toggle = setup.renderer.root.findDescendantById(
+			"compaction-panel-toggle",
+		) as TextRenderable | undefined;
 		expect(toggle).toBeDefined();
 		if (!toggle) throw new Error("compaction panel toggle missing");
 		await setup.mockMouse.click(toggle.x, toggle.y);
@@ -1487,7 +1664,12 @@ describe("OpenTUI components", () => {
 			() => (
 				<box flexDirection="column" width="100%" height="100%">
 					<CompactionPanel
-						telemetry={{ version: 1, phase: "preparing", reason: "manual", startedAt: 1_000 }}
+						telemetry={{
+							version: 1,
+							phase: "preparing",
+							reason: "manual",
+							startedAt: 1_000,
+						}}
 						now={4_000}
 						spinner="◐"
 						frame={1}
@@ -1505,7 +1687,12 @@ describe("OpenTUI components", () => {
 							effectiveRecentTokenBudget: 30_250,
 							boundaryMode: "whole-turn",
 							lanes: {
-								audit: { role: "audit", state: "streaming", chars: 900, elapsedMs: 2500 },
+								audit: {
+									role: "audit",
+									state: "streaming",
+									chars: 900,
+									elapsedMs: 2500,
+								},
 								execution: { role: "execution", state: "queued", chars: 0 },
 							},
 						}}
@@ -1519,8 +1706,12 @@ describe("OpenTUI components", () => {
 		);
 		const frame = setup.captureCharFrame();
 		const lines = frame.split("\n");
-		const executionRow = lines.findIndex((line) => line.includes("execution · queued"));
-		const markerRow = lines.findIndex((line) => line.includes("MARKER_AFTER_PANEL"));
+		const executionRow = lines.findIndex((line) =>
+			line.includes("execution · queued"),
+		);
+		const markerRow = lines.findIndex((line) =>
+			line.includes("MARKER_AFTER_PANEL"),
+		);
 		// Collapsed lane window: header(1) + audit lane(1) + 6 lane rows, so the
 		// execution lane must stay on row 8 and never be pushed down by wrapping.
 		expect(executionRow).toBe(8);
@@ -1541,7 +1732,12 @@ describe("OpenTUI components", () => {
 			oneRoundProgress: OneRoundProgress | undefined;
 			laneTexts: OneRoundLaneTexts | undefined;
 		} = {
-			telemetry: { version: 1, phase: "preparing", reason: "manual", startedAt: 1_000 },
+			telemetry: {
+				version: 1,
+				phase: "preparing",
+				reason: "manual",
+				startedAt: 1_000,
+			},
 			smartCompactProgress: undefined,
 			oneRoundProgress: undefined,
 			laneTexts: undefined,
@@ -1613,22 +1809,37 @@ describe("OpenTUI components", () => {
 			reason: "threshold",
 			durationMs: 2_300,
 			retainedContextMessages: 41,
-			summary: "The agent verified the release workflow and fixed one portability edge case.",
+			summary:
+				"The agent verified the release workflow and fixed one portability edge case.",
 		};
 
 		const collapsed = await mount(
-			() => <CompactedSummary completion={completion} expanded={createSignal(false)[0]} onToggle={() => {}} />,
+			() => (
+				<CompactedSummary
+					completion={completion}
+					expanded={createSignal(false)[0]}
+					onToggle={() => {}}
+				/>
+			),
 			100,
 			10,
 		);
 		let frame = collapsed.captureCharFrame();
 		expect(frame).toContain("── Compacted");
-		expect(frame).toContain("152K → ~32K · threshold · 2.3s · kept 41 messages");
+		expect(frame).toContain(
+			"152K → ~32K · threshold · 2.3s · kept 41 messages",
+		);
 		expect(frame).toContain("▶ Show compaction summary");
 		expect(frame).not.toContain("The agent verified");
 
 		const expandedSetup = await mount(
-			() => <CompactedSummary completion={completion} expanded={createSignal(true)[0]} onToggle={() => {}} />,
+			() => (
+				<CompactedSummary
+					completion={completion}
+					expanded={createSignal(true)[0]}
+					onToggle={() => {}}
+				/>
+			),
 			100,
 			10,
 		);
@@ -1666,7 +1877,10 @@ describe("OpenTUI components", () => {
 			toolCallId: "scroll-owner-tool",
 			name: "bash",
 			args: {},
-			output: Array.from({ length: 40 }, (_, index) => `OUTPUT_ROW_${index + 1}`).join("\n"),
+			output: Array.from(
+				{ length: 40 },
+				(_, index) => `OUTPUT_ROW_${index + 1}`,
+			).join("\n"),
 			timestamp: 1,
 			status: "done",
 			isError: false,
@@ -1775,18 +1989,24 @@ describe("OpenTUI components", () => {
 			40,
 			30,
 		);
-		const diffPreview = setup.renderer.root.findDescendantById("wrapped-diff-rows-diff-preview") as BoxRenderable | undefined;
+		const diffPreview = setup.renderer.root.findDescendantById(
+			"wrapped-diff-rows-diff-preview",
+		) as BoxRenderable | undefined;
 		expect(diffPreview).toBeDefined();
 		if (!diffPreview) throw new Error("diff preview missing");
 		const rows = diffPreview.getChildren() as TextRenderable[];
 		expect(rows.length).toBe(4);
-		expect(rows.filter((row) => row.height > 1).length).toBeGreaterThanOrEqual(2);
+		expect(rows.filter((row) => row.height > 1).length).toBeGreaterThanOrEqual(
+			2,
+		);
 		for (const [index, row] of rows.entries()) {
 			expect(row.height).toBe(row.virtualLineCount);
 			if (index > 0) {
 				const previousRow = rows[index - 1];
 				if (!previousRow) throw new Error("previous diff row missing");
-				expect(row.y).toBeGreaterThanOrEqual(previousRow.y + previousRow.height);
+				expect(row.y).toBeGreaterThanOrEqual(
+					previousRow.y + previousRow.height,
+				);
 			}
 		}
 	});
@@ -1798,7 +2018,10 @@ describe("OpenTUI components", () => {
 			name: "edit",
 			args: {},
 			output: "Applied edit",
-			diff: Array.from({ length: 30 }, (_, index) => `${index % 2 ? "+" : "-"}DIFF_ROW_${index + 1}`).join("\n"),
+			diff: Array.from(
+				{ length: 30 },
+				(_, index) => `${index % 2 ? "+" : "-"}DIFF_ROW_${index + 1}`,
+			).join("\n"),
 			diffPath: "src/example.ts",
 			timestamp: 1,
 			status: "done",
@@ -1990,11 +2213,15 @@ describe("OpenTUI components", () => {
 		// call renders once — with its Changes section intact.
 		const now = Date.now();
 		const base = process.env.PI_PITTY_PROFILED_ROOT?.trim() || os.tmpdir();
-		const root = fs.mkdtempSync(path.join(base, "pi-profiled-subagents-stream-diff-"));
+		const root = fs.mkdtempSync(
+			path.join(base, "pi-profiled-subagents-stream-diff-"),
+		);
 		tempDirs.push(root);
 		const treeId = `tree-stream-diff-${Date.now()}`;
 		const controlDir = path.join(root, "stream-diff-live");
-		fs.mkdirSync(path.join(controlDir, "control", "steer-requests"), { recursive: true });
+		fs.mkdirSync(path.join(controlDir, "control", "steer-requests"), {
+			recursive: true,
+		});
 		fs.mkdirSync(path.join(controlDir, "control", "acks"), { recursive: true });
 		const sessionFile = path.join(root, "stream-diff-session.jsonl");
 		fs.writeFileSync(
@@ -2003,7 +2230,14 @@ describe("OpenTUI components", () => {
 				JSON.stringify({
 					message: {
 						role: "assistant",
-						content: [{ type: "toolCall", id: "call-edit-1", name: "edit", arguments: { path: "x" } }],
+						content: [
+							{
+								type: "toolCall",
+								id: "call-edit-1",
+								name: "edit",
+								arguments: { path: "x" },
+							},
+						],
 						timestamp: now - 500,
 					},
 				}),
@@ -2020,43 +2254,91 @@ describe("OpenTUI components", () => {
 						timestamp: now - 400,
 					},
 				}),
-				].join("\n") + "\n",
+			].join("\n") + "\n",
 		);
 		const statusPath = path.join(controlDir, "status.json");
-		fs.writeFileSync(statusPath, JSON.stringify({
-			version: 1, runtime: "profiled-subagents", treeId, updatedAt: now,
-			agentId: "stream-differ", profile: "explore", parentAgentId: "root", label: "stream-differ",
-			state: "running", startedAt: now - 1000, sessionPath: sessionFile,
-		}));
+		fs.writeFileSync(
+			statusPath,
+			JSON.stringify({
+				version: 1,
+				runtime: "profiled-subagents",
+				treeId,
+				updatedAt: now,
+				agentId: "stream-differ",
+				profile: "explore",
+				parentAgentId: "root",
+				label: "stream-differ",
+				state: "running",
+				startedAt: now - 1000,
+				sessionPath: sessionFile,
+			}),
+		);
 		let seq = 0;
 		const event = (line: Record<string, unknown>) =>
-			JSON.stringify({ v: 1, seq: seq++, ts: now, runId: "stream-differ", ...line });
+			JSON.stringify({
+				v: 1,
+				seq: seq++,
+				ts: now,
+				runId: "stream-differ",
+				...line,
+			});
 		fs.writeFileSync(
 			path.join(controlDir, "events.jsonl"),
 			[
-				event({ kind: "tool_start", toolName: "edit", toolCallId: "call-edit-1" }),
-				event({ kind: "tool_end", toolName: "edit", toolCallId: "call-edit-1" }),
+				event({
+					kind: "tool_start",
+					toolName: "edit",
+					toolCallId: "call-edit-1",
+				}),
+				event({
+					kind: "tool_end",
+					toolName: "edit",
+					toolCallId: "call-edit-1",
+				}),
 			].join("\n") + "\n",
 		);
 		const tool: ToolItem = {
-			kind: "tool", id: "spawn-stream-diff", toolCallId: "spawn-stream-diff-call", name: "agent_spawn",
-			args: { agent: "explore" }, output: "", details: {
-				runtime: "profiled-subagents", treeId, parentAgentId: "root", agentId: "stream-differ", profile: "explore",
-				label: "stream-differ", state: "running", controlDir, statusPath,
-			}, timestamp: now, status: "done", isError: false,
+			kind: "tool",
+			id: "spawn-stream-diff",
+			toolCallId: "spawn-stream-diff-call",
+			name: "agent_spawn",
+			args: { agent: "explore" },
+			output: "",
+			details: {
+				runtime: "profiled-subagents",
+				treeId,
+				parentAgentId: "root",
+				agentId: "stream-differ",
+				profile: "explore",
+				label: "stream-differ",
+				state: "running",
+				controlDir,
+				statusPath,
+			},
+			timestamp: now,
+			status: "done",
+			isError: false,
 		};
-		const target = subagentTargets([], [tool]).find((entry) => entry.run.agentId === "stream-differ")!;
+		const target = subagentTargets([], [tool]).find(
+			(entry) => entry.run.agentId === "stream-differ",
+		)!;
 		expect(target.active).toBe(true);
 		// Exactly one row per call: no stream twin alongside the session row.
 		const callTools = readSubagentConversation(target.run).filter(
-			(item): item is ToolItem => item.kind === "tool" && item.toolCallId === "call-edit-1",
+			(item): item is ToolItem =>
+				item.kind === "tool" && item.toolCallId === "call-edit-1",
 		);
 		expect(callTools).toHaveLength(1);
 		const streamTool = callTools[0]!;
 		expect(streamTool.diff ?? "").toContain("-old");
 		expect(streamTool.diffPath).toBe("x");
 		const setup = await mount(() => (
-			<MessageView item={streamTool} showThinking toolExpanded={false} diffExpanded={false} />
+			<MessageView
+				item={streamTool}
+				showThinking
+				toolExpanded={false}
+				diffExpanded={false}
+			/>
 		));
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("Changes");
@@ -2068,9 +2350,18 @@ describe("OpenTUI components", () => {
 		const resident: SubagentTarget = {
 			key: "profiled:resident-idle",
 			run: {
-				runId: "profiled:resident-idle", control: "profiled", runtime: "profiled-subagents",
-				mode: "profiled", state: "idle", steps: [], agentId: "ron", profile: "explore",
-				label: "resident", toolCount: 3, tokens: { window: 168187 }, contextWindow: 1048576,
+				runId: "profiled:resident-idle",
+				control: "profiled",
+				runtime: "profiled-subagents",
+				mode: "profiled",
+				state: "idle",
+				steps: [],
+				agentId: "ron",
+				profile: "explore",
+				label: "resident",
+				toolCount: 3,
+				tokens: { window: 168187 },
+				contextWindow: 1048576,
 			},
 			label: "@ron · explore",
 			state: "idle",
@@ -2106,9 +2397,22 @@ describe("OpenTUI components", () => {
 			() => (
 				<MessageView
 					item={{
-						kind: "custom", id: "profiled-notification", customType: "subagent-notification",
-						text: JSON.stringify({ agent_id: "jett", status: "completed", result }), timestamp: 1,
-						details: { label: "@jett — bounded task", model: "provider/model", thinking: "high", usage: { tokens: 42, toolUses: 3, durationMs: 1200 }, sessionPath: "/tmp/very-long-session-path.jsonl" },
+						kind: "custom",
+						id: "profiled-notification",
+						customType: "subagent-notification",
+						text: JSON.stringify({
+							agent_id: "jett",
+							status: "completed",
+							result,
+						}),
+						timestamp: 1,
+						details: {
+							label: "@jett — bounded task",
+							model: "provider/model",
+							thinking: "high",
+							usage: { tokens: 42, toolUses: 3, durationMs: 1200 },
+							sessionPath: "/tmp/very-long-session-path.jsonl",
+						},
 					}}
 					showThinking
 					toolExpanded={false}
@@ -2125,13 +2429,51 @@ describe("OpenTUI components", () => {
 		expect(frame.split("\n").length).toBeLessThanOrEqual(9);
 
 		const fallback = await mount(
-			() => <MessageView item={{ kind: "custom", id: "fallback-notification", customType: "subagent-notification", text: JSON.stringify({ agent_id: "zoe", status: "failed", result: "fallback result" }), timestamp: 1 }} showThinking toolExpanded={false} />,
+			() => (
+				<MessageView
+					item={{
+						kind: "custom",
+						id: "fallback-notification",
+						customType: "subagent-notification",
+						text: JSON.stringify({
+							agent_id: "zoe",
+							status: "failed",
+							result: "fallback result",
+						}),
+						timestamp: 1,
+					}}
+					showThinking
+					toolExpanded={false}
+				/>
+			),
 			60,
 			8,
 		);
 		expect(fallback.captureCharFrame()).toContain("@zoe");
 		const spawn = await mount(
-			() => <MessageView item={{ kind: "tool", id: "spawn", toolCallId: "spawn-call", name: "agent_spawn", args: { agent: "explore", prompt: "secret prompt" }, output: "", details: { runtime: "profiled-subagents", agentId: "jett", profile: "explore", label: "launch task" }, timestamp: 1, status: "done", isError: false }} showThinking toolExpanded={false} />,
+			() => (
+				<MessageView
+					item={{
+						kind: "tool",
+						id: "spawn",
+						toolCallId: "spawn-call",
+						name: "agent_spawn",
+						args: { agent: "explore", prompt: "secret prompt" },
+						output: "",
+						details: {
+							runtime: "profiled-subagents",
+							agentId: "jett",
+							profile: "explore",
+							label: "launch task",
+						},
+						timestamp: 1,
+						status: "done",
+						isError: false,
+					}}
+					showThinking
+					toolExpanded={false}
+				/>
+			),
 			80,
 			8,
 		);
@@ -2139,10 +2481,33 @@ describe("OpenTUI components", () => {
 	});
 
 	test("notification usage counters remain distinct and readable at 70 columns", async () => {
-		const setup = await mount(() => <MessageView item={{
-			kind: "custom", id: "usage-card", customType: "subagent-notification", text: "", timestamp: 1,
-			details: { agent_id: "una", status: "completed", result: "done", usage: { tokens: 844771, outputTokens: 6603, contextTokens: 73739 } },
-		}} showThinking toolExpanded={false} />, 70, 12);
+		const setup = await mount(
+			() => (
+				<MessageView
+					item={{
+						kind: "custom",
+						id: "usage-card",
+						customType: "subagent-notification",
+						text: "",
+						timestamp: 1,
+						details: {
+							agent_id: "una",
+							status: "completed",
+							result: "done",
+							usage: {
+								tokens: 844771,
+								outputTokens: 6603,
+								contextTokens: 73739,
+							},
+						},
+					}}
+					showThinking
+					toolExpanded={false}
+				/>
+			),
+			70,
+			12,
+		);
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("844,771 cumulative tokens (incl. cache)");
 		expect(frame).toContain("6,603 generated");
@@ -2155,7 +2520,7 @@ describe("OpenTUI components", () => {
 				kind: "custom",
 				id: "question",
 				customType: "subagent_supervisor_request",
-				text: "Choose the safer approach.\nReply with: subagent_supervisor({ action: \\\"reply\\\" })",
+				text: 'Choose the safer approach.\nReply with: subagent_supervisor({ action: \\"reply\\" })',
 				details: { agent: "worker", reason: "need decision" },
 				timestamp: 1,
 			},
@@ -2185,7 +2550,11 @@ describe("OpenTUI components", () => {
 				id: "supervisor-tool",
 				toolCallId: "supervisor-tool",
 				name: "subagent_supervisor",
-				args: { action: "reply", agent: "worker", message: "Full supervisor reply body" },
+				args: {
+					action: "reply",
+					agent: "worker",
+					message: "Full supervisor reply body",
+				},
 				output: "",
 				timestamp: 3,
 				status: "done",
@@ -2195,7 +2564,9 @@ describe("OpenTUI components", () => {
 		const setup = await mount(
 			() => (
 				<box flexDirection="column">
-					{items.map((item) => <MessageView item={item} showThinking toolExpanded={false} />)}
+					{items.map((item) => (
+						<MessageView item={item} showThinking toolExpanded={false} />
+					))}
 				</box>
 			),
 			120,
@@ -2211,7 +2582,8 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("other_event: visible notice");
 		expect(frame).toContain("TOOL · → reply worker");
 		expect(frame).toContain("Full supervisor reply body");
-		for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(120);
+		for (const line of frame.split("\n"))
+			expect(line.length).toBeLessThanOrEqual(120);
 	});
 
 	test("renders and selects fork points by keyboard and mouse", async () => {
@@ -2224,7 +2596,9 @@ describe("OpenTUI components", () => {
 			() => (
 				<ForkPicker
 					options={choices}
-					onSelect={(entryId) => { selectedEntry = entryId; }}
+					onSelect={(entryId) => {
+						selectedEntry = entryId;
+					}}
 					onCancel={() => {}}
 				/>
 			),
@@ -2242,7 +2616,9 @@ describe("OpenTUI components", () => {
 			() => (
 				<ForkPicker
 					options={choices}
-					onSelect={(entryId) => { firstArrowSelected = entryId; }}
+					onSelect={(entryId) => {
+						firstArrowSelected = entryId;
+					}}
 					onCancel={() => {}}
 				/>
 			),
@@ -2264,7 +2640,9 @@ describe("OpenTUI components", () => {
 			() => (
 				<ForkPicker
 					options={choices}
-					onSelect={(entryId) => { mouseSelected = entryId; }}
+					onSelect={(entryId) => {
+						mouseSelected = entryId;
+					}}
 					onCancel={() => {}}
 				/>
 			),
@@ -2272,7 +2650,9 @@ describe("OpenTUI components", () => {
 			18,
 		);
 		const mouseFrame = mouse.captureCharFrame();
-		const row = mouseFrame.split("\n").findIndex((line) => line.includes("2. Second message"));
+		const row = mouseFrame
+			.split("\n")
+			.findIndex((line) => line.includes("2. Second message"));
 		expect(row).toBeGreaterThanOrEqual(0);
 		await mouse.mockMouse.click(
 			Math.max(0, mouseFrame.split("\n")[row]!.indexOf("2. Second message")),
@@ -2292,7 +2672,9 @@ describe("OpenTUI components", () => {
 			() => (
 				<ForkPicker
 					options={longChoices}
-					onSelect={(entryId) => { scrolledMouseSelection = entryId; }}
+					onSelect={(entryId) => {
+						scrolledMouseSelection = entryId;
+					}}
 					onCancel={() => {}}
 				/>
 			),
@@ -2300,12 +2682,16 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		scrolled.mockInput.pressArrow("down");
-		for (let index = 0; index < 22; index++) scrolled.mockInput.pressArrow("down");
+		for (let index = 0; index < 22; index++)
+			scrolled.mockInput.pressArrow("down");
 		await scrolled.flush();
 		const scrolledFrame = scrolled.captureCharFrame();
 		const scrolledLines = scrolledFrame.split("\n");
-		const scrolledRow = scrolledLines.findIndex((line) => /\d+\. Message \d+/.test(line));
-		const visibleMatch = scrolledLines[scrolledRow]?.match(/(\d+)\. Message \d+/);
+		const scrolledRow = scrolledLines.findIndex((line) =>
+			/\d+\. Message \d+/.test(line),
+		);
+		const visibleMatch =
+			scrolledLines[scrolledRow]?.match(/(\d+)\. Message \d+/);
 		if (!visibleMatch) throw new Error("scrolled fork option missing");
 		await scrolled.mockMouse.click(
 			Math.max(0, scrolledLines[scrolledRow]!.indexOf(visibleMatch[0])),
@@ -2334,10 +2720,16 @@ describe("OpenTUI components", () => {
 						{ id: "two", sessionName: "Forked", badges: 2 },
 					]}
 					activeId="one"
-					onActivate={(id) => { activated = id; }}
+					onActivate={(id) => {
+						activated = id;
+					}}
 					onClose={() => {}}
-					onCreate={() => { created = true; }}
-					onOpenForkPicker={() => { forkOpened = true; }}
+					onCreate={() => {
+						created = true;
+					}}
+					onOpenForkPicker={() => {
+						forkOpened = true;
+					}}
 				/>
 			),
 			42,
@@ -2360,7 +2752,8 @@ describe("OpenTUI components", () => {
 		const plusColumn = tabLines[0]!.indexOf("+");
 		expect(forkColumn).toBeGreaterThan(tabLines[0]!.indexOf("Forked"));
 		expect(plusColumn).toBe(forkColumn + 3);
-		for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(42);
+		for (const line of frame.split("\n"))
+			expect(line.length).toBeLessThanOrEqual(42);
 		const row = frame.split("\n").findIndex((line) => line.includes("Forked"));
 		await setup.mockMouse.click(
 			Math.max(0, frame.split("\n")[row]!.indexOf("Forked")),
@@ -2387,8 +2780,12 @@ describe("OpenTUI components", () => {
 					activeId="long"
 					onActivate={() => {}}
 					onClose={() => {}}
-					onCreate={() => { created = true; }}
-					onOpenForkPicker={() => { forkOpened = true; }}
+					onCreate={() => {
+						created = true;
+					}}
+					onOpenForkPicker={() => {
+						forkOpened = true;
+					}}
 				/>
 			),
 			40,
@@ -2411,7 +2808,13 @@ describe("OpenTUI components", () => {
 		const setup = await mount(
 			() => (
 				<TabStrip
-					tabs={[{ id: "narrow", sessionName: "a very long session title", badges: 0 }]}
+					tabs={[
+						{
+							id: "narrow",
+							sessionName: "a very long session title",
+							badges: 0,
+						},
+					]}
 					activeId="narrow"
 					onActivate={() => {}}
 					onClose={() => {}}
@@ -3025,7 +3428,13 @@ describe("OpenTUI components", () => {
 				state: "running",
 				agent: "implementer",
 				totalTokens: 497506,
-				tokens: { total: 497506, input: 480012, output: 17494, window: 168187, windowPeak: 168187 },
+				tokens: {
+					total: 497506,
+					input: 480012,
+					output: 17494,
+					window: 168187,
+					windowPeak: 168187,
+				},
 				currentTool: "bash",
 				steps: [
 					{
@@ -3033,7 +3442,13 @@ describe("OpenTUI components", () => {
 						agent: "implementer",
 						status: "running",
 						contextWindow: 1048576,
-						tokens: { total: 497506, input: 480012, output: 17494, window: 168187, windowPeak: 168187 },
+						tokens: {
+							total: 497506,
+							input: 480012,
+							output: 17494,
+							window: 168187,
+							windowPeak: 168187,
+						},
 					},
 				],
 			},
@@ -3234,7 +3649,6 @@ describe("OpenTUI components", () => {
 		]);
 	});
 
-
 	test("renders profiled descendants beneath their parent in the sidebar", async () => {
 		const profiledRun = (
 			agentId: string,
@@ -3319,23 +3733,23 @@ describe("OpenTUI components", () => {
 			timestamp: 1,
 			status: "done",
 		};
-		const setup = await mount(
-			() => (
-				<MessageView
-					item={assistant}
-					showThinking
-					thinkingExpanded={false}
-					toolExpanded={false}
-				/>
-			),
-		);
+		const setup = await mount(() => (
+			<MessageView
+				item={assistant}
+				showThinking
+				thinkingExpanded={false}
+				toolExpanded={false}
+			/>
+		));
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("closing marker zeta");
 		expect(frame).not.toContain("opening marker alpha");
 		expect(frame).toContain("▶ Thinking");
 	});
 	test("sidebar spends no rows on provider usage", async () => {
-		const frame = (await mount(() => <Sidebar runs={[]} />, 42, 40)).captureCharFrame();
+		const frame = (
+			await mount(() => <Sidebar runs={[]} />, 42, 40)
+		).captureCharFrame();
 		expect(frame).not.toContain("OpenCode Go");
 		expect(frame).not.toContain("Claude limits");
 		expect(frame).not.toContain("Codex");
@@ -3353,8 +3767,18 @@ describe("OpenTUI components", () => {
 						mcpStatus={{
 							version: 1,
 							servers: [
-								{ name: "github", status: "connected", toolCount: 4, disabled: false },
-								{ name: "postgres", status: "connected", toolCount: 2, disabled: false },
+								{
+									name: "github",
+									status: "connected",
+									toolCount: 4,
+									disabled: false,
+								},
+								{
+									name: "postgres",
+									status: "connected",
+									toolCount: 2,
+									disabled: false,
+								},
 							],
 							totalTools: 6,
 							connectedCount: 2,
@@ -3511,8 +3935,14 @@ describe("OpenTUI components", () => {
 		).toEqual(["gpt-5.6-terra"]);
 		expect(filterModelChoices(models, "/")).toEqual(models);
 		expect(filterModelChoices(models, " /  / ")).toEqual(models);
-		expect(filterModelChoices(models, "openai-codex/gpt-5.6-sol").map((model) => model.id)).toEqual(["gpt-5.6-sol"]);
-		expect(filterModelChoices(models, "codex / terra").map((model) => model.id)).toEqual(["gpt-5.6-terra"]);
+		expect(
+			filterModelChoices(models, "openai-codex/gpt-5.6-sol").map(
+				(model) => model.id,
+			),
+		).toEqual(["gpt-5.6-sol"]);
+		expect(
+			filterModelChoices(models, "codex / terra").map((model) => model.id),
+		).toEqual(["gpt-5.6-terra"]);
 		expect(filterModelChoices(models, "missing")).toEqual([]);
 		const emptySetup = await mount(
 			() => (
@@ -3530,16 +3960,20 @@ describe("OpenTUI components", () => {
 	});
 
 	test("Ctrl+P slash alone keeps all models visible instead of clearing results", async () => {
-		const setup = await mount(() => (
-			<ModelSelectorDialog
-				models={[
-					{ provider: "openai-codex", id: "gpt-5.6-terra" },
-					{ provider: "anthropic", id: "claude-sonnet" },
-				]}
-				onSelect={() => {}}
-				onCancel={() => {}}
-			/>
-		), 90, 24);
+		const setup = await mount(
+			() => (
+				<ModelSelectorDialog
+					models={[
+						{ provider: "openai-codex", id: "gpt-5.6-terra" },
+						{ provider: "anthropic", id: "claude-sonnet" },
+					]}
+					onSelect={() => {}}
+					onCancel={() => {}}
+				/>
+			),
+			90,
+			24,
+		);
 		await setup.mockInput.typeText("/");
 		await setup.flush();
 		const frame = setup.captureCharFrame();
@@ -3598,16 +4032,18 @@ describe("OpenTUI components", () => {
 		const setup = await mount(
 			() => (
 				<Sidebar
-					state={{
-						sessionName: "Timing session",
-						sessionId: "session",
-						model: {
-							provider: "openai",
-							id: "gpt-5",
-							contextWindow: 100_000,
-						},
-						thinkingLevel: "high",
-					} as RpcSessionState}
+					state={
+						{
+							sessionName: "Timing session",
+							sessionId: "session",
+							model: {
+								provider: "openai",
+								id: "gpt-5",
+								contextWindow: 100_000,
+							},
+							thinkingLevel: "high",
+						} as RpcSessionState
+					}
 					runs={[]}
 					timingHistory={history}
 					subagentsAvailable={false}
@@ -3626,56 +4062,108 @@ describe("OpenTUI components", () => {
 	});
 
 	test("keeps timing and tool dispatch readable in a 38-column sidebar", async () => {
-		const history: RequestTiming[] = [{
-			timingVersion: REQUEST_TIMING_VERSION, provider: "openai", modelId: "gpt",
-			turnMs: 7_200, toolCallDurationsMs: [980], toolDispatchMs: [55],
-			toolCallCount: 1,
-		}];
-		const setup = await mount(() => (
-			<Sidebar
-				state={{ sessionName: "Example", model: { provider: "openai", id: "gpt", contextWindow: 100_000 } } as RpcSessionState}
-				runs={[]}
-				timingHistory={history}
-				subagentsAvailable={false}
-				todosAvailable={false}
-				height={24}
-			/>
-		), 38, 24);
+		const history: RequestTiming[] = [
+			{
+				timingVersion: REQUEST_TIMING_VERSION,
+				provider: "openai",
+				modelId: "gpt",
+				turnMs: 7_200,
+				toolCallDurationsMs: [980],
+				toolDispatchMs: [55],
+				toolCallCount: 1,
+			},
+		];
+		const setup = await mount(
+			() => (
+				<Sidebar
+					state={
+						{
+							sessionName: "Example",
+							model: { provider: "openai", id: "gpt", contextWindow: 100_000 },
+						} as RpcSessionState
+					}
+					runs={[]}
+					timingHistory={history}
+					subagentsAvailable={false}
+					todosAvailable={false}
+					height={24}
+				/>
+			),
+			38,
+			24,
+		);
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("Timing · dispatch 55ms");
 		expect(frame).toContain("Turn 7s · Tool 980ms");
-		const timingRows = frame.split("\n").filter((line) =>
-			line.includes("Timing · dispatch") || line.includes("Turn 7s · Tool"));
+		const timingRows = frame
+			.split("\n")
+			.filter(
+				(line) =>
+					line.includes("Timing · dispatch") || line.includes("Turn 7s · Tool"),
+			);
 		expect(timingRows).toHaveLength(2);
 		expect(timingRows.every((line) => line.length <= 38)).toBe(true);
 	});
 
 	test("keeps model-picker timing compact when dispatch metrics exist", async () => {
-		const history: RequestTiming[] = [{
-			timingVersion: REQUEST_TIMING_VERSION, provider: "openai", modelId: "gpt",
-			turnMs: 7_200, toolCallDurationsMs: [980], toolDispatchMs: [55],
-			toolCallCount: 1,
-		}];
-		const setup = await mount(() => (
-			<ModelSelectorDialog models={[{ provider: "openai", id: "gpt" }]}
-				timingHistory={history} onSelect={() => {}} onCancel={() => {}} />
-		), 75, 20);
+		const history: RequestTiming[] = [
+			{
+				timingVersion: REQUEST_TIMING_VERSION,
+				provider: "openai",
+				modelId: "gpt",
+				turnMs: 7_200,
+				toolCallDurationsMs: [980],
+				toolDispatchMs: [55],
+				toolCallCount: 1,
+			},
+		];
+		const setup = await mount(
+			() => (
+				<ModelSelectorDialog
+					models={[{ provider: "openai", id: "gpt" }]}
+					timingHistory={history}
+					onSelect={() => {}}
+					onCancel={() => {}}
+				/>
+			),
+			75,
+			20,
+		);
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("Turn 7s · Tool 980ms");
 		expect(frame).not.toContain("Dispatch 55ms");
 	});
 
 	test("does not display another model's last measured output speed", async () => {
-		const setup = await mount(() => (
-			<Sidebar
-				state={{ sessionName: "Running", model: { provider: "openai", id: "new-model", contextWindow: 100000 } } as RpcSessionState}
-				runs={[]}
-				lastRequestPerformance={{ provider: "openai", modelId: "old-model", ttftMs: 100, outputTokens: 100, generationMs: 1000 }}
-				subagentsAvailable={false}
-				todosAvailable={false}
-				height={24}
-			/>
-		), 80, 24);
+		const setup = await mount(
+			() => (
+				<Sidebar
+					state={
+						{
+							sessionName: "Running",
+							model: {
+								provider: "openai",
+								id: "new-model",
+								contextWindow: 100000,
+							},
+						} as RpcSessionState
+					}
+					runs={[]}
+					lastRequestPerformance={{
+						provider: "openai",
+						modelId: "old-model",
+						ttftMs: 100,
+						outputTokens: 100,
+						generationMs: 1000,
+					}}
+					subagentsAvailable={false}
+					todosAvailable={false}
+					height={24}
+				/>
+			),
+			80,
+			24,
+		);
 		expect(setup.captureCharFrame()).not.toContain("Turn→output");
 	});
 
@@ -3694,16 +4182,18 @@ describe("OpenTUI components", () => {
 		const setup = await mount(
 			() => (
 				<Sidebar
-					state={{
-						sessionName: "Timing session",
-						sessionId: "session",
-						model: {
-							provider: "openai",
-							id: "gpt-4",
-							contextWindow: 100_000,
-						},
-						thinkingLevel: "high",
-					} as RpcSessionState}
+					state={
+						{
+							sessionName: "Timing session",
+							sessionId: "session",
+							model: {
+								provider: "openai",
+								id: "gpt-4",
+								contextWindow: 100_000,
+							},
+							thinkingLevel: "high",
+						} as RpcSessionState
+					}
 					runs={[]}
 					timingHistory={history}
 					subagentsAvailable={false}
@@ -4151,12 +4641,23 @@ describe("OpenTUI components", () => {
 
 	test("inspector shows the pending ask_parent question without a duplicate model message", async () => {
 		const run: SubagentRun = {
-			runId: "question-1", control: "profiled", controlDir: "/tmp/question-1",
-			mode: "profiled", state: "waiting", agent: "implementer", startedAt: 1_000, steps: [],
-			pendingQuestion: "Approve the retention hold?", pendingQuestionContext: "Delete is blocked",
+			runId: "question-1",
+			control: "profiled",
+			controlDir: "/tmp/question-1",
+			mode: "profiled",
+			state: "waiting",
+			agent: "implementer",
+			startedAt: 1_000,
+			steps: [],
+			pendingQuestion: "Approve the retention hold?",
+			pendingQuestionContext: "Delete is blocked",
 		};
 		const target = subagentTargets([run])[0]!;
-		const setup = await mount(() => <SubagentInspector target={target} items={[]} now={2_000} />, 100, 24);
+		const setup = await mount(
+			() => <SubagentInspector target={target} items={[]} now={2_000} />,
+			100,
+			24,
+		);
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("Awaiting parent answer");
 		expect(frame).toContain("Approve the retention hold?");
@@ -4198,9 +4699,26 @@ describe("OpenTUI components", () => {
 	});
 
 	test("sidebar never reports working/starting for finished children", () => {
-		const sidebarTarget = (state: string, runExtra: Partial<SubagentRun> = {}): SubagentTarget => {
-			const run: SubagentRun = { runId: `sidebar-${state}`, mode: "profiled", state, agent: "explore", steps: [], ...runExtra };
-			return { key: run.runId, run, label: "explore", state, active: false, canSteer: false };
+		const sidebarTarget = (
+			state: string,
+			runExtra: Partial<SubagentRun> = {},
+		): SubagentTarget => {
+			const run: SubagentRun = {
+				runId: `sidebar-${state}`,
+				mode: "profiled",
+				state,
+				agent: "explore",
+				steps: [],
+				...runExtra,
+			};
+			return {
+				key: run.runId,
+				run,
+				label: "explore",
+				state,
+				active: false,
+				canSteer: false,
+			};
 		};
 		// The usage line reports nothing when there is nothing to report —
 		// the activity row already names the state, so restating it would
@@ -4225,11 +4743,24 @@ describe("OpenTUI components", () => {
 		expect(targetToolUsage(sidebarTarget("running"))).toBe("starting…");
 		expect(targetToolUsage(sidebarTarget("queued"))).toBe("starting…");
 		// A current tool still renders when present, even on a finished child.
-		expect(targetToolActivity(sidebarTarget("completed", { currentTool: "bash" }))).toBe("bash");
-		expect(targetToolActivity(sidebarTarget("running", { currentTool: "bash", currentPath: "src/a.ts" }))).toBe("bash · src/a.ts");
+		expect(
+			targetToolActivity(sidebarTarget("completed", { currentTool: "bash" })),
+		).toBe("bash");
+		expect(
+			targetToolActivity(
+				sidebarTarget("running", {
+					currentTool: "bash",
+					currentPath: "src/a.ts",
+				}),
+			),
+		).toBe("bash · src/a.ts");
 		// Real usage numbers win over every fallback.
-		expect(targetToolUsage(sidebarTarget("completed", { toolCount: 3 }))).toBe("3 tools");
-		expect(targetToolUsage(sidebarTarget("running", { toolCount: 3 }))).toBe("3 tools");
+		expect(targetToolUsage(sidebarTarget("completed", { toolCount: 3 }))).toBe(
+			"3 tools",
+		);
+		expect(targetToolUsage(sidebarTarget("running", { toolCount: 3 }))).toBe(
+			"3 tools",
+		);
 	});
 
 	test("sidebar renders live waiting/resident children without working or starting", async () => {
@@ -4247,7 +4778,13 @@ describe("OpenTUI components", () => {
 		});
 		const state = { sessionName: "stream-session" } as RpcSessionState;
 		const sidebar = await mount(
-			() => <Sidebar state={state} runs={[makeLive("waiting", "waiting"), makeLive("idle", "idle")]} now={now} />,
+			() => (
+				<Sidebar
+					state={state}
+					runs={[makeLive("waiting", "waiting"), makeLive("idle", "idle")]}
+					now={now}
+				/>
+			),
 			42,
 			30,
 		);
@@ -4271,7 +4808,17 @@ describe("OpenTUI components", () => {
 		];
 		fs.writeFileSync(
 			eventsPath,
-			lines.map((line, seq) => JSON.stringify({ v: 1, seq, ts: now, runId: "stream-child", ...line })).join("\n") + "\n",
+			lines
+				.map((line, seq) =>
+					JSON.stringify({
+						v: 1,
+						seq,
+						ts: now,
+						runId: "stream-child",
+						...line,
+					}),
+				)
+				.join("\n") + "\n",
 		);
 		const run: SubagentRun = {
 			runId: "profiled:stream-child",
@@ -4288,15 +4835,22 @@ describe("OpenTUI components", () => {
 		};
 		const items = readSubagentConversation(run);
 		expect(items).toHaveLength(3);
-		expect(items.map((item) => item.kind === "assistant" || item.kind === "tool" ? item.status : undefined)).toEqual([
-			"streaming",
-			"streaming",
-			"streaming",
-		]);
+		expect(
+			items.map((item) =>
+				item.kind === "assistant" || item.kind === "tool"
+					? item.status
+					: undefined,
+			),
+		).toEqual(["streaming", "streaming", "streaming"]);
 		const setup = await mount(() => (
 			<box width="100%" height="100%" flexDirection="column">
 				{items.map((item) => (
-					<MessageView item={item} showThinking toolExpanded={false} now={now} />
+					<MessageView
+						item={item}
+						showThinking
+						toolExpanded={false}
+						now={now}
+					/>
 				))}
 			</box>
 		));
@@ -4310,7 +4864,14 @@ describe("OpenTUI components", () => {
 		// (inside the writer's coalescing window) renders the cursor.
 		const cursor = await mount(() => (
 			<MessageView
-				item={{ kind: "assistant", id: "stream-cursor", text: "", thinking: "", timestamp: now, status: "streaming" }}
+				item={{
+					kind: "assistant",
+					id: "stream-cursor",
+					text: "",
+					thinking: "",
+					timestamp: now,
+					status: "streaming",
+				}}
 				showThinking
 				toolExpanded={false}
 				now={now}
@@ -4379,7 +4940,13 @@ describe("OpenTUI components", () => {
 			agent: "implementer",
 			model,
 			thinking: "medium",
-			tokens: { total: 40000, input: 33000, output: 7000, window: 33000, windowPeak: 33000 },
+			tokens: {
+				total: 40000,
+				input: 33000,
+				output: 7000,
+				window: 33000,
+				windowPeak: 33000,
+			},
 			contextWindow: 400000,
 			currentTool: "bash",
 			steps: [],
@@ -4393,7 +4960,12 @@ describe("OpenTUI components", () => {
 		const frame = setup.captureCharFrame();
 		const detailLines = frame
 			.split("\n")
-			.filter((line) => line.includes("Context") || line.includes("Model") || line.includes("Thinking:"));
+			.filter(
+				(line) =>
+					line.includes("Context") ||
+					line.includes("Model") ||
+					line.includes("Thinking:"),
+			);
 		// One row, not five: Context, Model and Thinking share a single line,
 		// so the block above the transcript takes one row instead of five.
 		expect(detailLines).toHaveLength(1);
@@ -4428,7 +5000,11 @@ describe("OpenTUI components", () => {
 		const activeTarget = subagentTargets([makeRun("active", "running")])[0]!;
 		const activeView = await mount(
 			() => (
-				<SubagentInspector target={activeTarget} items={[toolItem]} now={61_000} />
+				<SubagentInspector
+					target={activeTarget}
+					items={[toolItem]}
+					now={61_000}
+				/>
 			),
 			100,
 			30,
@@ -4542,7 +5118,9 @@ describe("OpenTUI components", () => {
 		);
 		expect(pausedView.captureCharFrame()).toContain("▶ Resume");
 		expect(pausedView.captureCharFrame()).toContain("⏹ Stop");
-		expect(pausedView.captureCharFrame()).toContain("Resume via click · Ctrl+Shift+A stop");
+		expect(pausedView.captureCharFrame()).toContain(
+			"Resume via click · Ctrl+Shift+A stop",
+		);
 		expect(pausedView.captureCharFrame()).not.toContain("⏸ Pause");
 		expect(pausedView.captureCharFrame()).not.toContain("Ctrl+A pause");
 		const finishedView = await mount(
@@ -4776,27 +5354,28 @@ describe("OpenTUI components", () => {
 		const setup = await mount(
 			() => (
 				<box width="100%" height="100%" flexDirection="column">
-					<PendingInputPanel
-						queuedFollowUps={queuedFollowUps}
-						steering={["sent steering"]}
-						followUps={["sent follow-up"]}
-						onEditQueuedFollowUp={() => {}}
-					/>
-					<CommandSuggestions
-						commands={() => commands}
-						selectedIndex={selectedIndex}
-						onSelect={() => {}}
-					/>
-					<textarea
-						ref={(value) => {
-							editor = value;
-						}}
-						focused
-						flexShrink={0}
-						minHeight={2}
-						height={2}
-						placeholder="PROMPT_ANCHOR"
-					/>
+					<AppPromptDock
+						viewportRows={() => 14}
+						enabled={() => true}
+						queuedFollowUps={() => queuedFollowUps}
+						steeringQueue={() => ["sent steering"]}
+						followUpQueue={() => ["sent follow-up"]}
+						editQueuedFollowUp={() => {}}
+						commandSuggestions={() => commands}
+						commandSuggestionIndex={selectedIndex}
+						insertSuggestedCommand={() => {}}
+					>
+						<textarea
+							ref={(value) => {
+								editor = value;
+							}}
+							focused
+							flexShrink={0}
+							minHeight={2}
+							height={2}
+							placeholder="PROMPT_ANCHOR"
+						/>
+					</AppPromptDock>
 				</box>
 			),
 			80,
@@ -5552,10 +6131,66 @@ describe("duration and sidebar repaint regressions", () => {
 			}),
 		);
 		const targets: SubagentTarget[] = [
-			{ key: "w1", run: { runId: "w1", mode: "single", state: "running", agent: "explore", steps: [] }, label: "@w1 — worker one", state: "running", active: true, canSteer: false, lastUpdate: 1_000 },
-			{ key: "w2", run: { runId: "w2", mode: "single", state: "running", agent: "explore", steps: [] }, label: "@w2 — worker two", state: "running", active: true, canSteer: false, lastUpdate: 1_000 },
-			{ key: "f1", run: { runId: "f1", mode: "single", state: "completed", agent: "explore", steps: [] }, label: "@f1 — finisher one", state: "completed", active: false, canSteer: false, lastUpdate: 1_000 },
-			{ key: "f2", run: { runId: "f2", mode: "single", state: "completed", agent: "explore", steps: [] }, label: "@f2 — finisher two", state: "completed", active: false, canSteer: false, lastUpdate: 1_000 },
+			{
+				key: "w1",
+				run: {
+					runId: "w1",
+					mode: "single",
+					state: "running",
+					agent: "explore",
+					steps: [],
+				},
+				label: "@w1 — worker one",
+				state: "running",
+				active: true,
+				canSteer: false,
+				lastUpdate: 1_000,
+			},
+			{
+				key: "w2",
+				run: {
+					runId: "w2",
+					mode: "single",
+					state: "running",
+					agent: "explore",
+					steps: [],
+				},
+				label: "@w2 — worker two",
+				state: "running",
+				active: true,
+				canSteer: false,
+				lastUpdate: 1_000,
+			},
+			{
+				key: "f1",
+				run: {
+					runId: "f1",
+					mode: "single",
+					state: "completed",
+					agent: "explore",
+					steps: [],
+				},
+				label: "@f1 — finisher one",
+				state: "completed",
+				active: false,
+				canSteer: false,
+				lastUpdate: 1_000,
+			},
+			{
+				key: "f2",
+				run: {
+					runId: "f2",
+					mode: "single",
+					state: "completed",
+					agent: "explore",
+					steps: [],
+				},
+				label: "@f2 — finisher two",
+				state: "completed",
+				active: false,
+				canSteer: false,
+				lastUpdate: 1_000,
+			},
 		];
 		const owned = new Map<string, SubagentTarget[]>(
 			tools.map((tool, index) => [tool.id, [targets[index]!]]),
@@ -5601,10 +6236,66 @@ describe("duration and sidebar repaint regressions", () => {
 			}),
 		);
 		const targets: SubagentTarget[] = [
-			{ key: "w1", run: { runId: "w1", mode: "single", state: "running", agent: "explore", steps: [] }, label: "@w1 — worker one", state: "running", active: true, canSteer: false, lastUpdate: 1_000 },
-			{ key: "w2", run: { runId: "w2", mode: "single", state: "running", agent: "explore", steps: [] }, label: "@w2 — worker two", state: "running", active: true, canSteer: false, lastUpdate: 1_000 },
-			{ key: "f1", run: { runId: "f1", mode: "single", state: "completed", agent: "explore", steps: [] }, label: "@f1 — finisher one", state: "completed", active: false, canSteer: false, lastUpdate: 1_000 },
-			{ key: "f2", run: { runId: "f2", mode: "single", state: "completed", agent: "explore", steps: [] }, label: "@f2 — finisher two", state: "completed", active: false, canSteer: false, lastUpdate: 1_000 },
+			{
+				key: "w1",
+				run: {
+					runId: "w1",
+					mode: "single",
+					state: "running",
+					agent: "explore",
+					steps: [],
+				},
+				label: "@w1 — worker one",
+				state: "running",
+				active: true,
+				canSteer: false,
+				lastUpdate: 1_000,
+			},
+			{
+				key: "w2",
+				run: {
+					runId: "w2",
+					mode: "single",
+					state: "running",
+					agent: "explore",
+					steps: [],
+				},
+				label: "@w2 — worker two",
+				state: "running",
+				active: true,
+				canSteer: false,
+				lastUpdate: 1_000,
+			},
+			{
+				key: "f1",
+				run: {
+					runId: "f1",
+					mode: "single",
+					state: "completed",
+					agent: "explore",
+					steps: [],
+				},
+				label: "@f1 — finisher one",
+				state: "completed",
+				active: false,
+				canSteer: false,
+				lastUpdate: 1_000,
+			},
+			{
+				key: "f2",
+				run: {
+					runId: "f2",
+					mode: "single",
+					state: "completed",
+					agent: "explore",
+					steps: [],
+				},
+				label: "@f2 — finisher two",
+				state: "completed",
+				active: false,
+				canSteer: false,
+				lastUpdate: 1_000,
+			},
 		];
 		const owned = new Map<string, SubagentTarget[]>(
 			tools.map((tool, index) => [tool.id, [targets[index]!]]),
@@ -5660,16 +6351,26 @@ describe("duration and sidebar repaint regressions", () => {
 			isError: false,
 		});
 		const left = [spawn("s1"), spawn("s2")];
-		const middle: ToolItem = { ...spawn("bash-1"), name: "bash", args: { command: "ls" } };
+		const middle: ToolItem = {
+			...spawn("bash-1"),
+			name: "bash",
+			args: { command: "ls" },
+		};
 		const right = [spawn("s3"), spawn("s4")];
 		const items: ConversationItem[] = [...left, middle, ...right];
 		const owned = new Map<string, SubagentTarget[]>(
 			[...left, ...right].map((tool) => [
 				tool.id,
-			[
+				[
 					{
 						key: tool.id,
-						run: { runId: tool.id, mode: "single", state: "running", agent: "explore", steps: [] },
+						run: {
+							runId: tool.id,
+							mode: "single",
+							state: "running",
+							agent: "explore",
+							steps: [],
+						},
 						label: `@${tool.id} — worker`,
 						state: "running",
 						active: true,
@@ -5677,7 +6378,7 @@ describe("duration and sidebar repaint regressions", () => {
 						lastUpdate: 1_000,
 					},
 				],
-				]),
+			]),
 		);
 		const groups = computeSpawnGroups(items, owned);
 		expect(groups).toHaveLength(2);
@@ -5711,9 +6412,9 @@ describe("duration and sidebar repaint regressions", () => {
 			args: { prompt: `do ${id}` },
 			output: "",
 			timestamp: 1,
-				status: "done",
-				isError: false,
-			});
+			status: "done",
+			isError: false,
+		});
 		const first = spawn("g1");
 		const empty = spawn("g2");
 		const third = spawn("g3");
@@ -5753,7 +6454,11 @@ describe("duration and sidebar repaint regressions", () => {
 	});
 
 	test("grouped rows use the friendly state vocabulary exactly once", async () => {
-		const child = (key: string, state: string, extra: Partial<SubagentTarget> = {}): SubagentTarget => ({
+		const child = (
+			key: string,
+			state: string,
+			extra: Partial<SubagentTarget> = {},
+		): SubagentTarget => ({
 			key,
 			run: { runId: key, mode: "single", state, agent: "explore", steps: [] },
 			label: `@${key} — helper`,
@@ -5764,7 +6469,16 @@ describe("duration and sidebar repaint regressions", () => {
 			...extra,
 		});
 		// Working child with real usage: usage line shown after the state.
-		const working = child("w1", "running", { run: { runId: "w1", mode: "single", state: "running", agent: "explore", steps: [], toolCount: 3 } });
+		const working = child("w1", "running", {
+			run: {
+				runId: "w1",
+				mode: "single",
+				state: "running",
+				agent: "explore",
+				steps: [],
+				toolCount: 3,
+			},
+		});
 		expect(spawnGroupRowText(working, 2_000)).toBe(
 			`🟢 @w1 — helper · working · 1s ago · 3 tools`,
 		);
@@ -5809,7 +6523,12 @@ describe("duration and sidebar repaint regressions", () => {
 		expect(finishedRow).not.toContain("working");
 		// Unknown states never leak raw into the header summary: counted in
 		// ×N only.
-		const odd: SubagentTarget = { ...finished, key: "odd-1", label: "@odd-1 — mystery", state: "bogus" };
+		const odd: SubagentTarget = {
+			...finished,
+			key: "odd-1",
+			label: "@odd-1 — mystery",
+			state: "bogus",
+		};
 		expect(spawnGroupSummary([finished, odd])).toBe("1 finished");
 	});
 
@@ -5826,11 +6545,7 @@ describe("duration and sidebar repaint regressions", () => {
 			startedAt: now - 1_000,
 			steps: [],
 		};
-		const setup = await mount(
-			() => <Sidebar runs={[run]} now={now} />,
-			42,
-			30,
-		);
+		const setup = await mount(() => <Sidebar runs={[run]} now={now} />, 42, 30);
 		const frame = setup.captureCharFrame();
 		// A resident child is live-but-idle: the status-file timestamp is not
 		// an age of anything the user did, so the row names the state on its
@@ -5842,7 +6557,7 @@ describe("duration and sidebar repaint regressions", () => {
 		expect(frame.split("resident").length - 1).toBe(1);
 		const box = setup.renderer.root.findDescendantById(
 			"subagent-resident-child",
-			) as BoxRenderable;
+		) as BoxRenderable;
 		expect(box.height).toBe(2);
 	});
 
@@ -5926,7 +6641,11 @@ describe("duration and sidebar repaint regressions", () => {
 			90,
 			24,
 		);
-		const sidebar = await mount(() => <Sidebar runs={[run]} now={2_000} />, 42, 30);
+		const sidebar = await mount(
+			() => <Sidebar runs={[run]} now={2_000} />,
+			42,
+			30,
+		);
 		const cardFrame = card.captureCharFrame();
 		const selectorFrame = selector.captureCharFrame();
 		const sidebarFrame = sidebar.captureCharFrame();
@@ -5982,8 +6701,7 @@ describe("duration and sidebar repaint regressions", () => {
 		);
 		await setup.flush();
 
-		const liveBefore =
-			setup.renderer.getSelection()?.getSelectedText() ?? "";
+		const liveBefore = setup.renderer.getSelection()?.getSelectedText() ?? "";
 		expect(liveBefore).toContain("LOWERORIGINALSTREAMING");
 		const copiedBefore = cache.getCopyText();
 		expect(copiedBefore).toContain("LOWERORIGINALSTREAMING");
@@ -6035,9 +6753,7 @@ describe("duration and sidebar repaint regressions", () => {
 		const cache = attachTranscriptSelectionCache(setup.renderer, () => false);
 		const frame = setup.captureCharFrame();
 		const lines = frame.split("\n");
-		const row = lines.findIndex((line) =>
-			line.includes("GATEDTRANSCRIPTTEXT"),
-		);
+		const row = lines.findIndex((line) => line.includes("GATEDTRANSCRIPTTEXT"));
 		expect(row).toBeGreaterThanOrEqual(0);
 		const startX = lines[row]!.indexOf("GATEDTRANSCRIPTTEXT");
 		await setup.mockMouse.drag(
@@ -6081,7 +6797,12 @@ describe("batch A data truth", () => {
 		};
 		const setup = await mount(() => (
 			<box width="100%" height="100%" flexDirection="column">
-				<MessageView item={item} showThinking toolExpanded={false} now={2_000} />
+				<MessageView
+					item={item}
+					showThinking
+					toolExpanded={false}
+					now={2_000}
+				/>
 			</box>
 		));
 		const frame = setup.captureCharFrame();
@@ -6108,7 +6829,12 @@ describe("batch A data truth", () => {
 		};
 		const setup = await mount(() => (
 			<box width="100%" height="100%" flexDirection="column">
-				<MessageView item={item} showThinking toolExpanded={false} now={2_000} />
+				<MessageView
+					item={item}
+					showThinking
+					toolExpanded={false}
+					now={2_000}
+				/>
 			</box>
 		));
 		const frame = setup.captureCharFrame();
@@ -6117,7 +6843,9 @@ describe("batch A data truth", () => {
 	});
 
 	test("inspector rows resolve an honest clock and timing renders empty without one", async () => {
-		const { inspectorItemNow } = await import("../src/ui/subagent-inspector.tsx");
+		const { inspectorItemNow } = await import(
+			"../src/ui/subagent-inspector.tsx"
+		);
 		const { toolTiming } = await import("../src/ui/message.tsx");
 		const tool: ConversationItem = {
 			kind: "tool",
@@ -6168,14 +6896,24 @@ describe("batch B render layer", () => {
 		const setup = await mount(
 			() => (
 				<box width="100%" height="100%" flexDirection="column">
-					<MessageView item={item} showThinking thinkingExpanded={expanded} toolExpanded={false} now={2_000} />
+					<MessageView
+						item={item}
+						showThinking
+						thinkingExpanded={expanded}
+						toolExpanded={false}
+						now={2_000}
+					/>
 				</box>
 			),
 			100,
 			30,
 		);
 		const visible = (id: string): boolean | undefined =>
-			(setup.renderer.root.findDescendantById(id) as { visible?: boolean } | undefined)?.visible;
+			(
+				setup.renderer.root.findDescendantById(id) as
+					| { visible?: boolean }
+					| undefined
+			)?.visible;
 		// Streaming + expanded: the streaming text shows, its markdown
 		// replacement stays hidden — never both, never neither.
 		expect(visible("pair-1-thinking-stream")).toBe(true);
@@ -6190,7 +6928,7 @@ describe("batch B render layer", () => {
 		expect(visible("pair-1-thinking-markdown")).toBe(true);
 		expect(visible("pair-1-answer-stream")).toBe(false);
 		expect(visible("pair-1-answer-markdown")).toBe(true);
-	 // No frame duplicates the thought or the reply across the pair.
+		// No frame duplicates the thought or the reply across the pair.
 		const frame = setup.captureCharFrame();
 		expect(frame.split("considering it").length - 1).toBe(1);
 		expect(frame.split("draft reply").length - 1).toBe(1);

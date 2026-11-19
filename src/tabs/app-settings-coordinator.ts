@@ -1,6 +1,6 @@
 /** Settings flows, model switching and session navigation. */
 import type { CliRenderer, Renderable } from "@opentui/core";
-import type { AppOptions } from "../app.tsx";
+import type { AppOptions } from "../state/app-options.ts";
 import type { AppSignals } from "../state/app-signals.ts";
 import type { RpcSessionState, Toast } from "../types.ts";
 import type { CommandChoice } from "../ui/command-suggestions.tsx";

@@ -3,8 +3,8 @@
 import type { ThinkingLevel } from "../rpc/pi-rpc-client.ts";
 import type { AppSignals } from "../state/app-signals.ts";
 import { reconcilePendingSteers } from "../state/input-continuity.ts";
-import { type SubagentTarget, subagentTargets } from "../subagents/targets.ts";
-import type { RpcSessionState, SubagentRun, ToolItem } from "../types.ts";
+import type { SubagentTarget } from "../subagents/targets.ts";
+import type { RpcSessionState, SubagentRun } from "../types.ts";
 import type { ConversationTabRuntime } from "./runtime.ts";
 import { isThinkingLevel } from "./slash-commands.ts";
 
@@ -12,9 +12,6 @@ export interface SessionProjectionPorts {
 	cwd: string;
 	signals: AppSignals;
 	activeRuntime: () => ConversationTabRuntime;
-	subagentTools: () => ToolItem[];
-	availableSubagentTargets: () => SubagentTarget[];
-	contextWindowForModel: (model: string | undefined) => number | undefined;
 }
 function modelThinkingKey(provider: string, modelId: string): string {
 	return provider + String.fromCharCode(0) + modelId;
@@ -22,7 +19,7 @@ function modelThinkingKey(provider: string, modelId: string): string {
 export interface AppSessionProjections {
 	touch: () => void;
 	conversationTouch: (reason?: "stream" | "structure") => void;
-	reconcileSteers: (runs: readonly SubagentRun[]) => void;
+	reconcileSteers: (targets: readonly SubagentTarget[]) => void;
 	sessionState: () => RpcSessionState | undefined;
 	sessionStats: () => ConversationTabRuntime["sessionStats"];
 	runs: () => SubagentRun[];
@@ -45,7 +42,7 @@ export interface AppSessionProjections {
 export function createSessionProjections(
 	ports: SessionProjectionPorts,
 ): AppSessionProjections {
-	const { activeRuntime, subagentTools, contextWindowForModel } = ports;
+	const { activeRuntime } = ports;
 	const {
 		revision: [revision, setRevision],
 		conversationRevision: [, setConversationRevision],
@@ -58,11 +55,7 @@ export function createSessionProjections(
 		if (reason === "structure")
 			setConversationStructureRevision((value) => value + 1);
 	};
-	const reconcileSteers = (nextRuns: readonly SubagentRun[]) => {
-		const nextTargets = subagentTargets(nextRuns, subagentTools(), {
-			contextWindowForModel,
-			ownerPid: activeRuntime().client.getProcessPid(),
-		});
+	const reconcileSteers = (nextTargets: readonly SubagentTarget[]) => {
 		setPendingSteers((entries) =>
 			reconcilePendingSteers(
 				entries,

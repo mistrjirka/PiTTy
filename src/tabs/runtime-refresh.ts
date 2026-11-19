@@ -28,7 +28,8 @@ export interface RuntimeRefreshPorts {
 	logger: DiagnosticLogger;
 	cwd: string;
 	subagentsInstalled: boolean;
-	reconcileSteers: (nextRuns: readonly SubagentRun[]) => void;
+	reconcileSteers: (targets: readonly SubagentTarget[]) => void;
+	pendingSteerCount: () => number;
 	setRuns: (nextRuns: SubagentRun[]) => void;
 	subagentTools: () => ToolItem[];
 	contextWindowForModel: (model: string | undefined) => number | undefined;
@@ -64,28 +65,32 @@ export function createRuntimeRefresh(
 		const nextRuns = ports.subagentsInstalled
 			? mergeMissionRuns(listSubagentRuns(identity), identity, ports.cwd)
 			: [];
-		ports.reconcileSteers(nextRuns);
 		const summaries = nextRuns.map(subagentLogSummary);
 		const digest = JSON.stringify(summaries);
-		if (digest !== lastRunsDigest) {
-			lastRunsDigest = digest;
-			ports.setRuns(nextRuns);
-			const nextTargets = subagentTargets(nextRuns, ports.subagentTools(), {
-				contextWindowForModel: ports.contextWindowForModel,
-				ownerPid: ports.activeRuntime().client.getProcessPid(),
-			});
-			const nextDisplayTargets = subagentTreeRows(nextTargets).map(
-				(row) => row.target,
-			);
-			ports.setSelectedTargetKey(
-				reconcileSubagentSelection(
-					ports.selectedTargetKey(),
-					ports.availableSubagentTargets(),
-					nextDisplayTargets,
-				),
-			);
-			ports.logger.info("subagents.changed", { runs: summaries });
-		}
+		const changed = digest !== lastRunsDigest;
+		// The background roster poll runs every 750 ms. Do not repeatedly
+		// scan the filesystem to build targets when neither the roster nor
+		// pending local steers need reconciliation.
+		if (!changed && ports.pendingSteerCount() === 0) return;
+		const nextTargets = subagentTargets(nextRuns, ports.subagentTools(), {
+			contextWindowForModel: ports.contextWindowForModel,
+			ownerPid: ports.activeRuntime().client.getProcessPid(),
+		});
+		if (ports.pendingSteerCount() > 0) ports.reconcileSteers(nextTargets);
+		if (!changed) return;
+		lastRunsDigest = digest;
+		ports.setRuns(nextRuns);
+		const nextDisplayTargets = subagentTreeRows(nextTargets).map(
+			(row) => row.target,
+		);
+		ports.setSelectedTargetKey(
+			reconcileSubagentSelection(
+				ports.selectedTargetKey(),
+				ports.availableSubagentTargets(),
+				nextDisplayTargets,
+			),
+		);
+		ports.logger.info("subagents.changed", { runs: summaries });
 	};
 	const refreshOperation = async (
 		target: ConversationTabRuntime,

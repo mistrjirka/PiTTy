@@ -8,7 +8,7 @@ import {
 	prepareForkedTabRuntime,
 	provisionalExtensionUiResponse,
 } from "./runtime.ts";
-import type { TabLifecyclePorts } from "./tab-lifecycle.ts";
+import type { TabLifecyclePorts } from "./tab-lifecycle-contracts.ts";
 
 export interface TabForkHooks {
 	nextForkId: () => string;
@@ -53,10 +53,6 @@ export function createTabForkActions(
 			} catch (error) {
 				ports.logger?.warn("tabs.fork_resolution_failed", error);
 			}
-		}
-		if (!originalSessionFile) {
-			ports.toast("The current session file is not available yet.", "warning");
-			return;
 		}
 		const plan = planForkTab(
 			originalSessionFile,

@@ -1,3 +1,4 @@
+import { AppPromptDock } from "./app-prompt-dock.tsx";
 /** Main terminal layout. App still owns the live session and RPC state. */
 import type {
 	ScrollBoxRenderable,
@@ -52,8 +53,6 @@ import {
 } from "./subagent-inspector.tsx";
 import { TabStrip } from "./tab-strip.tsx";
 import { TranscriptPane } from "./transcript-pane.tsx";
-import { PendingInputPanel } from "./pending-input-panel.tsx";
-import { CommandSuggestions } from "./command-suggestions.tsx";
 import { PromptComposer } from "./prompt-composer.tsx";
 import { Sidebar } from "./sidebar.tsx";
 import { AppFooter, ToastOverlay } from "./app-footer.tsx";
@@ -305,66 +304,49 @@ export function AppMainContents(props: AppMainContentsProps) {
 							</text>
 						</Show>
 					</box>
-					<Show
-						when={
-							!props.inspectSubagent() &&
-							(props.queuedFollowUps().length ||
-								props.steeringQueue().length ||
-								props.followUpQueue().length)
-						}
+					<AppPromptDock
+						viewportRows={() => props.dimensions().height}
+						enabled={() => !props.inspectSubagent()}
+						queuedFollowUps={props.queuedFollowUps}
+						steeringQueue={props.steeringQueue}
+						followUpQueue={props.followUpQueue}
+						editQueuedFollowUp={props.editQueuedFollowUp}
+						commandSuggestions={props.commandSuggestions}
+						commandSuggestionIndex={props.commandSuggestionIndex}
+						insertSuggestedCommand={props.insertSuggestedCommand}
 					>
-						<PendingInputPanel
-							queuedFollowUps={props.queuedFollowUps()}
-							steering={props.steeringQueue()}
-							followUps={props.followUpQueue()}
-							onEditQueuedFollowUp={props.editQueuedFollowUp}
-						/>
-					</Show>
-					<Show
-						when={props.commandSuggestions().length && !props.inspectSubagent()}
-					>
-						<CommandSuggestions
-							commands={props.commandSuggestions}
-							selectedIndex={() =>
-								Math.min(
-									props.commandSuggestionIndex(),
-									Math.max(0, props.commandSuggestions().length - 1),
-								)
-							}
-							onSelect={props.insertSuggestedCommand}
-						/>
-					</Show>
-					<Show when={!props.inspectSubagent()}>
-						<PromptComposer
-							streaming={props.streaming}
-							focused={() =>
-								props.startupPhase().kind === "ready" &&
-								!props.dialog() &&
-								!props.backgroundSelection() &&
-								!props.modelSelectorOpen() &&
-								!props.sessionSelectorOpen() &&
-								!props.forkPickerOpen() &&
-								!props.promptMapOpen() &&
-								!props.subagentSelectorOpen() &&
-								!props.notificationDetailId() &&
-								!props.todoDetailId()
-							}
-							placeholder={() =>
-								props.promptValue().length > 0
-									? null
-									: props.streaming()
-										? "Enter queues steering for the next model step · Alt+Enter queues editable follow-up"
-										: "Ask Pi anything… (/help for commands)"
-							}
-							onEditor={props.onPromptEditor}
-							onPaste={props.handlePromptPaste}
-							onKeyDown={props.handlePromptKeyDown}
-							onMouseDown={props.onPromptMouseDown}
-							onContentChange={props.onPromptContentChange}
-							onCursorChange={props.onPromptCursorChange}
-							onSubmit={() => void props.submit()}
-						/>
-					</Show>
+						<Show when={!props.inspectSubagent()}>
+							<PromptComposer
+								streaming={props.streaming}
+								focused={() =>
+									props.startupPhase().kind === "ready" &&
+									!props.dialog() &&
+									!props.backgroundSelection() &&
+									!props.modelSelectorOpen() &&
+									!props.sessionSelectorOpen() &&
+									!props.forkPickerOpen() &&
+									!props.promptMapOpen() &&
+									!props.subagentSelectorOpen() &&
+									!props.notificationDetailId() &&
+									!props.todoDetailId()
+								}
+								placeholder={() =>
+									props.promptValue().length > 0
+										? null
+										: props.streaming()
+											? "Enter queues steering for the next model step · Alt+Enter queues editable follow-up"
+											: "Ask Pi anything… (/help for commands)"
+								}
+								onEditor={props.onPromptEditor}
+								onPaste={props.handlePromptPaste}
+								onKeyDown={props.handlePromptKeyDown}
+								onMouseDown={props.onPromptMouseDown}
+								onContentChange={props.onPromptContentChange}
+								onCursorChange={props.onPromptCursorChange}
+								onSubmit={() => void props.submit()}
+							/>
+						</Show>
+					</AppPromptDock>
 				</box>
 				<Show when={props.visibleSidebar()}>
 					<Sidebar

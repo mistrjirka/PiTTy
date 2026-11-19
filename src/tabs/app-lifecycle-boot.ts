@@ -2,8 +2,8 @@
 
 import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core";
 import { type Accessor, onCleanup, onMount, type Setter } from "solid-js";
-import type { AppOptions } from "../app.tsx";
 import type { CswapSnapshot } from "../integrations/claude-swap.ts";
+import type { AppOptions } from "../state/app-options.ts";
 import type { AppSignals } from "../state/app-signals.ts";
 import type { StartupPhase } from "../state/startup.ts";
 import type { SubagentTarget } from "../subagents/targets.ts";

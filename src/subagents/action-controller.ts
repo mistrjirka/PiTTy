@@ -10,6 +10,7 @@ import {
 } from "../subagents/control.ts";
 import type { SubagentTarget } from "../subagents/targets.ts";
 import type { SubagentRun } from "../types.ts";
+import { subagentControlAvailability } from "./control-availability.ts";
 
 export type SubagentControlPorts = {
 	selectedTarget: () => SubagentTarget | undefined;
@@ -91,25 +92,8 @@ export function createSubagentControlActions(
 		}
 		const target = ports.selectedTarget();
 		const run = target?.run;
-		const profiled = run?.control === "profiled";
-		const controllableState = profiled
-			? ["running", "queued", "waiting", "idle"].includes(run?.state ?? "")
-			: run?.state === "running" ||
-				run?.state === "paused" ||
-				run?.state === "queued";
-		const controllable =
-			controllableState &&
-			(target?.canSteer || (!profiled && run?.state === "paused"));
-		const hasControlPath = profiled
-			? Boolean(run?.controlDir)
-			: Boolean(run?.asyncDir);
-		if (
-			!target ||
-			!run ||
-			!controllable ||
-			!hasControlPath ||
-			run.control === "foreground"
-		) {
+		const canControl = subagentControlAvailability(target).canControl;
+		if (!target || !run || !canControl || run.control === "foreground") {
 			ports.toast("No steerable subagent selected", "warning");
 			return {};
 		}

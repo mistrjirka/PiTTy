@@ -3,21 +3,27 @@ import type {
 	SelectRenderable,
 	TextareaRenderable,
 } from "@opentui/core";
-import { Show, createMemo, createSignal } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
-import { colors } from "./theme.ts";
-import { formatDuration } from "./duration.ts";
-import { formatModelPerformanceStats, modelPerformanceKey, modelPerformanceStats, type ModelPerformanceHistory } from "../tabs/model-performance-history.ts";
+import { createMemo, createSignal, Show } from "solid-js";
 import {
-	requestTimingStats,
-	retainCurrentRequestTimings,
+	formatModelPerformanceStats,
+	type ModelPerformanceHistory,
+	modelPerformanceKey,
+	modelPerformanceStats,
+} from "../tabs/model-performance-history.ts";
+import {
 	type RequestTiming,
 	type RequestTimingStats,
+	requestTimingStats,
+	retainCurrentRequestTimings,
 } from "../tabs/request-timing.ts";
+import { formatDuration } from "./duration.ts";
 import {
 	createSearchableDialogFocus,
 	handleSearchableDialogCancel,
 } from "./searchable-dialog-focus.ts";
+import { selectOptionIndexAtMouse } from "./select-mouse.ts";
+import { colors } from "./theme.ts";
 
 export type ModelChoice = {
 	provider: string;
@@ -66,10 +72,14 @@ export function filterModelChoices(
 ): ModelChoice[] {
 	// The picker displays provider/model. Treat '/' as a separator, not a
 	// required character in one field. A lone '/' must show every model.
-	const terms = query.toLowerCase().split(/[\/\s]+/).filter(Boolean);
+	const terms = query
+		.toLowerCase()
+		.split(/[/\s]+/)
+		.filter(Boolean);
 	if (terms.length === 0) return models;
 	return models.filter((model) => {
-		const searchable = `${model.provider} ${model.id} ${model.name ?? ""}`.toLowerCase();
+		const searchable =
+			`${model.provider} ${model.id} ${model.name ?? ""}`.toLowerCase();
 		return terms.every((term) => searchable.includes(term));
 	});
 }
@@ -110,7 +120,7 @@ export function normalizeModelChoices(values: unknown[]): ModelChoice[] {
 	);
 }
 
-	export function formatModelTimingLine(
+export function formatModelTimingLine(
 	stats: RequestTimingStats | undefined,
 ): string {
 	if (!stats) return "";
@@ -146,9 +156,10 @@ export function ModelSelectorDialog(props: {
 	const detailsByModel = createMemo(() => {
 		const performanceHistory = props.performanceHistory;
 		const timingByModel = new Map<string, RequestTiming[]>();
-		const timingHistory = typeof props.timingHistory === "function"
-			? props.timingHistory()
-			: (props.timingHistory ?? []);
+		const timingHistory =
+			typeof props.timingHistory === "function"
+				? props.timingHistory()
+				: (props.timingHistory ?? []);
 		for (const sample of retainCurrentRequestTimings(timingHistory)) {
 			if (!sample.provider || !sample.modelId) continue;
 			const key = modelPerformanceKey(sample.provider, sample.modelId);
@@ -159,13 +170,30 @@ export function ModelSelectorDialog(props: {
 		const details = new Map<string, string>();
 		for (const model of props.models) {
 			const key = modelPerformanceKey(model.provider, model.id);
-			const timing = requestTimingStats(timingByModel.get(key) ?? [], model.provider, model.id);
-			details.set(key, [
-				formatContextWindow(model.contextWindow),
-				model.name && model.name !== model.id ? model.name : "",
-				formatModelPerformanceStats(performanceHistory ? modelPerformanceStats(performanceHistory, model.provider, model.id) : undefined),
-				formatModelTimingLine(timing),
-			].filter(Boolean).join(" · "));
+			const timing = requestTimingStats(
+				timingByModel.get(key) ?? [],
+				model.provider,
+				model.id,
+			);
+			details.set(
+				key,
+				[
+					formatContextWindow(model.contextWindow),
+					model.name && model.name !== model.id ? model.name : "",
+					formatModelPerformanceStats(
+						performanceHistory
+							? modelPerformanceStats(
+									performanceHistory,
+									model.provider,
+									model.id,
+								)
+							: undefined,
+					),
+					formatModelTimingLine(timing),
+				]
+					.filter(Boolean)
+					.join(" · "),
+			);
 		}
 		return details;
 	});
@@ -173,7 +201,8 @@ export function ModelSelectorDialog(props: {
 		const details = detailsByModel();
 		return filteredModels().map((model) => ({
 			name: `${model.provider}/${model.id}`,
-			description: details.get(modelPerformanceKey(model.provider, model.id)) ?? "",
+			description:
+				details.get(modelPerformanceKey(model.provider, model.id)) ?? "",
 			value: model,
 		}));
 	});
@@ -338,18 +367,8 @@ export function ModelSelectorDialog(props: {
 							event.preventDefault();
 							event.stopPropagation();
 							focus.focusList();
-							// SAFETY: OpenTUI exposes these layout fields at runtime but omits them from the public type.
-							const scrollOffset =
-								(select as unknown as { scrollOffset?: number }).scrollOffset ??
-								0;
-							// SAFETY: OpenTUI exposes these layout fields at runtime but omits them from the public type.
-							const linesPerItem =
-								(select as unknown as { linesPerItem?: number }).linesPerItem ??
-								2;
-							const visibleIndex = Math.floor(
-								(event.y - select.screenY) / Math.max(1, linesPerItem),
-							);
-							const index = scrollOffset + visibleIndex;
+							const index = selectOptionIndexAtMouse(select, event.y);
+							if (index === undefined) return;
 							const model = filteredModels()[index];
 							if (!model) return;
 							select.setSelectedIndex(index);
