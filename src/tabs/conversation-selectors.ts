@@ -120,14 +120,16 @@ export function createConversationSelectors(
 	const todosAvailable = createMemo(
 		() => ports.todosInstalled || todos().length > 0,
 	);
-	const commandSuggestions = createMemo(() =>
-		filterCommandChoices(
+	const commandSuggestions = createMemo(() => {
+		ports.revision();
+		if (ports.activeRuntime().pendingInputEdit) return [];
+		return filterCommandChoices(
 			ports.commandChoices(),
 			ports.promptText(),
 			Number.POSITIVE_INFINITY,
 			ports.promptCursorOffset(),
-		),
-	);
+		);
+	});
 	const slashQueryActive = createMemo(() =>
 		/^\/[^\s]*$/.test(ports.promptText()),
 	);

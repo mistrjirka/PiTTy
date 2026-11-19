@@ -74,6 +74,7 @@ export abstract class PiRpcTransport extends EventEmitter {
 	private stderrBuffer = "";
 
 	private stopping = false;
+	private compacting = false;
 
 	private startupArgs: string[];
 
@@ -107,6 +108,7 @@ export abstract class PiRpcTransport extends EventEmitter {
 	async start(): Promise<void> {
 		if (this.child) throw new Error("Pi RPC client is already started.");
 		this.stopping = false;
+		this.compacting = false;
 		this.stdoutFragments.length = 0;
 		this.stderrBuffer = "";
 		const configuredExecutable =
@@ -293,10 +295,10 @@ export abstract class PiRpcTransport extends EventEmitter {
 				timer: undefined,
 				commandType: command.type,
 				timeoutMs,
-				timeoutPaused: false,
+				timeoutPaused: command.type === "prompt" && this.compacting,
 			};
 			this.pending.set(id, pending);
-			pending.timer = this.startTimeout(id, pending);
+			if (!pending.timeoutPaused) pending.timer = this.startTimeout(id, pending);
 			try {
 				this.write(request);
 			} catch (error) {
@@ -398,8 +400,14 @@ export abstract class PiRpcTransport extends EventEmitter {
 				}
 				continue;
 			}
-			if (record.type === "compaction_start") this.pausePromptTimeouts();
-			if (record.type === "compaction_end") this.resumePromptTimeouts();
+			if (record.type === "compaction_start") {
+				this.compacting = true;
+				this.pausePromptTimeouts();
+			}
+			if (record.type === "compaction_end") {
+				this.compacting = false;
+				this.resumePromptTimeouts();
+			}
 			this.options.logger?.rpc("event", value);
 			this.emit("event", value as PiEvent, receivedAt);
 		}

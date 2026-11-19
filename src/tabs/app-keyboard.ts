@@ -64,6 +64,12 @@ export function registerAppKeyboard(ports: KeyboardPorts): void {
 		const scroll = ports.getScroll();
 		const subagentScroll = ports.getSubagentScroll();
 		if (handleModalKey(event, ports)) return;
+		if (event.name === "escape" && !inspectSubagent() && activeRuntime().pendingInputEdit) {
+			event.preventDefault();
+			event.stopPropagation();
+			ports.cancelPendingEdit();
+			return;
+		}
 		const suggestionDecision = handleSuggestionKey(event, ports, prompt);
 		if (suggestionDecision === "pass") return false;
 		if (suggestionDecision === "handled") return;

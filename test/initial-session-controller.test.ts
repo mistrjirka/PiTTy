@@ -28,6 +28,7 @@ const readyState: RpcSessionState = {
 
 class InitialSessionClient extends PiRpcClient {
 	readonly calls: string[] = [];
+	state: RpcSessionState = readyState;
 	constructor(private readonly failState: boolean) {
 		super({ cwd: process.cwd() });
 	}
@@ -37,7 +38,7 @@ class InitialSessionClient extends PiRpcClient {
 	override async getState(): Promise<RpcSessionState> {
 		this.calls.push("getState");
 		if (this.failState) throw new Error("fixture state failed");
-		return readyState;
+		return this.state;
 	}
 	override async getMessages(): Promise<unknown[]> {
 		this.calls.push("getMessages");
@@ -145,6 +146,40 @@ describe("initial session extraction", () => {
 		expect(f.statuses.at(-1)).toBe("ready");
 		f.client.emit("stderr", "extension started\n");
 		expect(f.events).toContain("stderr:extension started");
+	});
+
+	test("restores pending messages and compaction state before enabling the editor", async () => {
+		const f = fixture(false);
+		f.client.state = {
+			...readyState,
+			isCompacting: true,
+			queue: { revision: 4, messages: [
+				{ id: "steering", mode: "steer", message: "first pending" },
+				{ id: "follow-up", mode: "followUp", message: "second pending" },
+			] },
+		};
+		await startInitialSession(f.ports);
+		expect(f.phase()).toEqual({ kind: "ready" });
+		expect(f.runtime.conversation.isCompacting).toBe(true);
+		expect(f.runtime.conversation.queue).toEqual(f.client.state.queue);
+		expect(f.runtime.conversation.steering).toEqual(["first pending"]);
+		expect(f.runtime.conversation.followUp).toEqual(["second pending"]);
+	});
+
+	test("does not restore a pending message consumed while startup history loads", async () => {
+		const f = fixture(false);
+		f.client.state = {
+			...readyState,
+			queue: { revision: 4, messages: [{ id: "consumed", mode: "steer", message: "first" }] },
+		};
+		f.client.getMessages = async () => {
+			f.client.emit("event", { type: "queue_update", steering: [], followUp: [], revision: 5, messages: [] });
+			return [];
+		};
+		await startInitialSession(f.ports);
+		expect(f.phase()).toEqual({ kind: "ready" });
+		expect(f.runtime.conversation.queue).toEqual({ revision: 5, messages: [] });
+		expect(f.runtime.conversation.steering).toEqual([]);
 	});
 
 	test("reports a failed state request without enabling controls", async () => {

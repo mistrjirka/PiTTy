@@ -64,8 +64,8 @@ Type `/` to open command suggestions. PiTTy merges its local commands with exten
 | --- | --- |
 | `Enter` | Insert the highlighted slash suggestion first; otherwise submit or send immediate steering |
 | `Shift+Enter` | Insert a newline |
-| `Alt+Enter` | Queue an editable local follow-up |
-| `Alt+Up` | Restore the latest local follow-up to the editor |
+| `Alt+Enter` | Queue a follow-up for after the current turn |
+| `Alt+Up` | Edit the last pending message |
 | `Up` / `Down` on an empty single-line prompt | Browse session-local prompt history |
 | `Ctrl+C` with a nonempty draft | Clear the draft and save it to prompt history |
 | Mouse wheel / `PgUp` / `PgDn` | Scroll the active transcript |
@@ -84,7 +84,7 @@ Type `/` to open command suggestions. PiTTy merges its local commands with exten
 | Click `▶ Resume` | Resume a selected paused legacy `pi-subagents` child |
 | `Ctrl+Shift+A` | Stop the selected active controllable subagent (both supported runtimes) |
 | `Ctrl+Shift+L` | Create a diagnostics bundle |
-| `Esc` | Close the active dialog/inspector or abort the current Pi turn |
+| `Esc` | Cancel a pending-message edit, close the active dialog/inspector, or abort the current Pi turn |
 | `Ctrl+C` twice from an empty draft | Exit PiTTy |
 
 ## Sessions
@@ -115,14 +115,31 @@ Use `Ctrl+T`, `Shift+Tab`, or `/thinking` to change Pi's reasoning effort. Avail
 
 ## Follow-ups and steering
 
-While Pi is running:
+While Pi is running, `Enter` queues text for the next model step. `Alt+Enter` queues it for after the current turn. If a slash suggestion is visible, `Enter` accepts that suggestion first.
 
-- If a slash suggestion is visible, `Enter` accepts the highlighted suggestion first.
-- Otherwise, `Enter` sends text immediately as steering.
-- `Alt+Enter` keeps text in PiTTy's local editable follow-up queue.
-- `Alt+Up` restores the newest local queued item to the editor.
+The **Pending input** panel above the editor shows messages that Pi has not started processing:
 
-Items already sent to Pi through RPC can be displayed but cannot be edited afterward.
+| Action | Result |
+| --- | --- |
+| Click **Edit**, click the message text, or press `Alt+Up` | Open a pending message in the editor |
+| Press `Enter` while editing | Save the changed message in its queue position |
+| Click **Cancel edit** or press `Esc` while editing | Discard the edit and restore your previous draft |
+| Click **Cancel** beside a pending message | Remove that message without stopping the current turn |
+| Click **Combine next** | Join that message and its next neighbor with a blank line |
+
+Combine is available only for consecutive messages with the same delivery mode. Messages stay separate unless you choose Combine.
+
+The original message remains queued while you edit. If Pi starts processing it before you save or cancel the message, the action reports that it is no longer queued. An unsuccessful save keeps your edited text in the editor. It does not rewrite conversation history or resend the text automatically.
+
+You can send more messages during manual or automatic compaction. Pi acknowledges and displays them in the queue, then processes them after compaction. The editor clears after queue acceptance, so another Enter does not duplicate the same draft.
+
+With `pi-bg-bash` installed and PiTTy's managed runtime, accepted new input moves running foreground commands to the background. The same process keeps running, and its output remains available. Any explicit command timeout keeps its original deadline.
+
+These RPC queue controls require PiTTy's managed Pi runtime. When you explicitly select an older Pi executable, local follow-ups remain editable and messages sent during compaction wait locally. Messages already queued inside that older runtime remain read-only.
+
+## Tool timing
+
+Tool rows show elapsed time and any declared command timeout. Bash timeouts use seconds, so a `7200`-second limit appears as `2h 0m`. A **wait up to** value limits a polling call, not the running task.
 
 ## Optional integration views
 

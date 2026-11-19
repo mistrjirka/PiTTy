@@ -1,4 +1,5 @@
 /** Starts the initial Pi RPC session and reports boot state to the owning UI. */
+import { parseQueueState } from "../rpc/queue-types.ts";
 import type { Accessor, Setter } from "solid-js";
 import type { DiagnosticLogger } from "../diagnostics/logger.ts";
 import type { OptionalIntegrationStatus } from "../integrations/detect.ts";
@@ -163,6 +164,9 @@ export function startInitialSession(ports: InitialSessionPorts): Promise<void> {
 				),
 			});
 			runtime.sessionState = state;
+			const queue = parseQueueState(state.queue);
+			if (queue) runtime.conversation.applyQueueState(queue);
+			runtime.conversation.isCompacting = state.isCompacting;
 			ports.rememberThinkingLevel(runtime);
 			runtime.startupResolved = true;
 			void ports.fetchAvailableModels().catch(() => undefined);

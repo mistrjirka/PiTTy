@@ -6,7 +6,7 @@
 
 | Guide | Contents |
 |---|---|
-| [Usage and controls](USAGE.md) | Launch modes, commands, shortcuts, sessions, models, follow-ups, integrations, and troubleshooting |
+| [Usage and controls](USAGE.md) | Launch modes, commands, shortcuts, sessions, models, pending-message controls, integrations, and troubleshooting |
 | [Themes](THEMES.md) | Preset sources, semantic adaptation, persistence, and contrast policy |
 | [Branding](BRANDING.md) | Canonical bracket-pi artwork, terminal rendering, and asset usage |
 | [Open-source readiness](OPEN_SOURCE_READINESS.md) | Architecture, compatibility boundaries, privacy, and release support |
@@ -18,6 +18,7 @@
 |---|---|
 | [Contributing](../CONTRIBUTING.md) | Development workflow and validation requirements |
 | [OpenSpec project context](../openspec/project.md) | Project conventions and capability specifications |
+| [Managed runtime](managed-runtime.md) | Build, verify, and package the matching Pi fork modules |
 | [Changelog](../CHANGELOG.md) | User-visible release history |
 
 ## Planning documents

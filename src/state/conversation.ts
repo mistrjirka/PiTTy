@@ -1,4 +1,5 @@
-import { id, extractText, extractThinking, objectRecord, stringArrayField, normalizedText, eventDelta, mergeStreamingText, toolOutput, stringField, numberField, messageRole, messageTimestamp, toolTimeoutMs, customItemFromMessage } from "./conversation-shared.ts";
+import { parseQueueState, type QueueState } from "../rpc/queue-types.ts";
+import { id, extractText, extractThinking, objectRecord, stringArrayField, normalizedText, eventDelta, mergeStreamingText, toolOutput, stringField, numberField, messageRole, messageTimestamp, toolTimeLimits, customItemFromMessage } from "./conversation-shared.ts";
 import { displayToolDetails } from "./conversation-history.ts";
 import { createMutationDiff } from "./conversation-mutation.ts";
 
@@ -15,6 +16,7 @@ export type { SessionToolCall } from "./conversation-history.ts";
 export class ConversationModel {
 	readonly items: ConversationItem[] = [];
 	private liveAssistantMessage: Record<string, unknown> | undefined;
+	private liveUserItemId: string | undefined;
 	// Repeated stream updates must not scan the complete chat transcript.
 	private activeAssistantIndex = -1;
 	private readonly toolIndices = new Map<string, number>();
@@ -23,6 +25,7 @@ export class ConversationModel {
 	isCompacting = false;
 	steering: readonly string[] = [];
 	followUp: readonly string[] = [];
+	queue: QueueState | undefined;
 
 	constructor(
 		seed: ConversationItem[] = [],
@@ -50,6 +53,7 @@ export class ConversationModel {
 	private rebuildIndices(): void {
 		this.toolIndices.clear();
 		this.userIndices.clear();
+		this.liveUserItemId = undefined;
 		this.activeAssistantIndex = -1;
 		for (const [index, item] of this.items.entries()) {
 			if (item.kind === "tool") this.toolIndices.set(item.toolCallId, index);
@@ -92,6 +96,13 @@ export class ConversationModel {
 		return changed;
 	}
 
+	applyQueueState(queue: QueueState): void {
+		if (this.queue && queue.revision < this.queue.revision) return;
+		this.queue = queue;
+		this.steering = queue.messages.filter((item) => item.mode === "steer").map((item) => item.message);
+		this.followUp = queue.messages.filter((item) => item.mode === "followUp").map((item) => item.message);
+	}
+
 	system(text: string, tone: SystemItem["tone"] = "muted"): void {
 		this.items.push({
 			kind: "system",
@@ -125,8 +136,12 @@ export class ConversationModel {
 			}
 			case "queue_update": {
 				const queue = objectRecord(event);
-				this.steering = stringArrayField(queue?.steering);
-				this.followUp = stringArrayField(queue?.followUp);
+				const state = parseQueueState(queue);
+				if (state) this.applyQueueState(state);
+				else {
+					this.steering = stringArrayField(queue?.steering);
+					this.followUp = stringArrayField(queue?.followUp);
+				}
 				return;
 			}
 			case "message_start":
@@ -226,13 +241,15 @@ export class ConversationModel {
 				const index = matches[offset]!;
 				const item = this.items[index];
 				if (item?.kind !== "user") continue;
-				if (item.optimistic || Math.abs(item.timestamp - timestamp) < 60_000) {
+				if (item.optimistic || (eventType !== "message_start" && item.id === this.liveUserItemId)) {
 					existingIndex = index;
 					break;
 				}
 			}
+			let userItemId: string;
 			if (existingIndex >= 0) {
 				const existing = this.items[existingIndex] as UserItem;
+				userItemId = existing.id;
 				this.items[existingIndex] = {
 					...existing,
 					text,
@@ -240,15 +257,20 @@ export class ConversationModel {
 					optimistic: false,
 				};
 			} else {
+				userItemId = id("user-event");
 				this.items.push({
 					kind: "user",
-					id: id("user-event"),
+					id: userItemId,
 					text,
 					timestamp,
 					optimistic: false,
 				});
 				this.indexUser(normalized, this.items.length - 1);
 			}
+			// Distinct submissions can contain identical text and timestamps.
+			// Only pair start/end events belonging to the currently emitted user message.
+			if (eventType === "message_start") this.liveUserItemId = userItemId;
+			else if (eventType === "message_end") this.liveUserItemId = undefined;
 			return;
 		}
 		if (role !== "assistant") return;
@@ -395,7 +417,7 @@ export class ConversationModel {
 				...(preview.path ? { diffPath: preview.path } : {}),
 				timestamp: Date.now(),
 				startedAt: Date.now(),
-				timeoutMs: toolTimeoutMs(event.args),
+				...toolTimeLimits(toolName, event.args),
 				status: "pending",
 				isError: false,
 			};
@@ -414,7 +436,7 @@ export class ConversationModel {
 				...(preview.diff ? { diff: preview.diff } : {}),
 				...(preview.path ? { diffPath: preview.path } : {}),
 				startedAt: current.startedAt ?? Date.now(),
-				timeoutMs: toolTimeoutMs(event.args) ?? current.timeoutMs,
+				...toolTimeLimits(current.name, nextArgs),
 				status: "streaming",
 			};
 			return;

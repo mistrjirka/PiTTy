@@ -64,6 +64,7 @@ export function createAppMainProps(
 		steeringQueue: ports.extras.steeringQueue,
 		followUpQueue: ports.extras.followUpQueue,
 		editQueuedFollowUp: ports.input.editQueuedFollowUp,
+		pendingInput: ports.input.queuedInput,
 		commandSuggestions: ports.selectors.commandSuggestions,
 		commandSuggestionIndex: ports.signals.commandSuggestionIndex[0],
 		insertSuggestedCommand: ports.transcript.insertSuggestedCommand,

@@ -86,7 +86,7 @@ function findUpstreamPiPackage(env) {
 	return undefined;
 }
 
-function hasValidRuntime(appRoot, patchSha) {
+function hasValidRuntime(appRoot, patchSha, manifest) {
 	const target = path.join(appRoot, "fork-runtime");
 	try {
 		const state = JSON.parse(
@@ -96,8 +96,8 @@ function hasValidRuntime(appRoot, patchSha) {
 			state.schemaVersion === 1 &&
 			state.patchSha256 === patchSha &&
 			existsSync(path.join(target, "pi", "dist", "cli.js")) &&
-			existsSync(
-				path.join(target, "pi", "dist", "core", "session-lazy-state.js"),
+			manifest.pi.modules.every(({ target: modulePath }) =>
+				existsSync(path.join(target, "pi", modulePath)),
 			) &&
 			existsSync(
 				path.join(target, "pi-code-tool", "dist", "pi", "state-codec.js"),
@@ -132,9 +132,10 @@ function prepareStagedRuntime(stage, piRoot, codeToolRoot, manifest, patchSha) {
 		recursive: true,
 	});
 	cpSync(path.join(piRoot, "package.json"), path.join(pi, "package.json"));
-	const piPatch = path.join(releaseRoot, "vendor", "pi-" + manifest.pi.version);
-	for (const name of ["session-manager.js", "session-lazy-state.js"]) {
-		cpSync(path.join(piPatch, name), path.join(pi, "dist", "core", name));
+	for (const module of manifest.pi.modules) {
+		const destination = path.join(pi, module.target);
+		mkdirSync(path.dirname(destination), { recursive: true });
+		cpSync(path.join(releaseRoot, module.source), destination);
 	}
 
 	mkdirSync(codeTool);
@@ -250,8 +251,8 @@ export function ensureManagedPi(appRoot, env = process.env) {
 		};
 	}
 	const patchSha = safeHash(manifestPath);
-	if (hasValidRuntime(appRoot, patchSha)) return { status: "ready" };
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+	if (hasValidRuntime(appRoot, patchSha, manifest)) return { status: "ready" };
 	failIfPatchChanged(manifest);
 
 	const piRoot = env.PITTY_UPSTREAM_PI_ROOT || findUpstreamPiPackage(env);
@@ -296,9 +297,14 @@ export function ensureManagedPi(appRoot, env = process.env) {
 				"Installed code-tool version differs from " + manifest.codeTool.version,
 		};
 	}
+	const matchingPi = manifest.pi.modules.every((module) => {
+		const original = path.join(piRoot, module.target);
+		return module.originalSha256 === null
+			? !existsSync(original)
+			: existsSync(original) && safeHash(original) === module.originalSha256;
+	});
 	if (
-		safeHash(path.join(piRoot, "dist", "core", "session-manager.js")) !==
-			manifest.pi.originalSessionManagerSha256 ||
+		!matchingPi ||
 		safeHash(path.join(codeToolRoot, "dist", "pi", "extension.js")) !==
 			manifest.codeTool.originalExtensionSha256
 	) {

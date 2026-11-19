@@ -26,6 +26,7 @@ export interface PromptDraftActions {
 	clearMainDraft: () => void;
 	runtimeMainDraftText: (runtime: ConversationTabRuntime) => string;
 	clearRuntimeMainDraft: (runtime: ConversationTabRuntime) => void;
+	syncRuntimeMainDraft: (runtime: ConversationTabRuntime, text: string) => void;
 	clearRuntimeMainDraftIfMatches: (
 		runtime: ConversationTabRuntime,
 		expected: string,
@@ -49,7 +50,7 @@ export function createPromptDraftActions(
 	};
 	const mainPromptPlaceholder = () =>
 		ports.activeRuntime().conversation.isStreaming
-			? "Enter queues steering for the next model step · Alt+Enter queues editable follow-up"
+			? "Enter queues the next step · Alt+Enter queues a follow-up · Alt+Up edits pending"
 			: "Ask Pi anything… (/help for commands)";
 	const syncPromptPlaceholder = (text: string) => {
 		const prompt = ports.getPrompt();
@@ -84,6 +85,15 @@ export function createPromptDraftActions(
 			runtime.sessionState?.sessionId ?? ports.cwd,
 		);
 		return expandPromptPasteTokens(drafts.main, drafts.mainPastes);
+	};
+	const syncRuntimeMainDraft = (runtime: ConversationTabRuntime, text: string): void => {
+		if (ports.isRuntimeActive(runtime.id)) {
+			syncMainDraft(text);
+			return;
+		}
+		const drafts = sessionDrafts(runtime.drafts, runtime.sessionState?.sessionId ?? ports.cwd);
+		drafts.main = text;
+		drafts.mainPastes = [];
 	};
 	const clearRuntimeMainDraft = (runtime: ConversationTabRuntime): void => {
 		if (ports.isRuntimeActive(runtime.id)) {
@@ -219,6 +229,7 @@ export function createPromptDraftActions(
 		clearMainDraft,
 		runtimeMainDraftText,
 		clearRuntimeMainDraft,
+		syncRuntimeMainDraft,
 		clearRuntimeMainDraftIfMatches,
 		promptValue,
 		expandedPromptText,

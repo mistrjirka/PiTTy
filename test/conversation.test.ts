@@ -673,8 +673,8 @@ describe("batch A data truth", () => {
 			event({
 				type: "tool_execution_start",
 				toolCallId: "quick",
-				toolName: "bash",
-				args: { command: "true", timeout: 500 },
+				toolName: "custom",
+				args: { timeoutMs: 500 },
 			}),
 		);
 		const item = model.items[0];

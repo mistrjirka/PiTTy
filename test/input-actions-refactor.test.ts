@@ -39,6 +39,7 @@ describe("extracted app input actions", () => {
 				lastRestored = value;
 			},
 			touch: () => {},
+			syncRuntimeMainDraft: () => {},
 			getPrompt: () => undefined,
 			queuedFollowUps: () => runtime.queuedFollowUps,
 		};
@@ -55,8 +56,11 @@ describe("extracted app input actions", () => {
 		expect(runtime.queuedFollowUps).toHaveLength(1);
 		expect(runtime.queuedFollowUps[0]?.text).toBe("Make this safer");
 		actions.restoreQueuedFollowUp();
-		expect(runtime.queuedFollowUps).toHaveLength(0);
+		expect(runtime.queuedFollowUps).toHaveLength(1);
+		expect(runtime.pendingInputEdit?.id).toBe(runtime.queuedFollowUps[0]?.id);
 		expect(lastRestored).toBe("Make this safer");
+		actions.queuedInput.cancelEdit();
+		expect(runtime.pendingInputEdit).toBeUndefined();
 	});
 
 	test("rejects submit before startup is ready without clearing the draft", async () => {
@@ -83,6 +87,7 @@ describe("extracted app input actions", () => {
 			clearMainDraft: () => {},
 			syncMainDraft: () => {},
 			touch: () => {},
+			syncRuntimeMainDraft: () => {},
 			getPrompt: () => undefined,
 			queuedFollowUps: () => [],
 		};

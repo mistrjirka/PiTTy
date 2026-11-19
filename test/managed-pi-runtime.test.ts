@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
 	existsSync,
 	mkdtempSync,
@@ -14,7 +15,53 @@ import { spawnSync } from "node:child_process";
 import { ensureManagedPi } from "../scripts/ensure-managed-pi.mjs";
 
 describe("managed Pi runtime installer", () => {
-	test("incompatible upstream version does not replace the installation", () => {
+	const managedTest = process.platform === "linux" || process.platform === "darwin" ? test : test.skip;
+	managedTest("a runtime missing a declared queue module is not reused", () => {
+		const root = mkdtempSync(path.join(tmpdir(), "pitty-fork-modules-"));
+		try {
+			const manifestText = readFileSync(
+				new URL("../vendor/managed-fork-manifest.json", import.meta.url),
+				"utf8",
+			);
+			const manifest = JSON.parse(manifestText) as {
+				pi: { modules: { target: string }[] };
+			};
+			const runtime = path.join(root, "fork-runtime");
+			const requiredFiles = [
+				"pi/dist/cli.js",
+				"pi-code-tool/dist/pi/state-codec.js",
+				...manifest.pi.modules.map((module) => "pi/" + module.target),
+			];
+			for (const file of requiredFiles) {
+				const destination = path.join(runtime, file);
+				mkdirSync(path.dirname(destination), { recursive: true });
+				writeFileSync(destination, "// installed module\n");
+			}
+			writeFileSync(
+				path.join(runtime, "pitty-fork-runtime.json"),
+				JSON.stringify({
+					schemaVersion: 1,
+					patchSha256: createHash("sha256").update(manifestText).digest("hex"),
+				}),
+			);
+			const env = {
+				HOME: root,
+				PITTY_UPSTREAM_PI_ROOT: path.join(root, "unavailable-upstream"),
+			};
+			expect(ensureManagedPi(root, env).status).toBe("ready");
+			const agentModule = manifest.pi.modules.find((module) =>
+				module.target.includes("pi-agent-core"),
+			);
+			expect(agentModule).toBeDefined();
+			rmSync(path.join(runtime, "pi", agentModule!.target));
+			expect(ensureManagedPi(root, env).status).toBe("unsupported");
+			expect(existsSync(path.join(runtime, "pi", "dist", "cli.js"))).toBe(true);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	managedTest("incompatible upstream version does not replace the installation", () => {
 		const root = mkdtempSync(path.join(tmpdir(), "pitty-fork-incompatible-"));
 		try {
 			const existing = path.join(root, "existing");
@@ -27,14 +74,21 @@ describe("managed Pi runtime installer", () => {
 					version: "0.0.0",
 				}),
 			);
+			const codeTool = path.join(root, "code-tool");
+			mkdirSync(codeTool);
+			writeFileSync(
+				path.join(codeTool, "package.json"),
+				JSON.stringify({ name: "pi-code-tool", version: "0.6.2" }),
+			);
 			mkdirSync(existing);
 			writeFileSync(path.join(existing, "user-note.txt"), "leave me alone");
 			const result = ensureManagedPi(existing, {
 				HOME: root,
 				PITTY_UPSTREAM_PI_ROOT: upstream,
-				PITTY_UPSTREAM_CODE_TOOL_ROOT: path.join(root, "unused"),
+				PITTY_UPSTREAM_CODE_TOOL_ROOT: codeTool,
 			});
 			expect(result.status).toBe("unsupported");
+			expect(result).toMatchObject({ reason: expect.stringContaining("Installed Pi version differs") });
 			expect(readFileSync(path.join(existing, "user-note.txt"), "utf8")).toBe(
 				"leave me alone",
 			);

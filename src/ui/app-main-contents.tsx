@@ -1,3 +1,4 @@
+import type { QueuedInputActions } from "../tabs/queued-input-actions.ts";
 import { AppPromptDock } from "./app-prompt-dock.tsx";
 /** Main terminal layout. App still owns the live session and RPC state. */
 import type {
@@ -124,6 +125,7 @@ export interface AppMainContentsProps {
 	steeringQueue: Accessor<string[]>;
 	followUpQueue: Accessor<string[]>;
 	editQueuedFollowUp: (id: string) => void;
+	pendingInput?: QueuedInputActions | undefined;
 	commandSuggestions: Accessor<CommandChoice[]>;
 	commandSuggestionIndex: Accessor<number>;
 	insertSuggestedCommand: (choice: CommandChoice) => void;
@@ -311,6 +313,7 @@ export function AppMainContents(props: AppMainContentsProps) {
 						steeringQueue={props.steeringQueue}
 						followUpQueue={props.followUpQueue}
 						editQueuedFollowUp={props.editQueuedFollowUp}
+						pendingInput={props.pendingInput}
 						commandSuggestions={props.commandSuggestions}
 						commandSuggestionIndex={props.commandSuggestionIndex}
 						insertSuggestedCommand={props.insertSuggestedCommand}
@@ -334,7 +337,7 @@ export function AppMainContents(props: AppMainContentsProps) {
 									props.promptValue().length > 0
 										? null
 										: props.streaming()
-											? "Enter queues steering for the next model step · Alt+Enter queues editable follow-up"
+											? "Enter queues the next step · Alt+Enter queues a follow-up · Alt+Up edits pending"
 											: "Ask Pi anything… (/help for commands)"
 								}
 								onEditor={props.onPromptEditor}

@@ -3830,7 +3830,7 @@ describe("OpenTUI components", () => {
 				id: "tool-time",
 				toolCallId: "tool-time",
 				name: "bash",
-				args: { command: "sleep 1", timeout: 30_000 },
+				args: { command: "sleep 1", timeout: 30 },
 				output: "running",
 				timestamp: 3,
 				startedAt: 1_000,

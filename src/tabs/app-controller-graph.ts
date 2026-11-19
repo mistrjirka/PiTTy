@@ -86,6 +86,7 @@ export function createAppControllerGraph(
 		syncMainDraft,
 		clearMainDraft,
 		clearRuntimeMainDraftIfMatches,
+		syncRuntimeMainDraft,
 		expandedPromptText,
 		expandCollapsedPromptPaste,
 	} = draftActions;
@@ -249,6 +250,8 @@ export function createAppControllerGraph(
 		touch,
 		getPrompt,
 		queuedFollowUps,
+		syncRuntimeMainDraft,
+		queueRevision: () => appSignals.conversationRevision[0](),
 	});
 	const { sendText, flushQueuedFollowUp } = inputActions;
 

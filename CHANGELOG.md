@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.9
+
+### Edit, cancel, and combine pending messages
+
+- Add **Edit**, **Cancel**, and **Combine next** controls above the prompt. `Alt+Up` edits the last pending message, `Enter` saves it in place, and `Esc` restores the prior draft.
+- Combine only neighboring messages with the same delivery mode. Preserve distinct submissions, including repeated identical text.
+- Accept and acknowledge messages during manual and automatic compaction. Preserve rejected drafts and prevent repeated Enter before acknowledgement from submitting the same draft twice.
+- Use message identities and queue revisions to prevent stale responses from restoring consumed messages. Report edits or cancellations that arrive too late without rewriting conversation history.
+- Restore pending messages and compaction state when a session starts. Keep local queue controls when an explicitly selected older Pi lacks the new RPC commands.
+- Bundle the matching managed Pi RPC, session, extension, and agent-core queue modules.
+
+### Deliver input while foreground commands continue
+
+- With `pi-bg-bash` installed, move foreground commands into its background registry when new RPC input is accepted. Keep the same process and output.
+- Preserve each command's original explicit timeout deadline, including when promotion happens after part of the timeout has elapsed. Keep earlier existing deadlines.
+- Retain task handles and structured output for nested code-tool calls when correcting the handoff reason.
+
+### Show command timeouts in the correct units
+
+- Interpret Bash `timeout` values as seconds in live events and restored history. A limit of `7200` now displays as `2h 0m`.
+- Show polling windows such as `agent_wait.timeout_seconds` as **wait up to**, separate from execution limits. Keep explicit millisecond fields and decline unknown bare units.
+
 ## 0.7.8
 
 ### Automatically install the managed Pi fork on upgrade

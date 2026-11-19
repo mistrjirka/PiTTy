@@ -16,6 +16,7 @@ import type { DiagnosticLogger } from "../diagnostics/logger.ts";
 
 export type KeyboardPorts = {
 	abortActiveWork: () => void;
+	cancelPendingEdit: () => void;
 	activateTab: (id: string) => void;
 	activeRuntime: () => ConversationTabRuntime;
 	availableSubagentTargets: Accessor<SubagentTarget[]>;

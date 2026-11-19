@@ -31,12 +31,13 @@ An empty session opens straight into the chat with a passive dashboard of recent
 
 - **The prompt stays put.** The transcript scrolls independently, so long conversations don't push the input line away.
 - **Subagents are inspectable.** Every child agent's live transcript opens in the sidebar, with steering, queued follow-ups, and pause/resume/stop for supported runs.
+- **Pending messages stay editable.** Edit, cancel, or combine queued messages and keep sending during compaction with the managed Pi runtime.
 - **Tool output is readable.** Edit/write tools get a dedicated diff view, tools render as collapsible cards, and timings stay on screen.
 - **Less hunting.** Searchable model picker (`Ctrl+P`), session browser (`/resume`), request map (`Ctrl+R`), and prompt history on an empty prompt (`↑`).
 - **Live themes.** Ten presets plus full color-token editing, applied immediately.
 - **Optional extra panels.** Todo, MCP server management, and an MCP counter with hover details appear when the matching Pi packages are installed.
 
-Pi extensions generally keep working: commands, tools, prompt templates, skills, notifications, status updates, and standard dialogs flow through RPC. With `pi-bg-bash` installed, the right sidebar lists background jobs. Select a job to inspect its original command and paged output, or explicitly request analysis with Pi. Custom `pi-tui` component trees are not serialized, so extension-owned renderers won't look identical, and interactive `/login` is done once in regular Pi.
+Pi extensions generally keep working: commands, tools, prompt templates, skills, notifications, status updates, and standard dialogs flow through RPC. With `pi-bg-bash` installed, the right sidebar lists background jobs. On the managed runtime, new input also moves running foreground commands to the background with the same process and original timeout deadline. Select a job to inspect its original command and paged output, or explicitly request analysis with Pi. Custom `pi-tui` component trees are not serialized, so extension-owned renderers won't look identical, and interactive `/login` is done once in regular Pi.
 
 ## Install
 
@@ -104,7 +105,7 @@ Inside PiTTy, the essentials are: `Enter` sends (or accepts a slash suggestion),
 
 Starting with v0.7.8, `pitty upgrade` stages a compatible Pi fork alongside the PiTTy update. On the next `pitty` launch, the update activates and PiTTy automatically uses its private fork. **No separate install command, configuration migration, or global Pi replacement is needed.** This also applies to a fresh PiTTy installation.
 
-The bundled patch currently targets **Pi 1.5.2** and **pi-code-tool 0.6.2**. For these exact installed versions, PiTTy copies Pi and its dependencies to its own `fork-runtime/` directory and applies the tested session-memory patches. The existing `~/.pi/agent/settings.json`, credentials, installed packages, extensions and session files stay in place. The existing code-tool extension is redirected only inside the PiTTy child process, without modifying its original file or auto-approve behavior.
+The bundled patch currently targets **Pi 1.5.2** and **pi-code-tool 0.6.2**. For these exact installed versions, PiTTy copies Pi and its dependencies to its own `fork-runtime/` directory and applies the tested session-memory and pending-message queue patches. The existing `~/.pi/agent/settings.json`, credentials, installed packages, extensions and session files stay in place. The existing code-tool extension is redirected only inside the PiTTy child process, without modifying its original file or auto-approve behavior.
 
 If the installed Pi or code-tool differs from the verified versions, PiTTy uses the unchanged global Pi and reports why. This does not block the PiTTy update. The managed fork is currently supported on Linux and macOS. To opt out, run `PITTY_USE_UPSTREAM_PI=1 pitty`; `PI_BIN=/path/to/pi` and `pitty --pi /path/to/pi` also override automatic selection.
 

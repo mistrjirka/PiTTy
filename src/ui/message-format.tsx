@@ -267,29 +267,21 @@ export function notificationText(value: unknown): string {
 }
 
 export function toolTiming(item: ToolItem, now?: number): string {
+	const timeout = item.timeoutMs === undefined ? "" : `timeout ${formatDuration(item.timeoutMs, "")}`;
+	const wait = item.waitMs === undefined ? "" : `wait up to ${formatDuration(item.waitMs, "")}`;
+	const limits = [timeout, wait].filter(Boolean).join(" · ");
 	const startedAt = item.startedAt;
-	if (startedAt === undefined)
-		return item.timeoutMs
-			? `timeout ${formatDuration(item.timeoutMs, "")}`
-			: "";
+	if (startedAt === undefined) return limits;
 	const end = item.endedAt ?? now;
-	// No end and no clock (inactive child, non-tool row): render empty rather
-	// than an epoch-based duration.
-	if (end === undefined)
-		return item.timeoutMs
-			? `timeout ${formatDuration(item.timeoutMs, "")}`
-			: "";
-	const elapsed = Math.max(0, end - startedAt);
-	const duration = formatDuration(elapsed, "");
-	const timeout = formatDuration(item.timeoutMs, "");
+	// No end and no clock: do not invent an epoch-based duration.
+	if (end === undefined) return limits;
+	const duration = formatDuration(Math.max(0, end - startedAt), "");
 	if (item.status === "streaming" || item.status === "pending") {
-		return `${duration}${timeout ? ` / timeout ${timeout}` : ""}`;
+		return `${duration}${limits ? ` / ${limits}` : ""}`;
 	}
 	return duration
-		? `took ${duration}${timeout ? ` · timeout ${timeout}` : ""}`
-		: timeout
-			? `timeout ${timeout}`
-			: "";
+		? `took ${duration}${limits ? ` · ${limits}` : ""}`
+		: limits;
 }
 
 export type MessageItemSource = ConversationItem | Accessor<ConversationItem>;

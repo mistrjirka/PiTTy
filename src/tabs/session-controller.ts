@@ -1,3 +1,4 @@
+import { parseQueueState } from "../rpc/queue-types.ts";
 import type { DiagnosticLogger } from "../diagnostics/logger.ts";
 import { initialItems } from "../state/conversation.ts";
 import { refreshRuntimeEntries, type ConversationTabRuntime } from "./runtime.ts";
@@ -30,6 +31,11 @@ export class SessionController {
     runtime.conversation.isStreaming = state.isStreaming;
     runtime.conversation.steering = [];
     runtime.conversation.followUp = [];
+    runtime.conversation.queue = undefined;
+    const queue = parseQueueState(state.queue);
+    if (queue) runtime.conversation.applyQueueState(queue);
+    runtime.conversation.isCompacting = state.isCompacting;
+    delete runtime.pendingInputEdit;
     runtime.sessionState = state;
     runtime.queuedFollowUps = [];
     return history.length;

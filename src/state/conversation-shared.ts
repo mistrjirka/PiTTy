@@ -187,20 +187,32 @@ export function mergeStreamingText(
 	return existing;
 }
 
-export function toolTimeoutMs(args: unknown): number | undefined {
-	if (!args || typeof args !== "object" || Array.isArray(args))
-		return undefined;
-	const record = args as Record<string, unknown>;
-	const raw =
-		typeof record.timeoutMs === "number"
-			? record.timeoutMs
-			: typeof record.timeout === "number"
-				? record.timeout
-				: undefined;
-	if (raw === undefined || !Number.isFinite(raw) || raw <= 0) return undefined;
-	// The field is named `timeoutMs`: take the value as milliseconds. A bare
-	// small value is NOT converted from seconds — there is no evidence any
-	// producer mixes units, and guessing turned an honest 500 ms timeout into
-	// a fabricated 500 s one.
-	return Math.floor(raw);
+function durationValue(value: unknown, multiplier: number, allowZero = false): number | undefined {
+	if (typeof value !== "number" || !Number.isFinite(value) || value < 0 ||
+		(!allowZero && value === 0)) return undefined;
+	const milliseconds = value * multiplier;
+	return Number.isFinite(milliseconds) ? Math.floor(milliseconds) : undefined;
+}
+
+/** Display budgets from known tool schemas. Never infer units from magnitude. */
+export function toolTimeLimits(toolName: string, args: unknown): {
+	timeoutMs?: number | undefined;
+	waitMs?: number | undefined;
+} {
+	const record = objectRecord(args);
+	if (!record) return {};
+	if (toolName === "agent_wait") {
+		// pi-subagent's timeout only ends the wait; it never stops the child.
+		return { waitMs: durationValue(record.timeout_seconds, 1000, true) };
+	}
+	return {
+		// Pi bash and pi-bg-bash define timeout in seconds. Other tools must
+		// supply a unit-bearing field; a bare timeout has no universal unit.
+		timeoutMs: toolName === "bash"
+			? durationValue(record.timeout, 1000)
+			: durationValue(record.timeoutMs ?? record.timeout_ms, 1),
+		// A polling/yield window does not limit the underlying process.
+		waitMs: durationValue(record.wait_seconds, 1000, true)
+			?? durationValue(record.yield_time_ms, 1, true),
+	};
 }

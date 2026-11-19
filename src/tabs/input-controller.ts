@@ -1,3 +1,4 @@
+import type { QueueState } from "../rpc/queue-types.ts";
 import { randomUUID } from "node:crypto";
 import type { DiagnosticLogger } from "../diagnostics/logger.ts";
 import {
@@ -8,10 +9,11 @@ import type { DispatchGate, LocalQueuedMessage } from "../state/input-continuity
 /** Minimal typed port. Tests do not need a fake whole ConversationTabRuntime. */
 export type InputRuntime = {
   id: string;
-  client: { prompt(message: string, behavior?: "steer" | "followUp"): Promise<void>; abort(): Promise<void> };
+  client: { prompt(message: string, behavior?: "steer" | "followUp", messageId?: string): Promise<void>; abort(): Promise<void> };
   conversation: {
     isStreaming: boolean;
     isCompacting: boolean;
+    queue?: QueueState | undefined;
     optimisticUser(text: string): string;
     removeItem(id: string): boolean | void;
     system(text: string, tone: "error"): void;
@@ -19,6 +21,7 @@ export type InputRuntime = {
   queuedFollowUps: LocalQueuedMessage[];
   dispatchGate: DispatchGate;
   abortInFlight?: Promise<void>;
+  pendingInputEdit?: { id: string; source: "local" | "pi" };
   onConversationChange(): void;
 };
 
@@ -44,17 +47,28 @@ export class InputController<T extends InputRuntime> {
       streaming: wasStreaming,
       compacting: runtime.conversation.isCompacting,
     });
-    if (runtime.conversation.isCompacting) {
+    if (runtime.conversation.isCompacting && !runtime.conversation.queue) {
       this.queueFollowUp(runtime, text);
       this.logger.info("ui.followup_queued_for_compaction", { chars: text.length });
       this.hooks.notify("Compacting context… message queued until it finishes.", "info");
       return "queued";
     }
+    if (runtime.conversation.queue) {
+      // The fork publishes authoritative queue/message events. A speculative
+      // transcript row can survive cancellation when queueing races the ACK.
+      await runtime.client.prompt(text, "steer", randomUUID());
+      if (runtime.conversation.isCompacting) {
+        this.hooks.notify("Message queued until compaction finishes.", "info");
+        return "queued";
+      }
+      return "sent";
+    }
     if (!wasStreaming) {
       const optimisticId = runtime.conversation.optimisticUser(text);
       if (this.hooks.isActive(runtime.id)) this.hooks.onOptimisticSubmit(runtime);
       try {
-        await runtime.client.prompt(text);
+        // Pi may already be busy even before its agent_start event reaches us.
+        await runtime.client.prompt(text, "steer", randomUUID());
       } catch (error) {
         runtime.conversation.removeItem(optimisticId);
         if (this.hooks.isActive(runtime.id)) this.hooks.onChange(runtime);
@@ -63,7 +77,7 @@ export class InputController<T extends InputRuntime> {
       return "sent";
     }
     // Pi handles steering and queues the user message for its next model step.
-    await runtime.client.prompt(text, "steer");
+    await runtime.client.prompt(text, "steer", randomUUID());
     return "sent";
   }
 
@@ -73,6 +87,9 @@ export class InputController<T extends InputRuntime> {
   }
 
   async flushQueuedFollowUp(runtime: T): Promise<void> {
+    if (runtime.conversation.isCompacting ||
+        (runtime.pendingInputEdit?.source === "local" && runtime.queuedFollowUps[0]?.id === runtime.pendingInputEdit.id))
+      return;
     const decision = settledDispatchDecision(
       runtime.dispatchGate,
       runtime.queuedFollowUps.length > 0,

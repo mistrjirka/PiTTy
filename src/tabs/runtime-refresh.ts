@@ -1,4 +1,5 @@
 /** One-flight RPC state refresh and PID-scoped subagent roster updates. */
+import { parseQueueState } from "../rpc/queue-types.ts";
 import type { Accessor, Setter } from "solid-js";
 import type { DiagnosticLogger } from "../diagnostics/logger.ts";
 import { PiRpcTimeoutError } from "../rpc/pi-rpc-client.ts";
@@ -108,7 +109,12 @@ export function createRuntimeRefresh(
 			ports.rememberThinkingLevel(target);
 			target.sessionStats = stats;
 			target.conversation.isStreaming = state.isStreaming;
-			if (streamingChanged) target.onConversationChange();
+			const compactingChanged = target.conversation.isCompacting !== state.isCompacting;
+			target.conversation.isCompacting = state.isCompacting;
+			const queue = parseQueueState(state.queue);
+			const queueChanged = queue && queue.revision !== target.conversation.queue?.revision;
+			if (queue) target.conversation.applyQueueState(queue);
+			if (streamingChanged || compactingChanged || queueChanged) target.onConversationChange();
 			delete target.lastError;
 			if (ports.tabRuntimeIsActive(target.id)) {
 				ports.setStatus(state.isStreaming ? "working" : "ready");

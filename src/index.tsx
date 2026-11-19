@@ -21,6 +21,7 @@ import { appVersion } from "./version.ts";
 import { resolveDefaultPiExecutable } from "./pi-command.ts";
 import { bootstrapManagedPi } from "./managed-pi-bootstrap.ts";
 import {
+	resolveBundledBackgroundInputPromotionPath,
 	resolveBundledBackgroundObserverPath,
 	resolveBundledMcpObserverPath,
 	resolveBundledPiExtensionPath,
@@ -75,6 +76,8 @@ const piArgs: string[] = [
 		process.env.PITTY_APP_ROOT,
 		import.meta.dir,
 	),
+	"--extension",
+	resolveBundledBackgroundInputPromotionPath(process.env.PITTY_APP_ROOT, import.meta.dir),
 ];
 if (parsed.values.continue) piArgs.push("--continue");
 if (typeof parsed.values.session === "string")

@@ -1,14 +1,14 @@
 import { getCurrentSystemMessage, uuidv7, } from "@earendil-works/pi-ai";
 import { randomUUID } from "crypto";
-import { appendFileSync, closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, readSync, renameSync, unlinkSync, statSync, writeFileSync, writeSync, } from "fs";
+import { appendFileSync, closeSync, createReadStream, existsSync, mkdirSync, openSync, readdirSync, readSync, renameSync, statSync, unlinkSync, writeFileSync, writeSync, } from "fs";
 import { readdir, stat } from "fs/promises";
 import { basename, join, resolve } from "path";
 import { createInterface } from "readline";
 import { StringDecoder } from "string_decoder";
-import { deferAppendedSessionState, deferredStateForDetails, largeDetailsStateRange, parseDeferredSessionEntry, } from "./session-lazy-state.js";
 import { APP_NAME, getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.js";
 import { normalizePath, pathsEqual, resolvePath } from "../utils/paths.js";
 import { createBranchSummaryMessage, createCompactionSummaryMessage, createCustomMessage, } from "./messages.js";
+import { deferAppendedSessionState, deferredStateForDetails, largeDetailsStateRange, parseDeferredSessionEntry, } from "./session-lazy-state.js";
 export const CURRENT_SESSION_VERSION = 3;
 function createSessionId() {
     return uuidv7();
@@ -783,7 +783,7 @@ export class SessionManager {
         // large deferred state strings directly from the original JSONL file,
         // without materializing all interpreter snapshots during migration.
         const target = this.sessionFile;
-        const temporary = target + "." + process.pid + "." + randomUUID() + ".tmp";
+        const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
         const statePositions = [];
         let succeeded = false;
         try {
@@ -814,7 +814,7 @@ export class SessionManager {
                     }
                     const serialized = JSON.stringify(serializable);
                     if (!reference) {
-                        writeFileSync(fd, serialized + "\n");
+                        writeFileSync(fd, `${serialized}\n`);
                         byteOffset += Buffer.byteLength(serialized) + 1;
                         continue;
                     }
@@ -840,7 +840,7 @@ export class SessionManager {
                     finally {
                         closeSync(srcFd);
                     }
-                    writeSync(fd, suffix + "\n");
+                    writeSync(fd, `${suffix}\n`);
                     statePositions.push({ reference, offset, length: reference.length });
                     byteOffset = offset + reference.length + Buffer.byteLength(suffix) + 1;
                 }

@@ -9,6 +9,8 @@ export {
 	PiRpcTimeoutError,
 } from "./pi-rpc-transport.ts";
 
+import { parseQueueState, type QueueState } from "./queue-types.ts";
+
 import type {
 	CloneResult,
 	ForkMessage,
@@ -25,20 +27,53 @@ export class PiRpcClient extends PiRpcTransport {
 	async prompt(
 		message: string,
 		streamingBehavior?: "steer" | "followUp",
+		messageId?: string,
 	): Promise<void> {
-		await this.request({
+		this.data(await this.request({
 			type: "prompt",
 			message,
 			...(streamingBehavior ? { streamingBehavior } : {}),
-		});
+			...(messageId ? { messageId } : {}),
+		}));
 	}
 
-	async steer(message: string): Promise<void> {
-		await this.request({ type: "steer", message });
+	async steer(message: string, messageId?: string): Promise<void> {
+		this.data(await this.request({ type: "steer", message, ...(messageId ? { messageId } : {}) }));
 	}
 
-	async followUp(message: string): Promise<void> {
-		await this.request({ type: "follow_up", message });
+	async followUp(message: string, messageId?: string): Promise<void> {
+		this.data(await this.request({ type: "follow_up", message, ...(messageId ? { messageId } : {}) }));
+	}
+
+	private queueData(value: unknown): QueueState {
+		const state = parseQueueState(value);
+		if (!state) throw new Error("Pi returned invalid pending-message data.");
+		return state;
+	}
+
+	async getQueue(): Promise<QueueState> {
+		return this.queueData(this.data(await this.request({ type: "get_queue" })));
+	}
+
+	async updateQueuedMessage(messageId: string, message: string, expectedRevision?: number): Promise<QueueState> {
+		return this.queueData(this.data(await this.request({
+			type: "update_queued_message", messageId, message,
+			...(expectedRevision !== undefined ? { expectedRevision } : {}),
+		})));
+	}
+
+	async removeQueuedMessage(messageId: string, expectedRevision?: number): Promise<QueueState> {
+		return this.queueData(this.data(await this.request({
+			type: "remove_queued_message", messageId,
+			...(expectedRevision !== undefined ? { expectedRevision } : {}),
+		})));
+	}
+
+	async combineQueuedMessages(messageIds: string[], expectedRevision?: number): Promise<QueueState> {
+		return this.queueData(this.data(await this.request({
+			type: "combine_queued_messages", messageIds,
+			...(expectedRevision !== undefined ? { expectedRevision } : {}),
+		})));
 	}
 
 	async abort(): Promise<void> {

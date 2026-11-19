@@ -1,4 +1,5 @@
-/** Prompt submission, locally queued follow-ups and RPC abort handling. */
+/** Prompt submission, queued-message editing, and RPC abort handling. */
+import { randomUUID } from "node:crypto";
 import type { TextareaRenderable } from "@opentui/core";
 import type { Accessor } from "solid-js";
 import type { DiagnosticLogger } from "../diagnostics/logger.ts";
@@ -6,6 +7,7 @@ import type { LocalQueuedMessage } from "../state/input-continuity.ts";
 import type { StartupPhase } from "../state/startup.ts";
 import type { RpcExtensionUIRequest, Toast } from "../types.ts";
 import { InputController } from "./input-controller.ts";
+import { createQueuedInputActions, type QueuedInputActions } from "./queued-input-actions.ts";
 import type { ConversationTabRuntime } from "./runtime.ts";
 
 export interface InputActionsPorts {
@@ -14,75 +16,61 @@ export interface InputActionsPorts {
 	readonly trimMessageWindowIfFollowingLatest: () => void;
 	readonly conversationTouch: (reason?: "stream" | "structure") => void;
 	readonly scrollToBottom: () => void;
-	readonly clearRuntimeMainDraftIfMatches: (
-		runtime: ConversationTabRuntime,
-		text: string,
-	) => void;
-	readonly toast: (
-		text: string,
-		tone: Toast["tone"],
-		durationMs?: number,
-	) => void;
+	readonly clearRuntimeMainDraftIfMatches: (runtime: ConversationTabRuntime, text: string) => void;
+	readonly toast: (text: string, tone: Toast["tone"], durationMs?: number) => void;
 	readonly activeRuntime: () => ConversationTabRuntime;
 	readonly startupPhase: Accessor<StartupPhase>;
 	readonly dialog: Accessor<RpcExtensionUIRequest | undefined>;
 	readonly expandedPromptText: () => string;
-	readonly handleSlashCommand: (
-		text: string,
-		runtime: ConversationTabRuntime,
-	) => Promise<boolean>;
+	readonly handleSlashCommand: (text: string, runtime: ConversationTabRuntime) => Promise<boolean>;
 	readonly clearMainDraft: () => void;
 	readonly syncMainDraft: (text: string) => void;
+	readonly syncRuntimeMainDraft: (runtime: ConversationTabRuntime, text: string) => void;
 	readonly touch: () => void;
 	readonly getPrompt: () => TextareaRenderable | undefined;
 	readonly queuedFollowUps: () => LocalQueuedMessage[];
+	readonly queueRevision?: () => number;
 }
 
 export interface InputActions {
-	readonly sendText: (
-		text: string,
-		runtime?: ConversationTabRuntime,
-	) => Promise<"sent" | "queued">;
+	readonly sendText: (text: string, runtime?: ConversationTabRuntime) => Promise<"sent" | "queued">;
 	readonly submit: () => Promise<void>;
 	readonly queueFollowUp: () => void;
 	readonly editQueuedFollowUp: (messageId: string) => void;
 	readonly restoreQueuedFollowUp: () => void;
-	readonly flushQueuedFollowUp: (
-		runtime?: ConversationTabRuntime,
-	) => Promise<void>;
+	readonly queuedInput: QueuedInputActions;
+	readonly flushQueuedFollowUp: (runtime?: ConversationTabRuntime) => Promise<void>;
 	readonly abortActiveWork: () => void;
 }
 
 export function createInputActions(ports: InputActionsPorts): InputActions {
-	const inputController = new InputController<ConversationTabRuntime>(
-		ports.logger,
-		{
-			isActive: ports.tabRuntimeIsActive,
-			onChange: () => ports.touch(),
-			onOptimisticSubmit: () => {
-				ports.trimMessageWindowIfFollowingLatest();
-				ports.conversationTouch();
-				ports.scrollToBottom();
-			},
-			onQueuedPromptSent: (runtime, text) =>
-				ports.clearRuntimeMainDraftIfMatches(runtime, text),
-			notify: (message, tone) => ports.toast(message, tone),
+	const inputController = new InputController<ConversationTabRuntime>(ports.logger, {
+		isActive: ports.tabRuntimeIsActive,
+		onChange: () => ports.touch(),
+		onOptimisticSubmit: () => {
+			ports.trimMessageWindowIfFollowingLatest();
+			ports.conversationTouch();
+			ports.scrollToBottom();
 		},
-	);
+		onQueuedPromptSent: (runtime, text) => ports.clearRuntimeMainDraftIfMatches(runtime, text),
+		notify: (message, tone) => ports.toast(message, tone),
+	});
 	const sendText = (
 		text: string,
 		runtime: ConversationTabRuntime = ports.activeRuntime(),
 	): Promise<"sent" | "queued"> => inputController.sendText(text, runtime);
+	const flushQueuedFollowUp = (
+		runtime: ConversationTabRuntime = ports.activeRuntime(),
+	): Promise<void> => inputController.flushQueuedFollowUp(runtime);
+	const queuedInput = createQueuedInputActions({ ...ports, flushQueuedFollowUp });
 
-	const submit = async () => {
+	const submit = async (behavior?: "followUp") => {
 		const runtime = ports.activeRuntime();
 		if (ports.startupPhase().kind !== "ready") {
 			ports.toast(
 				ports.startupPhase().kind === "failed"
 					? "Pi is unavailable. Restart PiTTy to retry."
-					: "Pi is still starting. Wait for the conversation to load.",
-				"warning",
-			);
+					: "Pi is still starting. Wait for the conversation to load.", "warning");
 			return;
 		}
 		if (!runtime.startupResolved) {
@@ -92,101 +80,64 @@ export function createInputActions(ports: InputActionsPorts): InputActions {
 		if (ports.dialog()) return;
 		const text = ports.expandedPromptText().trim();
 		if (!text) return;
-		if (runtime.submitInFlight) {
-			ports.toast(
-				"The previous message is still awaiting Pi acknowledgment.",
-				"info",
-			);
+		if (runtime.pendingInputEdit) {
+			await queuedInput.saveEdit(text);
 			return;
 		}
+		if (behavior && text.startsWith("/")) {
+			ports.toast("Command-like input must be submitted with Enter.", "warning");
+			return;
+		}
+		if (runtime.submittingTexts.has(text)) {
+			ports.toast("This message is still awaiting Pi acknowledgment.", "info");
+			return;
+		}
+		runtime.submittingTexts.add(text);
 		runtime.submitInFlight = true;
 		runtime.promptHistory.recordSubmitted(text);
 		try {
-			if (await ports.handleSlashCommand(text, runtime)) {
+			if (!behavior && await ports.handleSlashCommand(text, runtime)) {
 				ports.clearRuntimeMainDraftIfMatches(runtime, text);
 				return;
 			}
-			const result = await sendText(text, runtime);
-			if (result === "sent")
-				ports.clearRuntimeMainDraftIfMatches(runtime, text);
+			if (behavior) {
+				if (runtime.conversation.queue) await runtime.client.followUp(text, randomUUID());
+				else inputController.queueFollowUp(runtime, text);
+				ports.toast("Follow-up queued. Alt+Up edits the last pending message.", "success");
+			} else {
+				await sendText(text, runtime);
+			}
+			// Queue acceptance owns the draft too, including during compaction.
+			ports.clearRuntimeMainDraftIfMatches(runtime, text);
 		} catch (error) {
 			ports.logger.error("ui.submit_failed", error);
-			runtime.conversation.system(
-				error instanceof Error ? error.message : String(error),
-				"error",
-			);
+			runtime.conversation.system(error instanceof Error ? error.message : String(error), "error");
 			runtime.onConversationChange();
 		} finally {
-			runtime.submitInFlight = false;
+			runtime.submittingTexts.delete(text);
+			runtime.submitInFlight = runtime.submittingTexts.size > 0;
 		}
 	};
-
 	const queueFollowUp = () => {
-		if (ports.dialog()) return;
-		const text = ports.expandedPromptText().trim();
-		if (!text) return;
-		if (!ports.activeRuntime().conversation.isStreaming) {
-			void submit();
-			return;
-		}
-		if (text.startsWith("/")) {
-			ports.toast(
-				"Command-like input must be submitted with Enter.",
-				"warning",
-			);
-			return;
-		}
-		ports.clearMainDraft();
 		const runtime = ports.activeRuntime();
-		inputController.queueFollowUp(runtime, text);
-		ports.logger.info("ui.followup_queued", { chars: text.length });
-		ports.toast("Follow-up queued. Alt+Up restores it for editing.", "success");
+		void submit(runtime.conversation.isStreaming || runtime.conversation.isCompacting ? "followUp" : undefined);
 	};
-
 	const editQueuedFollowUp = (messageId: string) => {
-		const runtime = ports.activeRuntime();
-		const current = runtime.queuedFollowUps;
-		const selected = current.find((item) => item.id === messageId);
-		if (!selected) return;
-		runtime.queuedFollowUps = current.filter((item) => item.id !== messageId);
-		ports.touch();
-		ports.syncMainDraft(selected.text);
-		ports.getPrompt()?.focus();
-		ports.toast("Queued follow-up restored to editor.", "info");
+		const item = queuedInput.messages().find((entry) => entry.id === messageId && entry.source === "local");
+		if (item) queuedInput.edit(item);
 	};
-
 	const restoreQueuedFollowUp = () => {
-		const current = ports.queuedFollowUps();
-		const last = current.at(-1);
-		if (!last) {
-			const sentCount =
-				ports.activeRuntime().conversation.steering.length +
-				ports.activeRuntime().conversation.followUp.length;
-			ports.toast(
-				sentCount > 0
-					? "Those messages were already sent to Pi. Pi RPC cannot dequeue them; use Alt+Enter for an editable local follow-up."
-					: "No editable local follow-up is queued.",
-				"warning",
-				5200,
-			);
+		const last = queuedInput.messages().at(-1);
+		if (last) {
+			queuedInput.edit(last);
 			return;
 		}
-		editQueuedFollowUp(last.id);
+		const conversation = ports.activeRuntime().conversation;
+		ports.toast(
+			conversation.steering.length + conversation.followUp.length > 0
+				? "This Pi runtime does not support editing queued messages. Upgrade PiTTy's managed runtime."
+				: "No message is queued.", "warning", 5200);
 	};
-
-	const flushQueuedFollowUp = (
-		runtime: ConversationTabRuntime = ports.activeRuntime(),
-	): Promise<void> => inputController.flushQueuedFollowUp(runtime);
-	const abortActiveWork = (): void =>
-		inputController.abort(ports.activeRuntime());
-
-	return {
-		sendText,
-		submit,
-		queueFollowUp,
-		editQueuedFollowUp,
-		restoreQueuedFollowUp,
-		flushQueuedFollowUp,
-		abortActiveWork,
-	};
+	const abortActiveWork = (): void => inputController.abort(ports.activeRuntime());
+	return { sendText, submit, queueFollowUp, editQueuedFollowUp, restoreQueuedFollowUp, queuedInput, flushQueuedFollowUp, abortActiveWork };
 }

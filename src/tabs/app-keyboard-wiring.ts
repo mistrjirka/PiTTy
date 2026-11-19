@@ -13,6 +13,7 @@ export function registerScreenKeyboard(
 	const s = screen.signals;
 	const ports: KeyboardPorts = {
 		abortActiveWork: screen.input.abortActiveWork,
+		cancelPendingEdit: screen.input.queuedInput.cancelEdit,
 		activateTab: screen.runtime.activateTab,
 		activeRuntime: screen.runtime.activeRuntime,
 		availableSubagentTargets: screen.inspector.availableSubagentTargets,

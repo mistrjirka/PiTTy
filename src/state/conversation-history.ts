@@ -12,6 +12,7 @@ import {
 	objectRecord,
 	stringField,
 	toolOutput,
+	toolTimeLimits,
 } from "./conversation-shared.ts";
 import { normalizeResultDetails } from "./result-diff.ts";
 
@@ -208,6 +209,7 @@ export function initialItems(
 				toolCallId,
 				name: call?.name ?? toolName,
 				args: call?.arguments,
+				...toolTimeLimits(call?.name ?? toolName, call?.arguments),
 				output,
 				...(normalizedResult.diff ? { diff: normalizedResult.diff } : {}),
 				...(normalizedResult.path ? { diffPath: normalizedResult.path } : {}),

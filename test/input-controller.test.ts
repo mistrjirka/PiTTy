@@ -47,7 +47,7 @@ describe("input dispatch controller", () => {
   test("sends a normal prompt with an optimistic user item", async () => {
     const f = fixture();
     expect(await f.controller.sendText("hello", f.runtime)).toBe("sent");
-    expect(f.prompts).toEqual([["hello", undefined]]);
+    expect(f.prompts).toEqual([["hello", "steer"]]);
     expect(f.events).toEqual(["optimistic:hello", "optimistic-ready"]);
   });
 
@@ -67,7 +67,7 @@ describe("input dispatch controller", () => {
     expect(f.runtime.queuedFollowUps).toHaveLength(1);
     f.runtime.conversation.isCompacting = false;
     await f.controller.flushQueuedFollowUp(f.runtime);
-    expect(f.prompts).toEqual([["queued", undefined]]);
+    expect(f.prompts).toEqual([["queued", "steer"]]);
     expect(f.runtime.queuedFollowUps).toHaveLength(0);
     expect(f.events).toContain("queued-sent:queued");
     expect(f.runtime.dispatchGate.inFlight).toBe(false);

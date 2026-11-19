@@ -19,3 +19,7 @@ export function resolveBundledMcpObserverPath(appRoot: string | undefined, impor
 export function resolveBundledBackgroundObserverPath(appRoot: string | undefined, importMetaDir: string): string {
 	return path.join(bundledPiExtensionsRoot(appRoot, importMetaDir), "bg-observer.mjs");
 }
+
+export function resolveBundledBackgroundInputPromotionPath(appRoot: string | undefined, importMetaDir: string): string {
+	return path.join(bundledPiExtensionsRoot(appRoot, importMetaDir), "bg-input-promotion.mjs");
+}

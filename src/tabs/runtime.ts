@@ -1,3 +1,5 @@
+import { parseQueueState } from "../rpc/queue-types.ts";
+import type { PendingInputEdit } from "./queued-input-actions.ts";
 import type { DiagnosticLogger } from "../diagnostics/logger.ts";
 import { PiRpcClient, type PiRpcClientOptions } from "../rpc/pi-rpc-client.ts";
 import { ConversationModel, initialItems, isConversationEvent } from "../state/conversation.ts";
@@ -152,6 +154,10 @@ export type ConversationTabRuntime = {
 	queuedFollowUps: LocalQueuedMessage[];
 	/** Prevent repeated Enter presses from submitting the same draft twice before RPC acknowledgment. */
 	submitInFlight: boolean;
+	/** Block duplicate Enter for one draft while allowing another message to queue. */
+	submittingTexts: Set<string>;
+	pendingInputEdit?: PendingInputEdit;
+	queueMutationInFlight?: boolean;
 	dispatchGate: DispatchGate;
 	eventVersion: number;
 	abortInFlight?: Promise<void>;
@@ -219,6 +225,7 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		timingHistory: [],
 		queuedFollowUps: [],
 		submitInFlight: false,
+		submittingTexts: new Set(),
 		dispatchGate: { inFlight: false, suppressNextSettled: false },
 		eventVersion: 0,
 		effectiveThinkingLevels: new Map(),
@@ -341,6 +348,9 @@ export async function startTabRuntime(runtime: ConversationTabRuntime): Promise<
 	await runtime.client.start();
 	const state = await runtime.client.getState(240_000);
 	runtime.sessionState = state;
+	const queue = parseQueueState(state.queue);
+	if (queue) runtime.conversation.applyQueueState(queue);
+	runtime.conversation.isCompacting = state.isCompacting;
 	runtime.startupResolved = true;
 	return state;
 }
@@ -359,6 +369,10 @@ export async function prepareForkedTabRuntime(
 	]);
 	if (!state.sessionFile) throw new Error("Fork did not return a session file.");
 	runtime.sessionState = state;
+	runtime.conversation.queue = undefined;
+	const queue = parseQueueState(state.queue);
+	if (queue) runtime.conversation.applyQueueState(queue);
+	runtime.conversation.isCompacting = state.isCompacting;
 	runtime.conversation.replaceItems(initialItems(messages));
 	await refreshRuntimeEntries(runtime);
 	return { ...state, sessionFile: state.sessionFile };

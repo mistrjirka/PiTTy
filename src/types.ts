@@ -1,23 +1,27 @@
 import type {
 	AgentSessionEvent,
-	RpcCommand,
+	RpcCommand as PiRpcCommand,
 	RpcExtensionUIRequest,
 	RpcExtensionUIResponse,
 	RpcResponse,
-	RpcSessionState,
+	RpcSessionState as PiRpcSessionState,
 	SessionStats,
 } from "@earendil-works/pi-coding-agent";
+
+import type { QueueCommand, QueueState } from "./rpc/queue-types.ts";
+
+export type RpcCommand = PiRpcCommand | QueueCommand |
+ (Extract<PiRpcCommand, { type: "prompt" | "steer" | "follow_up" }> & { messageId: string });
+export type RpcSessionState = PiRpcSessionState & { queue?: QueueState };
 
 export type PiEvent =
 	| AgentSessionEvent
 	| RpcExtensionUIRequest
 	| Record<string, unknown>;
 export type {
-	RpcCommand,
 	RpcExtensionUIRequest,
 	RpcExtensionUIResponse,
 	RpcResponse,
-	RpcSessionState,
 	SessionStats,
 };
 
@@ -64,7 +68,10 @@ export type ToolItem = {
 	timestamp: number;
 	startedAt?: number | undefined;
 	endedAt?: number | undefined;
+	/** Execution timeout, when the tool exposes one in known units. */
 	timeoutMs?: number | undefined;
+	/** Polling or yield window. Expiry does not stop the underlying task. */
+	waitMs?: number | undefined;
 	status: MessageStatus;
 	isError: boolean;
 };
