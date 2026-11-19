@@ -1,0 +1,9 @@
+{
+  "name": "pitty-managed-monty",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned interpreter dependency for PiTTy's private code-tool runtime",
+  "dependencies": {
+    "@pydantic/monty": "1.0.0"
+  }
+}

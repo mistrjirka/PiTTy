@@ -16,7 +16,7 @@ import { ensureManagedPi } from "../scripts/ensure-managed-pi.mjs";
 
 describe("managed Pi runtime installer", () => {
 	const managedTest = process.platform === "linux" || process.platform === "darwin" ? test : test.skip;
-	managedTest("a runtime missing a declared queue or code bridge module is not reused", () => {
+	managedTest("a runtime with missing modules or an incompatible native dependency is not reused", () => {
 		const root = mkdtempSync(path.join(tmpdir(), "pitty-fork-modules-"));
 		try {
 			const manifestText = readFileSync(
@@ -25,7 +25,8 @@ describe("managed Pi runtime installer", () => {
 			);
 			const manifest = JSON.parse(manifestText) as {
 				pi: { modules: { target: string }[] };
-				codeTool: { modules: { target: string }[] };
+				codeTool: { version: string; modules: { target: string }[] };
+				monty: { version: string };
 			};
 			const runtime = path.join(root, "fork-runtime");
 			const requiredFiles = [
@@ -38,11 +39,48 @@ describe("managed Pi runtime installer", () => {
 				mkdirSync(path.dirname(destination), { recursive: true });
 				writeFileSync(destination, "// installed module\n");
 			}
+			const locked = JSON.parse(readFileSync(new URL("../vendor/monty-runtime/package-lock.json", import.meta.url), "utf8")) as {
+				packages: Record<string, { version: string; os?: string[]; cpu?: string[] }>;
+			};
+			for (const [location, metadata] of Object.entries(locked.packages)) {
+				if (!location || (metadata.os && !metadata.os.includes(process.platform)) ||
+					(metadata.cpu && !metadata.cpu.includes(process.arch))) continue;
+				const destination = path.join(runtime, "pi-code-tool", location);
+				mkdirSync(destination, { recursive: true });
+				writeFileSync(path.join(destination, "package.json"), JSON.stringify({
+					name: location.slice("node_modules/".length), version: metadata.version,
+				}));
+			}
+			const nativeName = process.platform === "darwin"
+				? "monty-darwin-" + process.arch : "monty-linux-" + process.arch + "-gnu";
+			const scope = path.join(runtime, "pi-code-tool", "node_modules", "@pydantic");
+			const wrapper = path.join(scope, "monty");
+			const native = path.join(scope, nativeName);
+			mkdirSync(path.join(wrapper, "dist"), { recursive: true });
+			mkdirSync(native, { recursive: true });
+			writeFileSync(path.join(wrapper, "dist/index.js"), "export {};\n");
+			writeFileSync(path.join(wrapper, "package.json"), JSON.stringify({
+				name: "@pydantic/monty", version: manifest.monty.version, main: "dist/index.js",
+				optionalDependencies: { ["@pydantic/" + nativeName]: manifest.monty.version },
+			}));
+			const nativeMetadata = {
+				name: "@pydantic/" + nativeName, version: manifest.monty.version,
+				main: "binding.node", os: [process.platform], cpu: [process.arch],
+			};
+			writeFileSync(path.join(native, "package.json"), JSON.stringify(nativeMetadata));
+			writeFileSync(path.join(native, "binding.node"), "fixture native binding");
+			writeFileSync(path.join(native, "monty"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+			writeFileSync(path.join(runtime, "pi-code-tool/package.json"), JSON.stringify({
+				name: "pi-code-tool", version: manifest.codeTool.version,
+				dependencies: { "@pydantic/monty": manifest.monty.version },
+			}));
 			writeFileSync(
 				path.join(runtime, "pitty-fork-runtime.json"),
 				JSON.stringify({
 					schemaVersion: 1,
 					patchSha256: createHash("sha256").update(manifestText).digest("hex"),
+					montyVersion: manifest.monty.version,
+					montyNativePackage: "@pydantic/" + nativeName,
 				}),
 			);
 			const env = {
@@ -64,6 +102,26 @@ describe("managed Pi runtime installer", () => {
 			);
 			expect(bridgeModule).toBeDefined();
 			rmSync(path.join(runtime, "pi-code-tool", bridgeModule!.target));
+			expect(ensureManagedPi(root, env).status).toBe("unsupported");
+			writeFileSync(path.join(runtime, "pi-code-tool", bridgeModule!.target), "// restored bridge\n");
+			expect(ensureManagedPi(root, env).status).toBe("ready");
+			rmSync(path.join(native, "binding.node"));
+			expect(ensureManagedPi(root, env).status).toBe("unsupported");
+			writeFileSync(path.join(native, "binding.node"), "fixture native binding");
+			writeFileSync(path.join(native, "package.json"), JSON.stringify({ ...nativeMetadata, version: "0.0.0" }));
+			expect(ensureManagedPi(root, env).status).toBe("unsupported");
+			writeFileSync(path.join(native, "package.json"), JSON.stringify(nativeMetadata));
+			const markerPath = path.join(runtime, "pitty-fork-runtime.json");
+			const marker = JSON.parse(readFileSync(markerPath, "utf8"));
+			writeFileSync(markerPath, JSON.stringify({ ...marker, montyVersion: "0.0.0" }));
+			expect(ensureManagedPi(root, env).status).toBe("unsupported");
+			expect(existsSync(path.join(runtime, "pi/dist/cli.js"))).toBe(true);
+			writeFileSync(markerPath, JSON.stringify(marker));
+			expect(ensureManagedPi(root, env).status).toBe("ready");
+			const auxiliary = Object.keys(locked.packages).find(location =>
+				location && !location.startsWith("node_modules/@pydantic/"));
+			expect(auxiliary).toBeDefined();
+			rmSync(path.join(runtime, "pi-code-tool", auxiliary!, "package.json"));
 			expect(ensureManagedPi(root, env).status).toBe("unsupported");
 		} finally {
 			rmSync(root, { recursive: true, force: true });

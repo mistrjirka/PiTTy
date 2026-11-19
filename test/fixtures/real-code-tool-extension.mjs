@@ -1,5 +1,5 @@
 /** Offline provider and observations for the real Python bridge regression. */
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
 
@@ -28,12 +28,22 @@ export default function (pi) {
         },
         stopReason: "stop", timestamp: Date.now(),
       };
-      if (!codeLaunched) {
+      let codeCall;
+      if (process.env.PITTY_CODE_FIXTURE_SCRIPTED === "1") {
+        const request = path.join(directory, "next-code.json");
+        if (existsSync(request)) {
+          codeCall = JSON.parse(readFileSync(request, "utf8"));
+          unlinkSync(request);
+        }
+      } else if (!codeLaunched) {
         codeLaunched = true;
-        message.content = [{
-          type: "toolCall", id: "fixture-code-1", name: "code",
+        codeCall = {
+          id: "fixture-code-1",
           arguments: { code: process.env.PITTY_CODE_FIXTURE_CODE, reset: true },
-        }];
+        };
+      }
+      if (codeCall) {
+        message.content = [{ type: "toolCall", name: "code", ...codeCall }];
         message.stopReason = "toolUse";
       }
       queueMicrotask(() => {

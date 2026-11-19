@@ -8,6 +8,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { PiRpcClient } from "../src/rpc/pi-rpc-client.ts";
 
 const executable = process.env.PITTY_TEST_MANAGED_RUNTIME;
@@ -34,11 +35,15 @@ type Event = {
   id?: string;
   method?: string;
   title?: string;
+  options?: string[];
   result?: {
     content?: Array<{ type: string; text?: string }>;
     structuredContent?: { task_id?: string; output?: string; exit_code?: number };
   };
 };
+type ApprovalChoice = "approve" | "deny" | "suspend";
+type CodeArguments = { code?: string; reset?: boolean; resume?: boolean };
+
 type Snapshot = {
   foreground: number;
   foregroundStartedAt: number[];
@@ -69,6 +74,9 @@ async function fixture(options: {
   code?: string;
   denyApproval?: boolean;
   blockEdit?: boolean;
+  scripted?: boolean;
+  persistent?: boolean;
+  approvals?: ApprovalChoice[];
 } = {}) {
   if (!executable || !existsSync(executable) || !codeExtension || !existsSync(codeExtension)) {
     throw new Error("The managed runtime and Python extension paths must exist.");
@@ -92,7 +100,7 @@ async function fixture(options: {
   await writeFile(python,
     "import { createPythonExtension } from " + JSON.stringify(pathToFileURL(codeExtension).href) + ";\n" +
     "export default createPythonExtension(" + JSON.stringify({
-      root: directory, autoApprove: !options.denyApproval, toolStore: false,
+      root: directory, autoApprove: !(options.denyApproval || options.approvals), toolStore: false,
     }) + ");\n");
   let code = options.code ?? "";
   if (options.foreground) {
@@ -106,7 +114,8 @@ async function fixture(options: {
   const client = new PiRpcClient({
     cwd: directory, executable,
     args: [
-      "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates",
+      ...(options.persistent ? ["--session", path.join(directory, "session.jsonl")] : ["--no-session"]),
+      "--no-extensions", "--no-skills", "--no-prompt-templates",
       "--tools", "bash,read,write,edit,code",
       ...(backgroundExtension ? [
         "--extension", backgroundExtension,
@@ -118,6 +127,7 @@ async function fixture(options: {
     env: {
       PI_CODING_AGENT_DIR: agentDirectory,
       PITTY_CODE_FIXTURE_DIR: directory, PITTY_CODE_FIXTURE_CODE: code,
+      PITTY_CODE_FIXTURE_SCRIPTED: options.scripted ? "1" : "0",
       PITTY_CODE_FIXTURE_BLOCK_EDIT: options.blockEdit ? "1" : "0",
       PITTY_DISABLE_FORK_CODE_TOOL: "1", XDG_STATE_HOME: path.join(directory, "state"),
     },
@@ -125,11 +135,18 @@ async function fixture(options: {
   });
   const events: Event[] = [];
   const uiErrors: unknown[] = [];
+  let approvals = [...(options.approvals ?? [])];
   client.onEvent((raw) => {
     const event = raw as unknown as Event;
     events.push(event);
-    if (options.denyApproval && event.type === "extension_ui_request" && event.method === "select" && event.id) {
-      void client.sendExtensionUiResponse({ type: "extension_ui_response", id: event.id, value: "Deny" })
+    if ((options.denyApproval || options.approvals) && event.type === "extension_ui_request" && event.method === "select" && event.id) {
+      const choice = options.denyApproval ? "deny" : approvals.shift() ?? "deny";
+      // Use the real option returned by the extension, including its suspension label.
+      const value = event.options?.[{ approve: 0, deny: 1, suspend: 2 }[choice]];
+      if (!value) uiErrors.push(new Error("Missing approval option: " + choice));
+      void client.sendExtensionUiResponse(value
+        ? { type: "extension_ui_response", id: event.id, value }
+        : { type: "extension_ui_response", id: event.id, cancelled: true })
         .catch((error: unknown) => uiErrors.push(error));
     }
   });
@@ -146,18 +163,31 @@ async function fixture(options: {
     throw error;
   }
   const messages = async () => await client.getMessages() as Message[];
-  const result = async (): Promise<Message> => {
-    await waitFor(async () => (await messages()).some((m) => m.role === "toolResult" && m.toolCallId === "fixture-code-1"), "Python result");
-    return (await messages()).find((m) => m.role === "toolResult" && m.toolCallId === "fixture-code-1")!;
+  const result = async (id = "fixture-code-1"): Promise<Message> => {
+    await waitFor(async () => (await messages()).some((m) => m.role === "toolResult" && m.toolCallId === id), "Python result " + id);
+    return (await messages()).find((m) => m.role === "toolResult" && m.toolCallId === id)!;
+  };
+  const settled = () => waitFor(async () => !(await client.getState()).isStreaming, "agent settlement");
+  let nextCode = 0;
+  const runCode = async (args: CodeArguments): Promise<Message> => {
+    if (!options.scripted) throw new Error("runCode requires the scripted fixture.");
+    await settled();
+    const id = "fixture-script-" + ++nextCode;
+    await writeFile(path.join(directory, "next-code.json"), JSON.stringify({ id, arguments: args }));
+    await client.prompt("run " + id);
+    const output = await result(id);
+    await settled();
+    return output;
   };
   const snapshot = async (): Promise<Snapshot> => {
     await client.prompt("/code-fixture-snapshot");
     return JSON.parse(await readFile(path.join(directory, "background-snapshot.json"), "utf8")) as Snapshot;
   };
   return {
-    client, directory, events, cleanup, messages, result, snapshot, uiErrors,
+    client, directory, events, cleanup, messages, result, snapshot, uiErrors, runCode,
+    setApprovals: (choices: ApprovalChoice[]) => { approvals = [...choices]; },
     start: () => client.prompt("run the fixture code", "steer", "start-code"),
-    settled: () => waitFor(async () => !(await client.getState()).isStreaming, "agent settlement"),
+    settled,
     users: async () => (await messages()).filter((m) => m.role === "user").map(messageText),
   };
 }
@@ -309,6 +339,203 @@ codeTest("real Python approval denial prevents native edit dispatch", async () =
     expect(f.events.filter((e) => e.type === "tool_execution_start" && e.toolName === "edit")).toEqual([]);
     const hooks = (await readFile(path.join(f.directory, "tool-calls.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { toolName: string });
     expect(hooks.some((event) => event.toolName === "edit")).toBe(false);
+  } finally {
+    await f.cleanup();
+  }
+}, 30_000);
+
+const readAndEditCode = [
+  'captured = open("/workspace/source.txt").read()',
+  'assert captured.count("old") == 1',
+  'assert "new" not in captured',
+  'position = captured.index("old")',
+  'print(edit("source.txt", [{"oldText": "old", "newText": "new"}]))',
+  'after_edit = open("/workspace/source.txt").read()',
+  'assert after_edit == "new\\n"',
+].join("\n");
+
+async function fixtureToolCalls(directory: string): Promise<Array<{ toolName: string }>> {
+  return (await readFile(path.join(directory, "tool-calls.jsonl"), "utf8")).trim().split("\n")
+    .map((line) => JSON.parse(line) as { toolName: string });
+}
+
+async function restartPersistedFixture(f: Awaited<ReturnType<typeof fixture>>): Promise<void> {
+  const sessionFile = (await f.client.getState()).sessionFile;
+  expect(sessionFile).toBe(path.join(f.directory, "session.jsonl"));
+  const entries = (await readFile(sessionFile!, "utf8")).trim().split("\n")
+    .map((line) => JSON.parse(line) as { message?: { role?: string; toolName?: string; details?: { state?: string } } });
+  const stored = entries.filter((entry) => entry.message?.role === "toolResult" && entry.message.toolName === "code");
+  expect(stored.length).toBeGreaterThan(0);
+  expect(typeof stored.at(-1)?.message?.details?.state).toBe("string");
+  const previousPid = f.client.getProcessPid();
+  expect(previousPid).toBeDefined();
+  await f.client.restart(sessionFile);
+  expect((await f.client.getState()).model?.provider).toBe("pitty-code-fixture");
+  expect(f.client.getProcessPid()).not.toBe(previousPid);
+}
+
+codeTest("real Python replay preserves earlier reads and variables while new reads see edits", async () => {
+  const f = await fixture({ scripted: true });
+  try {
+    await writeFile(path.join(f.directory, "source.txt"), "old\n");
+    const first = await f.runCode({ code: readAndEditCode, reset: true });
+    expect(first.details?.status, messageText(first)).toBe("ok");
+    expect(await readFile(path.join(f.directory, "source.txt"), "utf8")).toBe("new\n");
+
+    const unrelated = await f.runCode({ code: [
+      'assert captured == "old\\n"',
+      'assert after_edit == "new\\n"',
+      'print("retained", captured.strip(), position, 6 * 7)',
+    ].join("\n") });
+    expect(unrelated.details?.status, messageText(unrelated)).toBe("ok");
+    expect(messageText(unrelated)).toContain("retained old 0 42");
+    expect(unrelated.details?.calls).toEqual([]);
+
+    const fresh = await f.runCode({ code: [
+      'fresh = open("/workspace/source.txt").read()',
+      'assert fresh == "new\\n"',
+      'assert captured == "old\\n"',
+      'assert after_edit == "new\\n"',
+      'print("fresh", fresh.strip())',
+    ].join("\n") });
+    expect(fresh.details?.status, messageText(fresh)).toBe("ok");
+    expect(messageText(fresh)).toContain("fresh new");
+    expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "edit")).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+}, 30_000);
+
+codeTest("real Python replay survives persisted session restart and an external file change", async () => {
+  const f = await fixture({ scripted: true, persistent: true });
+  try {
+    await writeFile(path.join(f.directory, "source.txt"), "old\n");
+    expect((await f.runCode({ code: readAndEditCode, reset: true })).details?.status).toBe("ok");
+    expect(await readFile(path.join(f.directory, "source.txt"), "utf8")).toBe("new\n");
+    await writeFile(path.join(f.directory, "source.txt"), "external\n");
+    await restartPersistedFixture(f);
+
+    const result = await f.runCode({ code: [
+      "from pathlib import Path",
+      'assert captured == "old\\n"',
+      'assert after_edit == "new\\n"',
+      'assert position == 0',
+      'current = Path("/workspace/source.txt").read_text()',
+      'assert current == "external\\n"',
+      'print("restored", captured.strip(), "current", current.strip())',
+    ].join("\n") });
+    expect(result.details?.status, messageText(result)).toBe("ok");
+    expect(messageText(result)).toContain("restored old current external");
+    expect(result.details?.calls).toEqual([]);
+    expect(await readFile(path.join(f.directory, "source.txt"), "utf8")).toBe("external\n");
+    expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "edit")).toHaveLength(1);
+  } finally {
+    await f.cleanup();
+  }
+}, 30_000);
+
+codeTest("real Python replay resumes persisted approval without repeating an approved edit", async () => {
+  const f = await fixture({ scripted: true, persistent: true, approvals: ["approve", "suspend"] });
+  try {
+    await writeFile(path.join(f.directory, "source.txt"), "old\n");
+    const suspended = await f.runCode({ code: readAndEditCode + '\nprint(write("resumed.txt", captured + "resumed\\n"))', reset: true });
+    expect(suspended.details?.status, messageText(suspended)).toBe("suspended");
+    expect(await readFile(path.join(f.directory, "source.txt"), "utf8")).toBe("new\n");
+    expect(existsSync(path.join(f.directory, "resumed.txt"))).toBe(false);
+    expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "edit")).toHaveLength(1);
+
+    await writeFile(path.join(f.directory, "source.txt"), "external\n");
+    await restartPersistedFixture(f);
+    f.setApprovals(["approve"]);
+    const resumed = await f.runCode({ resume: true });
+    expect(resumed.details?.status, messageText(resumed)).toBe("ok");
+    expect(await readFile(path.join(f.directory, "source.txt"), "utf8")).toBe("external\n");
+    expect(await readFile(path.join(f.directory, "resumed.txt"), "utf8")).toBe("old\nresumed\n");
+    const calls = await fixtureToolCalls(f.directory);
+    expect(calls.filter((call) => call.toolName === "edit")).toHaveLength(1);
+    expect(calls.filter((call) => call.toolName === "write")).toHaveLength(1);
+    expect(f.events.filter((event) => event.type === "extension_ui_request" && event.method === "select")).toHaveLength(3);
+    expect(f.uiErrors).toEqual([]);
+
+    const fresh = await f.runCode({ code: [
+      'assert captured == "old\\n"',
+      'assert after_edit == "new\\n"',
+      'assert open("/workspace/source.txt").read() == "external\\n"',
+      'print("resume preserved history and current reads")',
+    ].join("\n") });
+    expect(fresh.details?.status, messageText(fresh)).toBe("ok");
+    expect(messageText(fresh)).toContain("resume preserved history and current reads");
+  } finally {
+    await f.cleanup();
+  }
+}, 30_000);
+
+function storedCodeStates(sessionText: string): string[] {
+  return sessionText.trim().split("\n")
+    .map((line) => JSON.parse(line) as { message?: { role?: string; toolName?: string; details?: { state?: string } } })
+    .filter((entry) => entry.message?.role === "toolResult" && entry.message.toolName === "code")
+    .map((entry) => entry.message?.details?.state ?? "");
+}
+
+codeTest("real Python legacy state requires explicit reset and preserves its original encoded snapshot", async () => {
+  const f = await fixture({ scripted: true, persistent: true });
+  const legacyJson = JSON.stringify({
+    version: 2,
+    snippets: [{ code: [
+      'legacy_saved = open("/workspace/legacy-source.txt").read()',
+      'assert legacy_saved == "before\\n"',
+    ].join("\n") }],
+    calls: [],
+    stdout: "",
+  });
+  const marker = "pi-code-tool:gzip-v1:";
+  const legacyState = marker + gzipSync(Buffer.from(legacyJson)).toString("base64");
+  const sessionFile = path.join(f.directory, "session.jsonl");
+  try {
+    expect((await f.runCode({ code: 'print("synthetic session seed")', reset: true })).details?.status).toBe("ok");
+    await writeFile(path.join(f.directory, "legacy-source.txt"), "after\n");
+    const previousPid = f.client.getProcessPid();
+    expect(previousPid).toBeDefined();
+    await f.client.stop();
+    // Replace only our synthetic session's state while its process is stopped.
+    const entries = (await readFile(sessionFile, "utf8")).trim().split("\n")
+      .map((line) => JSON.parse(line) as { message?: { role?: string; toolName?: string; details?: { state?: string } } });
+    const lastCode = entries.filter((entry) => entry.message?.role === "toolResult" && entry.message.toolName === "code").at(-1);
+    expect(lastCode?.message?.details).toBeDefined();
+    lastCode!.message!.details!.state = legacyState;
+    await writeFile(sessionFile, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+    await f.client.start();
+    expect((await f.client.getState()).model?.provider).toBe("pitty-code-fixture");
+    expect(f.client.getProcessPid()).not.toBe(previousPid);
+
+    const blocked = await f.runCode({ code: 'print(write("blocked.txt", "must not run"))' });
+    expect(blocked.details?.status, messageText(blocked)).toBe("error");
+    expect(messageText(blocked).toLowerCase()).toContain("cannot safely restore");
+    expect(messageText(blocked)).toContain("reset=true");
+    expect(messageText(blocked)).not.toContain("AssertionError");
+    expect(existsSync(path.join(f.directory, "blocked.txt"))).toBe(false);
+    expect(storedCodeStates(await readFile(sessionFile, "utf8")).at(-1)).toBe(legacyState);
+
+    const resume = await f.runCode({ resume: true });
+    expect(resume.details?.status, messageText(resume)).toBe("error");
+    expect(messageText(resume).toLowerCase()).toContain("cannot safely restore");
+    expect(messageText(resume)).toContain("reset=true");
+    expect(storedCodeStates(await readFile(sessionFile, "utf8")).at(-1)).toBe(legacyState);
+    expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "write")).toEqual([]);
+
+    const reset = await f.runCode({ code: 'print(write("reset.txt", "fresh state"))\nprint(6 * 7)', reset: true });
+    expect(reset.details?.status, messageText(reset)).toBe("ok");
+    expect(messageText(reset)).toContain("42");
+    expect(await readFile(path.join(f.directory, "reset.txt"), "utf8")).toBe("fresh state");
+    expect(await readFile(path.join(f.directory, "legacy-source.txt"), "utf8")).toBe("after\n");
+    expect(existsSync(path.join(f.directory, "blocked.txt"))).toBe(false);
+    expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "write")).toHaveLength(1);
+
+    const states = storedCodeStates(await readFile(sessionFile, "utf8"));
+    expect(states.filter((state) => state === legacyState)).toHaveLength(3);
+    const latest = states.at(-1)!;
+    const decoded = latest.startsWith(marker) ? gunzipSync(Buffer.from(latest.slice(marker.length), "base64")).toString("utf8") : latest;
+    expect((JSON.parse(decoded) as { version: number }).version).toBe(3);
   } finally {
     await f.cleanup();
   }

@@ -41,14 +41,29 @@ for (const module of manifest.codeTool.modules ?? []) {
 }
 
 const modules = [
+	["src/core/runner.ts", "dist/core/runner.js", "runner.js"],
+	["src/core/session.ts", "dist/core/session.js", "session.js"],
+	["src/core/registry.ts", "dist/core/registry.js", "registry.js"],
+	["src/core/capabilities.ts", "dist/core/capabilities.js", "capabilities.js"],
+	["src/core/toolstore.ts", "dist/core/toolstore.js", "toolstore.js"],
+	["src/core/types.ts", "dist/core/types.js", "types.js"],
+	["src/core/runtime.ts", "dist/core/runtime.js", "runtime.js"],
 	["src/pi/extension.ts", "dist/pi/extension.js", "extension.js"],
 	["src/pi/bridge.ts", "dist/pi/bridge.js", "bridge.js"],
 	["src/pi/state-codec.ts", "dist/pi/state-codec.js", "state-codec.js"],
 ];
-execFileSync("git", ["diff", "--quiet", "HEAD", "--", ...modules.map(([source]) => source)], {
+const sourceFiles = [...modules.map(([source]) => source), "package.json", "package-lock.json"];
+execFileSync("git", ["ls-files", "--error-unmatch", "--", ...sourceFiles], {
 	cwd: sourceRoot,
 	stdio: "pipe",
 });
+execFileSync("git", ["diff", "--quiet", "HEAD", "--", ...sourceFiles], {
+	cwd: sourceRoot,
+	stdio: "pipe",
+});
+const sourcePackage = JSON.parse(readFileSync(path.join(sourceRoot, "package.json"), "utf8"));
+if (sourcePackage.dependencies?.["@pydantic/monty"] !== manifest.monty?.version)
+	throw new Error("Source interpreter dependency does not match the private runtime pin.");
 for (const [source, , filename] of modules) {
 	const file = path.join(sourceRoot, source);
 	const result = ts.transpileModule(readFileSync(file, "utf8"), {

@@ -52,9 +52,44 @@
   "codeTool": {
     "version": "0.6.2",
     "originalExtensionSha256": "7b19b6f7eb57b08895cb796921293ea57aee0adaa3639b67d867305c89026018",
-    "forkCommit": "7bcf48b47f40e6cfdda6363ebca19db708793085",
+    "forkCommit": "e540ed8d83b26188b8feb0fcf9dba6bb25034826",
     "forkRepository": "https://github.com/mistrjirka/pi-code-tool",
     "modules": [
+      {
+        "source": "vendor/pi-code-tool-0.6.2/runner.js",
+        "target": "dist/core/runner.js",
+        "originalSha256": "1ca454ab241d89c656ea6d2da0699a88fcd5ca5f2411cd0a65461b3b5e9e6ee1"
+      },
+      {
+        "source": "vendor/pi-code-tool-0.6.2/session.js",
+        "target": "dist/core/session.js",
+        "originalSha256": "404279fa351903f2b84a347de1f3aed5e13f6d0959aefdacc8ceebc4dd707792"
+      },
+      {
+        "source": "vendor/pi-code-tool-0.6.2/registry.js",
+        "target": "dist/core/registry.js",
+        "originalSha256": "b426f45e5eadb12b5a8ec47d32638861d8a12bf5e85c992e21c0db7c2335caf3"
+      },
+      {
+        "source": "vendor/pi-code-tool-0.6.2/capabilities.js",
+        "target": "dist/core/capabilities.js",
+        "originalSha256": "75b926ca62df3d8094ff7551abef2d5e0eef10d49ac0d543d6e8610e561de0a1"
+      },
+      {
+        "source": "vendor/pi-code-tool-0.6.2/toolstore.js",
+        "target": "dist/core/toolstore.js",
+        "originalSha256": "0e50ab83713b75905844695249c9c254ff552c860dd837c95eb8d8681865b5e0"
+      },
+      {
+        "source": "vendor/pi-code-tool-0.6.2/types.js",
+        "target": "dist/core/types.js",
+        "originalSha256": "2c2691b9b497dffc3216ffb8b6e499f9df7deea145c0591cda260129f8a923f1"
+      },
+      {
+        "source": "vendor/pi-code-tool-0.6.2/runtime.js",
+        "target": "dist/core/runtime.js",
+        "originalSha256": null
+      },
       {
         "source": "vendor/pi-code-tool-0.6.2/extension.js",
         "target": "dist/pi/extension.js",
@@ -75,7 +110,7 @@
   "patchFiles": {
     "vendor/pi-1.5.2/session-manager.js": "3fb824b02d6a575e6409d239b79072d0d750c54a497330c0829579da54923ba9",
     "vendor/pi-1.5.2/session-lazy-state.js": "c527d424944ff14dffb54b498f7778c4fddd702478e9ec6d15ff10b6e69fbe3f",
-    "vendor/pi-code-tool-0.6.2/extension.js": "cf2f8db2052481e9d545f7632134628ded78db8780fc785db08e2e16c9966210",
+    "vendor/pi-code-tool-0.6.2/extension.js": "0bb13c26cc6be6c3acefa5b3369eda9443ce19b73c1b690cf8ddb6c5c32db879",
     "vendor/pi-code-tool-0.6.2/state-codec.js": "8871bfcd41753b85e3cb114d09ce25d8c9d475371b9e8a33d3e24ed1d96edf1b",
     "vendor/pi-1.5.2/agent-session.js": "c0c46875254c1a4a17bad11dc4fa87c9a33f0818aa7c1f41f9bcc095ca07bffb",
     "vendor/pi-1.5.2/queued-input.js": "e09b1a23b3abbcdb4d9994231c4a3630738de1dd9d6d73041ddea3f951336c78",
@@ -83,6 +118,20 @@
     "vendor/pi-1.5.2/agent.js": "ede5e0a5ddd758fcdc16d1f2a26619680209fed5e024d99c16717efbecbb76f0",
     "vendor/pi-1.5.2/agent-session-runtime.js": "b2005952a6c49638f7f9d7616a13cd5a97feab84a9657dbb5d6d0c64be7d20d9",
     "vendor/pi-1.5.2/diagnostics-stderr.js": "6a0458320312dbe0c42c8f1dd8c66ea1c87b61ec1a38e66e97c1143b5135a6b7",
-    "vendor/pi-code-tool-0.6.2/bridge.js": "86075fa5ef6dfdcdef83388f6f92361ba9f786b7aa615edb7103c71c5d4231b6"
+    "vendor/pi-code-tool-0.6.2/bridge.js": "86075fa5ef6dfdcdef83388f6f92361ba9f786b7aa615edb7103c71c5d4231b6",
+    "vendor/monty-runtime/package.json": "3251c5c4a982bddcf8519c132d15287ea2c801ba74c91835a198e91016e2f477",
+    "vendor/monty-runtime/package-lock.json": "a473a9780f3a837989002996eaf68428bd1e89885a6ebdd39a4436e93bc4391f",
+    "vendor/pi-code-tool-0.6.2/runner.js": "1ae1d073dbc52f643c83b0464d125ff42c7f4c44e4daee46c621ef0dfd6a55c4",
+    "vendor/pi-code-tool-0.6.2/session.js": "bd1193962acdf074528b57284b38934fc371a3bf454af5fbd3ab26362d5f71ee",
+    "vendor/pi-code-tool-0.6.2/registry.js": "e106c40bc1d4d81f722ce9dd635a9ea9d43b4fc4918c676d4fa4a556f013638f",
+    "vendor/pi-code-tool-0.6.2/capabilities.js": "48aa0652819dc0cf1625dd939e898d8c99d74393689d70e6bc2bce9531aee3ea",
+    "vendor/pi-code-tool-0.6.2/toolstore.js": "5e472dc0ad8c3dbb4190da3893292d07d7513d94e1a0c3f19c17205e966b8dec",
+    "vendor/pi-code-tool-0.6.2/types.js": "2c2691b9b497dffc3216ffb8b6e499f9df7deea145c0591cda260129f8a923f1",
+    "vendor/pi-code-tool-0.6.2/runtime.js": "572e942ee23f769509263d8a2dbea986779247955c274220ef3db5e3bf2abf54"
+  },
+  "monty": {
+    "version": "1.0.0",
+    "packageFile": "vendor/monty-runtime/package.json",
+    "lockFile": "vendor/monty-runtime/package-lock.json"
   }
 }

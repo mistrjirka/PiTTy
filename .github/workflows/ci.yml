@@ -22,6 +22,11 @@ jobs:
       - run: npm run build:runtime
       - run: node bin/pitty.mjs --help
       - run: npm run typecheck
+      - name: Verify managed Monty native runtime
+        if: runner.os != 'Windows'
+        run: |
+          npm ci --prefix vendor/monty-runtime --ignore-scripts --omit=dev --include=optional --no-audit --no-fund
+          node scripts/check-managed-monty.mjs vendor/monty-runtime
       - run: npm run test:unit
 
   shell-installer-syntax:

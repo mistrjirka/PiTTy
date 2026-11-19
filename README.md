@@ -109,6 +109,8 @@ The bundled patch currently targets **Pi 1.5.2** and **pi-code-tool 0.6.2**. For
 
 Python helpers use the tools enabled in the current Pi session, including their extension overrides, validation, and cancellation. The default helper set is `read`, `bash`, `edit`, and `write`. Enable `find`, `grep`, or `ls` in Pi's tool selection before using those helpers. Existing code-tool approval settings still apply.
 
+Starting with v0.7.11, Python variables are saved as interpreter checkpoints. Later calls and restored sessions continue from that state without rerunning earlier code. An old replay snapshot or an incompatible change to helper type signatures or execution limits requires `reset=true` on the `code` tool. This clears Python variables and reloads saved tools. Conversation history and workspace files remain intact. Until reset, the original snapshot is preserved. The private runtime installs its pinned interpreter from a checksum-verified dependency lock without changing the globally installed interpreter.
+
 If the installed Pi or code-tool differs from the verified versions, PiTTy uses the unchanged global Pi and reports why. This does not block the PiTTy update. The managed fork is currently supported on Linux and macOS. To opt out, run `PITTY_USE_UPSTREAM_PI=1 pitty`; `PI_BIN=/path/to/pi` and `pitty --pi /path/to/pi` also override automatic selection.
 
 For local source builds, run `npm run install:fork-runtime` once to prepare the managed runtime. The installer does not modify any global Pi configuration.
