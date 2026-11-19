@@ -51,44 +51,53 @@ describe("managed Pi runtime installer", () => {
 		expect(result.status).toBe("skipped");
 	});
 
-	test("process-local code-tool replacement leaves the original module untouched", () => {
-		const root = mkdtempSync(path.join(tmpdir(), "pitty-code-fork-hook-"));
-		try {
-			writeFileSync(path.join(root, "package.json"), '{"type":"module"}');
-			const original = path.join(
-				root,
-				"pi-code-tool",
-				"dist",
-				"pi",
-				"extension.js",
-			);
-			const replacement = path.join(root, "patched", "extension.js");
-			const entry = path.join(root, "entry.mjs");
-			mkdirSync(path.dirname(original), { recursive: true });
-			mkdirSync(path.dirname(replacement), { recursive: true });
-			writeFileSync(original, 'export const marker = "original";\n');
-			writeFileSync(replacement, 'export const marker = "patched";\n');
-			writeFileSync(
-				entry,
-				'import { marker } from "./pi-code-tool/dist/pi/extension.js"; console.log(marker);\n',
-			);
-			const loader = fileURLToPath(
-				new URL("../src/pi-display/code-tool-loader.mjs", import.meta.url),
-			);
-			const env = { ...process.env, PITTY_CODE_TOOL_REPLACEMENT: replacement };
-			const node = process.env.PITTY_NODE_EXECUTABLE || "node";
-			const plain = spawnSync(node, [entry], { encoding: "utf8", env });
-			const patched = spawnSync(node, ["--import=" + loader, entry], {
-				encoding: "utf8",
-				env,
-			});
-			expect(plain.status).toBe(0);
-			expect(plain.stdout.trim()).toBe("original");
-			expect(patched.status).toBe(0);
-			expect(patched.stdout.trim()).toBe("patched");
-			expect(readFileSync(original, "utf8")).toContain('"original"');
-		} finally {
-			rmSync(root, { recursive: true, force: true });
-		}
-	});
+	// The managed fork is intentionally not installed on Windows. Verify this
+	// process-local Node hook only on the supported Linux/macOS platforms.
+	const hookTest = process.platform === "win32" ? test.skip : test;
+	hookTest(
+		"process-local code-tool replacement leaves the original module untouched",
+		() => {
+			const root = mkdtempSync(path.join(tmpdir(), "pitty-code-fork-hook-"));
+			try {
+				writeFileSync(path.join(root, "package.json"), '{"type":"module"}');
+				const original = path.join(
+					root,
+					"pi-code-tool",
+					"dist",
+					"pi",
+					"extension.js",
+				);
+				const replacement = path.join(root, "patched", "extension.js");
+				const entry = path.join(root, "entry.mjs");
+				mkdirSync(path.dirname(original), { recursive: true });
+				mkdirSync(path.dirname(replacement), { recursive: true });
+				writeFileSync(original, 'export const marker = "original";\n');
+				writeFileSync(replacement, 'export const marker = "patched";\n');
+				writeFileSync(
+					entry,
+					'import { marker } from "./pi-code-tool/dist/pi/extension.js"; console.log(marker);\n',
+				);
+				const loader = fileURLToPath(
+					new URL("../src/pi-display/code-tool-loader.mjs", import.meta.url),
+				);
+				const env = {
+					...process.env,
+					PITTY_CODE_TOOL_REPLACEMENT: replacement,
+				};
+				const node = process.env.PITTY_NODE_EXECUTABLE || "node";
+				const plain = spawnSync(node, [entry], { encoding: "utf8", env });
+				const patched = spawnSync(node, ["--import=" + loader, entry], {
+					encoding: "utf8",
+					env,
+				});
+				expect(plain.status).toBe(0);
+				expect(plain.stdout.trim()).toBe("original");
+				expect(patched.status).toBe(0);
+				expect(patched.stdout.trim()).toBe("patched");
+				expect(readFileSync(original, "utf8")).toContain('"original"');
+			} finally {
+				rmSync(root, { recursive: true, force: true });
+			}
+		},
+	);
 });

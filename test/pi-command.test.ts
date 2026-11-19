@@ -65,7 +65,13 @@ describe("Pi command resolution", () => {
 		const staged = { ...env, PITTY_APP_ROOT: "/opt/pitty" };
 		const stagedPaths = piForkRuntimePaths(staged);
 		expect(stagedPaths.piExecutable).toBe(
-			path.join("/opt/pitty", "fork-runtime", "pi", "dist", "cli.js"),
+			path.join(
+				path.resolve("/opt/pitty"),
+				"fork-runtime",
+				"pi",
+				"dist",
+				"cli.js",
+			),
 		);
 		expect(
 			resolveDefaultPiExecutable(
