@@ -6,8 +6,10 @@ import {
 	summarizePiArgs,
 } from "../diagnostics/logger.ts";
 import { resolveDefaultPiExecutable, resolvePiCommand } from "../pi-command.ts";
+import { resolveForkCodeToolExtension } from "../pi-fork-runtime.ts";
 import {
 	locateDisplayRpcLoader,
+	locateCodeToolForkLoader,
 	resolveDisplayRpcLaunch,
 } from "../pi-display/command.ts";
 import type {
@@ -121,7 +123,18 @@ export abstract class PiRpcTransport extends EventEmitter {
 			: undefined;
 		const command = displayCommand ?? normalCommand;
 		const executable = command.executable;
-		const args = command.args;
+		const runtimeEnv = { ...process.env, ...this.options.env };
+		const codeToolReplacement = resolveForkCodeToolExtension(
+			configuredExecutable,
+			runtimeEnv,
+		);
+		const codeToolLoader = codeToolReplacement
+			? locateCodeToolForkLoader(import.meta.dir)
+			: undefined;
+		// Node preloads must precede the Pi JavaScript entrypoint.
+		const args = codeToolLoader
+			? [`--import=${codeToolLoader}`, ...command.args]
+			: command.args;
 		this.displayRpcEnabled = Boolean(displayCommand);
 		if (displayCommand)
 			this.options.logger?.info("rpc.display_adapter_enabled", {
@@ -138,6 +151,9 @@ export abstract class PiRpcTransport extends EventEmitter {
 				...process.env,
 				...this.options.env,
 				...(displayCommand?.environment ?? {}),
+				...(codeToolLoader && codeToolReplacement
+					? { PITTY_CODE_TOOL_REPLACEMENT: codeToolReplacement }
+					: {}),
 			},
 			stdio: ["pipe", "pipe", "pipe"],
 		});

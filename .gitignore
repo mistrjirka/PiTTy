@@ -12,3 +12,6 @@ Thumbs.db
 !.env.example
 .pitty/
 .pi-subagents/
+fork-runtime/
+.fork-stage-*/
+.fork-runtime-backup/

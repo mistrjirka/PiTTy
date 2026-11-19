@@ -100,18 +100,15 @@ pitty-resume -C /path/to/project   # open the session picker immediately
 
 Inside PiTTy, the essentials are: `Enter` sends (or accepts a slash suggestion), `Shift+Enter` adds a newline, `Ctrl+P` picks a model, `Ctrl+X` opens Settings, `Ctrl+S` toggles the sidebar, `Ctrl+O` expands or collapses tool and thinking details, `Ctrl+I` opens the selected subagent, `Ctrl+Shift+A` stops a controllable subagent, and `Esc` closes a dialog or aborts the current turn. Legacy `pi-subagents` runs also support pause/resume controls. `/help` lists everything; the full [usage and controls guide](docs/USAGE.md) has the details.
 
-## Optional Pi and code-tool fork builds
+## Managed Pi runtime (automatic)
 
-PiTTy normally uses the Pi executable from `PATH`. If a managed fork build is installed, PiTTy uses it automatically and loads the matching `pi-code-tool` extension. The normal `pi` command, its configuration, and existing session files stay unchanged.
+Starting with v0.7.8, `pitty upgrade` stages a compatible Pi fork alongside the PiTTy update. On the next `pitty` launch, the update activates and PiTTy automatically uses its private fork. **No separate install command, configuration migration, or global Pi replacement is needed.** This also applies to a fresh PiTTy installation.
 
-To install from two local fork checkouts (the Pi checkout must match the installed Pi version):
+The bundled patch currently targets **Pi 1.5.2** and **pi-code-tool 0.6.2**. For these exact installed versions, PiTTy copies Pi and its dependencies to its own `fork-runtime/` directory and applies the tested session-memory patches. The existing `~/.pi/agent/settings.json`, credentials, installed packages, extensions and session files stay in place. The existing code-tool extension is redirected only inside the PiTTy child process, without modifying its original file or auto-approve behavior.
 
-```bash
-npm run install:fork-runtime -- --pi-source /path/to/pi-fork --code-tool-source /path/to/pi-code-tool-fork
-pitty -c
-```
+If the installed Pi or code-tool differs from the verified versions, PiTTy uses the unchanged global Pi and reports why. This does not block the PiTTy update. The managed fork is currently supported on Linux and macOS. To opt out, run `PITTY_USE_UPSTREAM_PI=1 pitty`; `PI_BIN=/path/to/pi` and `pitty --pi /path/to/pi` also override automatic selection.
 
-This creates a version-checked runtime under `~/.local/share/pitty-forks/`. It compiles the patched session modules against a matching upstream Pi package and installs the code-tool runtime dependencies. If `~/.pi/agent/extensions/pi-code-tool-autoapprove.ts` exists, the installer backs it up as `.pitty-upstream-backup` and redirects that existing registration to the fork. This also makes regular Pi use the forked code-tool extension, without changing the global Pi executable. To revert that registration, restore the backup. To use the global Pi instead, run `PITTY_USE_UPSTREAM_PI=1 pitty`. `PI_BIN=/path/to/pi` and `pitty --pi /path/to/pi` also override the managed fork. To choose another managed folder, set `PITTY_FORK_RUNTIME_DIR` both during installation and while launching PiTTy.
+For local source builds, run `npm run install:fork-runtime` once to prepare the managed runtime. The installer does not modify any global Pi configuration.
 
 ## Optional integrations
 

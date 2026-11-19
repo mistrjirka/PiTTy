@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "pi": {
+    "version": "1.5.2",
+    "originalSessionManagerSha256": "7e24f1c857c9f0e7be6485e9be12ba528fad9eea3423abf2c96fc27585a88b61",
+    "forkCommit": "9ddb77c6f1663585fbfaa98a3d8055aac07827be"
+  },
+  "codeTool": {
+    "version": "0.6.2",
+    "originalExtensionSha256": "7b19b6f7eb57b08895cb796921293ea57aee0adaa3639b67d867305c89026018",
+    "forkCommit": "22a7a8958875277144c8f27f51f48f7bffb9b1f2"
+  },
+  "patchFiles": {
+    "vendor/pi-1.5.2/session-manager.js": "3f6ed7faf607cd1c66c023988cc8a7d7fb10d8a87af93e08784fc2e010ef86ca",
+    "vendor/pi-1.5.2/session-lazy-state.js": "7719759c5191dda55a153550d4cc963e10480b08e2dcab86902ce69398343b1a",
+    "vendor/pi-code-tool-0.6.2/extension.js": "6ad1ebd499d34b0b919da531adb0de8b7b765edca49f12ef295396f0d303fb93",
+    "vendor/pi-code-tool-0.6.2/state-codec.js": "8871bfcd41753b85e3cb114d09ce25d8c9d475371b9e8a33d3e24ed1d96edf1b"
+  }
+}

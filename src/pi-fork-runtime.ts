@@ -5,16 +5,23 @@ import path from "node:path";
 export type PiForkRuntimePaths = {
 	piExecutable: string;
 	codeToolExtension: string;
+	markerFile: string;
 };
 
-/** PiTTy-managed fork builds do not replace the user's global Pi executable. */
+/**
+ * The release-managed runtime lives inside PiTTy's installation, so upgrades
+ * stage it and roll it back with the app. Keep the former standalone location
+ * for source checkouts and manual installs.
+ */
 export function piForkRuntimePaths(
 	env: NodeJS.ProcessEnv = process.env,
 ): PiForkRuntimePaths {
 	const home = env.HOME || env.USERPROFILE || homedir();
 	const root = path.resolve(
 		env.PITTY_FORK_RUNTIME_DIR ||
-			path.join(home, ".local", "share", "pitty-forks"),
+			(env.PITTY_APP_ROOT
+				? path.join(env.PITTY_APP_ROOT, "fork-runtime")
+				: path.join(home, ".local", "share", "pitty-forks")),
 	);
 	return {
 		piExecutable: path.join(root, "pi", "dist", "cli.js"),
@@ -25,10 +32,15 @@ export function piForkRuntimePaths(
 			"pi",
 			"extension.js",
 		),
+		markerFile: path.join(root, "pitty-fork-runtime.json"),
 	};
 }
 
-/** Load our forked code tool only when our Pi fork is the selected runtime. */
+/**
+ * Return the replacement module for PiTTy's process-local loader.
+ * The global extension continues to register its own code tool.
+ * We do not register a second copy or modify ~/.pi/agent/extensions.
+ */
 export function resolveForkCodeToolExtension(
 	selectedPi: string,
 	env: NodeJS.ProcessEnv = process.env,
@@ -36,19 +48,9 @@ export function resolveForkCodeToolExtension(
 ): string | undefined {
 	if (env.PITTY_DISABLE_FORK_CODE_TOOL === "1") return undefined;
 	const installed = piForkRuntimePaths(env);
-	if (
-		path.resolve(selectedPi) !== installed.piExecutable ||
-		!fileExists(installed.codeToolExtension)
-	)
-		return undefined;
-	// The user may already have a wrapper registering the code tool with autoApprove.
-	// The managed installer redirects that wrapper to our fork. Loading a second
-	// explicit copy would crash Pi with a duplicate tool registration error.
-	const home = env.HOME || env.USERPROFILE || homedir();
-	const agentDir = env.PI_CODING_AGENT_DIR || path.join(home, ".pi", "agent");
-	if (
-		fileExists(path.join(agentDir, "extensions", "pi-code-tool-autoapprove.ts"))
-	)
-		return undefined;
-	return installed.codeToolExtension;
+	return path.resolve(selectedPi) === installed.piExecutable &&
+		fileExists(installed.markerFile) &&
+		fileExists(installed.codeToolExtension)
+		? installed.codeToolExtension
+		: undefined;
 }

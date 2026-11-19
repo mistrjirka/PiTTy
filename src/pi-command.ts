@@ -25,6 +25,8 @@ export function resolveDefaultPiExecutable(
 ): string {
 	if (env.PI_BIN) return env.PI_BIN;
 	if (env.PITTY_USE_UPSTREAM_PI === "1") return "pi";
-	const fork = piForkRuntimePaths(env).piExecutable;
-	return fileExists(fork) ? fork : "pi";
+	const fork = piForkRuntimePaths(env);
+	return fileExists(fork.markerFile) && fileExists(fork.piExecutable)
+		? fork.piExecutable
+		: "pi";
 }

@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 let root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 function findBundledBun(directory) {
@@ -53,6 +53,21 @@ if (isUpgrade) {
   child.on("exit", (code, signal) => { if (signal) process.kill(process.pid, signal); else process.exit(code ?? 1); });
 } else {
   try { activatePending(); root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); }
+  // Older installed launchers can stage the new PiTTy release without knowing
+  // about our fork. Build it automatically on the first launch after activation.
+  // This is optional and never modifies the global Pi or the Pi agent directory.
+  const managedInstaller = path.join(root, "scripts", "ensure-managed-pi.mjs");
+  const managedMarker = path.join(root, "fork-runtime", "pitty-fork-runtime.json");
+  if (fs.existsSync(managedInstaller) && !fs.existsSync(managedMarker) &&
+      process.env.PITTY_USE_UPSTREAM_PI !== "1" && !process.env.PI_BIN) {
+    const installed = spawnSync(process.execPath, [managedInstaller, "--install-root", root], {
+      cwd: root, env: process.env, encoding: "utf8", timeout: 120000,
+    });
+    if (installed.status !== 0 && installed.status !== 2) {
+      const detail = (installed.stderr || installed.stdout || installed.error?.message || "no details").trim();
+      console.warn(`PiTTy: managed Pi unavailable; using the existing global Pi. ${detail.slice(-600)}`);
+    }
+  }
   const builtEntry = path.join(root, "dist", "index.js");
   const builtPreload = path.join(root, "dist", "preload.js");
   const builtMarker = path.join(root, "dist", ".pitty-runtime-build-v1");
