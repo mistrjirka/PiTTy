@@ -47,6 +47,35 @@ export class CodeRunner {
             scriptName: options.scriptName ?? 'tool.py',
         })).digest('hex');
     }
+    /** Internal setup shared by new execution and checked legacy import. */
+    async interpreterOptions(options) {
+        const gaps = this.typeCheck ? await probeTypeCheckerGaps() : [];
+        const stubs = this.typeCheck ? [
+            'from typing import Any',
+            // An unassigned export declaration retains private names across feeds.
+            '__all__: list[str]',
+            ...gaps.map((name) => name + ': Any'),
+            await this.registry.renderTypeStubs(),
+        ].join('\n') : undefined;
+        return {
+            scriptName: options.scriptName ?? 'tool.py',
+            limits: normalizeLimits({ ...this.limits, ...options.limits }),
+            typeCheck: this.typeCheck,
+            typeCheckStubs: stubs,
+            typeCheckFormat: 'concise',
+        };
+    }
+    /** Validate input names even when checking is disabled. Declarations assign no values. */
+    inputDeclarations(inputs) {
+        const names = Object.keys(inputs ?? {});
+        for (const name of names) {
+            if (!/^[a-z_][a-z0-9_]*$/i.test(name) || PYTHON_KEYWORDS.has(name)) {
+                throw new Error("Input name '" + name + "' is not a valid Python identifier");
+            }
+        }
+        return this.typeCheck && names.length > 0
+            ? 'from typing import Any\n' + names.map((name) => name + ': Any').join('\n') : undefined;
+    }
     async run(code, options = {}) {
         return (await this.execute(code, options)).result;
     }
@@ -55,11 +84,7 @@ export class CodeRunner {
     }
     async execute(code, options, initial, maxCheckpointBytes) {
         const inputNames = Object.keys(options.inputs ?? {});
-        for (const name of inputNames) {
-            if (!/^[a-z_][a-z0-9_]*$/i.test(name) || PYTHON_KEYWORDS.has(name)) {
-                throw new Error("Input name '" + name + "' is not a valid Python identifier");
-            }
-        }
+        const declarations = this.inputDeclarations(options.inputs);
         const calls = [];
         const maxStdoutBytes = options.maxStdoutBytes ?? DEFAULT_MAX_STDOUT_BYTES;
         let stdout = { text: '', bytes: 0, truncated: false };
@@ -107,22 +132,7 @@ export class CodeRunner {
             return fail('runtime', error instanceof Error ? error.message : String(error));
         };
         try {
-            const gaps = this.typeCheck ? await probeTypeCheckerGaps() : [];
-            const stubs = this.typeCheck ? [
-                'from typing import Any',
-                // Monty imports checker context between feeds. An unassigned export
-                // declaration retains private names without restricting later globals.
-                '__all__: list[str]',
-                ...gaps.map((name) => name + ': Any'),
-                await this.registry.renderTypeStubs(),
-            ].join('\n') : undefined;
-            return await withInterpreter({
-                scriptName,
-                limits: normalizeLimits({ ...this.limits, ...options.limits }),
-                typeCheck: this.typeCheck,
-                typeCheckStubs: stubs,
-                typeCheckFormat: 'concise',
-            }, async (session) => {
+            return await withInterpreter(await this.interpreterOptions(options), async (session) => {
                 try {
                     let progress;
                     if (initial?.kind === 'suspended') {
@@ -138,9 +148,8 @@ export class CodeRunner {
                         }
                         // Declarations only. They teach the persistent checker about newly
                         // injected inputs without rewriting or executing the user's source.
-                        if (this.typeCheck && inputNames.length > 0) {
-                            await session.feedRun('from typing import Any\n' + inputNames.map((name) => name + ': Any').join('\n'), { printCallback: () => { } });
-                        }
+                        if (declarations)
+                            await session.feedRun(declarations, { printCallback: () => { } });
                         if (options.signal?.aborted)
                             return abort();
                         progress = await session.feedStart(code, {

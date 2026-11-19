@@ -470,6 +470,26 @@ codeTest("real Python replay resumes persisted approval without repeating an app
   }
 }, 30_000);
 
+const stateGzipMarker = "pi-code-tool:gzip-v1:";
+type LegacyCacheEntry = {
+  tool: string;
+  key?: string;
+  result?: unknown;
+  error?: { pythonType: string; message: string };
+  denied?: true;
+};
+type LegacyState = {
+  version: 1 | 2;
+  snippets: Array<{ code: string; inputs?: Record<string, unknown> }>;
+  calls: LegacyCacheEntry[];
+  stdout: string;
+  stdoutChars?: number;
+  suspended?: {
+    code: string; cacheLen: number; inputs?: Record<string, unknown>;
+    stdout?: string; stdoutChars?: number;
+  };
+};
+
 function storedCodeStates(sessionText: string): string[] {
   return sessionText.trim().split("\n")
     .map((line) => JSON.parse(line) as { message?: { role?: string; toolName?: string; details?: { state?: string } } })
@@ -477,9 +497,259 @@ function storedCodeStates(sessionText: string): string[] {
     .map((entry) => entry.message?.details?.state ?? "");
 }
 
-codeTest("real Python legacy state requires explicit reset and preserves its original encoded snapshot", async () => {
+function encodeLegacyState(state: LegacyState, compressed: boolean): string {
+  const json = JSON.stringify(state);
+  return compressed ? stateGzipMarker + gzipSync(Buffer.from(json)).toString("base64") : json;
+}
+
+function decodeStoredState(state: string): { version: number } {
+  const json = state.startsWith(stateGzipMarker)
+    ? gunzipSync(Buffer.from(state.slice(stateGzipMarker.length), "base64")).toString("utf8")
+    : state;
+  return JSON.parse(json) as { version: number };
+}
+
+function cachedCall(
+  version: 1 | 2,
+  tool: string,
+  args: unknown[],
+  outcome: Pick<LegacyCacheEntry, "result" | "error" | "denied">,
+): LegacyCacheEntry {
+  return { tool, ...(version === 2 ? { key: JSON.stringify([args, {}]) } : {}), ...outcome };
+}
+
+async function installLegacyState(f: Awaited<ReturnType<typeof fixture>>, encoded: string): Promise<void> {
+  const seed = await f.runCode({ code: 'print("synthetic session seed")', reset: true });
+  expect(seed.details?.status, messageText(seed)).toBe("ok");
+  const priorHistory = (await f.messages()).map((message) => ({ role: message.role, text: messageText(message) }));
+  const sessionFile = path.join(f.directory, "session.jsonl");
+  const previousPid = f.client.getProcessPid();
+  expect(previousPid).toBeDefined();
+  await f.client.stop();
+  // Replace only our synthetic session's metadata while its process is stopped.
+  const entries = (await readFile(sessionFile, "utf8")).trim().split("\n")
+    .map((line) => JSON.parse(line) as { message?: { role?: string; toolName?: string; details?: { state?: string } } });
+  const lastCode = entries.filter((entry) => entry.message?.role === "toolResult" && entry.message.toolName === "code").at(-1);
+  expect(lastCode?.message?.details).toBeDefined();
+  lastCode!.message!.details!.state = encoded;
+  await writeFile(sessionFile, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+  await f.client.start();
+  expect((await f.client.getState()).model?.provider).toBe("pitty-code-fixture");
+  expect(f.client.getProcessPid()).not.toBe(previousPid);
+  expect((await f.messages()).map((message) => ({ role: message.role, text: messageText(message) }))).toEqual(priorHistory);
+}
+
+function completedLegacyState(version: 1 | 2): LegacyState {
+  const code = [
+    'saved = read("historical.txt")',
+    'old_write = write("already-written.txt", "historical payload\\n")',
+    ...(version === 2 ? [
+      "try:",
+      '    read("old-missing.txt")',
+      "except RuntimeError:",
+      '    caught_error = "historical error"',
+      "try:",
+      '    write("denied.txt", "forbidden")',
+      "except PermissionError:",
+      '    caught_denial = "historical denial"',
+    ] : []),
+    'print("LEGACY-OUTPUT")',
+  ].join("\n");
+  const calls = [
+    cachedCall(version, "read", ["historical.txt"], { result: "historical bytes\n" }),
+    cachedCall(version, "write", ["already-written.txt", "historical payload\n"], { result: "historical receipt" }),
+    ...(version === 2 ? [
+      cachedCall(version, "read", ["old-missing.txt"], { error: { pythonType: "RuntimeError", message: "historical missing file" } }),
+      cachedCall(version, "write", ["denied.txt", "forbidden"], { denied: true }),
+    ] : []),
+  ];
+  return {
+    version,
+    snippets: [
+      { code: "total = base + 1\ndef scale(value):\n    return value * factor", inputs: { base: 6, factor: 3 } },
+      { code },
+    ],
+    calls,
+    stdout: "LEGACY-OUTPUT\n",
+    ...(version === 2 ? { stdoutChars: "LEGACY-OUTPUT\n".length } : {}),
+  };
+}
+
+for (const version of [1, 2] as const) {
+  for (const compressed of [false, true]) {
+    codeTest("real Python imports " + (compressed ? "gzip" : "plain") + " legacy v" + version + " with cached state and fresh live calls", async () => {
+      const f = await fixture({ scripted: true, persistent: true, approvals: [] });
+      const encoded = encodeLegacyState(completedLegacyState(version), compressed);
+      const sessionFile = path.join(f.directory, "session.jsonl");
+      try {
+        await writeFile(path.join(f.directory, "historical.txt"), "current bytes\n");
+        await writeFile(path.join(f.directory, "already-written.txt"), "external change after old write\n");
+        await writeFile(path.join(f.directory, "old-missing.txt"), "this file exists now\n");
+        await installLegacyState(f, encoded);
+
+        const imported = await f.runCode({ code: [
+          "assert total == 7",
+          "assert scale(total) == 21",
+          'assert saved == "historical bytes\\n"',
+          'assert old_write == "historical receipt"',
+          ...(version === 2 ? [
+            'assert caught_error == "historical error"',
+            'assert caught_denial == "historical denial"',
+          ] : []),
+          'print("imported", scale(total), saved.strip())',
+        ].join("\n") });
+        expect(imported.details?.status, messageText(imported)).toBe("ok");
+        expect(messageText(imported)).toContain("imported 21 historical bytes");
+        expect(messageText(imported)).not.toContain("LEGACY-OUTPUT");
+        expect(imported.details?.calls).toEqual([]);
+        expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName !== "code")).toEqual([]);
+        expect(f.events.filter((event) => event.type === "extension_ui_request" && event.method === "select")).toEqual([]);
+        expect(await readFile(path.join(f.directory, "already-written.txt"), "utf8")).toBe("external change after old write\n");
+        expect(existsSync(path.join(f.directory, "denied.txt"))).toBe(false);
+        expect(decodeStoredState(storedCodeStates(await readFile(sessionFile, "utf8")).at(-1)!).version).toBe(3);
+
+        // Identical arguments in new code must use today's tools, not import's cache.
+        const fresh = await f.runCode({ code: [
+          'fresh = read("historical.txt")',
+          'assert fresh == "current bytes\\n"',
+          'print("live", fresh.strip())',
+        ].join("\n") });
+        expect(fresh.details?.status, messageText(fresh)).toBe("ok");
+        expect(fresh.details?.calls).toEqual(["read"]);
+        expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "read")).toHaveLength(1);
+        f.setApprovals(["approve"]);
+        const written = await f.runCode({ code: 'print(write("already-written.txt", "historical payload\\n"))' });
+        expect(written.details?.status, messageText(written)).toBe("ok");
+        expect(written.details?.calls).toEqual(["write"]);
+        expect(await readFile(path.join(f.directory, "already-written.txt"), "utf8")).toBe("historical payload\n");
+        expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "write")).toHaveLength(1);
+        expect(f.events.filter((event) => event.type === "extension_ui_request" && event.method === "select")).toHaveLength(1);
+
+        await writeFile(path.join(f.directory, "historical.txt"), "after restart\n");
+        await restartPersistedFixture(f);
+        const continued = await f.runCode({ code: [
+          "assert scale(total) == 21",
+          'assert saved == "historical bytes\\n"',
+          'assert fresh == "current bytes\\n"',
+          'print("continued", read("historical.txt").strip())',
+        ].join("\n") });
+        expect(continued.details?.status, messageText(continued)).toBe("ok");
+        expect(messageText(continued)).toContain("continued after restart");
+        expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "read")).toHaveLength(2);
+        expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "write")).toHaveLength(1);
+        expect(f.uiErrors).toEqual([]);
+        const states = storedCodeStates(await readFile(sessionFile, "utf8"));
+        expect(states).toContain(encoded);
+        expect(decodeStoredState(states.at(-1)!).version).toBe(3);
+      } finally {
+        await f.cleanup();
+      }
+    }, 45_000);
+  }
+}
+
+
+for (const version of [1, 2] as const) {
+  codeTest("real Python imports paused legacy v" + version + " and resumes only pending work after restart", async () => {
+    const f = await fixture({ scripted: true, persistent: true, approvals: ["suspend"] });
+    const pendingCode = [
+      'pre = write("pre.txt", "before\\n")',
+      'print("PAST-PROGRESS")',
+      'result = write(target, "pending\\n")',
+      'print(decorate(pre))',
+    ].join("\n");
+    const encoded = encodeLegacyState({
+      version,
+      snippets: [{ code: 'prefix = "committed"\ndef decorate(value):\n    return prefix + ":" + value' }],
+      calls: [cachedCall(version, "write", ["pre.txt", "before\n"], { result: "historical pre receipt" })],
+      stdout: "",
+      suspended: {
+        code: pendingCode,
+        cacheLen: 0,
+        inputs: { target: "pending.txt" },
+        ...(version === 2 ? { stdout: "PAST-PROGRESS\n", stdoutChars: "PAST-PROGRESS\n".length } : {}),
+      },
+    }, version === 2);
+    const sessionFile = path.join(f.directory, "session.jsonl");
+    try {
+      await writeFile(path.join(f.directory, "pre.txt"), "external change after pre-write\n");
+      await installLegacyState(f, encoded);
+      const suspended = await f.runCode({ resume: true });
+      expect(suspended.details?.status, messageText(suspended)).toBe("suspended");
+      expect(messageText(suspended)).not.toContain("PAST-PROGRESS");
+      expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "write")).toEqual([]);
+      expect(await readFile(path.join(f.directory, "pre.txt"), "utf8")).toBe("external change after pre-write\n");
+      expect(existsSync(path.join(f.directory, "pending.txt"))).toBe(false);
+      const firstApproval = f.events.filter((event) => event.type === "extension_ui_request" && event.method === "select");
+      expect(firstApproval).toHaveLength(1);
+      expect(firstApproval[0]?.title).toContain("pending.txt");
+      expect(decodeStoredState(storedCodeStates(await readFile(sessionFile, "utf8")).at(-1)!).version).toBe(3);
+
+      await restartPersistedFixture(f);
+      f.setApprovals(["approve"]);
+      const resumed = await f.runCode({ resume: true });
+      expect(resumed.details?.status, messageText(resumed)).toBe("ok");
+      expect(messageText(resumed)).toContain("committed:historical pre receipt");
+      expect(messageText(resumed)).not.toContain("PAST-PROGRESS");
+      expect(resumed.details?.calls).toEqual(["write"]);
+      expect(await readFile(path.join(f.directory, "pending.txt"), "utf8")).toBe("pending\n");
+      expect(await readFile(path.join(f.directory, "pre.txt"), "utf8")).toBe("external change after pre-write\n");
+      expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "write")).toHaveLength(1);
+      expect(f.events.filter((event) => event.type === "extension_ui_request" && event.method === "select")).toHaveLength(2);
+      const continued = await f.runCode({ code: 'assert target == "pending.txt"\nprint(decorate(pre))' });
+      expect(continued.details?.status, messageText(continued)).toBe("ok");
+      expect(messageText(continued)).toContain("committed:historical pre receipt");
+      expect(f.uiErrors).toEqual([]);
+      expect(storedCodeStates(await readFile(sessionFile, "utf8"))).toContain(encoded);
+    } finally {
+      await f.cleanup();
+    }
+  }, 45_000);
+}
+
+codeTest("real Python imports legacy readonly observations using current files once", async () => {
   const f = await fixture({ scripted: true, persistent: true });
-  const legacyJson = JSON.stringify({
+  const encoded = encodeLegacyState({
+    version: 2,
+    snippets: [{ code: [
+      'captured = open("/workspace/known.txt").read()',
+      'assert captured == "unchanged\\n"',
+      "def label():",
+      "    return captured.strip()",
+    ].join("\n") }],
+    calls: [],
+    stdout: "",
+  }, true);
+  try {
+    // The old engine observed this same known content when reconstructing state.
+    await writeFile(path.join(f.directory, "known.txt"), "unchanged\n");
+    await installLegacyState(f, encoded);
+    const imported = await f.runCode({ code: 'print("legacy", label())' });
+    expect(imported.details?.status, messageText(imported)).toBe("ok");
+    expect(messageText(imported)).toContain("legacy unchanged");
+    expect(imported.details?.calls).toEqual([]);
+    await writeFile(path.join(f.directory, "known.txt"), "changed after import\n");
+    await restartPersistedFixture(f);
+    const fresh = await f.runCode({ code: [
+      'assert captured == "unchanged\\n"',
+      'assert open("/workspace/known.txt").read() == "changed after import\\n"',
+      'print("native continuation", label())',
+    ].join("\n") });
+    expect(fresh.details?.status, messageText(fresh)).toBe("ok");
+    expect(messageText(fresh)).toContain("native continuation unchanged");
+    expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName !== "code")).toEqual([]);
+    const states = storedCodeStates(await readFile(path.join(f.directory, "session.jsonl"), "utf8"));
+    expect(states).toContain(encoded);
+    expect(decodeStoredState(states.at(-1)!).version).toBe(3);
+  } finally {
+    await f.cleanup();
+  }
+}, 45_000);
+
+
+codeTest("real Python failed legacy reconstruction preserves state and ordinary conversation history", async () => {
+  const f = await fixture({ scripted: true, persistent: true });
+  const legacyState = encodeLegacyState({
     version: 2,
     snippets: [{ code: [
       'legacy_saved = open("/workspace/legacy-source.txt").read()',
@@ -487,41 +757,35 @@ codeTest("real Python legacy state requires explicit reset and preserves its ori
     ].join("\n") }],
     calls: [],
     stdout: "",
-  });
-  const marker = "pi-code-tool:gzip-v1:";
-  const legacyState = marker + gzipSync(Buffer.from(legacyJson)).toString("base64");
+  }, true);
   const sessionFile = path.join(f.directory, "session.jsonl");
   try {
-    expect((await f.runCode({ code: 'print("synthetic session seed")', reset: true })).details?.status).toBe("ok");
     await writeFile(path.join(f.directory, "legacy-source.txt"), "after\n");
-    const previousPid = f.client.getProcessPid();
-    expect(previousPid).toBeDefined();
-    await f.client.stop();
-    // Replace only our synthetic session's state while its process is stopped.
-    const entries = (await readFile(sessionFile, "utf8")).trim().split("\n")
-      .map((line) => JSON.parse(line) as { message?: { role?: string; toolName?: string; details?: { state?: string } } });
-    const lastCode = entries.filter((entry) => entry.message?.role === "toolResult" && entry.message.toolName === "code").at(-1);
-    expect(lastCode?.message?.details).toBeDefined();
-    lastCode!.message!.details!.state = legacyState;
-    await writeFile(sessionFile, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
-    await f.client.start();
-    expect((await f.client.getState()).model?.provider).toBe("pitty-code-fixture");
-    expect(f.client.getProcessPid()).not.toBe(previousPid);
-
+    await installLegacyState(f, legacyState);
     const blocked = await f.runCode({ code: 'print(write("blocked.txt", "must not run"))' });
     expect(blocked.details?.status, messageText(blocked)).toBe("error");
     expect(messageText(blocked).toLowerCase()).toContain("cannot safely restore");
-    expect(messageText(blocked)).toContain("reset=true");
-    expect(messageText(blocked)).not.toContain("AssertionError");
+    expect(messageText(blocked)).toContain("AssertionError");
     expect(existsSync(path.join(f.directory, "blocked.txt"))).toBe(false);
     expect(storedCodeStates(await readFile(sessionFile, "utf8")).at(-1)).toBe(legacyState);
 
     const resume = await f.runCode({ resume: true });
     expect(resume.details?.status, messageText(resume)).toBe("error");
-    expect(messageText(resume).toLowerCase()).toContain("cannot safely restore");
-    expect(messageText(resume)).toContain("reset=true");
+    expect(messageText(resume)).toContain("nothing is suspended");
     expect(storedCodeStates(await readFile(sessionFile, "utf8")).at(-1)).toBe(legacyState);
     expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "write")).toEqual([]);
+
+    const priorHistory = (await f.messages()).map((message) => ({ role: message.role, text: messageText(message) }));
+    const toolStarts = f.events.filter((event) => event.type === "tool_execution_start").length;
+    await f.client.prompt("ordinary conversation still works");
+    await waitFor(async () => (await f.messages()).slice(priorHistory.length)
+      .some((message) => message.role === "assistant" && messageText(message) === "fixture response"), "ordinary chat response");
+    await f.settled();
+    expect((await f.messages()).slice(0, priorHistory.length)
+      .map((message) => ({ role: message.role, text: messageText(message) }))).toEqual(priorHistory);
+    expect(await f.users()).toContain("ordinary conversation still works");
+    expect(f.events.filter((event) => event.type === "tool_execution_start")).toHaveLength(toolStarts);
+    expect(storedCodeStates(await readFile(sessionFile, "utf8")).at(-1)).toBe(legacyState);
 
     const reset = await f.runCode({ code: 'print(write("reset.txt", "fresh state"))\nprint(6 * 7)', reset: true });
     expect(reset.details?.status, messageText(reset)).toBe("ok");
@@ -530,13 +794,10 @@ codeTest("real Python legacy state requires explicit reset and preserves its ori
     expect(await readFile(path.join(f.directory, "legacy-source.txt"), "utf8")).toBe("after\n");
     expect(existsSync(path.join(f.directory, "blocked.txt"))).toBe(false);
     expect((await fixtureToolCalls(f.directory)).filter((call) => call.toolName === "write")).toHaveLength(1);
-
     const states = storedCodeStates(await readFile(sessionFile, "utf8"));
     expect(states.filter((state) => state === legacyState)).toHaveLength(3);
-    const latest = states.at(-1)!;
-    const decoded = latest.startsWith(marker) ? gunzipSync(Buffer.from(latest.slice(marker.length), "base64")).toString("utf8") : latest;
-    expect((JSON.parse(decoded) as { version: number }).version).toBe(3);
+    expect(decodeStoredState(states.at(-1)!).version).toBe(3);
   } finally {
     await f.cleanup();
   }
-}, 30_000);
+}, 45_000);

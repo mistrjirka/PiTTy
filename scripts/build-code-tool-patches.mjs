@@ -48,6 +48,7 @@ const modules = [
 	["src/core/toolstore.ts", "dist/core/toolstore.js", "toolstore.js"],
 	["src/core/types.ts", "dist/core/types.js", "types.js"],
 	["src/core/runtime.ts", "dist/core/runtime.js", "runtime.js"],
+	["src/core/legacy.ts", "dist/core/legacy.js", "legacy.js"],
 	["src/pi/extension.ts", "dist/pi/extension.js", "extension.js"],
 	["src/pi/bridge.ts", "dist/pi/bridge.js", "bridge.js"],
 	["src/pi/state-codec.ts", "dist/pi/state-codec.js", "state-codec.js"],

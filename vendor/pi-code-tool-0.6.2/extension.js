@@ -107,6 +107,13 @@ export function createPythonExtension(options = {}) {
         let preludeNote = '';
         // Keep incompatible state byte-for-byte until an explicit reset.
         let blockedState = null;
+        let restoredState = null;
+        function savedState(current) {
+            const serialized = current.dump();
+            // Preserve the original plain/gzip representation while lazy import fails,
+            // or when a control request leaves the restored state unchanged.
+            return restoredState?.decoded === serialized ? restoredState.encoded : encodeSessionState(serialized);
+        }
         async function freshSession(opts = {}) {
             const fresh = new Session(sessionOptions);
             if (!store)
@@ -158,8 +165,12 @@ export function createPythonExtension(options = {}) {
                 }
             }
             blockedState = null;
+            restoredState = null;
             try {
-                session = state ? Session.load(decodeSessionState(state), sessionOptions) : null;
+                const decoded = state ? decodeSessionState(state) : undefined;
+                session = decoded === undefined ? null : Session.load(decoded, sessionOptions);
+                if (state && decoded !== undefined)
+                    restoredState = { encoded: state, decoded };
             }
             catch (error) {
                 session = null;
@@ -253,6 +264,7 @@ export function createPythonExtension(options = {}) {
                 if (params.reset) {
                     session = await inBridgeContext(() => freshSession());
                     blockedState = null;
+                    restoredState = null;
                 }
                 else if (blockedState) {
                     return {
@@ -286,7 +298,7 @@ export function createPythonExtension(options = {}) {
                 if (params.resume && params.abandon) {
                     return {
                         content: [{ type: 'text', text: '(choose either resume=true or abandon=true, not both)' }],
-                        details: { status: 'error', state: encodeSessionState(session.dump()), calls: [] },
+                        details: { status: 'error', state: savedState(session), calls: [] },
                     };
                 }
                 const abandoned = params.abandon ? session.abandon() : false;
@@ -298,7 +310,7 @@ export function createPythonExtension(options = {}) {
                                 text: abandoned ? '(suspended script abandoned)' : '(nothing is suspended)',
                             },
                         ],
-                        details: { status: 'ok', state: encodeSessionState(session.dump()), calls: [] },
+                        details: { status: 'ok', state: savedState(session), calls: [] },
                     };
                 }
                 let streamed = '';
@@ -319,7 +331,7 @@ export function createPythonExtension(options = {}) {
                     if (!session.suspendedCode) {
                         return {
                             content: [{ type: 'text', text: '(nothing is suspended; run code normally)' }],
-                            details: { status: 'error', state: encodeSessionState(session.dump()), calls: [] },
+                            details: { status: 'error', state: savedState(session), calls: [] },
                         };
                     }
                     result = await inBridgeContext(() => session.resume(runOptions));
@@ -334,13 +346,13 @@ export function createPythonExtension(options = {}) {
                                         'discard it with {"abandon": true}, or reset=true; new code was not run)',
                                 },
                             ],
-                            details: { status: 'suspended', state: encodeSessionState(session.dump()), calls: [] },
+                            details: { status: 'suspended', state: savedState(session), calls: [] },
                         };
                     }
                     if (params.code === undefined) {
                         return {
                             content: [{ type: 'text', text: '(code is required unless resume=true)' }],
-                            details: { status: 'error', state: encodeSessionState(session.dump()), calls: [] },
+                            details: { status: 'error', state: savedState(session), calls: [] },
                         };
                     }
                     result = await inBridgeContext(() => session.run(params.code, runOptions));
@@ -383,7 +395,7 @@ export function createPythonExtension(options = {}) {
                     content: [{ type: 'text', text: finalText }],
                     details: {
                         status: result.status,
-                        state: encodeSessionState(session.dump()),
+                        state: savedState(session),
                         calls: result.calls.map((c) => c.tool),
                     },
                 };

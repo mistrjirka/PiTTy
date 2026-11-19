@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.12
+
+### Continue older Python sessions
+
+- Convert plain and compressed v1/v2 Python snapshots on the next `code` call. Preserve saved variables, functions, inputs, and cached tool results without requiring a reset for every old session.
+- Reuse recorded results, errors, and denials during conversion. Do not repeat completed tool operations or consume old results for new requests.
+- Preserve paused approvals across conversion and restart. Keep the committed state separate so abandoning a pending operation restores the correct values.
+- Reconstruct direct filesystem reads through readonly mounts using current files, matching the old replay behavior. Report a specific reconstruction error and preserve the original snapshot if conversion fails.
+- Keep ordinary conversation history and existing v3 checkpoints compatible.
+
 ## 0.7.11
 
 ### Preserve Python state without replaying old code
