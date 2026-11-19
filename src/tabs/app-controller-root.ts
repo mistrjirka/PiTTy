@@ -169,9 +169,6 @@ export function createAppControllerRoot(
 		cwd: props.cwd,
 		signals: appSignals,
 		activeRuntime,
-		subagentTools: () => subagentTools(),
-		availableSubagentTargets: () => availableSubagentTargets(),
-		contextWindowForModel,
 	});
 	const { touch, conversationTouch, runs, currentSessionKey } =
 		sessionProjections;
@@ -233,7 +230,7 @@ export function createAppControllerRoot(
 		selectedTargetKey,
 		inspectSubagent,
 	});
-	const { subagentTools, availableSubagentTargets, selectedSubagentTarget } =
+	const { availableSubagentTargets, selectedSubagentTarget } =
 		inspectorProjection;
 	// Pi publishes queue_update before consuming a queued user message. Do not
 	// filter by recent transcript text: repeated inputs are separate messages.

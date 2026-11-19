@@ -42,15 +42,22 @@ export function filterCommandChoices(
 		if (!query) return 0;
 		if (name === query) return 0;
 		if (name.startsWith(query)) return 1;
-		if (name.split(/[:_\-/]/).some((segment) => segment.startsWith(query))) return 2;
+		if (name.split(/[:_\-/]/).some((segment) => segment.startsWith(query)))
+			return 2;
 		if (name.includes(query)) return 3;
-		if (query.length >= 2 && command.description?.toLowerCase().includes(query)) return 4;
+		if (query.length >= 2 && command.description?.toLowerCase().includes(query))
+			return 4;
 		return undefined;
 	};
 	return commands
 		.map((command) => ({ command, rank: rank(command) }))
-		.filter((match): match is { command: CommandChoice; rank: number } => match.rank !== undefined)
-		.sort((a, b) => a.rank - b.rank || a.command.name.localeCompare(b.command.name))
+		.filter(
+			(match): match is { command: CommandChoice; rank: number } =>
+				match.rank !== undefined,
+		)
+		.sort(
+			(a, b) => a.rank - b.rank || a.command.name.localeCompare(b.command.name),
+		)
 		.slice(0, limit)
 		.map(({ command }) => command);
 }
@@ -58,6 +65,8 @@ export function filterCommandChoices(
 export type CommandSuggestionsProps = {
 	commands: Accessor<readonly CommandChoice[]>;
 	selectedIndex: Accessor<number>;
+	/** Remaining height after the prompt, footer, tabs and transcript minimum. */
+	maxHeight?: number;
 	onSelect: (command: CommandChoice) => void;
 };
 
@@ -105,6 +114,10 @@ export function CommandSuggestions(props: CommandSuggestionsProps) {
 	return (
 		<box
 			flexDirection="column"
+			// Reserve the actual list height. Without it, OpenTUI collapses the
+			// scrollbox to ~3 rows even when the transcript has free space.
+			// The parent can still shrink this panel on short terminals.
+			height={Math.min(8, props.commands().length + 2, props.maxHeight ?? 8)}
 			maxHeight={8}
 			minHeight={2}
 			flexShrink={1}

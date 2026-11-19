@@ -100,6 +100,19 @@ pitty-resume -C /path/to/project   # open the session picker immediately
 
 Inside PiTTy, the essentials are: `Enter` sends (or accepts a slash suggestion), `Shift+Enter` adds a newline, `Ctrl+P` picks a model, `Ctrl+X` opens Settings, `Ctrl+S` toggles the sidebar, `Ctrl+O` expands or collapses tool and thinking details, `Ctrl+I` opens the selected subagent, `Ctrl+Shift+A` stops a controllable subagent, and `Esc` closes a dialog or aborts the current turn. Legacy `pi-subagents` runs also support pause/resume controls. `/help` lists everything; the full [usage and controls guide](docs/USAGE.md) has the details.
 
+## Optional Pi and code-tool fork builds
+
+PiTTy normally uses the Pi executable from `PATH`. If a managed fork build is installed, PiTTy uses it automatically and loads the matching `pi-code-tool` extension. The normal `pi` command, its configuration, and existing session files stay unchanged.
+
+To install from two local fork checkouts (the Pi checkout must match the installed Pi version):
+
+```bash
+npm run install:fork-runtime -- --pi-source /path/to/pi-fork --code-tool-source /path/to/pi-code-tool-fork
+pitty -c
+```
+
+This creates a version-checked runtime under `~/.local/share/pitty-forks/`. It compiles the patched session modules against a matching upstream Pi package and installs the code-tool runtime dependencies. If `~/.pi/agent/extensions/pi-code-tool-autoapprove.ts` exists, the installer backs it up as `.pitty-upstream-backup` and redirects that existing registration to the fork. This also makes regular Pi use the forked code-tool extension, without changing the global Pi executable. To revert that registration, restore the backup. To use the global Pi instead, run `PITTY_USE_UPSTREAM_PI=1 pitty`. `PI_BIN=/path/to/pi` and `pitty --pi /path/to/pi` also override the managed fork. To choose another managed folder, set `PITTY_FORK_RUNTIME_DIR` both during installation and while launching PiTTy.
+
 ## Optional integrations
 
 PiTTy works without extra packages. These add specialized panels when installed:
