@@ -3,160 +3,220 @@ import { createCliRenderer } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { parseArgs } from "node:util";
 import { App } from "./app.tsx";
-import { DiagnosticLogger, installProcessDiagnostics, sanitizeArgv, summarizePiArgs } from "./diagnostics/logger.ts";
+import {
+	DiagnosticLogger,
+	installProcessDiagnostics,
+	sanitizeArgv,
+	summarizePiArgs,
+} from "./diagnostics/logger.ts";
 import { colors, createThemeController, effectiveTheme } from "./ui/theme.ts";
-import { defaultThemeConfig, loadThemeConfig, type ThemeConfigLoadResult } from "./config/theme-config.ts";
+import {
+	defaultThemeConfig,
+	loadThemeConfig,
+	type ThemeConfigLoadResult,
+} from "./config/theme-config.ts";
 import { registerBundledParsers } from "./ui/parsers.ts";
 import { detectOptionalIntegrations } from "./integrations/detect.ts";
 import { appVersion } from "./version.ts";
 import { resolveDefaultPiExecutable } from "./pi-command.ts";
-import { resolveBundledBackgroundObserverPath, resolveBundledMcpObserverPath, resolveBundledPiExtensionPath } from "./runtime-paths.ts";
+import { resolveForkCodeToolExtension } from "./pi-fork-runtime.ts";
+import {
+	resolveBundledBackgroundObserverPath,
+	resolveBundledMcpObserverPath,
+	resolveBundledPiExtensionPath,
+} from "./runtime-paths.ts";
 
 registerBundledParsers();
 
 const parsed = parseArgs({
-  args: process.argv.slice(2),
-  allowPositionals: true,
-  strict: false,
-  options: {
-    cwd: { type: "string", short: "C" },
-    pi: { type: "string" },
-    continue: { type: "boolean", short: "c" },
-    session: { type: "string" },
-    model: { type: "string", short: "m" },
-    provider: { type: "string" },
-    thinking: { type: "string" },
-    "no-sidebar": { type: "boolean" },
-    "session-picker": { type: "boolean" },
-    "log-dir": { type: "string" },
-    "no-logs": { type: "boolean" },
-    "verbose-rpc-logs": { type: "boolean" },
-    help: { type: "boolean", short: "h" },
-  },
+	args: process.argv.slice(2),
+	allowPositionals: true,
+	strict: false,
+	options: {
+		cwd: { type: "string", short: "C" },
+		pi: { type: "string" },
+		continue: { type: "boolean", short: "c" },
+		session: { type: "string" },
+		model: { type: "string", short: "m" },
+		provider: { type: "string" },
+		thinking: { type: "string" },
+		"no-sidebar": { type: "boolean" },
+		"session-picker": { type: "boolean" },
+		"log-dir": { type: "string" },
+		"no-logs": { type: "boolean" },
+		"verbose-rpc-logs": { type: "boolean" },
+		help: { type: "boolean", short: "h" },
+	},
 });
 
 if (parsed.values.help) {
-  process.stdout.write(`PiTTy v${appVersion}\n\nUsage: pitty [options] [-- extra Pi args]\n\n  -C, --cwd <dir>       Working directory\n  -c, --continue        Continue recent Pi session\n      --session <path>  Open a Pi session file\n  -m, --model <id>      Pi model id\n      --provider <id>   Pi provider\n      --thinking <lvl>  off|minimal|low|medium|high|xhigh\n      --pi <path>       Pi executable (default: pi)\n      --no-sidebar      Hide the right sidebar initially\n      --session-picker  Open the session picker on startup\n      --log-dir <dir>   Diagnostic log directory\n      --no-logs         Disable file diagnostics\n      --verbose-rpc-logs Include RPC contents (may contain source/prompts)\n`);
-  process.exit(0);
+	process.stdout.write(
+		`PiTTy v${appVersion}\n\nUsage: pitty [options] [-- extra Pi args]\n\n  -C, --cwd <dir>       Working directory\n  -c, --continue        Continue recent Pi session\n      --session <path>  Open a Pi session file\n  -m, --model <id>      Pi model id\n      --provider <id>   Pi provider\n      --thinking <lvl>  off|minimal|low|medium|high|xhigh\n      --pi <path>       Pi executable (managed fork if installed, otherwise pi)\n      --no-sidebar      Hide the right sidebar initially\n      --session-picker  Open the session picker on startup\n      --log-dir <dir>   Diagnostic log directory\n      --no-logs         Disable file diagnostics\n      --verbose-rpc-logs Include RPC contents (may contain source/prompts)\n`,
+	);
+	process.exit(0);
 }
 
+const effectivePiExecutable =
+	typeof parsed.values.pi === "string"
+		? parsed.values.pi
+		: resolveDefaultPiExecutable();
+const forkCodeToolExtension = resolveForkCodeToolExtension(
+	effectivePiExecutable,
+);
+
 const piArgs: string[] = [
-  "--extension",
-  resolveBundledPiExtensionPath(process.env.PITTY_APP_ROOT, import.meta.dir),
-  "--extension",
-  resolveBundledMcpObserverPath(process.env.PITTY_APP_ROOT, import.meta.dir),
-  "--extension",
-  resolveBundledBackgroundObserverPath(process.env.PITTY_APP_ROOT, import.meta.dir),
+	"--extension",
+	resolveBundledPiExtensionPath(process.env.PITTY_APP_ROOT, import.meta.dir),
+	"--extension",
+	resolveBundledMcpObserverPath(process.env.PITTY_APP_ROOT, import.meta.dir),
+	"--extension",
+	resolveBundledBackgroundObserverPath(
+		process.env.PITTY_APP_ROOT,
+		import.meta.dir,
+	),
+	...(forkCodeToolExtension ? ["--extension", forkCodeToolExtension] : []),
 ];
 if (parsed.values.continue) piArgs.push("--continue");
-if (typeof parsed.values.session === "string") piArgs.push("--session", parsed.values.session);
-if (typeof parsed.values.model === "string") piArgs.push("--model", parsed.values.model);
-if (typeof parsed.values.provider === "string") piArgs.push("--provider", parsed.values.provider);
-if (typeof parsed.values.thinking === "string") piArgs.push("--thinking", parsed.values.thinking);
+if (typeof parsed.values.session === "string")
+	piArgs.push("--session", parsed.values.session);
+if (typeof parsed.values.model === "string")
+	piArgs.push("--model", parsed.values.model);
+if (typeof parsed.values.provider === "string")
+	piArgs.push("--provider", parsed.values.provider);
+if (typeof parsed.values.thinking === "string")
+	piArgs.push("--thinking", parsed.values.thinking);
 piArgs.push(...parsed.positionals);
 
 const logger = new DiagnosticLogger({
-  enabled: !parsed.values["no-logs"],
-  ...(typeof parsed.values["log-dir"] === "string" ? { directory: parsed.values["log-dir"] } : {}),
-  verboseRpc: parsed.values["verbose-rpc-logs"] === true,
+	enabled: !parsed.values["no-logs"],
+	...(typeof parsed.values["log-dir"] === "string"
+		? { directory: parsed.values["log-dir"] }
+		: {}),
+	verboseRpc: parsed.values["verbose-rpc-logs"] === true,
 });
 let renderer: Awaited<ReturnType<typeof createCliRenderer>> | undefined;
-const removeProcessDiagnostics = installProcessDiagnostics(logger, (error, origin, crashPath) => {
-  try { renderer?.destroy(); } catch (destroyError) {
-    // Best-effort teardown on the crash path; never let it mask the crash report.
-    logger.warn("renderer.destroy_failed", destroyError);
-  }
-  const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-  process.stderr.write(`\nPiTTy crashed (${origin}): ${detail}\n`);
-  if (crashPath) process.stderr.write(`Crash report: ${crashPath}\n`);
-  if (logger.enabled) process.stderr.write(`Run log: ${logger.logPath}\n`);
-});
+const removeProcessDiagnostics = installProcessDiagnostics(
+	logger,
+	(error, origin, crashPath) => {
+		try {
+			renderer?.destroy();
+		} catch (destroyError) {
+			// Best-effort teardown on the crash path; never let it mask the crash report.
+			logger.warn("renderer.destroy_failed", destroyError);
+		}
+		const detail =
+			error instanceof Error
+				? `${error.name}: ${error.message}`
+				: String(error);
+		process.stderr.write(`\nPiTTy crashed (${origin}): ${detail}\n`);
+		if (crashPath) process.stderr.write(`Crash report: ${crashPath}\n`);
+		if (logger.enabled) process.stderr.write(`Run log: ${logger.logPath}\n`);
+	},
+);
 
-const effectivePiExecutable = typeof parsed.values.pi === "string" ? parsed.values.pi : resolveDefaultPiExecutable();
 const integrationStatus = detectOptionalIntegrations({
-  piExecutable: effectivePiExecutable,
-  cwd: typeof parsed.values.cwd === "string" ? parsed.values.cwd : process.cwd(),
+	piExecutable: effectivePiExecutable,
+	cwd:
+		typeof parsed.values.cwd === "string" ? parsed.values.cwd : process.cwd(),
 });
 
 logger.info("app.start", {
-  argv: sanitizeArgv(process.argv),
-  cwd: typeof parsed.values.cwd === "string" ? parsed.values.cwd : process.cwd(),
-  piArgs: summarizePiArgs(piArgs),
-  sidebar: !parsed.values["no-sidebar"],
-  verboseRpcLogs: logger.verboseRpc,
-  versions: process.versions,
-  platform: process.platform,
-  arch: process.arch,
-  integrations: integrationStatus,
+	argv: sanitizeArgv(process.argv),
+	cwd:
+		typeof parsed.values.cwd === "string" ? parsed.values.cwd : process.cwd(),
+	piArgs: summarizePiArgs(piArgs),
+	sidebar: !parsed.values["no-sidebar"],
+	verboseRpcLogs: logger.verboseRpc,
+	versions: process.versions,
+	platform: process.platform,
+	arch: process.arch,
+	integrations: integrationStatus,
 });
 
 let themeConfig: ThemeConfigLoadResult;
 try {
-  themeConfig = await loadThemeConfig();
+	themeConfig = await loadThemeConfig();
 } catch (error) {
-  themeConfig = { document: defaultThemeConfig(), warning: `PiTTy theme settings could not be read: ${error instanceof Error ? error.message : String(error)}` };
+	themeConfig = {
+		document: defaultThemeConfig(),
+		warning: `PiTTy theme settings could not be read: ${error instanceof Error ? error.message : String(error)}`,
+	};
 }
 const themeController = createThemeController();
-themeController.apply(effectiveTheme(themeConfig.document.theme.preset, themeConfig.document.theme.overrides));
+themeController.apply(
+	effectiveTheme(
+		themeConfig.document.theme.preset,
+		themeConfig.document.theme.overrides,
+	),
+);
 
 try {
-  renderer = await createCliRenderer({
-    targetFps: 45,
-    maxFps: 60,
-    exitOnCtrlC: false,
-    clearOnShutdown: true,
-    useMouse: true,
-    enableMouseMovement: true,
-    autoFocus: true,
-    useKittyKeyboard: {},
-    screenMode: "alternate-screen",
-    externalOutputMode: "passthrough",
-    backgroundColor: colors.background,
-    openConsoleOnError: false,
-  });
-  // Every ScrollBoxRenderable registers one lightweight `selection` listener
-  // on the shared renderer. A conversation with many expandable tool outputs
-  // and diffs legitimately holds more than node's default warning threshold
-  // (10) live scrollboxes at once, and the listener is released when the
-  // scrollbox is destroyed — so silence the leak warning for the renderer
-  // instead of hiding a genuine runaway elsewhere.
-  renderer.setMaxListeners(0);
-  themeController.attachRenderer(renderer);
-  logger.info("renderer.created");
+	renderer = await createCliRenderer({
+		targetFps: 45,
+		maxFps: 60,
+		exitOnCtrlC: false,
+		clearOnShutdown: true,
+		useMouse: true,
+		enableMouseMovement: true,
+		autoFocus: true,
+		useKittyKeyboard: {},
+		screenMode: "alternate-screen",
+		externalOutputMode: "passthrough",
+		backgroundColor: colors.background,
+		openConsoleOnError: false,
+	});
+	// Every ScrollBoxRenderable registers one lightweight `selection` listener
+	// on the shared renderer. A conversation with many expandable tool outputs
+	// and diffs legitimately holds more than node's default warning threshold
+	// (10) live scrollboxes at once, and the listener is released when the
+	// scrollbox is destroyed — so silence the leak warning for the renderer
+	// instead of hiding a genuine runaway elsewhere.
+	renderer.setMaxListeners(0);
+	themeController.attachRenderer(renderer);
+	logger.info("renderer.created");
 
-  const rendererDestroyed = new Promise<void>((resolve) => renderer!.once("destroy", resolve));
-  await render(
-    () => (
-      <App
-        cwd={typeof parsed.values.cwd === "string" ? parsed.values.cwd : process.cwd()}
-        piExecutable={effectivePiExecutable}
-        piArgs={piArgs}
-        sidebar={!parsed.values["no-sidebar"]}
-        logger={logger}
-        integrations={integrationStatus}
-        openSessionSelector={parsed.values["session-picker"] === true}
-        {...(themeConfig.warning ? { themeWarning: themeConfig.warning } : {})}
-        themeConfig={themeConfig.document}
-        themeController={themeController}
-      />
-    ),
-    renderer,
-  );
-  logger.info("renderer.mounted");
-  await rendererDestroyed;
-  logger.info("renderer.stopped");
+	const rendererDestroyed = new Promise<void>((resolve) =>
+		renderer!.once("destroy", resolve),
+	);
+	await render(
+		() => (
+			<App
+				cwd={
+					typeof parsed.values.cwd === "string"
+						? parsed.values.cwd
+						: process.cwd()
+				}
+				piExecutable={effectivePiExecutable}
+				piArgs={piArgs}
+				sidebar={!parsed.values["no-sidebar"]}
+				logger={logger}
+				integrations={integrationStatus}
+				openSessionSelector={parsed.values["session-picker"] === true}
+				{...(themeConfig.warning ? { themeWarning: themeConfig.warning } : {})}
+				themeConfig={themeConfig.document}
+				themeController={themeController}
+			/>
+		),
+		renderer,
+	);
+	logger.info("renderer.mounted");
+	await rendererDestroyed;
+	logger.info("renderer.stopped");
 } catch (error) {
-  const crashPath = logger.crash(error, "topLevel");
-  try { renderer?.destroy(); } catch (destroyError) {
-    // Best-effort teardown on the failure path; never let it mask the crash report.
-    logger.warn("renderer.destroy_failed", destroyError);
-  }
-  const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-  process.stderr.write(`\nPiTTy failed: ${detail}\n`);
-  if (crashPath) process.stderr.write(`Crash report: ${crashPath}\n`);
-  if (logger.enabled) process.stderr.write(`Run log: ${logger.logPath}\n`);
-  process.exitCode = 1;
+	const crashPath = logger.crash(error, "topLevel");
+	try {
+		renderer?.destroy();
+	} catch (destroyError) {
+		// Best-effort teardown on the failure path; never let it mask the crash report.
+		logger.warn("renderer.destroy_failed", destroyError);
+	}
+	const detail =
+		error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+	process.stderr.write(`\nPiTTy failed: ${detail}\n`);
+	if (crashPath) process.stderr.write(`Crash report: ${crashPath}\n`);
+	if (logger.enabled) process.stderr.write(`Run log: ${logger.logPath}\n`);
+	process.exitCode = 1;
 } finally {
-  removeProcessDiagnostics();
-  logger.close();
+	removeProcessDiagnostics();
+	logger.close();
 }

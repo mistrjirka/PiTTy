@@ -15,7 +15,8 @@
     "diagnostics": "bun run src/diagnostics/collect.ts",
     "test:unit": "bun test --conditions=browser test",
     "check": "npm run typecheck && npm run test:unit",
-    "build:runtime": "bun run scripts/build-runtime.ts"
+    "build:runtime": "bun run scripts/build-runtime.ts",
+    "install:fork-runtime": "node scripts/install-fork-runtime.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.84.4",

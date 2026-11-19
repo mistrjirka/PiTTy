@@ -2,10 +2,17 @@
 
 ## 0.7.7
 
+### Optional managed Pi and code-tool forks
+
+- Install the separately maintained Pi and pi-code-tool patches under `~/.local/share/pitty-forks/` using `npm run install:fork-runtime`, without replacing the global Pi executable or session files.
+- PiTTy detects the managed Pi fork automatically, while `PI_BIN`, `--pi` and `PITTY_USE_UPSTREAM_PI=1` preserve explicit upstream selection.
+- Preserve the existing `pi-code-tool-autoapprove.ts` registration: back it up and point it to the managed code-tool fork rather than registering a duplicate `code` tool. The global Pi executable stays unchanged, but regular Pi will also use the redirected code-tool extension.
+- Verify the complete normal-extension startup on the existing 2.47 GB session, including display history and model-context preservation.
+
 ### Enforce the 500-line production source budget and reuse shared logic
 
 - Split the seven remaining oversized production modules by responsibility: compaction telemetry, subagent target discovery, subagent transcript reading, tool/message rendering, sidebar layout, RPC transport, and child inspector. Preserve their existing public imports with small compatibility entrypoints.
-- All **213 production source files are below 500 formatted lines**, including newly created and previously existing files. Add a complete source-tree size guard to the test suite.
+- All **214 production source files are below 500 formatted lines**, including newly created and previously existing files. Add a complete source-tree size guard to the test suite.
 - Fix `/` command autocomplete sizing: keep suggestions above the prompt, preserve the editor on short terminals, and hide the pending-input panel only while suggestions are active. Validate captured OpenTUI frames at 13, 20, and 30 rows.
 - Ensure the PiTTy RPC display adapter never reads deferred `code` interpreter snapshots just to discard them. Keep the original session data and restore semantics in Pi unchanged.
 - Centralize child control eligibility for the inspector and control dispatcher, preventing mismatched pause/resume/stop visibility.
