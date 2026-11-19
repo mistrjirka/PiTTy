@@ -1,0 +1,22 @@
+  │
+  │  Show build progress near the editor.
+  │
+
+  │ The extension panel can update while you write your next
+  │ message.
+
+
+
+  Example log line 16: checking a build step.
+  Example log line 17: checking a build step.
+  Example log line 18: checking a build step.
+  Example log line 19: checking a build step.
+  Example log line 20: checking a build step.                  ▄
+  End of sample widget                                         █
+────────────────────────────────────────────────────────────────
+
+  Continue with the next step.
+
+
+  Extension text below the editor.
+ Preview ready                                    ctrl+p models

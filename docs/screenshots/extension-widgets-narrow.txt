@@ -1,0 +1,22 @@
+  │
+  │  Show build progress near the editor.
+  │
+
+  │ The extension panel can update while you write your next
+  │ message.
+
+
+
+
+  Sample side answer
+  A widget can show a longer explanation while you keep
+  writing. Its text wraps to the available width. The editor
+  remains available below it.
+  Build status  Tests running.
+────────────────────────────────────────────────────────────────
+
+  Continue with the next step.
+
+
+  Extension text below the editor.
+ Preview ready                                    ctrl+p models

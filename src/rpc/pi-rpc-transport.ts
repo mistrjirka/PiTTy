@@ -188,7 +188,8 @@ export abstract class PiRpcTransport extends EventEmitter {
 				stderrTail: this.stderrBuffer.slice(-8_000),
 			});
 			this.child = undefined;
-			if (!this.stopping) this.emit("exit", error);
+			if (this.stopping) this.emit("stopped");
+			else this.emit("exit", error);
 			this.failAll(error);
 		});
 

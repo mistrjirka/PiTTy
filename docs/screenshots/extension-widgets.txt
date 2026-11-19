@@ -1,0 +1,30 @@
+  │
+  │  Show build progress near the editor.
+  │
+
+  │ The extension panel can update while you write your next message.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Build status
+  Typecheck complete. Test suite running.
+  Sample side answer
+  This extension text stays separate from the conversation.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+  Continue with the next step.
+
+
+  Extension text below the editor.
+ Preview ready                                                                        ctrl+p models

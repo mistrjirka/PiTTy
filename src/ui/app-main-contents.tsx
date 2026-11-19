@@ -1,4 +1,5 @@
 import type { QueuedInputActions } from "../tabs/queued-input-actions.ts";
+import type { ExtensionTextWidget } from "../state/extension-widgets.ts";
 import { AppPromptDock } from "./app-prompt-dock.tsx";
 /** Main terminal layout. App still owns the live session and RPC state. */
 import type {
@@ -121,6 +122,8 @@ export interface AppMainContentsProps {
 	showWorkingIndicator: Accessor<boolean>;
 	showJumpLatest: Accessor<boolean>;
 	scrollToBottom: () => void;
+	extensionWidgets?: (() => readonly ExtensionTextWidget[]) | undefined;
+	extensionWidgetScope?: Accessor<string> | undefined;
 	queuedFollowUps: () => LocalQueuedMessage[];
 	steeringQueue: Accessor<string[]>;
 	followUpQueue: Accessor<string[]>;
@@ -309,6 +312,8 @@ export function AppMainContents(props: AppMainContentsProps) {
 					<AppPromptDock
 						viewportRows={() => props.dimensions().height}
 						enabled={() => !props.inspectSubagent()}
+						extensionWidgets={props.extensionWidgets}
+						extensionWidgetScope={props.extensionWidgetScope}
 						queuedFollowUps={props.queuedFollowUps}
 						steeringQueue={props.steeringQueue}
 						followUpQueue={props.followUpQueue}

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   SlashCommandController, type SlashCommandPorts, type SlashRuntime, parseOnOff,
 } from "../src/tabs/slash-commands.ts";
+import { reconcileExtensionWidgetSession } from "../src/state/extension-widgets.ts";
 
 function fixture() {
   const calls: string[] = [];
@@ -54,7 +55,7 @@ function fixture() {
     openMemoryBrowser() { calls.push("memory"); },
   };
   const controller = new SlashCommandController(ports);
-  return { controller, runtime, calls, notices, setPromptCount(value: number) { promptCount = value; } };
+  return { controller, runtime, ports, calls, notices, setPromptCount(value: number) { promptCount = value; } };
 }
 
 describe("typed built-in slash command controller", () => {
@@ -98,6 +99,23 @@ describe("typed built-in slash command controller", () => {
     await f.controller.handle("/new", f.runtime);
     await f.controller.handle("/name New session", f.runtime);
     expect(f.calls).toEqual(["compact:keep task context", "refresh", "new", "load", "name:New session", "refresh"]);
+  });
+
+  test("new-session cleanup preserves widgets received before the command acknowledgement", async () => {
+    const f = fixture();
+    f.runtime.extensionWidgets = new Map([
+      ["old", { key: "old", lines: ["stale"], placement: "aboveEditor" }],
+    ]);
+    f.runtime.client.newSession = async () => {
+      f.runtime.extensionWidgets?.set("new", { key: "new", lines: ["startup"], placement: "aboveEditor" });
+    };
+    f.ports.loadCurrentSession = async (runtime) => {
+      reconcileExtensionWidgetSession(runtime, "old session", "new session");
+    };
+    await f.controller.handle("/new", f.runtime);
+    expect([...f.runtime.extensionWidgets.values()]).toEqual([
+      { key: "new", lines: ["startup"], placement: "aboveEditor" },
+    ]);
   });
 
   test("navigation and introspection map to the correct UI controls", async () => {

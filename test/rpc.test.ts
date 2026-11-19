@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import { DEFAULT_REQUEST_TIMEOUT_MS, PiRpcClient, PiRpcTimeoutError } from "../src/rpc/pi-rpc-client.ts";
 import type { PiEvent } from "../src/types.ts";
+import { createTabRuntime } from "../src/tabs/runtime.ts";
 
 const clients: PiRpcClient[] = [];
 async function rejectionMessage(promise: Promise<unknown>): Promise<string> {
@@ -163,9 +164,12 @@ describe("PiRpcClient", () => {
     const client = new PiRpcClient({ cwd: process.cwd(), executable: path.resolve("scripts/mock-pi-rpc.mjs"), args: ["--continue", "--session", "/tmp/stale.jsonl", "--session-id", "stale-id", "--verbose"] });
     clients.push(client);
     const events: PiEvent[] = [];
+    let stopped = 0;
+    client.on("stopped", () => { stopped++; });
     const stopListening = client.onEvent((event) => events.push(event));
     await client.start();
     await client.restart("/tmp/current.jsonl");
+    expect(stopped).toBe(1);
     expect((await client.getState()).sessionFile).toBe("/tmp/current.jsonl");
     await client.prompt("after restart");
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -177,8 +181,14 @@ describe("PiRpcClient", () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "pitty-rpc-restart-"));
     const client = new PiRpcClient({ cwd: process.cwd(), executable: path.resolve("scripts/mock-pi-rpc.mjs"), env: { MOCK_RESTART_FAILURE_FILE: path.join(directory, "started") } });
     clients.push(client);
+    const runtime = createTabRuntime({ id: "restart", cwd: process.cwd(), client });
     await client.start();
+    runtime.extensionWidgets?.set("old process", { key: "old process", lines: ["stale"], placement: "aboveEditor" });
+    let widgetsAtStop: number | undefined;
+    client.on("stopped", () => { widgetsAtStop = runtime.extensionWidgets?.size; });
     await expect(client.restart("/tmp/current-session.jsonl")).rejects.toThrow("Pi exited during startup");
+    expect(widgetsAtStop).toBe(0);
+    expect(runtime.extensionWidgets?.size).toBe(0);
     await rm(directory, { recursive: true, force: true });
   });
 

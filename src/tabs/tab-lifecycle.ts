@@ -5,6 +5,7 @@ import { inspectedTargetScrollY } from "../ui/subagent-inspector.tsx";
 import { CompactionController } from "./compaction-controller.ts";
 import type { ExtensionRequestEnvelope } from "./extension-router.ts";
 import { ExtensionStatusController } from "./extension-status-controller.ts";
+import { ExtensionWidgetController } from "./extension-widget-controller.ts";
 import {
 	blankTabPiArgs,
 	type ConversationTabRuntime,
@@ -79,10 +80,6 @@ export function createTabLifecycle(
 			finishExtensionRequest(envelope);
 			return;
 		}
-		if (event.method === "setWidget") {
-			finishExtensionRequest(envelope);
-			return;
-		}
 		ports.setModelSelectorOpen(false);
 		ports.setPromptMapOpen(false);
 		ports.setDialogOwnerRuntimeId(envelope.runtimeId);
@@ -100,11 +97,15 @@ export function createTabLifecycle(
 	const extensionStatusController = new ExtensionStatusController((runtime) => {
 		if (runtime.id === ports.activeTabId()) ports.touch();
 	});
+	const extensionWidgetController = new ExtensionWidgetController((runtime) => {
+		if (runtime.id === ports.activeTabId()) ports.touch();
+	});
 	const routeRuntimeEvent = (
 		event: PiEvent,
 		tabRuntime: ConversationTabRuntime,
 	): void => {
 		compactionController.handleStart(event, tabRuntime);
+		if (extensionWidgetController.handle(event, tabRuntime)) return;
 		if (ports.isExtensionUiRequest(event)) {
 			if (compactionController.handleStatus(event, tabRuntime)) return;
 			if (extensionStatusController.handle(event, tabRuntime)) return;

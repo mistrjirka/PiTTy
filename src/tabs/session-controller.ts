@@ -1,4 +1,5 @@
 import { parseQueueState } from "../rpc/queue-types.ts";
+import { reconcileExtensionWidgetSession, withExtensionWidgetTransition } from "../state/extension-widgets.ts";
 import type { DiagnosticLogger } from "../diagnostics/logger.ts";
 import { initialItems } from "../state/conversation.ts";
 import { refreshRuntimeEntries, type ConversationTabRuntime } from "./runtime.ts";
@@ -36,6 +37,7 @@ export class SessionController {
     if (queue) runtime.conversation.applyQueueState(queue);
     runtime.conversation.isCompacting = state.isCompacting;
     delete runtime.pendingInputEdit;
+    reconcileExtensionWidgetSession(runtime, runtime.sessionState?.sessionId, state.sessionId);
     runtime.sessionState = state;
     runtime.queuedFollowUps = [];
     return history.length;
@@ -43,8 +45,10 @@ export class SessionController {
 
   async switchAndLoad(runtime: ConversationTabRuntime, path: string, timeoutMs: number):
     Promise<{ cancelled: true } | { cancelled: false; historyLength: number }> {
-    const result = await runtime.client.switchSession(path);
-    if (result.cancelled) return { cancelled: true };
-    return { cancelled: false, historyLength: await this.loadCurrent(runtime, timeoutMs) };
+    return withExtensionWidgetTransition(runtime, async () => {
+      const result = await runtime.client.switchSession(path);
+      if (result.cancelled) return { cancelled: true };
+      return { cancelled: false, historyLength: await this.loadCurrent(runtime, timeoutMs) };
+    });
   }
 }

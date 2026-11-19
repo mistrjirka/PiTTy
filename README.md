@@ -37,7 +37,7 @@ An empty session opens straight into the chat with a passive dashboard of recent
 - **Live themes.** Ten presets plus full color-token editing, applied immediately.
 - **Optional extra panels.** Todo, MCP server management, and an MCP counter with hover details appear when the matching Pi packages are installed.
 
-Pi extensions generally keep working: commands, tools, prompt templates, skills, notifications, status updates, and standard dialogs flow through RPC. With `pi-bg-bash` installed, the right sidebar lists background jobs. On the managed runtime, new input also moves running foreground commands to the background with the same process and original timeout deadline. Select a job to inspect its original command and paged output, or explicitly request analysis with Pi. Custom `pi-tui` component trees are not serialized, so extension-owned renderers won't look identical, and interactive `/login` is done once in regular Pi.
+Pi extensions generally keep working: commands, tools, prompt templates, skills, notifications, status updates, text widgets, and standard dialogs flow through RPC. [Text widgets](docs/EXTENSION_WIDGETS.md) appear above or below the editor, preserve ANSI styling, and scroll within a bounded area. With `pi-bg-bash` installed, the right sidebar lists background jobs. On the managed runtime, new input also moves running foreground commands to the background with the same process and original timeout deadline. Select a job to inspect its original command and paged output, or explicitly request analysis with Pi. Custom `pi-tui` component trees are not serialized, so extension-owned renderers won't look identical, and interactive `/login` is done once in regular Pi.
 
 ## Install
 

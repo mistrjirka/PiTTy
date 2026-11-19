@@ -1,5 +1,6 @@
 /** Local UI slash commands. Unknown names remain Pi extension commands. */
 import type { ThinkingLevel } from "../rpc/pi-rpc-client.ts";
+import { withExtensionWidgetTransition, type ExtensionWidgetState } from "../state/extension-widgets.ts";
 import type { SystemItem } from "../types.ts";
 import type { ModelChoice } from "../ui/model-selector.tsx";
 import type { CommandChoice } from "../ui/command-suggestions.tsx";
@@ -7,7 +8,7 @@ import { THINKING_LEVELS } from "../ui/thinking-selector.tsx";
 import type { PiRpcClient } from "../rpc/pi-rpc-client.ts";
 
 /** Only the typed data used by built-in slash commands, not the entire tab. */
-export type SlashRuntime = {
+export type SlashRuntime = ExtensionWidgetState & {
   client: Pick<PiRpcClient,
     "setAutoCompaction" | "setAutoRetry" | "setSteeringMode" | "setFollowUpMode" |
     "setThinkingLevel" | "setModel" | "getCommands" | "compact" |
@@ -241,8 +242,10 @@ export class SlashCommandController<T extends SlashRuntime> {
 				await refreshState(runtime);
 				return true;
 			case "new":
-				await runtime.client.newSession();
-				await loadCurrentSession(runtime);
+				await withExtensionWidgetTransition(runtime, async () => {
+					await runtime.client.newSession();
+					await loadCurrentSession(runtime);
+				});
 				addSystem("Started a new session.", "success");
 				return true;
 			case "name":

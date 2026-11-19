@@ -93,7 +93,8 @@ export function createTabForkActions(
 					);
 			},
 			onEvent: (event, runtime) => {
-				if (ports.runtimeMap().has(runtime.id)) {
+				if (ports.runtimeMap().has(runtime.id) ||
+					(event.type === "extension_ui_request" && event.method === "setWidget")) {
 					actions.routeRuntimeEvent(event, runtime);
 					return;
 				}

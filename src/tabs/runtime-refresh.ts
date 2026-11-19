@@ -1,5 +1,6 @@
 /** One-flight RPC state refresh and PID-scoped subagent roster updates. */
 import { parseQueueState } from "../rpc/queue-types.ts";
+import { reconcileExtensionWidgetSession } from "../state/extension-widgets.ts";
 import type { Accessor, Setter } from "solid-js";
 import type { DiagnosticLogger } from "../diagnostics/logger.ts";
 import { PiRpcTimeoutError } from "../rpc/pi-rpc-client.ts";
@@ -105,6 +106,7 @@ export function createRuntimeRefresh(
 			if (target.eventVersion !== version) return true;
 			const streamingChanged =
 				target.conversation.isStreaming !== state.isStreaming;
+			reconcileExtensionWidgetSession(target, target.sessionState?.sessionId, state.sessionId);
 			target.sessionState = state;
 			ports.rememberThinkingLevel(target);
 			target.sessionStats = stats;

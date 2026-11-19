@@ -1,4 +1,5 @@
 import { parseQueueState } from "../rpc/queue-types.ts";
+import { reconcileExtensionWidgetSession, withExtensionWidgetTransition, type ExtensionTextWidget } from "../state/extension-widgets.ts";
 import type { PendingInputEdit } from "./queued-input-actions.ts";
 import type { DiagnosticLogger } from "../diagnostics/logger.ts";
 import { PiRpcClient, type PiRpcClientOptions } from "../rpc/pi-rpc-client.ts";
@@ -122,6 +123,8 @@ export type ConversationTabRuntime = {
 	expandedToolIds: Set<string>;
 	expandedDiffIds: Set<string>;
 	thinkingExpansionOverrides: Map<string, boolean>;
+	/** Live text widgets owned by this tab, outside the transcript. */
+	extensionWidgets?: Map<string, ExtensionTextWidget>;
 	sessionState?: RpcSessionState;
 	sessionStats?: SessionStats;
 	runs: SubagentRun[];
@@ -214,6 +217,7 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		expandedToolIds: new Set(),
 		expandedDiffIds: new Set(),
 		thinkingExpansionOverrides: new Map(),
+		extensionWidgets: new Map(),
 		runs: [],
 		inspectSubagent: false,
 		compactionAttempt: 0,
@@ -307,10 +311,15 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 		delete runtime.smartCompactProgress;
 		delete runtime.oneRoundProgress;
 		delete runtime.oneRoundLaneTexts;
+		runtime.extensionWidgets?.clear();
 		notifyConversationChange();
 	};
 	runtime.client.on("protocol-error", handleProtocolError);
 	runtime.client.on("exit", handleProcessExit);
+	runtime.client.on("stopped", () => {
+		runtime.extensionWidgets?.clear();
+		notifyConversationChange();
+	});
 	return runtime;
 }
 
@@ -347,6 +356,7 @@ export function planForkTab(originalSessionFile: string, branchedSessionFile: st
 export async function startTabRuntime(runtime: ConversationTabRuntime): Promise<RpcSessionState> {
 	await runtime.client.start();
 	const state = await runtime.client.getState(240_000);
+	reconcileExtensionWidgetSession(runtime, runtime.sessionState?.sessionId, state.sessionId);
 	runtime.sessionState = state;
 	const queue = parseQueueState(state.queue);
 	if (queue) runtime.conversation.applyQueueState(queue);
@@ -361,19 +371,22 @@ export async function prepareForkedTabRuntime(
 	timeoutMs = 240_000,
 ): Promise<ForkedTabSessionState> {
 	await startTabRuntime(runtime);
-	const result = await runtime.client.fork(entryId, timeoutMs);
-	if (result.cancelled) throw new Error("Fork cancelled.");
-	const [state, messages] = await Promise.all([
-		runtime.client.getState(timeoutMs),
-		runtime.client.getMessages(timeoutMs),
-	]);
-	if (!state.sessionFile) throw new Error("Fork did not return a session file.");
-	runtime.sessionState = state;
-	runtime.conversation.queue = undefined;
-	const queue = parseQueueState(state.queue);
-	if (queue) runtime.conversation.applyQueueState(queue);
-	runtime.conversation.isCompacting = state.isCompacting;
-	runtime.conversation.replaceItems(initialItems(messages));
-	await refreshRuntimeEntries(runtime);
-	return { ...state, sessionFile: state.sessionFile };
+	return withExtensionWidgetTransition(runtime, async () => {
+		const result = await runtime.client.fork(entryId, timeoutMs);
+		if (result.cancelled) throw new Error("Fork cancelled.");
+		const [state, messages] = await Promise.all([
+			runtime.client.getState(timeoutMs),
+			runtime.client.getMessages(timeoutMs),
+		]);
+		if (!state.sessionFile) throw new Error("Fork did not return a session file.");
+		reconcileExtensionWidgetSession(runtime, runtime.sessionState?.sessionId, state.sessionId);
+		runtime.sessionState = state;
+		runtime.conversation.queue = undefined;
+		const queue = parseQueueState(state.queue);
+		if (queue) runtime.conversation.applyQueueState(queue);
+		runtime.conversation.isCompacting = state.isCompacting;
+		runtime.conversation.replaceItems(initialItems(messages));
+		await refreshRuntimeEntries(runtime);
+		return { ...state, sessionFile: state.sessionFile };
+	});
 }

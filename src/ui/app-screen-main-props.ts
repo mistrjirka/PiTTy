@@ -60,6 +60,16 @@ export function createAppMainProps(
 		showWorkingIndicator: ports.selectors.showWorkingIndicator,
 		showJumpLatest: ports.signals.showJumpLatest[0],
 		scrollToBottom: ports.scroll.scrollToBottom,
+		extensionWidgets: () => {
+			ports.signals.revision[0]();
+			ports.signals.conversationStructureRevision[0]();
+			return [...(ports.runtime.activeRuntime().extensionWidgets?.values() ?? [])];
+		},
+		extensionWidgetScope: () => {
+			ports.signals.revision[0]();
+			const runtime = ports.runtime.activeRuntime();
+			return runtime.id + ":" + (runtime.sessionState?.sessionId ?? "starting");
+		},
 		queuedFollowUps: ports.extras.queuedFollowUps,
 		steeringQueue: ports.extras.steeringQueue,
 		followUpQueue: ports.extras.followUpQueue,

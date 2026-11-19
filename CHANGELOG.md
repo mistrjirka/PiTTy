@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Display extension text widgets
+
+- Display string widgets from any extension above or below the editor, with ANSI styles, wrapping and bounded scrolling.
+- Apply updates while dialogs are open and tabs are inactive. Preserve editor focus and drafts.
+- Clear old widgets on session changes and process stops while preserving replacement-session startup updates.
+- Keep widgets out of conversation history. Existing sessions require no migration.
+- Add real renderer coverage and reproducible normal, narrow and overflow previews.
+
 ## 0.7.12
 
 ### Continue older Python sessions
