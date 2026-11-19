@@ -529,10 +529,21 @@ export function ensureManagedPi(appRoot, env = process.env) {
 	}
 }
 
-const runningDirectly =
-	process.argv[1] &&
-	fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
-if (runningDirectly) {
+function isRunningDirectly() {
+	if (!process.argv[1]) return false;
+	try {
+		// Node resolves ESM symlinks, but argv can retain a symlinked parent path.
+		return (
+			realpathSync(fileURLToPath(import.meta.url)) ===
+			realpathSync(process.argv[1])
+		);
+	} catch {
+		// Importers such as node -e need not provide a real entrypoint file.
+		return false;
+	}
+}
+
+if (isRunningDirectly()) {
 	const index = process.argv.indexOf("--install-root");
 	const root = index >= 0 ? process.argv[index + 1] : releaseRoot;
 	try {

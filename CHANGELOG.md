@@ -8,6 +8,7 @@
 - Resume pending operations from their saved execution point without repeating earlier tool calls or reusing an old result for a new request.
 - Require an explicit `reset=true` for old replay snapshots or incompatible helper type signatures or execution limits. Preserve the previous snapshot until reset.
 - Pin and verify the interpreter dependency inside the private PiTTy runtime. Keep global Pi and interpreter installations unchanged.
+- Recognize direct installer launches through symlinked paths, including macOS temporary directories.
 
 ## 0.7.10
 

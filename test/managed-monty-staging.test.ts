@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,48 @@ function write(file: string, text: string, mode?: number) {
 	writeFileSync(file, text, mode === undefined ? undefined : { mode });
 }
 
+describe("managed Pi installer entrypoint", () => {
+	supportedTest("runs through a symlinked parent directory", () => {
+		const root = realpathSync(mkdtempSync(path.join(tmpdir(), "pitty-installer-entry-")));
+		try {
+			const alias = path.join(root, "release-link");
+			const app = path.join(root, "app");
+			symlinkSync(repo, alias, "dir");
+			for (const release of [repo, alias]) {
+				const result = spawnSync(process.env.PITTY_NODE_EXECUTABLE || "node", [
+					path.join(release, "scripts/ensure-managed-pi.mjs"), "--install-root", app,
+				], {
+					env: { ...process.env, PITTY_NO_MANAGED_PI: "1" },
+					encoding: "utf8",
+					timeout: 10_000,
+				});
+				expect(result.status).toBe(0);
+				expect(result.stdout).toContain("PiTTy managed Pi: skipped");
+				expect(result.stderr).toBe("");
+			}
+			expect(existsSync(app)).toBe(false);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test("can be imported without a file entrypoint", () => {
+		const installer = new URL("../scripts/ensure-managed-pi.mjs", import.meta.url).href;
+		for (const argv of ["delete process.argv[1];", "process.argv[1] = 'missing-installer-entrypoint';"]) {
+			const result = spawnSync(process.env.PITTY_NODE_EXECUTABLE || "node", [
+				"--input-type=module", "-e", argv + "await import(" + JSON.stringify(installer) + "); console.log('imported');",
+			], {
+				env: { ...process.env, PITTY_NO_MANAGED_PI: "1" },
+				encoding: "utf8",
+				timeout: 10_000,
+			});
+			expect(result.status).toBe(0);
+			expect(result.stdout).toBe("imported\n");
+			expect(result.stderr).toBe("");
+		}
+	});
+});
+
 describe("private Monty dependency staging", () => {
 	const scenarios: { name: string; exit: number | null; error: string; budget?: number }[] = [
 		{ name: "npm failure", exit: 23, error: "npm exited 23" },
@@ -23,7 +65,7 @@ describe("private Monty dependency staging", () => {
 	];
 	for (const scenario of scenarios) {
 		supportedTest(scenario.name + " preserves the old runtime and isolates npm", () => {
-			const root = mkdtempSync(path.join(tmpdir(), "pitty-private-monty-"));
+			const root = realpathSync(mkdtempSync(path.join(tmpdir(), "pitty-private-monty-")));
 			try {
 				const release = path.join(root, "release");
 				const app = path.join(root, "app");
