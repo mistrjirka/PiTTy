@@ -19,7 +19,7 @@ import { registerBundledParsers } from "./ui/parsers.ts";
 import { detectOptionalIntegrations } from "./integrations/detect.ts";
 import { appVersion } from "./version.ts";
 import { resolveDefaultPiExecutable } from "./pi-command.ts";
-import { resolveForkCodeToolExtension } from "./pi-fork-runtime.ts";
+import { bootstrapManagedPi } from "./managed-pi-bootstrap.ts";
 import {
 	resolveBundledBackgroundObserverPath,
 	resolveBundledMcpObserverPath,
@@ -56,13 +56,14 @@ if (parsed.values.help) {
 	process.exit(0);
 }
 
+// The previous installed launcher activates a staged upgrade using its own
+// code. Prepare our fork here too so the very first post-upgrade PiTTy run uses it.
+bootstrapManagedPi(typeof parsed.values.pi === "string");
+
 const effectivePiExecutable =
 	typeof parsed.values.pi === "string"
 		? parsed.values.pi
 		: resolveDefaultPiExecutable();
-const forkCodeToolExtension = resolveForkCodeToolExtension(
-	effectivePiExecutable,
-);
 
 const piArgs: string[] = [
 	"--extension",
@@ -74,7 +75,6 @@ const piArgs: string[] = [
 		process.env.PITTY_APP_ROOT,
 		import.meta.dir,
 	),
-	...(forkCodeToolExtension ? ["--extension", forkCodeToolExtension] : []),
 ];
 if (parsed.values.continue) piArgs.push("--continue");
 if (typeof parsed.values.session === "string")

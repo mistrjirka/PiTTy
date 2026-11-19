@@ -55,12 +55,27 @@ describe("Pi command resolution", () => {
 			resolveForkCodeToolExtension(
 				managed.piExecutable,
 				env,
-				(file) => file === managed.codeToolExtension,
+				(file) =>
+					file === managed.codeToolExtension || file === managed.markerFile,
 			),
 		).toBe(managed.codeToolExtension);
 		expect(
 			resolveForkCodeToolExtension(managed.piExecutable, env, () => true),
-		).toBeUndefined();
+		).toBe(managed.codeToolExtension);
+		const staged = { ...env, PITTY_APP_ROOT: "/opt/pitty" };
+		const stagedPaths = piForkRuntimePaths(staged);
+		expect(stagedPaths.piExecutable).toBe(
+			path.join("/opt/pitty", "fork-runtime", "pi", "dist", "cli.js"),
+		);
+		expect(
+			resolveDefaultPiExecutable(
+				staged,
+				(file) => file === stagedPaths.piExecutable,
+			),
+		).toBe("pi");
+		expect(resolveDefaultPiExecutable(staged, () => true)).toBe(
+			stagedPaths.piExecutable,
+		);
 		expect(resolveForkCodeToolExtension("pi", env, () => true)).toBeUndefined();
 		expect(
 			resolveForkCodeToolExtension(managed.piExecutable, env, () => false),

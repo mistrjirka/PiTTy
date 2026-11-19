@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.8
+
+### Automatically install the managed Pi fork on upgrade
+
+- `pitty upgrade` now prepares a compatible, version-pinned Pi and pi-code-tool fork inside the staged PiTTy installation. The next `pitty` launch activates the update and selects the fork automatically, without another command or extra setup.
+- The old-version launcher and first-run bootstrap both support the upgrade path. Missing or incompatible upstream builds fall back to the original global Pi without changing its installation or settings.
+- Replace pi-code-tool imports only in PiTTy's Pi child process. The managed runtime leaves the original `pi-code-tool-autoapprove.ts`, extension registry, credentials and session files untouched, without changing the existing optional profiled-subagent update behavior.
+- Bundle the audited Pi 1.5.2 and pi-code-tool 0.6.2 patches with checksums and original licenses. Validate the exact installed module hashes before staging the private runtime; detect errors and roll back staged installs.
+- Keep overrides: `PITTY_USE_UPSTREAM_PI=1`, `PI_BIN`, `pitty --pi`, `PITTY_NO_MANAGED_PI=1`. Linux and macOS support the managed runtime; Windows currently falls back to existing Pi.
+- Verify a cold first launch and a full `pitty -c` start against the 2.47 GB session with normal extensions. Add focused regression tests for process-local code-tool redirection and incompatible-version fallback.
+
 ## 0.7.7
 
 ### Optional managed Pi and code-tool forks

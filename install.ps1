@@ -97,6 +97,16 @@ try {
     $BunExecutable = if (Test-Path "node_modules\.bin\bun.cmd") { "node_modules\.bin\bun.cmd" } elseif (Test-Path "node_modules\.bin\bun.exe") { "node_modules\.bin\bun.exe" } else { "node_modules\bun\bin\bun.exe" }
     & $BunExecutable run scripts/build-runtime.ts *> $BuildLog
     if ($LASTEXITCODE -ne 0) { Fail "PiTTy runtime build failed. See $BuildLog" }
+    $ForkScript = Join-Path $NewDir "scripts\ensure-managed-pi.mjs"
+    if (Test-Path $ForkScript) {
+      $ForkLog = Join-Path $LogRoot "pi-fork-install.log"
+      & node $ForkScript --install-root $NewDir *> $ForkLog
+      if ($LASTEXITCODE -eq 2) {
+        Write-Warning "No compatible managed Pi fork; PiTTy will use the existing global Pi. See $ForkLog"
+      } elseif ($LASTEXITCODE -ne 0) {
+        Fail "Managed Pi staging failed. The previous install is unchanged. See $ForkLog"
+      }
+    }
   } finally { Pop-Location }
   if (-not (Test-Path (Join-Path $NewDir "bin\pitty.mjs"))) { Fail "archive is missing bin/pitty.mjs" }
   if (-not (Test-Path (Join-Path $NewDir "package.json"))) { Fail "archive is missing package.json" }

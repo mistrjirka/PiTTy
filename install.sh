@@ -147,6 +147,24 @@ if ! (cd "$INSTALL_DIR.new" && node_modules/.bin/bun run scripts/build-runtime.t
   tail -n 30 "$BUILD_LOG" >&2 || true
   exit 1
 fi
+# Build the version-matched Pi fork inside the staged installation. The
+# original global Pi binary, ~/.pi settings, plugins and sessions stay intact.
+# An unsupported Pi version is safe: continue with upstream rather than
+# installing an incompatible patch.
+if [ -f "$INSTALL_DIR.new/scripts/ensure-managed-pi.mjs" ]; then
+  FORK_LOG="$LOG_DIR/pi-fork-install.log"
+  if (cd "$INSTALL_DIR.new" && node scripts/ensure-managed-pi.mjs --install-root "$INSTALL_DIR.new") >"$FORK_LOG" 2>&1; then
+    say "Validated the managed Pi fork without changing global Pi."
+  else
+    status=$?
+    if [ "$status" -eq 2 ]; then
+      warn "no compatible Pi fork for this installation; keeping global Pi (details: $FORK_LOG)"
+    else
+      tail -n 20 "$FORK_LOG" >&2 || true
+      die "managed Pi staging failed; previous PiTTy installation was not replaced (log: $FORK_LOG)"
+    fi
+  fi
+fi
 # Metadata is part of the staged payload and is consumed by pitty upgrade.
 node -e 'const fs=require("fs"); const out={schemaVersion:1,repository:process.argv[1],installedVersion:process.argv[2],installDirectory:process.argv[3],binDirectory:process.argv[4],pluginMode:process.argv[5]}; fs.writeFileSync(process.argv[6], JSON.stringify(out)+"\n")' "$REPO" "$VER" "$INSTALL_DIR" "$BIN_DIR" "$PLUGIN_MODE" "$INSTALL_DIR.new/pitty-install.json"
 [ -f "$INSTALL_DIR.new/bin/pitty.mjs" ] || die "archive is missing bin/pitty.mjs"
