@@ -197,7 +197,7 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("Which behavior should I preserve?");
 		expect(frame).toContain("Context: The task and existing tests disagree.");
 		expect(frame).toContain("Reply with: subagent_supervisor");
-		expect(frame).toContain("other_event: visible notice");
+		expect(frame).toContain("· other_event  visible notice");
 		expect(frame).toContain("✓ → reply worker");
 		expect(frame).toContain("Full supervisor reply body");
 		for (const line of frame.split("\n"))

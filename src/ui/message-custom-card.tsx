@@ -14,9 +14,16 @@ import {
 	objectRecordValue,
 	parsedNotification,
 } from "./message-format.tsx";
+import {
+	BackgroundCompletionRow,
+	backgroundCompletionFor,
+	GenericNoticeRow,
+} from "./message-background-notice.tsx";
 import { colors } from "./theme.ts";
 export function CustomMessage(props: { item: CustomItem }) {
 	const item = props.item;
+	const completion = backgroundCompletionFor(item);
+	if (completion) return <BackgroundCompletionRow item={item} completion={completion} />;
 	if (item.customType === "subagent-notification") {
 		const payload = parsedNotification(item);
 		const agentId =
@@ -67,12 +74,9 @@ export function CustomMessage(props: { item: CustomItem }) {
 			<box
 				id={item.id}
 				flexDirection="column"
-				backgroundColor={colors.toolAgentBg}
 				paddingLeft={1}
 				paddingRight={1}
 				marginBottom={1}
-				border={["left"]}
-				borderColor={colors.purple}
 			>
 				<text fg={colors.purple} attributes={1}>
 					◆ subagent · {identity} · {status}
@@ -117,12 +121,9 @@ export function CustomMessage(props: { item: CustomItem }) {
 		<box
 			id={item.id}
 			flexDirection="column"
-			backgroundColor={colors.toolAgentBg}
 			paddingLeft={1}
 			paddingRight={1}
 			marginBottom={1}
-			border={["left"]}
-			borderColor={colors.purple}
 		>
 			<text fg={colors.purple} attributes={1}>
 				◇ Child question · {agent}
@@ -138,10 +139,6 @@ export function CustomMessage(props: { item: CustomItem }) {
 			</Show>
 		</box>
 	) : (
-		<box id={item.id} paddingLeft={1} marginBottom={1}>
-			<text fg={colors.muted} selectable wrapMode="word">
-				· {item.customType}: {item.text}
-			</text>
-		</box>
+		<GenericNoticeRow item={item} />
 	);
 }

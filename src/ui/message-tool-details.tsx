@@ -71,7 +71,6 @@ export function ToolDetails(props: {
 		"transcript" | "output" | "diff"
 	>("transcript");
 
-	let outputCollapsedBox: BoxRenderable | undefined;
 	let outputExpandedBox: BoxRenderable | undefined;
 	let outputPreviewBox: BoxRenderable | undefined;
 	let outputScrollBox: ScrollBoxRenderable | undefined;
@@ -88,7 +87,6 @@ export function ToolDetails(props: {
 	const syncView = (owner: "transcript" | "output" | "diff") => {
 		const outputOpen = toolExpanded();
 		const diffOpen = diffExpanded();
-		if (outputCollapsedBox) outputCollapsedBox.visible = !outputOpen;
 		if (outputExpandedBox) outputExpandedBox.visible = outputOpen;
 		if (outputPreviewBox)
 			outputPreviewBox.visible = outputOpen && owner !== "output";
@@ -168,11 +166,13 @@ export function ToolDetails(props: {
 					}
 				>
 					<box flexDirection="column">
+						{/* Collapsed, the header row carries the preview itself, so
+						    `expand` sits beside it instead of on a row of its own. */}
 						<box flexDirection="row">
-							<text fg={colors.subtle} wrapMode="none">
-								Output
+							<text fg={colors.subtle} wrapMode="none" flexShrink={1} minWidth={0}>
+								{toolExpanded() ? "Output" : collapsedPreview(output())}
 							</text>
-							<box flexGrow={1} />
+							<box flexGrow={1} minWidth={2} />
 							<box
 								id={`${props.item.id}-output-scroll-toggle`}
 								ref={(value) => {
@@ -222,17 +222,6 @@ export function ToolDetails(props: {
 									{toolExpanded() ? "collapse" : "expand"}
 								</text>
 							</box>
-						</box>
-						<box
-							ref={(value) => {
-								outputCollapsedBox = value;
-							}}
-							visible={!toolExpanded()}
-							flexDirection="row"
-						>
-							<text fg={colors.subtle} wrapMode="none">
-								{collapsedPreview(output())}
-							</text>
 						</box>
 						<box
 							ref={(value) => {

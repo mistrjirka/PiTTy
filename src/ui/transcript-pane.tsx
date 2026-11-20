@@ -179,16 +179,10 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 				/>
 			</Show>
 			<Show when={props.showWorkingIndicator()}>
-				<box
-					paddingLeft={1}
-					paddingTop={1}
-					paddingBottom={1}
-					marginBottom={1}
-					border={["left"]}
-					borderColor={colors.green}
-				>
-					<text fg={colors.green} attributes={1}>
-						{spinnerFrames[props.frame()] ?? "◐"} Working…
+				{/* Same shape as a tool row: glyph, then a word. */}
+				<box paddingLeft={1} marginBottom={1}>
+					<text fg={colors.accent}>
+						{spinnerFrames[props.frame()] ?? "◐"} working…
 					</text>
 				</box>
 			</Show>
