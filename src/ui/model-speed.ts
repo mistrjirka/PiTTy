@@ -4,6 +4,7 @@
  * reads the history file unless the caller passes a reader.
  */
 import {
+	effectiveTokensPerSecond,
 	modelPerformanceStats,
 	type ModelPerformanceStats,
 	readModelPerformanceHistory,
@@ -24,6 +25,7 @@ export type SpeedVerdict =
  */
 export const USUAL_SPEED_BAND = 0.1;
 
+/** Compares effective speeds (first-token wait folded in), never raw tok/s. */
 export function compareSpeedToMedian(
 	currentTokensPerSecond: number,
 	medianTokensPerSecond: number,
@@ -90,12 +92,12 @@ export function latestModelSpeed(
 				}
 			: undefined;
 	if (!median && !current) return undefined;
+	const currentEffective = current
+		? effectiveTokensPerSecond(current.ttftMs, current.tokensPerSecond)
+		: undefined;
 	const verdict =
-		current && median
-			? compareSpeedToMedian(
-					current.tokensPerSecond,
-					median.medianOutputTokensPerSecond,
-				)
+		currentEffective !== undefined && median
+			? compareSpeedToMedian(currentEffective, median.medianEffectiveTokensPerSecond)
 			: undefined;
 	return { median, current, verdict };
 }

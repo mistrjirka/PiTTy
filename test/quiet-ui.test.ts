@@ -11,6 +11,7 @@ import {
 	speedVerdictText,
 } from "../src/ui/model-speed.ts";
 import { contextMeterCells } from "../src/ui/sidebar-layout.ts";
+import { effectiveTokensPerSecond, modelPerformanceKey } from "../src/tabs/model-performance-history.ts";
 import { splitDiffRows } from "../src/ui/diff-split.tsx";
 import { subagentElapsedMs } from "../src/ui/subagent-format.ts";
 import { type SubagentTarget, subagentTargets } from "../src/subagents/targets.ts";
@@ -25,6 +26,21 @@ describe("model speed verdict", () => {
 		expect(compareSpeedToMedian(37, 48)).toEqual({ kind: "slower", percent: 23 });
 		expect(compareSpeedToMedian(0, 48)).toBeUndefined();
 		expect(compareSpeedToMedian(50, Number.NaN)).toBeUndefined();
+	});
+
+	test("folds the first-token wait into the speed that is compared", () => {
+		// Same stream rate as the median, but a 4s start instead of 0.5s: the
+		// reply feels slower, so the verdict must say so.
+		const sample = { timestamp: Date.now() - 1_000, ttftMs: 500, outputTokensPerSecond: 50, version: 3 as const };
+		const history = () => ({ [modelPerformanceKey("openai", "m")]: [sample] });
+		const slowStart = latestModelSpeed(
+			{ provider: "openai", id: "m" },
+			{ provider: "openai", modelId: "m", ttftMs: 4_000, outputTokens: 500, generationMs: 10_000 },
+			history,
+		);
+		expect(slowStart?.current?.tokensPerSecond).toBe(50);
+		expect(slowStart?.verdict?.kind).toBe("slower");
+		expect(effectiveTokensPerSecond(500, 50)).toBeCloseTo(500 / 10.5, 6);
 	});
 
 	test("carries the verdict in glyphs, not colour alone", () => {

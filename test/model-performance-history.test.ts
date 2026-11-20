@@ -20,7 +20,10 @@ describe("model performance history", () => {
     history = recordModelPerformanceSample(history, "openai", "gpt", { ttftMs: 300, generationMs: 2000, outputTokens: 20 }, now);
     saveModelPerformanceHistory(history, file);
     const loaded = loadModelPerformanceHistory(file);
-    expect(modelPerformanceStats(loaded, "openai", "gpt")).toEqual({ medianTtftMs: 200, medianOutputTokensPerSecond: 15 });
+    const stats = modelPerformanceStats(loaded, "openai", "gpt");
+    expect(stats).toMatchObject({ medianTtftMs: 200, medianOutputTokensPerSecond: 15 });
+    // Per-sample effective speeds (500 / (ttft + 500 / rate)): 19.92 and 9.94.
+    expect(stats?.medianEffectiveTokensPerSecond).toBeCloseTo((500 / 25.1 + 500 / 50.3) / 2, 6);
     expect(formatModelPerformanceStats(modelPerformanceStats(loaded, "openai", "gpt"))).toBe("median 15 tok/s · first token 200ms");
   });
 
@@ -88,7 +91,7 @@ describe("model performance history", () => {
     expect(modelPerformanceStats({ [key]: [legacy] }, "openai", "gpt")).toBeUndefined();
     const previous = { timestamp: now - 500, ttftMs: 1, outputTokensPerSecond: 100, version: 2 as const };
     expect(modelPerformanceStats({ [key]: [previous] }, "openai", "gpt")).toBeUndefined();
-    expect(modelPerformanceStats({ [key]: [legacy, previous, ...recorded[key]!] }, "openai", "gpt")).toEqual({ medianTtftMs: 100, medianOutputTokensPerSecond: 20 });
+    expect(modelPerformanceStats({ [key]: [legacy, previous, ...recorded[key]!] }, "openai", "gpt")).toMatchObject({ medianTtftMs: 100, medianOutputTokensPerSecond: 20 });
   });
 
   test("readModelPerformanceHistory caches by file stat and re-reads after a write", () => {

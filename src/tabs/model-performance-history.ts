@@ -16,7 +16,27 @@ export type ModelPerformanceSample = {
 };
 const SAMPLE_VERSION: 3 = 3;
 export type ModelPerformanceHistory = Record<string, ModelPerformanceSample[]>;
-export type ModelPerformanceStats = { medianTtftMs: number; medianOutputTokensPerSecond: number };
+export type ModelPerformanceStats = {
+  medianTtftMs: number;
+  medianOutputTokensPerSecond: number;
+  /** Median of each sample's `effectiveTokensPerSecond`. */
+  medianEffectiveTokensPerSecond: number;
+};
+
+/**
+ * A reply's felt speed folds the wait for the first token into the output
+ * rate: the rate a reply of `REFERENCE_REPLY_TOKENS` would have end to end.
+ * A model with a fast stream but a slow start reads slower than its raw
+ * tok/s, and a quick starter with a modest stream reads faster.
+ * TODO: 500 tokens is a typical coding reply, chosen by judgement. Revisit if
+ * verdicts feel dominated by first-token time (raise it) or ignore it (lower).
+ */
+export const REFERENCE_REPLY_TOKENS = 500;
+
+export function effectiveTokensPerSecond(ttftMs: number, outputTokensPerSecond: number): number | undefined {
+  if (!Number.isFinite(ttftMs) || ttftMs < 0 || !Number.isFinite(outputTokensPerSecond) || outputTokensPerSecond <= 0) return undefined;
+  return REFERENCE_REPLY_TOKENS / (ttftMs / 1000 + REFERENCE_REPLY_TOKENS / outputTokensPerSecond);
+}
 const RETENTION_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_SAMPLES_PER_MODEL = 1_000;
 // Keep recording and selector reads bounded even during unusually busy use.
@@ -201,7 +221,17 @@ export function modelPerformanceStats(history: ModelPerformanceHistory, provider
   const now = Date.now();
   const samples = all.filter((sample) => sample.version === SAMPLE_VERSION && sample.timestamp <= now && now - sample.timestamp <= RETENTION_MS);
   if (!samples.length) return undefined;
-  return { medianTtftMs: median(samples.map((sample) => sample.ttftMs)), medianOutputTokensPerSecond: median(samples.map((sample) => sample.outputTokensPerSecond)) };
+  // Per-sample effective speed, then the median: combining the two separate
+  // medians would pair a start and a stream from different requests.
+  const effective = samples.flatMap((sample) => {
+    const value = effectiveTokensPerSecond(sample.ttftMs, sample.outputTokensPerSecond);
+    return value === undefined ? [] : [value];
+  });
+  return {
+    medianTtftMs: median(samples.map((sample) => sample.ttftMs)),
+    medianOutputTokensPerSecond: median(samples.map((sample) => sample.outputTokensPerSecond)),
+    medianEffectiveTokensPerSecond: median(effective),
+  };
 }
 export function formatModelPerformanceStats(stats: ModelPerformanceStats | undefined): string {
   // Same words as the sidebar speed rows, so no legend line is needed.
