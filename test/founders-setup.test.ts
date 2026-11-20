@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { foundersCatalog, type FoundersPackage } from "../scripts/founders-catalog.mjs";
-import { hash, mergeFoundersPackages, planAgents, sourceIdentity } from "../scripts/founders-state.mjs";
+import { hash, localEquivalentSource, mergeFoundersPackages, planAgents, sourceIdentity } from "../scripts/founders-state.mjs";
 import { parseFoundersArgs, setupFounders, type FoundersOptions } from "../scripts/founders-setup.mjs";
 import { ensureFoundersRuntime } from "../scripts/founders-runtime.mjs";
 
@@ -298,5 +298,29 @@ describe("founders source matching and command boundary", () => {
     expect(output).toContain("--dry-run");
     expect(output).toContain("--agent-dir");
     expect(fs.existsSync(agentDir)).toBe(false);
+  });
+});
+
+describe("local checkouts in settings", () => {
+  test("a local checkout with the package's name stands in for the maintained source", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-local-equivalent-"));
+    try {
+      const fork = path.join(base, "my-doppelclaude-fork");
+      fs.mkdirSync(fork);
+      fs.writeFileSync(path.join(fork, "package.json"), JSON.stringify({ name: "pi-doppelclaude-workspace" }));
+      const other = path.join(base, "other");
+      fs.mkdirSync(other);
+      fs.writeFileSync(path.join(other, "package.json"), JSON.stringify({ name: "something-else" }));
+      const entry = foundersCatalog().find((item) => item.id === "doppelclaude")!;
+      expect(localEquivalentSource({ packages: [other, { source: fork }] }, entry, base)).toBe(fork);
+      // Remote sources and unrelated checkouts never match by name.
+      expect(localEquivalentSource({ packages: ["npm:pi-doppelclaude", other] }, entry, base)).toBeUndefined();
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("todo is no longer part of the recommended set", () => {
+    expect(foundersCatalog().map((entry) => entry.id)).not.toContain("todo");
   });
 });

@@ -32,6 +32,7 @@ export function githubSourcePath(source: unknown): string | undefined;
 export function githubSourceRef(source: unknown): string | undefined;
 export function sourceIdentity(source: unknown, base?: string): string | undefined;
 export function readSettings(file: string): { value: FoundersSettings; raw: string | undefined };
+export function localEquivalentSource(settings: FoundersSettings, entry: FoundersPackage, base?: string): string | undefined;
 export function mergeFoundersPackages(settings: FoundersSettings, catalog: FoundersPackage[], base?: string): { settings: FoundersSettings; packages: PlannedPackage[] };
 export function atomicWrite(file: string, content: string, mode?: number): void;
 export function readFoundersReceipt(agentDir: string): { receiptFile: string; receipt: FoundersReceipt };

@@ -12,6 +12,7 @@ const DRY_RUN = `Pi agent directory: /home/u/.pi/agent
 Present: git:github.com/mistrjirka/pi-subagent
 Install: git:https://github.com/mistrjirka/PiTTy-BTW.git
 Configure: npm:pi-code-tool@0.6.2
+Outdated: /home/u/pi-doppelclaude-fork
   Replace equivalent package: npm:pi-code-tool
 Dry run. No files were changed.
 `;
@@ -27,6 +28,7 @@ describe("recommended plugins", () => {
 			{ action: "present", source: "git:github.com/mistrjirka/pi-subagent", name: "pi-subagent" },
 			{ action: "install", source: "git:https://github.com/mistrjirka/PiTTy-BTW.git", name: "PiTTy-BTW" },
 			{ action: "configure", source: "npm:pi-code-tool@0.6.2", name: "pi-code-tool" },
+			{ action: "outdated", source: "/home/u/pi-doppelclaude-fork", name: "pi-doppelclaude-fork" },
 		]);
 		expect(foundersFailureMessage("x\nPiTTy founders setup failed: Node 24 needed.\n")).toBe("Node 24 needed.");
 	});
@@ -51,7 +53,9 @@ describe("recommended plugins", () => {
 		await setup.flush();
 		const plan = setup.captureCharFrame();
 		expect(calls).toEqual(["dry-run"]);
-		expect(plan).toContain("2 to install");
+		// The outdated checkout is the user's to update; Enter does not count it.
+		expect(plan).toContain("2 to install · 1 outdated");
+		expect(plan).toContain("update checkout");
 		expect(plan).toContain("PiTTy-BTW");
 		setup.mockInput.pressEnter();
 		await Bun.sleep(0);

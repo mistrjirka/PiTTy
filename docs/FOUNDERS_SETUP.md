@@ -35,7 +35,6 @@ access, GitHub account or SSH key.
 | `mistrjirka/pi-doppelclaude` | Claude Agent SDK provider |
 | `mistrjirka/PiTTy-BTW` | Temporary side questions |
 | `mistrjirka/PiTTy-Skills` | Selected skills, agents and required references |
-| `@juicesharp/rpiv-todo` | Todo tools and panel |
 | `pi-web-access` | Web tools |
 | `pi-diet-semble` | Semantic code search |
 | `pi-bg-bash` | Background commands |

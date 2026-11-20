@@ -17,15 +17,23 @@ export type RecommendedPluginsState =
 	| { kind: "installed"; customAgentsKept: boolean }
 	| { kind: "failed"; message: string; logPath: string };
 
+/** What Enter can do: install or configure. Outdated local checkouts are the user's to update. */
 export function pendingPlanCount(plan: readonly FoundersPlanEntry[]): number {
-	return plan.filter((entry) => entry.action !== "present").length;
+	return plan.filter((entry) => entry.action === "install" || entry.action === "configure").length;
 }
 
 const ACTION_MARK: Record<FoundersPlanEntry["action"], { glyph: string; word: string }> = {
 	present: { glyph: "✓", word: "installed" },
 	install: { glyph: "+", word: "install" },
-	configure: { glyph: "~", word: "enable" },
+	configure: { glyph: "~", word: "configure" },
+	outdated: { glyph: "!", word: "update checkout" },
 };
+
+function actionColor(action: FoundersPlanEntry["action"]): string {
+	if (action === "present") return colors.green;
+	if (action === "outdated") return colors.yellow;
+	return colors.accent;
+}
 
 function PlanRows(props: { plan: readonly FoundersPlanEntry[] }) {
 	return (
@@ -33,7 +41,7 @@ function PlanRows(props: { plan: readonly FoundersPlanEntry[] }) {
 			{(entry) => (
 				<box height={1} flexDirection="row" flexShrink={0}>
 					<text
-						fg={entry.action === "present" ? colors.green : colors.accent}
+						fg={actionColor(entry.action)}
 						wrapMode="none"
 						flexShrink={0}
 					>
@@ -127,7 +135,12 @@ export function RecommendedPlugins(props: {
 		const current = state();
 		if (current.kind === "ready") {
 			const pending = pendingPlanCount(current.plan);
-			return pending === 0 ? "all installed" : `${pending} to install`;
+			const outdated = current.plan.filter((entry) => entry.action === "outdated").length;
+			const parts = [
+				pending === 0 ? "all installed" : `${pending} to install`,
+				outdated ? `${outdated} outdated` : "",
+			];
+			return parts.filter(Boolean).join(" · ");
 		}
 		if (current.kind === "installing") return "installing…";
 		return undefined;

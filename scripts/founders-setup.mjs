@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { foundersCatalog } from "./founders-catalog.mjs";
 import { managedPiIsCurrent } from "./ensure-managed-pi.mjs";
 import { ensureFoundersRuntime } from "./founders-runtime.mjs";
-import { atomicWrite, githubSourcePath, githubSourceRef, installAgents, mergeFoundersPackages, planAgents, readFoundersReceipt, readSettings, sourceIdentity } from "./founders-state.mjs";
+import { atomicWrite, githubSourcePath, githubSourceRef, installAgents, localEquivalentSource, mergeFoundersPackages, planAgents, readFoundersReceipt, readSettings, sourceIdentity } from "./founders-state.mjs";
 
 const releaseRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCE_PREFERENCE_IDS = ["skills", "btw"];
@@ -219,18 +219,23 @@ export async function setupFounders(options = {}) {
   const appRoot = path.resolve(options.appRoot ?? env.PITTY_APP_ROOT ?? releaseRoot);
   const agentDir = path.resolve(options.agentDir ?? env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent"));
   const { receipt } = readFoundersReceipt(agentDir);
+  const settingsFile = path.join(agentDir, "settings.json");
+  const original = readSettings(settingsFile);
   const catalog = (options.catalog ?? foundersCatalog()).map((entry) => {
     const previous = SOURCE_PREFERENCE_IDS.includes(entry.id) ? receipt.sourcePreferences?.[entry.id] : undefined;
-    const selected = options.sources?.[entry.id] ?? previous;
+    // An explicit flag wins, then a remembered choice, then a local checkout
+    // already in settings. Without the last, a fork read as "missing".
+    const local = options.sources?.[entry.id] ?? previous ? undefined : localEquivalentSource(original.value, entry, agentDir);
+    const selected = options.sources?.[entry.id] ?? previous ?? local;
     return {
       ...entry, ...(selected ? { source: selected } : {}),
       replaces: [...entry.replaces, entry.source, ...(previous ? [previous] : [])],
       explicitSource: Boolean(options.sources?.[entry.id]) || entry.explicitSource,
+      // Found in settings, not chosen through setup: the user's own checkout.
+      detectedLocal: local !== undefined,
     };
   });
   const log = options.log ?? console.log;
-  const settingsFile = path.join(agentDir, "settings.json");
-  const original = readSettings(settingsFile);
   const plan = mergeFoundersPackages(original.value, catalog, agentDir);
   const readOnly = options.check || options.dryRun;
   const manager = options.packageManager ?? (readOnly
@@ -242,10 +247,14 @@ export async function setupFounders(options = {}) {
   // through Pi even when an older checkout already has the expected files.
   const needsInstall = (entry) => !packageReady(entry, getPath(entry)) ||
     (entry.explicitSource && !entry.configured && /^(git:|https?:\/\/|ssh:\/\/)/.test(entry.source));
+  // A checkout found in settings belongs to the user: setup never builds or
+  // rewrites it. One that lacks required files is reported and skipped.
+  // Sources chosen through setup (`--skills-source` etc.) install as before.
+  const isLocal = (entry) => entry.detectedLocal === true;
   log("Pi agent directory: " + agentDir);
   for (const entry of plan.packages) {
     const ready = !needsInstall(entry);
-    const action = !ready ? "Install" : !entry.configured ? "Configure" : "Present";
+    const action = !ready ? (isLocal(entry) ? "Outdated" : "Install") : !entry.configured ? "Configure" : "Present";
     log(action + ": " + entry.source);
     for (const previous of entry.oldSources.filter((source) => source !== entry.source))
       log("  Replace equivalent package: " + previous);
@@ -271,6 +280,10 @@ export async function setupFounders(options = {}) {
     throw new Error("Founders plugins require Node.js 24 or newer. No settings or agents were changed.");
   for (const entry of plan.packages) {
     if (!needsInstall(entry)) continue;
+    if (isLocal(entry)) {
+      log("Skipped outdated local checkout " + entry.source + ": update it to get the missing files.");
+      continue;
+    }
     assertAutomaticUpdateSafe(entry, getPath(entry));
     await manager.install(entry.source);
     const directory = getPath(entry);

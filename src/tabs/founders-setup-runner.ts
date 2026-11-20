@@ -9,10 +9,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export type FoundersPlanAction = "present" | "install" | "configure";
+export type FoundersPlanAction = "present" | "install" | "configure" | "outdated";
 export type FoundersPlanEntry = { action: FoundersPlanAction; source: string; name: string };
 
-const PLAN_LINE = /^(Present|Install|Configure): (\S+)/;
+const PLAN_LINE = /^(Present|Install|Configure|Outdated): (\S+)/;
 
 /** Short name a reader recognises: `git:github.com/x/pi-subagent` -> `pi-subagent`. */
 export function foundersPackageName(source: string): string {
@@ -29,7 +29,13 @@ export function parseFoundersPlan(output: string): FoundersPlanEntry[] {
 		if (!match) continue;
 		const source = match[2] ?? "";
 		const action: FoundersPlanAction =
-			match[1] === "Present" ? "present" : match[1] === "Install" ? "install" : "configure";
+			match[1] === "Present"
+				? "present"
+				: match[1] === "Install"
+					? "install"
+					: match[1] === "Outdated"
+						? "outdated"
+						: "configure";
 		entries.push({ action, source, name: foundersPackageName(source) });
 	}
 	return entries;

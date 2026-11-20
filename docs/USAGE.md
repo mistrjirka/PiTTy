@@ -149,14 +149,13 @@ pi install git:github.com/mistrjirka/pi-subagent
 # Legacy runtime also supported: pi install npm:pi-subagents
 pi install git:github.com/mistrjirka/pi-one-round-compaction
 # Alternative compaction engine: pi install npm:pi-smart-compact
-pi install npm:@juicesharp/rpiv-todo
 pi install npm:pi-web-access
 pi install npm:pi-diet-semble
 pi install npm:pi-hermes-memory
 # MCP configuration from Settings: pi install npm:pi-mcp-adapter
 ```
 
-`@mistrjirka/pi-subagent` adds profile-driven child-agent and nested-tree inspection, waiting-state visibility, steering, and stop controls. Legacy `pi-subagents` remains supported and additionally exposes its pause/resume controls. `rpiv-todo` gives Pi a todo tool. `pi-hermes-memory` backs the Memory browser with persistent global and project memory. `pi-web-access` adds web search and page-fetch tools, `pi-diet-semble` adds semantic code search, and `pi-one-round-compaction` adds one-round parallel compaction with streamed lane progress. `pi-smart-compact` remains supported as an alternative compaction engine and reports coarse compaction progress in PiTTy's existing surface.
+`@mistrjirka/pi-subagent` adds profile-driven child-agent and nested-tree inspection, waiting-state visibility, steering, and stop controls. Legacy `pi-subagents` remains supported and additionally exposes its pause/resume controls. `pi-hermes-memory` backs the Memory browser with persistent global and project memory. `pi-web-access` adds web search and page-fetch tools, `pi-diet-semble` adds semantic code search, and `pi-one-round-compaction` adds one-round parallel compaction with streamed lane progress. `pi-smart-compact` remains supported as an alternative compaction engine and reports coarse compaction progress in PiTTy's existing surface.
 
 ### MCP servers
 

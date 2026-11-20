@@ -37,10 +37,6 @@ export const FOUNDERS_PACKAGES = [
     replaces: ["git:github.com/mistrjirka/pitty-skills"],
   },
   {
-    id: "todo", source: "npm:@juicesharp/rpiv-todo",
-    names: ["@juicesharp/rpiv-todo"], files: ["index.ts"], replaces: [],
-  },
-  {
     id: "web", source: "npm:pi-web-access",
     names: ["pi-web-access"], files: ["dist"], replaces: [],
   },

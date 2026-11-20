@@ -13,7 +13,7 @@ describe("public installers", () => {
     expect(script).toContain("--without-plugins");
     expect(script).toContain("git:github.com/mistrjirka/pi-subagent");
     expect(script).toContain("git:github.com/mistrjirka/pi-one-round-compaction");
-    expect(script).toContain("npm:@juicesharp/rpiv-todo");
+    expect(script).not.toContain("rpiv-todo");
     expect(script).toContain("npm:pi-web-access");
     expect(script).toContain("npm:pi-diet-semble");
     expect(script).toContain("npm:pi-hermes-memory");
@@ -34,7 +34,7 @@ describe("public installers", () => {
     expect(script).toContain("[switch]$WithoutPlugins");
     expect(script).toContain("git:github.com/mistrjirka/pi-subagent");
     expect(script).toContain("git:github.com/mistrjirka/pi-one-round-compaction");
-    expect(script).toContain("npm:@juicesharp/rpiv-todo");
+    expect(script).not.toContain("rpiv-todo");
     expect(script).toContain("npm:pi-web-access");
     expect(script).toContain("npm:pi-diet-semble");
     expect(script).toContain("npm:pi-hermes-memory");

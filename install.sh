@@ -220,7 +220,6 @@ if [ "$PLUGIN_MODE" = "ask" ] || [ "$PLUGIN_MODE" = "yes" ]; then
   PI_LIST="$(pi list 2>/dev/null || true)"
   MISSING_PLUGINS=""
   printf '%s\n' "$PI_LIST" | grep -F "github.com/mistrjirka/pi-subagent" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS @mistrjirka/pi-subagent"
-  printf '%s\n' "$PI_LIST" | grep -F "@juicesharp/rpiv-todo" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS @juicesharp/rpiv-todo"
   printf '%s\n' "$PI_LIST" | grep -F "pi-web-access" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-web-access"
   printf '%s\n' "$PI_LIST" | grep -F "pi-diet-semble" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-diet-semble"
   printf '%s\n' "$PI_LIST" | grep -F "pi-hermes-memory" >/dev/null 2>&1 || MISSING_PLUGINS="$MISSING_PLUGINS pi-hermes-memory"
@@ -267,7 +266,6 @@ if [ "$PLUGIN_MODE" = "yes" ]; then
   else
     install_plugin "git:github.com/mistrjirka/pi-subagent" "github.com/mistrjirka/pi-subagent"
   fi
-  install_plugin "npm:@juicesharp/rpiv-todo" "@juicesharp/rpiv-todo"
   install_plugin "npm:pi-web-access" "pi-web-access"
   install_plugin "npm:pi-diet-semble" "pi-diet-semble"
   install_plugin "npm:pi-hermes-memory" "pi-hermes-memory"

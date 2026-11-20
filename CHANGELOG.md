@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1
+
+- Remove `rpiv-todo` from the recommended plugins, founder setup and both installers. Setup never uninstalls it.
+- Count a plugin installed from a local checkout as installed when its package name matches. Setup no longer adds the maintained copy beside it.
+- Report a local checkout that lacks required files as outdated and skip it. Setup never builds or rewrites a checkout found in settings.
+- Recommended plugins: say `configure` instead of `enable`, show `update checkout` for an outdated local checkout, and list outdated checkouts in the summary.
+- Register render-test cleanup in every test file, so file order cannot leak live renderers between files.
+
 ## 1.1.0
 
 ### Diffs and speed

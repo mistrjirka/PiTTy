@@ -60,7 +60,7 @@ irm https://raw.githubusercontent.com/mistrjirka/PiTTy/main/install.ps1 -OutFile
 
 Requirements: Node.js 22.19 or newer, npm, and the Pi CLI. The installer downloads a versioned release, verifies its SHA-256 against the release `SHA256SUMS`, installs PiTTy's local Bun runtime, and creates the `pitty` and `pitty-resume` launchers.
 
-The installer can also install the recommended Pi packages (subagent, one-round compaction, Todo, web access, semantic code search, persistent memory) with `--with-plugins` / `-WithPlugins`. Uninstalling PiTTy leaves Pi and those packages alone.
+The installer can also install the recommended Pi packages (subagent, one-round compaction, web access, semantic code search, persistent memory) with `--with-plugins` / `-WithPlugins`. Uninstalling PiTTy leaves Pi and those packages alone.
 
 <details>
 <summary><strong>Installer flags, upgrades, and running from source</strong></summary>
@@ -119,7 +119,6 @@ PiTTy works without extra packages. These add specialized panels when installed:
 | --- | --- |
 | `git:github.com/mistrjirka/pi-subagent` | Profile-driven child-agent tree, live inspection, waiting-state visibility, steer/stop |
 | `git:github.com/mistrjirka/pi-one-round-compaction` | One-round parallel compaction with streamed lane progress |
-| `npm:@juicesharp/rpiv-todo` | Todo tool for Pi |
 | `npm:pi-web-access` | Web search and page-fetch tools for Pi |
 | `npm:pi-diet-semble` | Semantic code search for Pi |
 | `npm:pi-bg-bash` | Background jobs: status, original command, 64-KiB output pages, and optional analysis |
@@ -129,7 +128,7 @@ PiTTy works without extra packages. These add specialized panels when installed:
 | `npm:pi-smart-compact` | Smart Compact progress on the compaction surface (alternative compaction engine) |
 
 ```bash
-pi install git:github.com/mistrjirka/pi-subagent git:github.com/mistrjirka/pi-one-round-compaction npm:@juicesharp/rpiv-todo npm:pi-web-access npm:pi-diet-semble npm:pi-hermes-memory
+pi install git:github.com/mistrjirka/pi-subagent git:github.com/mistrjirka/pi-one-round-compaction npm:pi-web-access npm:pi-diet-semble npm:pi-hermes-memory
 
 # MCP configuration works with Pi's built-in MCP (0.99+). On older Pi, install the adapter:
 # pi install npm:pi-mcp-adapter

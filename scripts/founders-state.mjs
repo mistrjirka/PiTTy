@@ -43,6 +43,25 @@ export function readSettings(file) {
   return { value, raw };
 }
 
+/**
+ * A package the user installed from a local checkout (a fork, a working copy)
+ * is the same package when its package.json name matches. Returning its
+ * source lets setup treat it as installed and keep it, instead of adding the
+ * maintained Git copy beside it.
+ */
+export function localEquivalentSource(settings, entry, base) {
+  for (const value of settings.packages ?? []) {
+    const source = packageSource(value);
+    const identity = sourceIdentity(source, base);
+    if (!identity?.startsWith("local:")) continue;
+    try {
+      const metadata = JSON.parse(fs.readFileSync(path.join(identity.slice(6), "package.json"), "utf8"));
+      if (entry.names.includes(metadata.name)) return source;
+    } catch { /* not a package checkout */ }
+  }
+  return undefined;
+}
+
 export function mergeFoundersPackages(settings, catalog, base) {
   const packages = [...(settings.packages ?? [])];
   const changes = [];
