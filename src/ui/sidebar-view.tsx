@@ -366,7 +366,9 @@ export function Sidebar(props: {
 			<Show when={speed()?.current}>
 				{(current) => (
 					<SplitRow
-						left={`${Math.round(current().tokensPerSecond)} tok/s`}
+						// Both raw numbers stay visible; only the verdict on the
+						// right uses the combined speed (see model-speed.ts).
+						left={`${Math.round(current().tokensPerSecond)} tok/s · first ${formatLatency(current().ttftMs)}`}
 						leftColor={speedVerdictColor(speed()?.verdict)}
 						right={(() => {
 							const verdict = speed()?.verdict;
@@ -380,7 +382,7 @@ export function Sidebar(props: {
 				{(median) => (
 					<text height={1} fg={colors.subtle} wrapMode="none">
 						{clip(
-							`median ${Math.round(median().medianOutputTokensPerSecond)} tok/s · first ${formatLatency(speed()?.current?.ttftMs ?? median().medianTtftMs)}`,
+							`median ${Math.round(median().medianOutputTokensPerSecond)} tok/s · first ${formatLatency(median().medianTtftMs)}`,
 							SIDEBAR_CONTENT_WIDTH,
 						)}
 					</text>

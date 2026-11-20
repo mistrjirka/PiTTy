@@ -99,19 +99,35 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function toRgb(color: string): [number, number, number] {
+  const hex = /^#([0-9a-f]{6})$/i.exec(color);
+  if (hex) {
+    const value = Number.parseInt(hex[1]!, 16);
+    return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+  }
+  const parts = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(color);
+  return parts ? [Number(parts[1]), Number(parts[2]), Number(parts[3])] : [0, 0, 0];
+}
+
+/** Dim text is a colour mixed toward its background, as terminals draw it. */
+function dimColor(fg: string, bg: string): string {
+  const [fr, fg2, fb] = toRgb(fg);
+  const [br, bg2, bb] = toRgb(bg);
+  const mix = (front: number, back: number) => Math.round(front * 0.6 + back * 0.4);
+  return `rgb(${mix(fr, br)},${mix(fg2, bg2)},${mix(fb, bb)})`;
+}
+
+// Every cell gets an explicit, opaque background. CSS opacity is never used:
+// it would fade the cell's background too and read as a translucent overlay.
 function cellStyle(style: Style): string {
   let fg = style.fg ?? DEFAULT_FG;
-  let bg = style.bg;
-  if (style.inverse) {
-    const swap = bg ?? DEFAULT_BG;
-    bg = fg;
-    fg = swap;
-  }
+  let bg = style.bg ?? DEFAULT_BG;
+  if (style.inverse) [fg, bg] = [bg, fg];
+  if (style.dim) fg = dimColor(fg, bg);
   return [
     `color:${fg}`,
-    bg ? `background:${bg}` : "",
+    `background:${bg}`,
     style.bold ? "font-weight:700" : "",
-    style.dim ? "opacity:.6" : "",
     style.italic ? "font-style:italic" : "",
     style.underline ? "text-decoration:underline" : "",
   ].filter(Boolean).join(";");
@@ -121,12 +137,20 @@ function cellStyle(style: Style): string {
  * One absolutely sized cell per terminal column, so a glyph the font draws
  * wider or narrower than a cell (braille spinners, `⑂`) can never shift the
  * rest of the row out of the grid tmux reported.
+ *
+ * `capture-pane -e` writes a style only where it changes, so the active style
+ * carries over line breaks, and it trims trailing blank cells. Both are
+ * replayed here: the style persists across lines and the trimmed tail is
+ * filled with the current background, exactly as the terminal shows it.
  */
 export function terminalFrameHtml(ansi: string, columns: number, rows: number): string {
   const lines = ansi.replace(/\r/g, "").split("\n").slice(0, rows);
+  while (lines.length < rows) lines.push("");
   const rowsHtml: string[] = [];
+  let style: Style = {};
+  const cell = (column: number, width: number, char: string) =>
+    `<span style="left:${column * CELL_WIDTH}px;width:${width * CELL_WIDTH}px;${cellStyle(style)}">${escapeHtml(char)}</span>`;
   for (const line of lines) {
-    let style: Style = {};
     let column = 0;
     let html = "";
     // CSI sequences: SGR changes the style; anything else is dropped.
@@ -141,10 +165,11 @@ export function terminalFrameHtml(ansi: string, columns: number, rows: number): 
         // tmux leaves no placeholder after a wide glyph, so its width decides
         // how many cells it covers.
         const width = Math.max(1, Math.min(2, Bun.stringWidth(char)));
-        html += `<span style="left:${column * CELL_WIDTH}px;width:${width * CELL_WIDTH}px;${cellStyle(style)}">${escapeHtml(char)}</span>`;
+        html += cell(column, width, char);
         column += width;
       }
     }
+    if (column < columns) html += cell(column, columns - column, " ");
     rowsHtml.push(`<div class="r">${html}</div>`);
   }
   return `<!doctype html><meta charset="utf-8"><style>
