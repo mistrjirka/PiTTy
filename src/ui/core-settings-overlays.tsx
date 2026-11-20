@@ -28,6 +28,7 @@ import {
 } from "./mcp-settings.tsx";
 import { type ModelChoice, ModelSelectorDialog } from "./model-selector.tsx";
 import { ProviderConnections } from "./provider-connections.tsx";
+import { RecommendedPlugins } from "./recommended-plugins.tsx";
 import { SessionRename, SessionSettings } from "./session-settings.tsx";
 import type { SettingsAction } from "./settings-descriptors.ts";
 import {
@@ -132,6 +133,9 @@ export function CoreSettingsOverlays(props: CoreSettingsOverlaysProps) {
 					backend={props.mcpBackend}
 					onEnableBuiltin={props.enableBuiltinMcpInSettings}
 				/>
+			</Show>
+			<Show when={props.settingsRoute() === "plugins"}>
+				<RecommendedPlugins onBack={() => props.setSettingsRoute("root")} />
 			</Show>
 			<Show when={props.settingsRoute() === "providers"}>
 				<ProviderConnections onBack={() => props.setSettingsRoute("root")} onUpdated={props.onProvidersUpdated} />

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Show edit diffs side by side when the transcript is at least 90 columns wide: the old version on the left, the new on the right, each with its own line numbers.
+- Compare model speed as one number that folds the first-token wait into the output rate, measured for a 500-token reply. A fast stream with a slow start now reads slower.
+- Add **Recommended plugins** to Settings (`Ctrl+X`). It shows the founder setup plan (subagents, compaction, memory, PiTTy-BTW, curated skills and agents, tools) and installs it after you press Enter.
+- Render README screenshots against the theme background, and show only the main screen.
+
 ## 1.0.0
 
 ### Quiet transcript

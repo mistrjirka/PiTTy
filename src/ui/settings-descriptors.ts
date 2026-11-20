@@ -51,6 +51,11 @@ export function buildSettingsDescriptors(
 			open: () => (ports.openProviders ? ports.openProviders() : ports.setRoute("providers")),
 		},
 		{
+			id: "plugins", label: "Recommended plugins", summary: () => "Subagents, BTW, skills, tools",
+			disabledReason: () => undefined, busy: () => false, inlineError: () => undefined,
+			open: () => ports.setRoute("plugins"),
+		},
+		{
 			id: "model",
 			label: "Model",
 			summary: () =>

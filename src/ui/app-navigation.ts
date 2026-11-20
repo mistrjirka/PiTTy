@@ -13,6 +13,7 @@ export type SettingsRoute =
 	| "closed"
 	| "root"
 	| "providers"
+	| "plugins"
 	| "model"
 	| "thinking"
 	| "compaction"
