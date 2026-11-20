@@ -19,21 +19,6 @@
 
 ![PiTTy main conversation view with tool cards, thinking, and the sidebar](docs/screenshots/conversation.png)
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/screenshots/settings.png" alt="Settings: one row per setting with its current value"><br><sub><b>Settings</b> (<code>Ctrl+X</code>): every setting on one screen</sub></td>
-    <td width="50%"><img src="docs/screenshots/model-selector.png" alt="Model picker with search and measured speed"><br><sub><b>Model picker</b> (<code>Ctrl+P</code>): search, context size, measured speed</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/subagent-models.png" alt="Subagent models: defaults and per-agent model"><br><sub><b>Subagent models</b>: a default and a per-agent model and thinking level</sub></td>
-    <td><img src="docs/screenshots/mcp-settings.png" alt="MCP servers: scope, config path and servers"><br><sub><b>MCP servers</b>: project or global scope, preview before every write</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/subagent-running.png" alt="A running subagent opened in the main view"><br><sub><b>Subagent view</b>: same layout as the main chat, with steer, pause and stop</sub></td>
-    <td><img src="docs/screenshots/long-diff.png" alt="Wrapped diff viewer"><br><sub><b>Diff viewer</b> for edit and write tools</sub></td>
-  </tr>
-</table>
-
 ## What it is
 
 PiTTy is a separate terminal frontend for the [Pi coding agent](https://github.com/earendil-works/pi). Pi keeps doing the agent work: authentication, providers, models, sessions, tools, skills, and extensions. PiTTy replaces Pi's built-in TUI and talks to Pi over RPC, so the two share the same configuration and session history and can be used side by side.

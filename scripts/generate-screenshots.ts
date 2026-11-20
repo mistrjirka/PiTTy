@@ -7,7 +7,7 @@ import { PROFILED_RUNTIME_ROOT_PREFIX } from "../src/subagents/profiled-paths.ts
 import { CELL_HEIGHT, CELL_WIDTH, chromiumBinary, renderTerminalFramePng } from "./terminal-frame-png.ts";
 
 type ScreenshotState = {
-  name: "conversation" | "model-selector" | "blank-session" | "long-diff" | "tab-strip" | "settings" | "subagent-models" | "mcp-settings";
+  name: "conversation" | "model-selector" | "blank-session" | "long-diff" | "tab-strip";
   expected: string[];
   keys?: string[];
   interaction?: "open-diff";
@@ -28,10 +28,6 @@ const states: ScreenshotState[] = [
   { name: "blank-session", scenario: "empty", expected: ["Ask Pi anything", "ctrl+p model", "ready"] },
   { name: "long-diff", scenario: "long-diff", expected: ["ctrl+p model", "ready"], interaction: "open-diff" },
   { name: "tab-strip", scenario: "rich", expected: ["⑂", "+", "New conversation"] },
-  // Settings opens on the Model row; each Down moves one row.
-  { name: "settings", scenario: "rich", expected: ["Settings", "Subagent models", "MCP servers", "ready"], keys: ["C-x"] },
-  { name: "subagent-models", scenario: "rich", expected: ["Subagent models", "Defaults", "esc ‹ settings", "ready"], keys: ["C-x", "Down", "Down", "Down", "Enter"] },
-  { name: "mcp-settings", scenario: "rich", expected: ["MCP servers", "Scope", "esc ‹ settings", "ready"], keys: ["C-x", ...Array<string>(6).fill("Down"), "Enter"] },
 ];
 
 function runNativeCommand(command: string, args: string[], label: string) {

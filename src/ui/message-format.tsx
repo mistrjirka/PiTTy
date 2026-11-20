@@ -112,8 +112,8 @@ export function toolArgSummary(args: unknown, maxLength = 150): string {
 	const clipped = (value: string) =>
 		value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
 	if (typeof args === "string") return clipped(oneLine(args));
-	if (typeof args === "object" && !Array.isArray(args)) {
-		const record = args as Record<string, unknown>;
+	const record = objectRecordValue(args);
+	if (record) {
 		const text = (key: string) =>
 			typeof record[key] === "string" && record[key].trim()
 				? oneLine(record[key])

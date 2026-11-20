@@ -13,13 +13,17 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { themePresets } from "../src/ui/theme-presets.ts";
 
 // DejaVu Sans Mono at 18px is 10.8px wide and 21px tall, so an 11x21 cell
 // lets box-drawing glyphs join across rows, and it covers `◆`, `⑂` and braille.
 export const CELL_WIDTH = 11;
 export const CELL_HEIGHT = 21;
-const DEFAULT_FG = "#d8dee9";
-const DEFAULT_BG = "#10131a";
+// Cells the app leaves unpainted show the terminal's own colours. Using the
+// default theme's background keeps them the same shade as painted cells;
+// any other value makes raised panels look darker than their surroundings.
+const DEFAULT_FG = themePresets["PiTTy Midnight"].text;
+const DEFAULT_BG = themePresets["PiTTy Midnight"].background;
 const FONT = `"DejaVu Sans Mono", "Noto Sans Mono", monospace`;
 
 type Style = {

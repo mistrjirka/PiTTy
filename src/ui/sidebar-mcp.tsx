@@ -13,44 +13,28 @@ import { mcpSummaryColor, mcpSummaryText } from "./sidebar-layout.ts";
 import { colors } from "./theme.ts";
 
 export type SidebarMcpProps = {
-	mcpStatus?:
-		| McpStatusSnapshot
-		| Accessor<McpStatusSnapshot | undefined>
-		| undefined;
-	mcpCounts?:
-		| McpStatusCounts
-		| Accessor<McpStatusCounts | undefined>
-		| undefined;
-	mcpConfigured?:
-		| McpConfiguredSummary
-		| Accessor<McpConfiguredSummary | undefined>
-		| undefined;
+	mcpStatus?: Accessor<McpStatusSnapshot | undefined> | undefined;
+	mcpCounts?: Accessor<McpStatusCounts | undefined> | undefined;
+	mcpConfigured?: Accessor<McpConfiguredSummary | undefined> | undefined;
 };
 
 /** Live counts win over the fallback counts; both may be absent. */
 export function resolvedMcpCounts(
 	props: SidebarMcpProps,
 ): McpStatusCounts | { enabled: number; connected: number; disabled: number } | undefined {
-	const snapshot =
-		typeof props.mcpStatus === "function" ? props.mcpStatus() : props.mcpStatus;
+	const snapshot = props.mcpStatus?.();
 	if (snapshot)
 		return {
 			enabled: mcpEnabledCount(snapshot),
 			connected: snapshot.connectedCount,
 			disabled: snapshot.disabledCount,
 		};
-	return typeof props.mcpCounts === "function"
-		? props.mcpCounts()
-		: props.mcpCounts;
+	return props.mcpCounts?.();
 }
 
 export function SidebarMcpRow(props: SidebarMcpProps) {
-	const mcpSnapshot = () =>
-		typeof props.mcpStatus === "function" ? props.mcpStatus() : props.mcpStatus;
-	const mcpConfigured = () =>
-		typeof props.mcpConfigured === "function"
-			? props.mcpConfigured()
-			: props.mcpConfigured;
+	const mcpSnapshot = () => props.mcpStatus?.();
+	const mcpConfigured = () => props.mcpConfigured?.();
 	const mcpCounts = () => resolvedMcpCounts(props);
 	const [mcpHover, setMcpHover] = createSignal(false);
 	// The card floats left of the row with a small gap. Moving across that gap

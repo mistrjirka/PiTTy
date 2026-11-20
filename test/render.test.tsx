@@ -2045,7 +2045,9 @@ describe("OpenTUI components", () => {
 			"scroll-owner-diff-diff-preview",
 		) as BoxRenderable | undefined;
 		expect(diffPreview).toBeDefined();
-		expect(diffPreview?.height).toBe(22);
+		// 100 columns shows the diff side by side: 30 alternating -/+ lines
+		// pair into 15 rows, and the preview sizes to those rows.
+		expect(diffPreview?.height).toBe(15);
 		let frame = setup.captureCharFrame();
 		expect(frame).toContain("src/example.ts");
 		expect(frame).toContain("scroll diff · collapse");
@@ -3760,7 +3762,7 @@ describe("OpenTUI components", () => {
 					<Sidebar
 						runs={[]}
 						notifications={[{ id: "anchor", text: "ANCHOR_NOTICE", tone: "info", createdAt: 1, read: false }]}
-						mcpStatus={{
+						mcpStatus={() => ({
 							version: 1,
 							servers: [
 								{
@@ -3779,7 +3781,7 @@ describe("OpenTUI components", () => {
 							totalTools: 6,
 							connectedCount: 2,
 							disabledCount: 0,
-						}}
+						})}
 						height={40}
 					/>
 				</box>

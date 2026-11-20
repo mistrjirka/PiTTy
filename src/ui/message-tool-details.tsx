@@ -24,6 +24,8 @@ import {
 	resolvedBoolean,
 	toolOutputExpandable,
 } from "./message-format.tsx";
+import { useTerminalDimensions } from "@opentui/solid";
+import { SPLIT_DIFF_MIN_WIDTH, SplitDiffView, splitDiffRows } from "./diff-split.tsx";
 import { colors } from "./theme.ts";
 
 export function ToolDetails(props: {
@@ -50,8 +52,21 @@ export function ToolDetails(props: {
 	const expandedDiffLines = createMemo(() =>
 		diffExpanded() ? diffLines(diff()) : [],
 	);
-	const expandedDiffRows = () =>
-		diffExpanded() ? Math.max(6, Math.min(22, expandedDiffLines().length)) : 6;
+	const terminalDimensions = useTerminalDimensions();
+	// Same transcript width estimate as the thinking preview: wide terminals
+	// reserve the 38-column sidebar plus padding.
+	const splitDiff = () => {
+		const width = terminalDimensions().width;
+		return width - (width >= 104 ? 38 : 0) - 6 >= SPLIT_DIFF_MIN_WIDTH;
+	};
+	const splitRows = createMemo(() =>
+		diffExpanded() && splitDiff() ? splitDiffRows(expandedDiffLines()) : [],
+	);
+	const expandedDiffRows = () => {
+		if (!diffExpanded()) return 6;
+		const count = splitDiff() ? splitRows().length : expandedDiffLines().length;
+		return Math.max(6, Math.min(22, count));
+	};
 	const [scrollOwner, setScrollOwner] = createSignal<
 		"transcript" | "output" | "diff"
 	>("transcript");
@@ -377,18 +392,22 @@ export function ToolDetails(props: {
 								scrollTranscriptFromPreview(diffPreviewBox, event)
 							}
 						>
-							<For each={expandedDiffLines()}>
-								{(line) => (
-									<text
-										fg={diffLineColor(line)}
-										selectable
-										wrapMode="char"
-										flexShrink={0}
-									>
-										{line || " "}
-									</text>
-								)}
-							</For>
+							<Show when={splitDiff()} fallback={
+								<For each={expandedDiffLines()}>
+									{(line) => (
+										<text
+											fg={diffLineColor(line)}
+											selectable
+											wrapMode="char"
+											flexShrink={0}
+										>
+											{line || " "}
+										</text>
+									)}
+								</For>
+							}>
+								<SplitDiffView rows={splitRows()} />
+							</Show>
 						</box>
 						<scrollbox
 							id={`${props.item.id}-diff-scroll`}
@@ -409,13 +428,17 @@ export function ToolDetails(props: {
 							}}
 							verticalScrollbarOptions={{ showArrows: false }}
 						>
-							<For each={expandedDiffLines()}>
-								{(line) => (
-									<text fg={diffLineColor(line)} selectable wrapMode="char">
-										{line || " "}
-									</text>
-								)}
-							</For>
+							<Show when={splitDiff()} fallback={
+								<For each={expandedDiffLines()}>
+									{(line) => (
+										<text fg={diffLineColor(line)} selectable wrapMode="char">
+											{line || " "}
+										</text>
+									)}
+								</For>
+							}>
+								<SplitDiffView rows={splitRows()} />
+							</Show>
 						</scrollbox>
 					</box>
 				</box>

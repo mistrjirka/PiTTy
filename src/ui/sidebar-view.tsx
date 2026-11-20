@@ -66,18 +66,9 @@ export function Sidebar(props: {
 	onSelectRun?: ((runId: string) => void) | undefined;
 	onInspectRun?: ((runId: string) => void) | undefined;
 	subagentsAvailable?: boolean | undefined;
-	mcpStatus?:
-		| McpStatusSnapshot
-		| Accessor<McpStatusSnapshot | undefined>
-		| undefined;
-	mcpCounts?:
-		| McpStatusCounts
-		| Accessor<McpStatusCounts | undefined>
-		| undefined;
-	mcpConfigured?:
-		| McpConfiguredSummary
-		| Accessor<McpConfiguredSummary | undefined>
-		| undefined;
+	mcpStatus?: Accessor<McpStatusSnapshot | undefined> | undefined;
+	mcpCounts?: Accessor<McpStatusCounts | undefined> | undefined;
+	mcpConfigured?: Accessor<McpConfiguredSummary | undefined> | undefined;
 	backgroundTasks?: BackgroundTask[] | Accessor<BackgroundTask[]>;
 	onOpenBackgroundTask?: (id: string) => void;
 	notifications?:
@@ -101,10 +92,7 @@ export function Sidebar(props: {
 			? props.notifications()
 			: (props.notifications ?? []);
 	const mcpCounts = () => resolvedMcpCounts(props);
-	const mcpConfigured = () =>
-		typeof props.mcpConfigured === "function"
-			? props.mcpConfigured()
-			: props.mcpConfigured;
+	const mcpConfigured = () => props.mcpConfigured?.();
 	const mcpRows = () => (mcpCounts() || mcpConfigured() ? 1 : 0);
 	const context = () => props.stats?.contextUsage;
 	const contextWindow = () =>

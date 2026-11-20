@@ -11,8 +11,9 @@ import {
 	speedVerdictText,
 } from "../src/ui/model-speed.ts";
 import { contextMeterCells } from "../src/ui/sidebar-layout.ts";
+import { splitDiffRows } from "../src/ui/diff-split.tsx";
 import { subagentElapsedMs } from "../src/ui/subagent-format.ts";
-import type { SubagentTarget } from "../src/subagents/targets.ts";
+import { type SubagentTarget, subagentTargets } from "../src/subagents/targets.ts";
 import { tabStatusGlyph } from "../src/ui/tab-strip.tsx";
 import type { ConversationItem } from "../src/types.ts";
 
@@ -62,9 +63,12 @@ describe("quiet transcript rows", () => {
 	});
 
 	test("stacks consecutive tool rows and separates the last one from prose", () => {
-		const item = (id: string, kind: "tool" | "assistant") =>
-			({ id, kind }) as ConversationItem;
-		const items = [item("a", "tool"), item("b", "tool"), item("c", "assistant")];
+		const tool = (id: string): ConversationItem => ({
+			kind: "tool", id, toolCallId: id, name: "read", args: {}, output: "",
+			timestamp: 1, status: "done", isError: false,
+		});
+		const prose: ConversationItem = { kind: "assistant", id: "c", text: "done", thinking: "", timestamp: 1, status: "done" };
+		const items = [tool("a"), tool("b"), prose];
 		expect(nextItemIsTool(items, "a")).toBe(true);
 		expect(nextItemIsTool(items, "b")).toBe(false);
 		expect(nextItemIsTool(items, "missing")).toBe(false);
@@ -90,13 +94,20 @@ describe("tab status and context meter", () => {
 });
 
 describe("subagent elapsed time", () => {
-	const target = (active: boolean, endedAt?: number) =>
-		({ startedAt: 1_000, active, run: { endedAt }, step: undefined }) as unknown as SubagentTarget;
+	const target = (state: string, endedAt?: number): SubagentTarget => {
+		const run: SubagentRun = {
+			runId: `elapsed-${state}`, mode: "single", state, agent: "worker", steps: [],
+			startedAt: 1_000, ...(endedAt === undefined ? {} : { endedAt }),
+		};
+		const [first] = subagentTargets([run]);
+		if (!first) throw new Error("no target");
+		return first;
+	};
 	test("a running child counts to now; a finished child stops at its end or shows none", () => {
-		expect(subagentElapsedMs(target(true), 5_000)).toBe(4_000);
-		expect(subagentElapsedMs(target(false, 3_000), 9_000)).toBe(2_000);
+		expect(subagentElapsedMs(target("running"), 5_000)).toBe(4_000);
+		expect(subagentElapsedMs(target("completed", 3_000), 9_000)).toBe(2_000);
 		// No recorded end: the duration is unknown, never `now - start`.
-		expect(subagentElapsedMs(target(false), 9_000)).toBeUndefined();
+		expect(subagentElapsedMs(target("completed"), 9_000)).toBeUndefined();
 	});
 });
 
@@ -110,10 +121,33 @@ describe("compaction in a child transcript", () => {
 			entry({ type: "compaction", id: "c", timestamp: "2026-01-01T00:00:00.000Z", summary: "s", tokensBefore: 120_000 }),
 			entry({ type: "message", id: "b", message: { role: "user", content: "after", timestamp: 3 } }),
 		].join("\n") + "\n");
-		const run = { runId: "r", mode: "single", state: "completed", agent: "x", steps: [], sessionFile } as SubagentRun;
+		const run: SubagentRun = { runId: "r", mode: "single", state: "completed", agent: "x", steps: [], sessionFile };
 		const rows = readSubagentConversation(run).map((item) =>
 			item.kind === "system" ? item.text : item.kind === "user" ? item.text : item.kind,
 		);
 		expect(rows).toEqual(["before", "Context compacted · 120K tokens summarized", "after"]);
+	});
+});
+
+describe("side-by-side diff rows", () => {
+	test("pairs a removed run with its added run and keeps line numbers per side", () => {
+		const rows = splitDiffRows([
+			"--- a/x.ts",
+			"+++ b/x.ts",
+			"@@ -10,4 +10,4 @@",
+			" keep",
+			"-old one",
+			"-old two",
+			"+new one",
+			" tail",
+		]);
+		expect(rows).toEqual([
+			{ kind: "hunk", text: "@@ -10,4 +10,4 @@" },
+			{ kind: "context", left: { line: 10, text: "keep" }, right: { line: 10, text: "keep" } },
+			{ kind: "change", left: { line: 11, text: "old one" }, right: { line: 11, text: "new one" } },
+			// The shorter run leaves its side empty instead of shifting later rows.
+			{ kind: "change", left: { line: 12, text: "old two" } },
+			{ kind: "context", left: { line: 13, text: "tail" }, right: { line: 12, text: "tail" } },
+		]);
 	});
 });
