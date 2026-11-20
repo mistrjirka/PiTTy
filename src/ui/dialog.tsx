@@ -1,6 +1,7 @@
 import type { TextareaRenderable } from "@opentui/core";
 import { Show, createMemo } from "solid-js";
 import type { RpcExtensionUIRequest } from "../types.ts";
+import { DialogFrame } from "./dialog-frame.tsx";
 import { colors } from "./theme.ts";
 
 export function ExtensionDialog(props: {
@@ -33,30 +34,11 @@ export function ExtensionDialog(props: {
 				event.stopPropagation();
 			}}
 		>
-			<box
-				position="absolute"
-				left="15%"
-				right="15%"
-				top="20%"
-				maxHeight="60%"
-				flexDirection="column"
-				backgroundColor={colors.panelRaised}
-				border
-				borderColor={colors.borderStrong}
-				padding={1}
-				zIndex={100}
-				onMouseDown={(event) => {
-					event.stopPropagation();
-				}}
-			>
-				<text fg={colors.textBright} attributes={1}>
-					{title()}
-				</text>
+			<DialogFrame title={title()} zIndex={100} onClose={props.onCancel}>
 				<Show when={props.request.method === "confirm"}>
 					<text fg={colors.text} wrapMode="word">
 						{props.request.method === "confirm" ? props.request.message : ""}
 					</text>
-					<text fg={colors.muted}>Enter confirm · Esc cancel · ←/→ choose</text>
 				</Show>
 				<Show when={props.request.method === "select"}>
 					<select
@@ -106,11 +88,11 @@ export function ExtensionDialog(props: {
 				</Show>
 				<Show when={props.request.method === "confirm"}>
 					<box flexDirection="row" gap={2} marginTop={1}>
-						<text fg={colors.green}>[Enter] Confirm</text>
-						<text fg={colors.red}>[Esc] Cancel</text>
+						<text fg={colors.green}>enter confirm</text>
+						<text fg={colors.subtle}>esc cancel</text>
 					</box>
 				</Show>
-			</box>
+			</DialogFrame>
 		</box>
 	);
 }

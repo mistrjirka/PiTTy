@@ -60,7 +60,7 @@ export function ExtensionSettingsOverlays(
 			<Show when={props.settingsRoute() === "compaction"}>
 				<ExtensionSettingsList
 					title="Compaction settings"
-					hint="Model and thinking level used by pi-one-round-compaction. Esc back."
+					backLabel="esc ‹ settings"
 					rows={props.compactionSettingsRows()}
 					selectedId={props.detailSettingSelectedId()}
 					busy={props.settingsBusy() === "compaction"}
@@ -86,6 +86,7 @@ export function ExtensionSettingsOverlays(
 					timingHistory={props.requestTimingHistory}
 					context={props.compactionModelContext()}
 					onSelect={(model) => void props.applyCompactionModel(model)}
+					backLabel="esc ‹ compaction"
 					onCancel={() => props.setSettingsRoute("compaction")}
 				/>
 			</Show>
@@ -99,13 +100,14 @@ export function ExtensionSettingsOverlays(
 						? { error: props.settingsErrors().compaction }
 						: {})}
 					onSelect={(level) => void props.applyCompactionThinking(level)}
+					backLabel="esc ‹ compaction"
 					onCancel={() => props.setSettingsRoute("compaction")}
 				/>
 			</Show>
 			<Show when={props.settingsRoute() === "subagents"}>
 				<ExtensionSettingsList
 					title="Subagent models"
-					hint="Each @mistrjirka/pi-subagent profile. Enter opens model and thinking. Esc back."
+					backLabel="esc ‹ settings"
 					rows={props.subagentListRows()}
 					selectedId={props.selectedSubagentModelId()}
 					busy={props.settingsBusy() === "subagents"}
@@ -126,7 +128,7 @@ export function ExtensionSettingsOverlays(
 			<Show when={props.settingsRoute() === "subagent"}>
 				<ExtensionSettingsList
 					title={`Subagent: ${props.selectedSubagentModelId() === "defaults" ? "Defaults" : props.selectedSubagentModelId()}`}
-					hint="Model and thinking level. Esc back to the profile list."
+					backLabel="esc ‹ agents"
 					rows={props.subagentSettingsRows()}
 					selectedId={props.detailSettingSelectedId()}
 					busy={props.settingsBusy() === "subagents"}
@@ -149,6 +151,7 @@ export function ExtensionSettingsOverlays(
 					timingHistory={props.requestTimingHistory}
 					context={props.subagentModelContext()}
 					onSelect={(model) => void props.applySubagentModel(model)}
+					backLabel="esc ‹ agent"
 					onCancel={() => props.setSettingsRoute("subagent")}
 				/>
 			</Show>
@@ -162,6 +165,7 @@ export function ExtensionSettingsOverlays(
 						? { error: props.settingsErrors().subagents }
 						: {})}
 					onSelect={(level) => void props.applySubagentThinking(level)}
+					backLabel="esc ‹ agent"
 					onCancel={() => props.setSettingsRoute("subagent")}
 				/>
 			</Show>

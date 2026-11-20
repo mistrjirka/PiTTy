@@ -6,7 +6,6 @@ import type {
 	SubagentTarget,
 } from "../subagents/targets.ts";
 import type { ConversationItem, SubagentRun } from "../types.ts";
-import { formatDuration } from "./duration.ts";
 import { cleanTerminalText, MessageView } from "./message.tsx";
 import type { SubagentInspectorProps } from "./subagent-inspector-types.ts";
 import { colors } from "./theme.ts";
@@ -14,8 +13,6 @@ export interface InspectorTranscriptPaneProps {
 	props: SubagentInspectorProps;
 	target: Accessor<SubagentTarget>;
 	run: Accessor<SubagentRun>;
-	currentTool: () => string | undefined;
-	toolElapsed: () => number | undefined;
 	itemNow: (item: ConversationItem) => number | undefined;
 	ownedChildren: Accessor<OwnedSubagentTargets>;
 }
@@ -23,11 +20,12 @@ export function InspectorTranscriptPane({
 	props,
 	target,
 	run,
-	currentTool,
-	toolElapsed,
 	itemNow,
 	ownedChildren,
 }: InspectorTranscriptPaneProps) {
+	// The child's first user message is the task its parent gave it; later
+	// ones are steers. "you" would misattribute the task.
+	const firstUserId = () => props.items.find((item) => item.kind === "user")?.id;
 	return (
 		<scrollbox
 			id="subagent-inspector-transcript"
@@ -47,31 +45,34 @@ export function InspectorTranscriptPane({
 			verticalScrollbarOptions={{ showArrows: false }}
 		>
 			<Show when={props.items.length === 0}>
-				<text fg={colors.muted}>
-					No transcript has been written for this subagent yet.
+				<text fg={colors.subtle} wrapMode="none">
+					{[
+						"No transcript yet",
+						run().toolCount !== undefined ? `${run().toolCount} tools` : "",
+						run().turnCount !== undefined ? `${run().turnCount} turns` : "",
+					]
+						.filter(Boolean)
+						.join(" · ")}
 				</text>
-				<Show when={props.target?.active}>
-					<text fg={colors.cyan} wrapMode="none">
-						{cleanTerminalText(
-							`⚙${currentTool() ?? "working"}${toolElapsed() !== undefined ? ` ${formatDuration(toolElapsed())}` : ""}`,
-						)}
-						{run().toolCount !== undefined ? ` · ${run().toolCount} tools` : ""}
-						{run().turnCount !== undefined ? ` · ${run().turnCount} turns` : ""}
-					</text>
-				</Show>
 			</Show>
 			<For each={props.items}>
-				{(item) => (
+				{(item, index) => (
 					<MessageView
 						item={item}
 						showThinking
+						userLabel={
+							item.kind === "user" && item.id === firstUserId() ? "task" : "steer"
+						}
+						compactBelow={
+							item.kind === "tool" && props.items[index() + 1]?.kind === "tool"
+						}
 						subagentTargets={
 							item.kind === "tool"
 								? (ownedChildren().get(item.id) ?? [])
 								: undefined
 						}
 						onInspectSubagentTarget={props.onInspectSubagentTarget}
-						thinkingExpanded={() => props.thinkingExpanded?.(item.id) ?? true}
+						thinkingExpanded={() => props.thinkingExpanded?.(item.id) ?? false}
 						onToggleThinking={() => props.onToggleThinking?.(item.id)}
 						toolExpanded={
 							item.kind === "tool"
@@ -105,6 +106,8 @@ export interface InspectorSteerPanelProps {
 	setSteerEditor: (value: TextareaRenderable) => void;
 	getSteerEditor: () => TextareaRenderable | undefined;
 	sendSteer: () => void;
+	/** Pause/stop shortcuts for this agent, right-aligned in the prompt box. */
+	controlKeys: () => string;
 }
 export function InspectorSteerPanel({
 	props,
@@ -112,55 +115,55 @@ export function InspectorSteerPanel({
 	setSteerEditor,
 	getSteerEditor,
 	sendSteer,
+	controlKeys,
 }: InspectorSteerPanelProps) {
+	const name = () => cleanTerminalText(target().label);
 	return (
 		<>
 			<Show when={props.pendingSteers && props.pendingSteers.length > 0}>
-				<box
-					flexShrink={0}
-					flexDirection="column"
-					paddingLeft={1}
-					paddingRight={1}
-					paddingTop={1}
-				>
+				<box flexShrink={0} flexDirection="column" paddingLeft={1} paddingRight={1}>
 					<For each={props.pendingSteers}>
 						{(entry) => {
 							const age = () => props.now - entry.submittedAt;
 							return (
 								<text fg={colors.yellow} wrapMode="word">
-									{age() >= 120_000
-										? "Waiting (over 120s)"
-										: "Queued for delivery"}{" "}
-									· {entry.text} · Waiting for pi-subagents to pick this up
+									{age() >= 120_000 ? "◷ still queued  " : "◷ queued  "}
+									{entry.text}
 								</text>
 							);
 						}}
 					</For>
 				</box>
 			</Show>
+			{/* Same shape as the main prompt box, so steering reads as typing to
+			    this agent. A read-only agent keeps the box, dimmed, instead of
+			    swapping in a sentence about why steering is hidden. */}
 			<Show when={target().canSteer}>
 				<box
 					flexShrink={0}
-					border={["top"]}
+					flexDirection="row"
+					border
+					borderStyle="rounded"
 					borderColor={colors.purple}
-					backgroundColor={colors.panel}
 					paddingLeft={1}
 					paddingRight={1}
-					paddingTop={1}
-					paddingBottom={1}
-					minHeight={4}
+					minHeight={3}
 					maxHeight={9}
 				>
+					<text fg={colors.purple} wrapMode="none" flexShrink={0}>
+						{"› "}
+					</text>
 					<textarea
 						id="subagent-inspector-steer"
+						flexGrow={1}
 						ref={(value) => {
 							setSteerEditor(value);
 						}}
 						focused
-						placeholder={`Steer ${cleanTerminalText(target().label)}…`}
+						placeholder={`Steer ${name()}…`}
 						wrapMode="word"
-						backgroundColor={colors.panel}
-						focusedBackgroundColor={colors.panel}
+						backgroundColor={colors.background}
+						focusedBackgroundColor={colors.background}
 						textColor={colors.textBright}
 						focusedTextColor={colors.textBright}
 						placeholderColor={colors.muted}
@@ -177,13 +180,18 @@ export function InspectorSteerPanel({
 							{ name: "kpenter", shift: true, action: "newline" },
 							{ name: "linefeed", shift: true, action: "newline" },
 						]}
-						minHeight={2}
+						minHeight={1}
 						maxHeight={7}
 						onContentChange={() =>
 							props.onDraftChange?.(getSteerEditor()?.plainText ?? "")
 						}
 						onSubmit={sendSteer}
 					/>
+					<Show when={controlKeys()}>
+						<text fg={colors.subtle} wrapMode="none" flexShrink={0}>
+							{`  ${controlKeys()}`}
+						</text>
+					</Show>
 				</box>
 			</Show>
 			<Show when={!target().canSteer}>
@@ -191,15 +199,25 @@ export function InspectorSteerPanel({
 					height={3}
 					minHeight={3}
 					flexShrink={0}
-					border={["top"]}
-					borderColor={colors.borderStrong}
-					paddingTop={1}
+					flexDirection="row"
+					border
+					borderStyle="rounded"
+					borderColor={colors.border}
 					paddingLeft={1}
+					paddingRight={1}
 				>
-					<text fg={colors.subtle} wrapMode="none">
-						Steering input hidden: this child is finished or has no live
-						steerable Pi session.
+					<text fg={colors.border} wrapMode="none" flexShrink={0}>
+						{"› "}
 					</text>
+					<text fg={colors.subtle} wrapMode="none" flexShrink={1}>
+						{`${name()} · ${target().active ? "no live session" : "finished"} · read only`}
+					</text>
+					<box flexGrow={1} />
+					<Show when={controlKeys()}>
+						<text fg={colors.subtle} wrapMode="none" flexShrink={0}>
+							{controlKeys()}
+						</text>
+					</Show>
 				</box>
 			</Show>
 		</>

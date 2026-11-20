@@ -3,7 +3,6 @@ import {
 	nestedDescendantSummary,
 	summarizeSubagentArgs,
 	taskGist,
-	terminalBadge,
 	workflowChildrenSummary,
 } from "../src/ui/subagent-format.ts";
 
@@ -19,13 +18,6 @@ describe("subagent formatting", () => {
 		expect(taskGist({ prompt: "  inspect\n   the   API  " })).toBe("inspect the API");
 		expect(taskGist({ task: "x".repeat(100) })).toBe(`${"x".repeat(89)}…`);
 		expect(taskGist({})).toBeUndefined();
-	});
-
-	test("formats terminal outcomes", () => {
-		expect(terminalBadge("completed", false, "took 2s")).toBe("✓ completed · took 2s");
-		expect(terminalBadge("done", false, "")).toBe("✓ completed");
-		expect(terminalBadge("failed", true, "took 1s")).toBe("✗ failed");
-		expect(terminalBadge("streaming", false, "1s")).toBeUndefined();
 	});
 
 	test("counts recognized workflow result shapes and fails closed", () => {

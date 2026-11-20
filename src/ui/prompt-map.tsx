@@ -1,5 +1,6 @@
 import type { SelectRenderable } from "@opentui/core";
 import { createMemo } from "solid-js";
+import { DialogFrame } from "./dialog-frame.tsx";
 import { colors } from "./theme.ts";
 
 export type PromptMapEntry = {
@@ -30,33 +31,7 @@ export function PromptMapDialog(props: {
   })));
 
   return (
-    <box
-      position="absolute"
-      left="8%"
-      right="8%"
-      top="7%"
-      maxHeight="86%"
-      flexDirection="column"
-      backgroundColor={colors.panelRaised}
-      border
-      borderColor={colors.borderStrong}
-      padding={1}
-      zIndex={150}
-    >
-      <box flexDirection="row">
-        <text fg={colors.textBright} attributes={1}>Your requests</text>
-        <text fg={colors.subtle}>  {props.entries.length}</text>
-        <box flexGrow={1} />
-        <text
-          fg={colors.muted}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onCancel();
-          }}
-        >× Close</text>
-      </box>
-      <text fg={colors.subtle}>↑/↓ move · Enter jump · Esc close</text>
+    <DialogFrame title="Your requests" summary={String(props.entries.length)} hint="↑/↓ move · enter jump" width="wide" onClose={props.onCancel}>
       <select
         ref={(value) => { select = value; }}
         options={options()}
@@ -78,6 +53,6 @@ export function PromptMapDialog(props: {
           if (entry) props.onSelect(entry);
         }}
       />
-    </box>
+    </DialogFrame>
   );
 }

@@ -10,6 +10,7 @@ import {
 	type MemoryEntry,
 	type MemorySnapshot,
 } from "../integrations/memory-store.ts";
+import { DialogFrame } from "./dialog-frame.tsx";
 import { colors } from "./theme.ts";
 import {
 	createSearchableDialogFocus,
@@ -110,36 +111,7 @@ export function MemoryBrowserDialog(props: MemoryBrowserProps) {
 	});
 
 	return (
-		<box
-			position="absolute"
-			left="10%"
-			right="10%"
-			top="8%"
-			bottom={5}
-			flexDirection="column"
-			backgroundColor={colors.panelRaised}
-			border
-			borderColor={colors.borderStrong}
-			padding={1}
-			zIndex={150}
-		>
-			<box flexDirection="row">
-				<text fg={colors.textBright} attributes={1}>
-					Memory
-				</text>
-				<text fg={colors.subtle}> {props.snapshot.entries.length}</text>
-				<box flexGrow={1} />
-				<text
-					fg={colors.muted}
-					onMouseDown={(event) => {
-						event.preventDefault();
-						event.stopPropagation();
-						props.onCancel();
-					}}
-				>
-					× Close
-				</text>
-			</box>
+		<DialogFrame title="Memory" summary={String(props.snapshot.entries.length)} height="tall" onClose={props.onCancel}>
 			<Show when={pending()}>
 				{(entry) => (
 					<box flexDirection="column">
@@ -149,7 +121,7 @@ export function MemoryBrowserDialog(props: MemoryBrowserProps) {
 						<text fg={colors.text} wrapMode="word">
 							{entry().text}
 						</text>
-						<text fg={colors.subtle}>Enter/Y confirm · N/Esc cancel</text>
+						<text fg={colors.subtle}>enter/y confirm · n cancel</text>
 					</box>
 				)}
 			</Show>
@@ -174,7 +146,7 @@ export function MemoryBrowserDialog(props: MemoryBrowserProps) {
 					}}
 				/>
 				<text fg={colors.subtle}>
-					Tab list · ↑/↓ move · d delete · Esc close
+					tab list · ↑/↓ move · d delete
 				</text>
 				<Show
 					when={entries().length === 0}
@@ -211,6 +183,6 @@ export function MemoryBrowserDialog(props: MemoryBrowserProps) {
 					</text>
 				</Show>
 			</Show>
-		</box>
+		</DialogFrame>
 	);
 }

@@ -11,7 +11,27 @@ export type TabStripProps = {
 	onCreate: () => void;
 	onOpenForkPicker: () => void;
 	maxTabs?: number;
+	/** True while that tab's session is streaming, so background work stays visible. */
+	isWorking?: ((id: string) => boolean) | undefined;
+	/** Current spinner frame for working tabs. */
+	spinner?: string | undefined;
 };
+
+/**
+ * Status glyph before a tab title: working beats unseen output. A finished
+ * background session with unseen activity shows ✓ (or ✗ after an error)
+ * instead of a bare counter.
+ */
+export function tabStatusGlyph(
+	tab: Pick<ConversationTab, "badges" | "badgeKind">,
+	working: boolean,
+	spinner: string,
+): { glyph: string; color: string } | undefined {
+	if (working) return { glyph: spinner, color: colors.accent };
+	if (tab.badges <= 0) return undefined;
+	if (tab.badgeKind === "error") return { glyph: "✗", color: colors.red };
+	return { glyph: "✓", color: colors.green };
+}
 
 export function TabStrip(props: TabStripProps) {
 	return (
@@ -53,18 +73,28 @@ export function TabStrip(props: TabStripProps) {
 										props.onActivate(tab.id);
 									}}
 								>
+									<Show
+										when={tabStatusGlyph(
+											tab,
+											props.isWorking?.(tab.id) === true,
+											props.spinner ?? "◉",
+										)}
+									>
+										{(status) => (
+											<text fg={status().color} wrapMode="none">
+												{`${status().glyph} `}
+											</text>
+										)}
+									</Show>
 									<text
 										fg={
 											tab.id === props.activeId
 												? colors.textBright
 												: colors.muted
 										}
-										attributes={tab.id === props.activeId ? 1 : 0}
 										wrapMode="none"
 									>
-										{tab.id === props.activeId ? "▸ " : "  "}
 										{resolveTabTitle(tab)}
-										{tab.badges > 0 ? ` •${tab.badges}` : ""}
 									</text>
 									<Show when={props.tabs.length > 1}>
 										<text

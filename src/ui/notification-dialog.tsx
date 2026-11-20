@@ -1,6 +1,7 @@
 import type { MarkdownRenderable } from "@opentui/core";
 import { Show, type Accessor } from "solid-js";
 import type { NotificationRecord } from "../types.ts";
+import { DialogFrame } from "./dialog-frame.tsx";
 import { colors, getMarkdownStyle } from "./theme.ts";
 
 export type NotificationDialogProps = {
@@ -26,41 +27,7 @@ export function NotificationDialog(props: NotificationDialogProps) {
 				event.stopPropagation();
 			}}
 		>
-			<box
-				position="absolute"
-				left="8%"
-				right="8%"
-				top="7%"
-				maxHeight="86%"
-				flexDirection="column"
-				backgroundColor={colors.panelRaised}
-				border
-				borderColor={colors.borderStrong}
-				padding={1}
-				zIndex={160}
-				onMouseDown={(event) => {
-					event.stopPropagation();
-				}}
-			>
-				<box height={1} flexDirection="row">
-					<text fg={colors.textBright} attributes={1}>
-						Notification
-					</text>
-					<box flexGrow={1} />
-					<text
-						fg={colors.muted}
-						onMouseDown={(event) => {
-							event.preventDefault();
-							event.stopPropagation();
-							props.onClose();
-						}}
-					>
-						× Close
-					</text>
-				</box>
-				<text height={1} fg={colors.subtle}>
-					Esc close · scroll to read
-				</text>
+			<DialogFrame title="Notification" width="wide" zIndex={160} onClose={props.onClose}>
 				<scrollbox flexGrow={1} minHeight={1} scrollY scrollX={false}>
 					<Show
 						when={props.record()}
@@ -83,7 +50,7 @@ export function NotificationDialog(props: NotificationDialogProps) {
 						)}
 					</Show>
 				</scrollbox>
-			</box>
+			</DialogFrame>
 		</box>
 	);
 }

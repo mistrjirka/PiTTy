@@ -228,7 +228,7 @@ describe("Settings components", () => {
 				}}
 			/>
 		));
-		await clickText(setup, "× Close");
+		await clickText(setup, "esc ×");
 		expect(closed).toBe(1);
 		expect(settingsBackRoute("root")).toBe("closed");
 		expect(settingsBackRoute("model")).toBe("root");
@@ -305,7 +305,7 @@ describe("Settings components", () => {
 		);
 		const frame = keyboard.captureCharFrame();
 		expect(frame).toContain("Thinking effort");
-		expect(frame).toContain("← Settings");
+		expect(frame).toContain("esc ‹ settings");
 		expect(frame).toContain("max");
 		keyboard.mockInput.pressArrow("down");
 		keyboard.mockInput.pressEnter();
@@ -341,9 +341,9 @@ describe("Settings components", () => {
 		await setup.flush();
 		await clickText(setup, "Switch / resume");
 		expect(calls).toEqual([]);
-		await clickText(setup, "Rename current session");
+		await clickText(setup, "Rename");
 		expect(calls).toEqual(["rename"]);
-		await clickText(setup, "← Settings");
+		await clickText(setup, "esc ‹ settings");
 		expect(cancelled).toBe(1);
 	});
 
@@ -374,7 +374,7 @@ describe("Settings components", () => {
 		setup.mockInput.pressEnter();
 		await setup.flush();
 		expect(names).toEqual(["Updated"]);
-		await clickText(setup, "← Session");
+		await clickText(setup, "esc ‹ session");
 		expect(cancelled).toBe(1);
 	});
 
@@ -434,7 +434,7 @@ describe("Settings components", () => {
 		expect(customize).toBe(1);
 		await clickText(setup, "Solarized Light");
 		expect(selected).toEqual(["Catppuccin Mocha", "Solarized Light"]);
-		await clickText(setup, "← Settings");
+		await clickText(setup, "esc ‹ settings");
 		expect(cancelled).toBe(1);
 	});
 
@@ -630,10 +630,10 @@ describe("Settings components", () => {
 			.split("\n")
 			.findIndex((line) => line.includes("MCP servers"));
 		expect(headerLine).toBeGreaterThanOrEqual(0);
-		expect(headerLine).toBeLessThanOrEqual(3);
+		expect(headerLine).toBeLessThanOrEqual(4);
 		expect(frame).toContain("Global changes affect other MCP hosts.");
 		expect(frame).toContain("Before/after preview");
-		expect(frame).toContain("never invokes /mcp");
+		expect(frame).toContain("pi-mcp-adapter");
 	});
 
 	test("MCP settings uses a list-first flow for empty and populated scopes", async () => {
@@ -722,14 +722,13 @@ describe("Settings components", () => {
 	});
 
 	test("footer keeps Settings readable at supported and constrained widths", () => {
-		expect(globalFooterHint(104, false)).toBe(
-			"ctrl+x settings  ctrl+s sidebar  ctrl+p models",
-		);
+		expect(globalFooterHint(104, false)).toBe("ctrl+s sidebar  ctrl+p model");
 		expect(globalFooterHint(80, false).length).toBeLessThan(60);
-		expect(globalFooterHint(104, true)).toContain("main chat");
-		expect(globalFooterHint(104, false, 2)).toContain("ctrl+down inspect");
-		expect(globalFooterHint(104, false, 2)).not.toContain("ctrl+←/→ cycle");
-		expect(globalFooterHint(104, true, 2)).toContain("ctrl+←/→ switch");
+		expect(globalFooterHint(104, true)).toContain("esc main chat");
+		expect(globalFooterHint(104, false, 2)).toContain("ctrl+↓ agents");
+		// One hint per action: ctrl+i is the same action as ctrl+↓.
+		expect(globalFooterHint(150, false, 2)).not.toContain("ctrl+i");
+		expect(globalFooterHint(104, true, 2)).toContain("←/→ agent");
 	});
 
 	test("maps OpenCode-style subagent navigation shortcuts", () => {

@@ -22,27 +22,37 @@ export type PromptComposerProps = {
 	onSubmit: () => void;
 };
 
+/** Empty-prompt hint. Short: the prompt box already says where to type. */
+export function promptPlaceholder(streaming: boolean): string {
+	return streaming ? "Queue a message…  alt+↑ edit queued" : "Ask Pi anything…";
+}
+
 export function PromptComposer(props: PromptComposerProps) {
 	return (
+		// One bordered input line that grows with the draft. The old dock spent
+		// five rows (rule, padding, two editor rows, padding) on an empty prompt.
 		<box
-			border={["top"]}
+			border
+			borderStyle="rounded"
 			borderColor={props.streaming() ? colors.green : colors.borderStrong}
-			backgroundColor={colors.panel}
+			flexDirection="row"
 			flexShrink={0}
-			paddingLeft={2}
-			paddingRight={2}
-			paddingTop={1}
-			paddingBottom={1}
-			minHeight={4}
+			paddingLeft={1}
+			paddingRight={1}
+			minHeight={3}
 			maxHeight={12}
 		>
+			<text fg={colors.accent} wrapMode="none" flexShrink={0}>
+				{"› "}
+			</text>
 			<textarea
+				flexGrow={1}
 				ref={props.onEditor}
 				focused={props.focused()}
 				placeholder={props.placeholder()}
 				wrapMode="word"
-				backgroundColor={colors.panel}
-				focusedBackgroundColor={colors.panel}
+				backgroundColor={colors.background}
+				focusedBackgroundColor={colors.background}
 				textColor={colors.textBright}
 				focusedTextColor={colors.textBright}
 				placeholderColor={colors.muted}
@@ -61,7 +71,7 @@ export function PromptComposer(props: PromptComposerProps) {
 					{ name: "kpenter", shift: true, action: "newline" },
 					{ name: "linefeed", shift: true, action: "newline" },
 				]}
-				minHeight={2}
+				minHeight={1}
 				maxHeight={10}
 				onPaste={props.onPaste}
 				onKeyDown={(event) => {

@@ -2,6 +2,7 @@ import type { KeyEvent, SelectRenderable, TextareaRenderable } from "@opentui/co
 import { createMemo, createSignal, type Accessor } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import type { CommandChoice } from "./command-suggestions.ts";
+import { DialogFrame } from "./dialog-frame.tsx";
 import { colors } from "./theme.ts";
 import { createSearchableDialogFocus, handleSearchableDialogCancel } from "./searchable-dialog-focus.ts";
 
@@ -71,39 +72,12 @@ export function SkillSelector(props: SkillSelectorProps) {
 	});
 
 	return (
-		<box
-			position="absolute"
-			left="12%"
-			right="12%"
-			top="8%"
-			bottom={5}
-			flexDirection="column"
-			backgroundColor={colors.panelRaised}
-			border
-			borderColor={colors.borderStrong}
-			padding={1}
-			zIndex={150}
+		<DialogFrame
+			title="Skills"
+			summary={`${filtered().length} of ${skills().length}`}
+			height="tall"
+			onClose={props.onCancel}
 		>
-			<box flexDirection="row">
-				<text fg={colors.textBright} attributes={1}>
-					Skills
-				</text>
-				<box flexGrow={1} />
-				<text fg={colors.muted}>
-					{filtered().length} of {skills().length}
-				</text>
-				<text
-					fg={colors.muted}
-					marginLeft={2}
-					onMouseDown={(event) => {
-						event.preventDefault();
-						event.stopPropagation();
-						props.onCancel();
-					}}
-				>
-					× Close
-				</text>
-			</box>
 			<textarea
 				ref={(value) => {
 					search = value;
@@ -123,7 +97,7 @@ export function SkillSelector(props: SkillSelectorProps) {
 					queueMicrotask(() => select?.setSelectedIndex(0));
 				}}
 			/>
-			<text fg={colors.subtle}>Tab list · ↑/↓ move · Enter send · Esc close</text>
+			<text fg={colors.subtle}>tab list · ↑/↓ move · enter send</text>
 			{skills().length === 0 ? (
 				<text fg={colors.yellow}>No skills reported by Pi.</text>
 			) : filtered().length === 0 ? (
@@ -154,6 +128,6 @@ export function SkillSelector(props: SkillSelectorProps) {
 					}}
 				/>
 			)}
-		</box>
+		</DialogFrame>
 	);
 }

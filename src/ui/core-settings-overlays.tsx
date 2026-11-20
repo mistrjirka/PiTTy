@@ -144,6 +144,7 @@ export function CoreSettingsOverlays(props: CoreSettingsOverlaysProps) {
 					performanceHistory={props.readModelPerformanceHistory}
 					timingHistory={props.requestTimingHistory}
 					onSelect={(model) => void props.applySettingsModel(model)}
+					backLabel="esc ‹ settings"
 					onCancel={() => props.setSettingsRoute("root")}
 				/>
 			</Show>

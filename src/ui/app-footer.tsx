@@ -69,7 +69,7 @@ export function ToastOverlay(props: { entries: Accessor<Toast[]> }) {
 					<box
 						position="absolute"
 						right={2}
-						bottom={3 + index() * 3}
+						bottom={4 + index() * 3}
 						maxWidth="55%"
 						backgroundColor={colors.panelRaised}
 						border

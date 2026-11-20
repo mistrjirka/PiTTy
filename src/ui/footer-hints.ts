@@ -6,15 +6,16 @@ export function footerHintTiers(
 	targetCount = 0,
 ): string[] {
 	if (inspectorOpen) {
-		const switchHint = targetCount > 1 ? "←/→ or ctrl+←/→ switch  " : "";
-		return [`${switchHint}↑/ctrl+↑ main chat  esc/ctrl+i close`];
+		const switchHint = targetCount > 1 ? "  ←/→ agent" : "";
+		return [`esc main chat${switchHint}`];
 	}
-	const targetHint = targetCount > 0 ? "  ctrl+down inspect" : "";
-	const inspectHint = targetCount > 0 ? `  ctrl+i inspect${targetHint}` : "";
+	// One hint per action: ctrl+i and ctrl+down both open agents, so only the
+	// arrow form is advertised. Rare actions (requests, details) live in /help.
+	const agentsHint = targetCount > 0 ? "  ctrl+↓ agents" : "";
 	return [
-		`ctrl+x settings  ctrl+s sidebar  ctrl+p models${targetHint}`,
-		`ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}`,
-		`ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}  ctrl+o details`,
+		`ctrl+s sidebar  ctrl+p model${agentsHint}`,
+		`ctrl+p model  ctrl+t effort  ctrl+x settings${agentsHint}`,
+		`ctrl+p model  ctrl+t effort  ctrl+x settings${agentsHint}  /help`,
 	];
 }
 

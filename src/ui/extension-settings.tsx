@@ -1,6 +1,8 @@
 import type { SelectRenderable } from "@opentui/core";
-import { createEffect, createMemo } from "solid-js";
+import { createEffect, createMemo, Show } from "solid-js";
 import { selectOptionIndexAtMouse } from "./select-mouse.ts";
+import { DialogFrame } from "./dialog-frame.tsx";
+import { settingsRowText } from "./settings-hub.tsx";
 import { colors } from "./theme.ts";
 
 export type ExtensionSettingRow = {
@@ -17,7 +19,8 @@ export type ExtensionSettingRow = {
  */
 export function ExtensionSettingsList(props: {
 	title: string;
-	hint: string;
+	/** Where Esc returns to, e.g. `esc ‹ settings`. */
+	backLabel: string;
 	rows: ExtensionSettingRow[];
 	selectedId: string;
 	busy: boolean;
@@ -37,8 +40,8 @@ export function ExtensionSettingsList(props: {
 		const current = rows();
 		if (!select) return;
 		select.options = current.map((row) => ({
-			name: row.label,
-			description: row.summary,
+			name: settingsRowText(row.label, row.summary),
+			description: "",
 			value: row.id,
 		}));
 		select.selectedIndex = selectedIndex();
@@ -49,36 +52,12 @@ export function ExtensionSettingsList(props: {
 		props.onOpen(row.id);
 	};
 	return (
-		<box
-			position="absolute"
-			left="12%"
-			right="12%"
-			top="8%"
-			bottom={5}
-			flexDirection="column"
-			backgroundColor={colors.panelRaised}
-			border
-			borderColor={colors.borderStrong}
-			padding={1}
-			zIndex={150}
+		<DialogFrame
+			title={props.title}
+			hint="↑/↓ choose · enter open"
+			closeLabel={props.backLabel}
+			onClose={props.onCancel}
 		>
-			<box flexDirection="row">
-				<text fg={colors.textBright} attributes={1}>
-					{props.title}
-				</text>
-				<box flexGrow={1} />
-				<text
-					fg={colors.muted}
-					onMouseDown={(event) => {
-						event.preventDefault();
-						event.stopPropagation();
-						props.onCancel();
-					}}
-				>
-					× Back
-				</text>
-			</box>
-			<text fg={colors.subtle}>{props.hint}</text>
 			<select
 				ref={(value) => {
 					select = value;
@@ -87,8 +66,8 @@ export function ExtensionSettingsList(props: {
 				options={[]}
 				selectedIndex={0}
 				focused
-				flexGrow={1}
-				minHeight={5}
+				showDescription={false}
+				height={Math.min(16, Math.max(3, rows().length))}
 				showScrollIndicator
 				wrapSelection
 				backgroundColor={colors.panelRaised}
@@ -116,10 +95,12 @@ export function ExtensionSettingsList(props: {
 					open(rows().find((row) => row.id === id));
 				}}
 			/>
-			<text fg={props.busy ? colors.yellow : colors.subtle}>
-				{props.busy ? "Saving…" : "↑/↓ choose · Enter open · Esc back"}
-			</text>
-			<text fg={colors.red}>{props.error ?? ""}</text>
-		</box>
+			<Show when={props.busy}>
+				<text fg={colors.yellow}>Saving…</text>
+			</Show>
+			<Show when={props.error}>
+				<text fg={colors.red}>{props.error}</text>
+			</Show>
+		</DialogFrame>
 	);
 }

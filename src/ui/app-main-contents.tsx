@@ -38,13 +38,11 @@ import type {
 } from "../state/compaction-telemetry.ts";
 import type { BackgroundTask } from "../state/background-tasks.ts";
 import type { RequestPerformance } from "../tabs/request-metrics.ts";
-import type { RequestTiming } from "../tabs/request-timing.ts";
 import type { McpConfiguredSummary } from "../config/mcp-config.ts";
 import type {
 	McpStatusSnapshot,
 	McpStatusCounts,
 } from "../state/mcp-status.ts";
-import type { TodoViewItem } from "./todos.tsx";
 import type { CommandChoice } from "./command-suggestions.tsx";
 import type { UsageFooterSegment } from "./usage-footer.ts";
 import { colors } from "./theme.ts";
@@ -55,8 +53,8 @@ import {
 } from "./subagent-inspector.tsx";
 import { TabStrip } from "./tab-strip.tsx";
 import { TranscriptPane } from "./transcript-pane.tsx";
-import { PromptComposer } from "./prompt-composer.tsx";
-import { Sidebar } from "./sidebar.tsx";
+import { PromptComposer, promptPlaceholder } from "./prompt-composer.tsx";
+import { Sidebar, sidebarScopeForTarget } from "./sidebar.tsx";
 import { AppFooter, ToastOverlay } from "./app-footer.tsx";
 
 export interface AppMainContentsProps {
@@ -64,6 +62,7 @@ export interface AppMainContentsProps {
 	activateTab: (id: string) => void;
 	closeTab: (id: string) => void;
 	createTab: (sessionFile?: string) => string | undefined;
+	tabWorking: (id: string) => boolean;
 	openForkPicker: () => Promise<void>;
 	inspectSubagent: () => boolean;
 	selectedSubagentTarget: Accessor<SubagentTarget | undefined>;
@@ -156,16 +155,12 @@ export interface AppMainContentsProps {
 	sessionState: () => RpcSessionState | undefined;
 	sessionStats: () => SessionStats | undefined;
 	lastRequestPerformance: () => RequestPerformance | undefined;
-	requestTimingHistory: () => RequestTiming[];
 	runs: () => SubagentRun[];
 	subagentTools: Accessor<ToolItem[]>;
 	contextWindowForModel: (model: string | undefined) => number | undefined;
 	selectedTargetKey: () => string | undefined;
 	setSelectedTargetKey: (id: string | undefined) => void;
-	todos: Accessor<TodoViewItem[]>;
-	openTodo: (id: string) => void;
 	subagentsAvailable: Accessor<boolean>;
-	todosAvailable: Accessor<boolean>;
 	mcpStatus: () => McpStatusSnapshot | undefined;
 	mcpCounts: () => McpStatusCounts | undefined;
 	mcpConfiguredSummary: () => McpConfiguredSummary | undefined;
@@ -192,6 +187,8 @@ export function AppMainContents(props: AppMainContentsProps) {
 				onClose={props.closeTab}
 				onCreate={props.createTab}
 				onOpenForkPicker={() => void props.openForkPicker()}
+				isWorking={props.tabWorking}
+				spinner={spinnerFrames[props.spinnerIndex()] ?? "◐"}
 			/>
 			<box flexGrow={1} minHeight={1} flexDirection="row">
 				<box flexGrow={1} minWidth={0} flexDirection="column">
@@ -217,7 +214,6 @@ export function AppMainContents(props: AppMainContentsProps) {
 								onResume={props.requestResumeSubagent}
 								onStop={props.requestStopSubagent}
 								onChooseTarget={() => props.setSubagentSelectorOpen(true)}
-								targetCount={props.displaySubagentTargets().length}
 								allTargets={props.availableSubagentTargets()}
 								onInspectSubagentTarget={props.inspectSubagentTarget}
 								draft={() =>
@@ -287,15 +283,17 @@ export function AppMainContents(props: AppMainContentsProps) {
 						/>
 					</Show>
 					{/* Keep a fixed one-row slot so showing/hiding the jump control does
-              not resize the transcript and leave stale terminal cells. */}
+              not resize the transcript and leave stale terminal cells. The
+              subagent view has its own scroll and no slot. */}
 					<box
+						visible={!props.inspectSubagent()}
 						height={1}
 						minHeight={1}
 						flexDirection="row"
 						justifyContent="flex-end"
 						paddingRight={2}
 					>
-						<Show when={props.showJumpLatest() && !props.inspectSubagent()}>
+						<Show when={props.showJumpLatest()}>
 							<text
 								fg={colors.cyan}
 								attributes={1}
@@ -341,9 +339,7 @@ export function AppMainContents(props: AppMainContentsProps) {
 								placeholder={() =>
 									props.promptValue().length > 0
 										? null
-										: props.streaming()
-											? "Enter queues the next step · Alt+Up edits pending"
-											: "Ask Pi anything… (/help for commands)"
+										: promptPlaceholder(props.streaming())
 								}
 								onEditor={props.onPromptEditor}
 								onPaste={props.handlePromptPaste}
@@ -361,7 +357,6 @@ export function AppMainContents(props: AppMainContentsProps) {
 						state={props.sessionState()}
 						stats={props.sessionStats()}
 						lastRequestPerformance={props.lastRequestPerformance()}
-						timingHistory={props.requestTimingHistory()}
 						runs={props.runs}
 						tools={props.subagentTools}
 						targetSource={props.availableSubagentTargets}
@@ -369,10 +364,15 @@ export function AppMainContents(props: AppMainContentsProps) {
 						selectedTargetKey={props.selectedTargetKey()}
 						now={props.clockNow()}
 						onSelectTarget={props.setSelectedTargetKey}
-						todos={props.todos}
-						onOpenTodo={(todo) => props.openTodo(todo.id)}
+						inspecting={props.inspectSubagent()}
+						scope={(() => {
+							const target = props.inspectSubagent()
+								? props.inspectedTarget()
+								: undefined;
+							return target ? sidebarScopeForTarget(target) : undefined;
+						})()}
+						onShowMain={props.closeSubagentInspector}
 						subagentsAvailable={props.subagentsAvailable()}
-						todosAvailable={props.todosAvailable()}
 						mcpStatus={props.mcpStatus}
 						mcpCounts={props.mcpCounts}
 						mcpConfigured={props.mcpConfiguredSummary}

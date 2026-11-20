@@ -204,5 +204,6 @@ export function modelPerformanceStats(history: ModelPerformanceHistory, provider
   return { medianTtftMs: median(samples.map((sample) => sample.ttftMs)), medianOutputTokensPerSecond: median(samples.map((sample) => sample.outputTokensPerSecond)) };
 }
 export function formatModelPerformanceStats(stats: ModelPerformanceStats | undefined): string {
-  return stats ? "Median " + Math.round(stats.medianOutputTokensPerSecond) + " tok/s · TTFT " + (stats.medianTtftMs < 1000 ? Math.round(stats.medianTtftMs) + "ms" : (stats.medianTtftMs / 1000).toFixed(1) + "s") : "";
+  // Same words as the sidebar speed rows, so no legend line is needed.
+  return stats ? "median " + Math.round(stats.medianOutputTokensPerSecond) + " tok/s · first token " + (stats.medianTtftMs < 1000 ? Math.round(stats.medianTtftMs) + "ms" : (stats.medianTtftMs / 1000).toFixed(1) + "s") : "";
 }

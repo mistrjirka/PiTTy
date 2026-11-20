@@ -10,6 +10,14 @@ export function createAppMainProps(
 		activateTab: ports.runtime.activateTab,
 		closeTab: ports.runtime.closeTab,
 		createTab: ports.runtime.createTab,
+		tabWorking: (id) => {
+			// Runtimes are mutable objects; the revision signal is what makes
+			// a background tab's streaming flag reactive here.
+			ports.signals.revision[0]();
+			return (
+				ports.signals.runtimeMap[0]().get(id)?.conversation.isStreaming === true
+			);
+		},
 		openForkPicker: ports.runtime.openForkPicker,
 		inspectSubagent: ports.runtime.inspectSubagent,
 		selectedSubagentTarget: ports.inspector.selectedSubagentTarget,
@@ -100,16 +108,12 @@ export function createAppMainProps(
 		sessionState: ports.session.sessionState,
 		sessionStats: ports.session.sessionStats,
 		lastRequestPerformance: ports.session.lastRequestPerformance,
-		requestTimingHistory: ports.session.requestTimingHistory,
 		runs: ports.session.runs,
 		subagentTools: ports.inspector.subagentTools,
 		contextWindowForModel: ports.extras.contextWindowForModel,
 		selectedTargetKey: ports.runtime.selectedTargetKey,
 		setSelectedTargetKey: ports.runtime.setSelectedTargetKey,
-		todos: ports.selectors.todos,
-		openTodo: ports.extras.openTodo,
 		subagentsAvailable: ports.selectors.subagentsAvailable,
-		todosAvailable: ports.selectors.todosAvailable,
 		mcpStatus: ports.session.mcpStatus,
 		mcpCounts: ports.session.mcpCounts,
 		mcpConfiguredSummary: ports.signals.mcpConfiguredSummary,

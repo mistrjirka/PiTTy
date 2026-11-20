@@ -55,10 +55,11 @@ describe("background jobs in sidebar and viewer", () => {
   test("sidebar shows a running timer and updates it on clock ticks", async () => {
     const [now, setNow] = createSignal(13_234);
     const setup = await mount(() => <Sidebar runs={[]} backgroundTasks={[task]} now={now()} height={28} />, 45, 29);
-    expect(setup.captureCharFrame()).toContain("bg-1 12s");
+    const jobRow = () => setup.captureCharFrame().split("\n").find((line) => line.includes("bg-1")) ?? "";
+    expect(jobRow()).toMatch(/bg-1 .*12s/);
     setNow(14_234);
     await setup.flush();
-    expect(setup.captureCharFrame()).toContain("bg-1 13s");
+    expect(jobRow()).toMatch(/bg-1 .*13s/);
   });
 
   test("background details show running duration before output", async () => {
@@ -71,11 +72,11 @@ describe("background jobs in sidebar and viewer", () => {
       onAnalyze={() => {}}
       onClose={() => {}}
     />, 110, 30);
-    expect(setup.captureCharFrame()).toContain("Background bg-1 · running · 12s");
+    expect(setup.captureCharFrame()).toMatch(/Background bg-1\s+running · 12s/);
   });
 	test("uses no extra sidebar rows when background jobs are absent", async () => {
 		const setup = await mount(() => <Sidebar runs={[]} />, 45, 28);
-		expect(setup.captureCharFrame()).not.toContain("Background (");
+		expect(setup.captureCharFrame()).not.toContain("Running");
 		expect(setup.renderer.root.findDescendantById("background-panel")).toBeUndefined();
 	});
 	test("lists jobs with a bounded panel and opens the clicked original command", async () => {
@@ -89,7 +90,7 @@ describe("background jobs in sidebar and viewer", () => {
 			/>
 		), 45, 29);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("Background (1 active");
+		expect(frame).toMatch(/Running\s+1 of 2/);
 		expect(frame).toContain("bg-1");
 		expect(frame).toContain("bg-2");
 		expect(setup.renderer.root.findDescendantById("background-scroll")).toBeDefined();
@@ -109,9 +110,9 @@ describe("background jobs in sidebar and viewer", () => {
 		};
 		const setup = await mount(() => <Sidebar runs={[]} targetSource={() => [target]} backgroundTasks={[task]} height={39} />, 120, 40);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("Subagents (1 active)");
+		expect(frame).toMatch(/Agents\s+1 working/);
 		expect(frame).toContain("@june");
-		expect(frame).toContain("Background (1 active");
+		expect(frame).toMatch(/Running\s+1 of 1/);
 		expect(frame).toContain("bg-1");
 	});
 
@@ -161,7 +162,7 @@ describe("background jobs in sidebar and viewer", () => {
 		expect(pages).toEqual([1]);
 		await clickText(setup, "Analyze with Pi");
 		expect(analyzed).toBe(1);
-		await clickText(setup, "× Close");
+		await clickText(setup, "esc ×");
 		expect(closed).toBe(1);
 	});
 });

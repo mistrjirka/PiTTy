@@ -14,6 +14,7 @@ import {
 	toolOutput,
 	toolTimeLimits,
 } from "./conversation-shared.ts";
+import { compactTokenCount } from "./compaction-results.ts";
 import { normalizeResultDetails } from "./result-diff.ts";
 
 /** Pi's code tool returns opaque resume state in details.state, often >10 MiB.
@@ -152,6 +153,24 @@ export function initialItems(
 					timestamp: messageTimestamp(message, stable),
 					optimistic: false,
 				});
+		} else if (role === "compactionSummary") {
+			// Pi projects each compaction as this message. The live path shows
+			// `Context compacted.`; a restored or child transcript says the same,
+			// so earlier turns never run straight into later ones unmarked.
+			// TODO: render the expandable CompactedSummary card here as the live
+			// path does; it needs a CompactionCompletion built from the message.
+			const record = objectRecord(message);
+			const tokensBefore = record?.tokensBefore;
+			const text = typeof tokensBefore === "number" && tokensBefore > 0
+				? `Context compacted · ${compactTokenCount(tokensBefore)} tokens summarized`
+				: "Context compacted.";
+			items.push({
+				kind: "system",
+				id: makeId("history-compaction", stableHash(`${text}\u0000${messageTimestamp(message, stable)}`)),
+				text,
+				timestamp: messageTimestamp(message, stable),
+				tone: "success",
+			});
 		} else if (role === "custom") {
 			const custom = customItemFromMessage(
 				message,

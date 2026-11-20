@@ -204,12 +204,9 @@ export function SpawnGroupCard(props: {
 		<box
 			id={props.group.id}
 			flexDirection="column"
-			backgroundColor={colors.toolAgentBg}
 			paddingLeft={1}
 			paddingRight={1}
 			marginBottom={1}
-			border={["left"]}
-			borderColor={colors.purple}
 		>
 			<box flexDirection="row">
 				<text fg={colors.purple} attributes={1} wrapMode="none">
@@ -226,14 +223,14 @@ export function SpawnGroupCard(props: {
 						props.onToggle(props.group.id);
 					}}
 				>
-					<text fg={colors.cyan} wrapMode="none">
+					<text fg={colors.subtle} wrapMode="none">
 						{props.expanded ? "▾ spawn cards" : "▸ spawn cards"}
 					</text>
 				</box>
 			</box>
 			<Show when={!props.expanded}>
 				<For each={props.group.targets}>
-					{(target) => (
+					{(target, index) => (
 						<box
 							height={1}
 							minHeight={1}
@@ -245,6 +242,9 @@ export function SpawnGroupCard(props: {
 								props.onInspectSubagentTarget?.(target.key);
 							}}
 						>
+							<text fg={colors.borderStrong} wrapMode="none">
+								{index() === props.group.targets.length - 1 ? "└ " : "├ "}
+							</text>
 							<text fg={colors.text} wrapMode="none">
 								{spawnGroupRowText(target, props.now)}
 							</text>

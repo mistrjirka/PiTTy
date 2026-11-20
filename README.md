@@ -19,7 +19,20 @@
 
 ![PiTTy main conversation view with tool cards, thinking, and the sidebar](docs/screenshots/conversation.png)
 
-More views: [model picker](docs/screenshots/model-selector.png) · [new-session dashboard](docs/screenshots/blank-session.png) · [wrapped diff](docs/screenshots/long-diff.png) · [tab strip](docs/screenshots/tab-strip.png) · [running subagent controls](docs/screenshots/subagent-running.png) · [paused subagent controls](docs/screenshots/subagent-paused.png)
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/settings.png" alt="Settings: one row per setting with its current value"><br><sub><b>Settings</b> (<code>Ctrl+X</code>): every setting on one screen</sub></td>
+    <td width="50%"><img src="docs/screenshots/model-selector.png" alt="Model picker with search and measured speed"><br><sub><b>Model picker</b> (<code>Ctrl+P</code>): search, context size, measured speed</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/subagent-models.png" alt="Subagent models: defaults and per-agent model"><br><sub><b>Subagent models</b>: a default and a per-agent model and thinking level</sub></td>
+    <td><img src="docs/screenshots/mcp-settings.png" alt="MCP servers: scope, config path and servers"><br><sub><b>MCP servers</b>: project or global scope, preview before every write</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/subagent-running.png" alt="A running subagent opened in the main view"><br><sub><b>Subagent view</b>: same layout as the main chat, with steer, pause and stop</sub></td>
+    <td><img src="docs/screenshots/long-diff.png" alt="Wrapped diff viewer"><br><sub><b>Diff viewer</b> for edit and write tools</sub></td>
+  </tr>
+</table>
 
 ## What it is
 
@@ -29,13 +42,13 @@ An empty session opens straight into the chat with a passive dashboard of recent
 
 ## What's different from Pi's TUI
 
-- **The prompt stays put.** The transcript scrolls independently, so long conversations don't push the input line away.
-- **Subagents are inspectable.** Every child agent's live transcript opens in the sidebar, with steering, queued follow-ups, and pause/resume/stop for supported runs.
-- **Pending messages stay editable.** Edit, cancel, or combine queued messages and keep sending during compaction with the managed Pi runtime.
-- **Tool output is readable.** Edit/write tools get a dedicated diff view, tools render as collapsible cards, and timings stay on screen.
-- **Less hunting.** Searchable model picker (`Ctrl+P`), session browser (`/resume`), request map (`Ctrl+R`), and prompt history on an empty prompt (`↑`).
+- **The prompt stays put.** The transcript scrolls on its own, so long conversations never push the input away.
+- **Quiet transcript.** Each tool call is one row: status, tool, argument, duration. Timeouts over 10s show next to the duration. `Ctrl+O` expands details.
+- **Subagents in the sidebar.** The right sidebar shows the agent tree under `◆ Main`. Open an agent to see its transcript in the main view, steer it, or pause, resume and stop it.
+- **Context and speed at a glance.** The sidebar shows how much context is left and the model's live tokens per second, marked faster, usual or slower than its own median.
+- **Pending messages stay editable.** Edit, cancel or combine queued messages, and keep sending during compaction.
+- **Less hunting.** Searchable model picker (`Ctrl+P`), session browser (`/resume`), request map (`Ctrl+R`), and prompt history (`↑` on an empty prompt).
 - **Live themes.** Ten presets plus full color-token editing, applied immediately.
-- **Optional extra panels.** Todo, MCP server management, and an MCP counter with hover details appear when the matching Pi packages are installed.
 
 Pi extensions generally keep working: commands, tools, prompt templates, skills, notifications, status updates, text widgets, and standard dialogs flow through RPC. [Text widgets](docs/EXTENSION_WIDGETS.md) appear above or below the editor, preserve ANSI styling, and scroll within a bounded area. With `pi-bg-bash` installed, the right sidebar lists background jobs. On the managed runtime, new input also moves running foreground commands to the background with the same process and original timeout deadline. Select a job to inspect its original command and paged output, or explicitly request analysis with Pi. Custom `pi-tui` component trees are not serialized, so extension-owned renderers won't look identical, and interactive `/login` is done once in regular Pi.
 
@@ -111,21 +124,7 @@ Inside PiTTy, the essentials are: `Enter` sends (or accepts a slash suggestion),
 
 ## Managed Pi runtime (automatic)
 
-Starting with v0.7.8, `pitty upgrade` stages a compatible Pi fork alongside the PiTTy update. On the next `pitty` launch, the update activates and PiTTy automatically uses its private fork. **No separate install command, configuration migration, or global Pi replacement is needed.** This also applies to a fresh PiTTy installation.
-
-The bundled patch currently targets **Pi 1.5.2** and **pi-code-tool 0.6.2**. For these exact installed versions, PiTTy copies Pi and its dependencies to its own `fork-runtime/` directory and applies the tested session-memory, pending-message queue, and Python tool-dispatch patches. The existing `~/.pi/agent/settings.json`, credentials, installed packages, extensions and session files stay in place. The existing code-tool extension is redirected only inside the PiTTy child process, without modifying its original file or auto-approve behavior.
-
-Python helpers use the tools enabled in the current Pi session, including their extension overrides, validation, and cancellation. The default helper set is `read`, `bash`, `edit`, and `write`. Enable `find`, `grep`, or `ls` in Pi's tool selection before using those helpers. Existing code-tool approval settings still apply.
-
-Starting with v0.7.11, Python variables are saved as interpreter checkpoints. Later calls and restored sessions continue from that state without rerunning earlier code. Since v0.7.12, older v1/v2 snapshots are converted automatically on the next `code` call. The one-time conversion reconstructs saved Python code using recorded inputs and tool results, without repeating completed tool operations or asking for their approval again. Paused operations remain resumable. New tool requests run normally.
-
-Old snapshots did not record direct file-read contents. Their conversion reads the current files through readonly mounts, as the old runtime did. If the saved code cannot be reconstructed, the original snapshot is preserved and the error gives the specific cause. Ordinary conversation messages remain usable. An incompatible change to helper type signatures or execution limits can still require `reset=true`, which clears Python variables and reloads saved tools. The private runtime installs its pinned interpreter from a checksum-verified dependency lock without changing the globally installed interpreter.
-
-If the installed Pi or code-tool differs from the verified versions, PiTTy uses the unchanged global Pi and reports why. This does not block the PiTTy update. The managed fork is currently supported on Linux and macOS. To opt out, run `PITTY_USE_UPSTREAM_PI=1 pitty`; `PI_BIN=/path/to/pi` and `pitty --pi /path/to/pi` also override automatic selection.
-
-`pitty founders-setup` also supports an older global Pi. It prepares the exact supported Pi base in an isolated temporary prefix, then validates and installs the managed runtime. Global Pi stays unchanged.
-
-For local source builds with matching upstream packages, run `npm run install:fork-runtime` once to prepare the managed runtime. The installer does not modify any global Pi configuration.
+`pitty upgrade` also stages a patched private copy of Pi. It adds editable pending messages, session memory and Python tool checkpoints. It never changes your global Pi, settings, credentials or sessions. If your installed Pi is not the verified version (currently **Pi 1.5.2** with **pi-code-tool 0.6.2**), PiTTy uses the unchanged global Pi and says why. Opt out with `PITTY_USE_UPSTREAM_PI=1 pitty`. Details: [Managed Pi runtime](docs/managed-runtime.md).
 
 ## Optional integrations
 
@@ -135,7 +134,7 @@ PiTTy works without extra packages. These add specialized panels when installed:
 | --- | --- |
 | `git:github.com/mistrjirka/pi-subagent` | Profile-driven child-agent tree, live inspection, waiting-state visibility, steer/stop |
 | `git:github.com/mistrjirka/pi-one-round-compaction` | One-round parallel compaction with streamed lane progress |
-| `npm:@juicesharp/rpiv-todo` | Active and completed Todo panels |
+| `npm:@juicesharp/rpiv-todo` | Todo tool for Pi |
 | `npm:pi-web-access` | Web search and page-fetch tools for Pi |
 | `npm:pi-diet-semble` | Semantic code search for Pi |
 | `npm:pi-bg-bash` | Background jobs: status, original command, 64-KiB output pages, and optional analysis |

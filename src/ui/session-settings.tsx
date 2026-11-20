@@ -4,6 +4,9 @@ import type {
   TextRenderable,
 } from "@opentui/core";
 import { createEffect, createSignal } from "solid-js";
+import { DialogFrame } from "./dialog-frame.tsx";
+import { selectOptionIndexAtMouse } from "./select-mouse.ts";
+import { settingsRowText } from "./settings-hub.tsx";
 import { colors } from "./theme.ts";
 
 export function SessionSettings(props: {
@@ -19,54 +22,37 @@ export function SessionSettings(props: {
     else if (index === 1) props.onRename();
   };
   return (
-    <box
-      position="absolute"
-      left="20%"
-      right="20%"
-      top="20%"
-      bottom={8}
-      flexDirection="column"
-      backgroundColor={colors.panelRaised}
-      border
-      borderColor={colors.borderStrong}
-      padding={1}
+    <DialogFrame
+      title="Session"
+      summary={props.name || "Unnamed"}
+      width="narrow"
+      closeLabel="esc ‹ settings"
       zIndex={160}
+      onClose={props.onCancel}
     >
-      <box flexDirection="row">
-        <text fg={colors.textBright} attributes={1}>Session</text>
-        <box flexGrow={1} />
-        <text
-          fg={colors.cyan}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onCancel();
-          }}
-        >← Settings</text>
-      </box>
-      <text fg={colors.subtle}>
-        Current: {props.name || "Unnamed"} · Esc back
-      </text>
       <select
         ref={(value) => {
           select = value;
         }}
         options={[
           {
-            name: "Switch / resume",
-            description:
-              props.switchDisabledReason ?? "Browse existing sessions",
+            name: settingsRowText(
+              "Switch / resume",
+              props.switchDisabledReason ?? "Browse sessions",
+            ),
+            description: "",
             value: "switch",
           },
           {
-            name: "Rename current session",
-            description: "Set the displayed session name",
+            name: settingsRowText("Rename", props.name || "Unnamed"),
+            description: "",
             value: "rename",
           },
         ]}
         selectedIndex={0}
         focused
-        height={6}
+        showDescription={false}
+        height={3}
         backgroundColor={colors.panelRaised}
         focusedBackgroundColor={colors.panelRaised}
         textColor={colors.text}
@@ -77,14 +63,15 @@ export function SessionSettings(props: {
         selectedDescriptionColor={colors.text}
         onMouseDown={(event) => {
           if (!select) return;
-          const index = Math.floor((event.y - select.screenY) / 2);
+          const index = selectOptionIndexAtMouse(select, event.y);
+          if (index === undefined) return;
           event.preventDefault();
           event.stopPropagation();
           activate(index);
         }}
         onSelect={(index) => activate(index)}
       />
-    </box>
+    </DialogFrame>
   );
 }
 
@@ -126,36 +113,18 @@ export function SessionRename(props: {
         : (error ??
           (!value().trim()
             ? "Name cannot be empty."
-            : "Enter confirm · Esc cancel"));
+            : "enter save"));
       status.fg = error ? colors.red : busy ? colors.yellow : !value().trim() ? colors.yellow : colors.subtle;
     }
   });
   return (
-    <box
-      position="absolute"
-      left="20%"
-      right="20%"
-      top="25%"
-      bottom={10}
-      flexDirection="column"
-      backgroundColor={colors.panelRaised}
-      border
-      borderColor={colors.borderStrong}
-      padding={1}
+    <DialogFrame
+      title="Rename session"
+      width="narrow"
+      closeLabel="esc ‹ session"
       zIndex={170}
+      onClose={props.onCancel}
     >
-      <box flexDirection="row">
-        <text fg={colors.textBright} attributes={1}>Rename session</text>
-        <box flexGrow={1} />
-        <text
-          fg={colors.cyan}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onCancel();
-          }}
-        >← Session</text>
-      </box>
       <textarea
         id="settings-session-rename"
         ref={(element) => {
@@ -184,6 +153,6 @@ export function SessionRename(props: {
         }}
         fg={colors.subtle}
       />
-    </box>
+    </DialogFrame>
   );
 }

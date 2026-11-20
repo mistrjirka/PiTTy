@@ -46,10 +46,15 @@ import type { MemorySnapshot } from "../src/integrations/memory-store.ts";
 import {
 	allocateSidebarPanels,
 	Sidebar,
+	sidebarScopeForTarget,
 	targetToolActivity,
 	targetToolUsage,
 } from "../src/ui/sidebar.tsx";
-import { friendlyTargetState } from "../src/ui/model-context.tsx";
+import {
+	friendlyTargetState,
+	stateColor,
+	stateIcon,
+} from "../src/ui/model-context.tsx";
 import {
 	REQUEST_TIMING_VERSION,
 	type RequestTiming,
@@ -225,29 +230,24 @@ describe("profiled command visibility", () => {
 			await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
 		};
 		let frame = setup.captureCharFrame();
-		expect(frame).toContain(
-			"bash running · elapsed 21m 33s · command timeout 35m 0s · 13m 27s left",
-		);
-		expect(frame).toContain(
-			"read running · elapsed 20m 33s · command timeout not specified",
-		);
+		expect(frame).toContain("↳ bash 21m 33s of 35m 0s · 13m 27s left");
+		expect(frame).toContain("↳ read 20m 33s · no timeout");
 		setNow(startedAt + 2_101_000);
 		await flush();
 		frame = setup.captureCharFrame();
-		expect(frame).toContain("timeout reached; awaiting completion");
-		expect(frame).toContain("bash running");
+		expect(frame).toContain("of 35m 0s · timed out, waiting for exit");
 		setRun({ ...initial, activeTools: [second] });
 		await flush();
 		frame = setup.captureCharFrame();
-		expect(frame).not.toContain("bash running");
-		expect(frame).toContain("read running");
+		expect(frame).not.toContain("of 35m 0s");
+		expect(frame).toContain("· no timeout");
 		setRun({ ...initial, activeTools: undefined });
 		await flush();
-		expect(setup.captureCharFrame()).not.toContain("command timeout");
+		expect(setup.captureCharFrame()).not.toContain("· no timeout");
 		for (const state of ["idle", "completed", "unresponsive"]) {
 			setRun({ ...initial, state });
 			await flush();
-			expect(setup.captureCharFrame()).not.toContain("command timeout");
+			expect(setup.captureCharFrame()).not.toContain("· no timeout");
 		}
 	});
 });
@@ -1138,7 +1138,7 @@ describe("OpenTUI components", () => {
 		);
 		const subagentFrame = subagent.captureCharFrame();
 		expect(subagentFrame).toContain("Planning validation");
-		expect(subagentFrame).toContain("TOOL · bash");
+		expect(subagentFrame).toContain("✓ bash");
 		expect(subagentFrame).toContain("5 pass");
 		expect(subagentFrame).not.toContain("[38;2;");
 	});
@@ -1459,10 +1459,10 @@ describe("OpenTUI components", () => {
 			"subagent-inspector-steer",
 		) as TextareaRenderable;
 		expect(setup.captureCharFrame()).toContain(
-			"Queued for delivery · check the failing test",
+			"◷ queued  check the failing test",
 		);
 		expect(setup.captureCharFrame()).toContain(
-			"Waiting (over 120s) · preserve this draft",
+			"◷ still queued  preserve this draft",
 		);
 		await setup.mockInput.typeText("new guidance");
 		expect(editor.plainText).toBe("new guidance");
@@ -2192,7 +2192,7 @@ describe("OpenTUI components", () => {
 			/>
 		));
 		const collapsedFrame = collapsed.captureCharFrame();
-		expect(collapsedFrame).toContain("TOOL · edit");
+		expect(collapsedFrame).toContain("✓ edit");
 		expect(collapsedFrame).toContain("Changes");
 		expect(collapsedFrame).toContain("+1");
 		expect(collapsedFrame).toContain("-1");
@@ -2375,20 +2375,15 @@ describe("OpenTUI components", () => {
 		const row = spawnGroupRowText(resident, Date.now());
 		expect(row).toContain("3 tools");
 		expect(row).not.toContain("/");
-		// Inspector header: the inline Context field drops, Model stays.
-		const setup = await mount(() => (
-			<SubagentInspector
-				target={{ ...resident, model: "provider/model", thinking: "medium" }}
-				items={[]}
-				now={Date.now()}
-				thinkingExpanded={() => true}
-				toolExpanded={() => false}
-				diffExpanded={() => false}
-			/>
-		));
-		const frame = setup.captureCharFrame();
-		expect(frame).not.toContain("Context");
-		expect(frame).toContain("provider/model");
+		// Sidebar scope for the open agent: the stale window drops, Model stays.
+		const scope = sidebarScopeForTarget({
+			...resident,
+			model: "provider/model",
+			thinking: "medium",
+		});
+		expect(scope.used).toBeUndefined();
+		expect(scope.model).toBe("provider/model");
+		expect(scope.thinking).toBe("medium");
 	});
 
 	test("renders profiled notifications as bounded identity cards", async () => {
@@ -2580,7 +2575,7 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("Context: The task and existing tests disagree.");
 		expect(frame).toContain("Reply with: subagent_supervisor");
 		expect(frame).toContain("other_event: visible notice");
-		expect(frame).toContain("TOOL · → reply worker");
+		expect(frame).toContain("✓ → reply worker");
 		expect(frame).toContain("Full supervisor reply body");
 		for (const line of frame.split("\n"))
 			expect(line.length).toBeLessThanOrEqual(120);
@@ -2609,7 +2604,7 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("Search messages…");
 		expect(frame).toContain("1. First message");
 		expect(frame).toContain("2. Second message");
-		expect(frame).toContain("Enter select");
+		expect(frame).toContain("enter fork");
 
 		let firstArrowSelected: string | undefined;
 		const firstArrow = await mount(
@@ -2747,7 +2742,7 @@ describe("OpenTUI components", () => {
 		expect(controlsStart).toBeGreaterThan(tabLines[0]!.indexOf("Forked"));
 		expect(tabLines[0]!.slice(controlsStart)).toMatch(/^⑂ \+? ?/);
 		expect(frame).toContain("Primary");
-		expect(frame).toContain("Forked •2");
+		expect(frame).toContain("✓ Forked");
 		const forkColumn = tabLines[0]!.indexOf("⑂");
 		const plusColumn = tabLines[0]!.indexOf("+");
 		expect(forkColumn).toBeGreaterThan(tabLines[0]!.indexOf("Forked"));
@@ -2878,16 +2873,14 @@ describe("OpenTUI components", () => {
 				<Sidebar
 					runs={[]}
 					subagentsAvailable={false}
-					todosAvailable={false}
-					todos={[]}
 				/>
 			),
 			42,
 			28,
 		);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("Session");
-		expect(frame).not.toContain("Subagents");
+		expect(frame).toContain("Context");
+		expect(frame).not.toContain("Agents");
 		expect(frame).not.toContain("Todos");
 		expect(frame).not.toContain("Ctrl+I inspect");
 	});
@@ -2947,7 +2940,6 @@ describe("OpenTUI components", () => {
 				<Sidebar
 					runs={[]}
 					subagentsAvailable={false}
-					todosAvailable={false}
 					notifications={records}
 					height={30}
 				/>
@@ -2956,7 +2948,8 @@ describe("OpenTUI components", () => {
 			30,
 		);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("Notifications (4)");
+		expect(frame).toContain("Notices");
+		expect(frame).toContain("2 new");
 		expect(frame.indexOf("PENDING_LATEST")).toBeLessThan(
 			frame.indexOf("PENDING_EARLIER"),
 		);
@@ -2974,7 +2967,6 @@ describe("OpenTUI components", () => {
 				<Sidebar
 					runs={[]}
 					subagentsAvailable={false}
-					todosAvailable={false}
 					notifications={[]}
 					height={30}
 				/>
@@ -2982,7 +2974,7 @@ describe("OpenTUI components", () => {
 			42,
 			30,
 		);
-		expect(setup.captureCharFrame()).not.toContain("Notifications");
+		expect(setup.captureCharFrame()).not.toContain("Notices");
 		expect(
 			setup.renderer.root.findDescendantById("notification-panel"),
 		).toBeUndefined();
@@ -3002,7 +2994,6 @@ describe("OpenTUI components", () => {
 				<Sidebar
 					runs={[]}
 					subagentsAvailable={false}
-					todosAvailable={false}
 					notifications={[record]}
 					height={30}
 					onOpenNotification={setSelected}
@@ -3072,7 +3063,6 @@ describe("OpenTUI components", () => {
 					runs={runs}
 					now={1}
 					stats={stats}
-					todos={[{ id: "1", text: "one", status: "pending", done: false }]}
 					height={40}
 				/>
 			),
@@ -3083,19 +3073,17 @@ describe("OpenTUI components", () => {
 		if (!row) throw new Error("reactive sidebar fixture missing");
 		const subagentPanel =
 			setup.renderer.root.findDescendantById("subagent-panel");
-		const todoPanel = setup.renderer.root.findDescendantById("todo-panel");
-		if (!subagentPanel || !todoPanel) throw new Error("sidebar panels missing");
+		if (!subagentPanel) throw new Error("sidebar panels missing");
 		const initialSubagentHeight = subagentPanel.height;
-		const initialTodoHeight = todoPanel.height;
-		expect(row.height).toBe(3);
+		// Active agents take two rows: name, then what they are doing.
+		expect(row.height).toBe(2);
 
 		setRuns([{ ...runningRun, state: "completed" }]);
 		await setup.flush();
 		await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
 		const nextFrame = setup.captureCharFrame();
 		expect(subagentPanel.height).toBe(initialSubagentHeight);
-		expect(todoPanel.height).toBe(initialTodoHeight);
-		expect(nextFrame).toContain("⚪ reactive-worker");
+		expect(nextFrame).toContain("✓ reactive-worker");
 		expect(nextFrame).not.toContain("ago");
 		expect(nextFrame).not.toContain("running · 0t/0 tools");
 		expect(nextFrame).not.toContain("Ctrl+Sh");
@@ -3128,7 +3116,6 @@ describe("OpenTUI components", () => {
 				<Sidebar
 					runs={[run]}
 					stats={stats}
-					todos={[{ id: "1", text: "one", status: "pending", done: false }]}
 					height={30}
 				/>
 			),
@@ -3139,7 +3126,7 @@ describe("OpenTUI components", () => {
 		if (!row) throw new Error("inactive target row missing");
 		expect(row.height).toBe(1);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("⚪ finished-worker");
+		expect(frame).toContain("✓ finished-worker");
 		expect(frame).not.toContain("ago");
 		expect(row.screenY + row.height).toBeLessThanOrEqual(30);
 	});
@@ -3207,7 +3194,8 @@ describe("OpenTUI components", () => {
 					timestamp: 1,
 					status: "done",
 				},
-				content: "COLLAPSED_THINKING",
+				// A finished, collapsed thought shows only its heading.
+				content: "∴ Thought",
 				expanded: false,
 			},
 		];
@@ -3249,7 +3237,8 @@ describe("OpenTUI components", () => {
 				.captureCharFrame()
 				.split("\n")
 				.find((line) => line.includes(content));
-			expect(contentLine?.indexOf(content)).toBe(2);
+			// One padding cell; the assistant left border is gone.
+			expect(contentLine?.indexOf(content)).toBe(1);
 			if (hasThinking && hasAnswer && answer) {
 				expect({
 					x: answer.screenX,
@@ -3261,7 +3250,7 @@ describe("OpenTUI components", () => {
 					.captureCharFrame()
 					.split("\n")
 					.find((line) => line.includes(answerText));
-				expect(answerLine?.indexOf(answerText)).toBe(2);
+				expect(answerLine?.indexOf(answerText)).toBe(1);
 			}
 		}
 		const baseline = geometries[0];
@@ -3409,10 +3398,9 @@ describe("OpenTUI components", () => {
 			28,
 		);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("OpenCode UI work");
-		expect(frame).toContain(`PiTTy v${appVersion}`);
+		// The session name lives in the tab strip now, not the sidebar.
 		expect(frame).toContain("gpt-5.6-sol");
-		expect(frame).toContain("🟢 implementer");
+		expect(frame).toContain("● implementer");
 		expect(frame).toContain("bash");
 		expect(frame).not.toContain("Selected");
 	});
@@ -3485,13 +3473,10 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("4K tok");
 	});
 
-	test("inspector shows shared model/context rows instead of duplicating usage strings", async () => {
-		// With no window data there is nothing honest to show: the inspector's
-		// inline row omits unknown fields instead of rendering the sidebar's
-		// "— / —" placeholder (the sidebar keeps that placeholder; its own
-		// fallback rows are pinned separately and unchanged). The empty-transcript
-		// block keeps the tool/turn counts but must not duplicate the Model/Context
-		// rows, so the old cumulative "4200 tok" usage string is gone.
+	test("inspector header shows activity once and leaves model/context to the sidebar", async () => {
+		// Model and context for an open agent live in the sidebar scope, so the
+		// inspector header must not repeat them; the cumulative token string
+		// stays out of the header too.
 		const run: SubagentRun = {
 			runId: "run-1",
 			asyncDir: "/tmp/run-1",
@@ -3510,13 +3495,10 @@ describe("OpenTUI components", () => {
 		);
 		const frame = inspector.captureCharFrame();
 		expect(frame).not.toContain("— / —");
-		expect(frame).not.toContain("Thinking:");
 		expect(frame).not.toContain("Context");
 		expect(frame).not.toContain("Model");
-		expect(frame).toContain("⚙bash");
-		expect(frame).not.toContain("4200 tok");
-		expect(frame).not.toContain("▤");
-		expect(frame).not.toContain("◆");
+		expect(frame.split("↳ bash").length - 1).toBe(1);
+		expect(frame).not.toContain("4K tok");
 	});
 
 	test("inspector shows recursive child spawns inline and a parent breadcrumb", async () => {
@@ -3591,6 +3573,7 @@ describe("OpenTUI components", () => {
 		expect(parentFrame).toContain("inspect");
 		expect(parentFrame).not.toContain("\nSubagents\n");
 
+		let inspected: string | undefined;
 		const childView = await mount(
 			() => (
 				<SubagentInspector
@@ -3598,7 +3581,9 @@ describe("OpenTUI components", () => {
 					allTargets={[parent, child]}
 					items={[]}
 					now={4}
-					onInspectSubagentTarget={() => {}}
+					onInspectSubagentTarget={(key) => {
+						inspected = key;
+					}}
 				/>
 			),
 			100,
@@ -3606,7 +3591,13 @@ describe("OpenTUI components", () => {
 		);
 		const childFrame = childView.captureCharFrame();
 		expect(childFrame).toContain("Main › @cai · implementer › @theo · explore");
-		expect(childFrame).toContain("← @cai · implementer parent");
+		// The parent crumb replaces the old "← parent" link.
+		const crumbRow = childFrame.split("\n").findIndex((line) => line.includes("@cai"));
+		await childView.mockMouse.click(
+			childFrame.split("\n")[crumbRow]!.indexOf("@cai") + 1,
+			crumbRow,
+		);
+		expect(inspected).toBe(parent.key);
 	});
 
 	test("subagent chooser projects the same recursive hierarchy as the sidebar", () => {
@@ -3642,11 +3633,13 @@ describe("OpenTUI components", () => {
 		const first = target("theo", "cai", "explore", 110);
 		const second = target("aki", "cai", "explore", 120);
 		const options = subagentSelectorOptions([second, first, parent]);
-		expect(options.map((option) => option.name)).toEqual([
-			"○ @cai · implementer",
-			"├─ ○ @theo · explore",
-			"└─ ○ @aki · explore",
+		// Name column first; the state follows after the padding.
+		expect(options.map((option) => option.name.slice(0, 44).trimEnd())).toEqual([
+			"✓ @cai · implementer",
+			"├─ ✓ @theo · explore",
+			"└─ ✓ @aki · explore",
 		]);
+		expect(options[0]!.name).toContain("finished");
 	});
 
 	test("renders profiled descendants beneath their parent in the sidebar", async () => {
@@ -3686,8 +3679,8 @@ describe("OpenTUI components", () => {
 		);
 		const frame = setup.captureCharFrame();
 		const parent = frame.indexOf("@cai · implementer");
-		const firstChild = frame.indexOf("├─ ⚪ @theo · explore");
-		const secondChild = frame.indexOf("└─ ⚪ @aki · explore");
+		const firstChild = frame.indexOf("├─ ✓ @theo · explore");
+		const secondChild = frame.indexOf("└─ ✓ @aki · explore");
 		expect(parent).toBeGreaterThanOrEqual(0);
 		expect(firstChild).toBeGreaterThan(parent);
 		expect(secondChild).toBeGreaterThan(firstChild);
@@ -3728,10 +3721,12 @@ describe("OpenTUI components", () => {
 		const assistant: ConversationItem = {
 			kind: "assistant",
 			id: "tail-thinking",
-			text: "done",
+			text: "",
 			thinking: thought,
 			timestamp: 1,
-			status: "done",
+			// The one-line preview exists only while the thought streams; a
+			// finished collapsed thought is just its heading.
+			status: "streaming",
 		};
 		const setup = await mount(() => (
 			<MessageView
@@ -3744,7 +3739,7 @@ describe("OpenTUI components", () => {
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("closing marker zeta");
 		expect(frame).not.toContain("opening marker alpha");
-		expect(frame).toContain("▶ Thinking");
+		expect(frame).toContain("∴ Thinking…");
 	});
 	test("sidebar spends no rows on provider usage", async () => {
 		const frame = (
@@ -3764,6 +3759,7 @@ describe("OpenTUI components", () => {
 					<box flexGrow={1} />
 					<Sidebar
 						runs={[]}
+						notifications={[{ id: "anchor", text: "ANCHOR_NOTICE", tone: "info", createdAt: 1, read: false }]}
 						mcpStatus={{
 							version: 1,
 							servers: [
@@ -3796,7 +3792,7 @@ describe("OpenTUI components", () => {
 		const before = setup.captureCharFrame();
 		expect(before).toContain("MCP 2/2 connected");
 		expect(before).not.toContain("github");
-		const subagentsBefore = rowOf(before, "Subagents (0 active)");
+		const subagentsBefore = rowOf(before, "ANCHOR_NOTICE");
 		expect(subagentsBefore).toBeGreaterThanOrEqual(0);
 		const mcpRow = rowOf(before, "MCP 2/2 connected");
 		await setup.mockMouse.moveTo(70, mcpRow);
@@ -3805,14 +3801,14 @@ describe("OpenTUI components", () => {
 		const hovered = setup.captureCharFrame();
 		expect(hovered).toContain("github");
 		expect(hovered).toContain("postgres");
-		expect(rowOf(hovered, "Subagents (0 active)")).toBe(subagentsBefore);
+		expect(rowOf(hovered, "ANCHOR_NOTICE")).toBe(subagentsBefore);
 		await setup.mockMouse.moveTo(4, 0);
 		await setup.flush();
 		await new Promise((resolve) => setTimeout(resolve, 400));
 		await setup.flush();
 		const after = setup.captureCharFrame();
 		expect(after).not.toContain("github");
-		expect(rowOf(after, "Subagents (0 active)")).toBe(subagentsBefore);
+		expect(rowOf(after, "ANCHOR_NOTICE")).toBe(subagentsBefore);
 	});
 
 	test("renders live assistant output as stable plain text and tool timing", async () => {
@@ -3920,12 +3916,12 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("Select model");
+		expect(frame).toMatch(/Model\s+\d+ match/);
 		expect(frame).toContain("openai-codex/gpt-5.6-sol");
 		expect(frame).toContain("openai-codex/gpt-5.6-terra");
 		expect(frame).toContain("400k ctx");
 		expect(frame).toContain("1M ctx");
-		expect(frame).toContain("Median 42 tok/s · TTFT 800ms");
+		expect(frame).toContain("median 42 tok/s · first token 800ms");
 		expect(formatContextWindow(128000)).toBe("128k ctx");
 		expect(filterModelChoices(models, "SOL").map((model) => model.id)).toEqual([
 			"gpt-5.6-sol",
@@ -3955,7 +3951,7 @@ describe("OpenTUI components", () => {
 			90,
 			16,
 		);
-		expect(emptySetup.captureCharFrame()).toContain("Tab list");
+		expect(emptySetup.captureCharFrame()).toContain("0 matches");
 		expect(emptySetup.captureCharFrame()).toContain("No matching models.");
 	});
 
@@ -3999,113 +3995,7 @@ describe("OpenTUI components", () => {
 		expect(setup.captureCharFrame()).toContain("syncing with Pi…");
 	});
 
-	test("keys timing summaries to the selected model and shows only two medians", async () => {
-		const history: RequestTiming[] = [
-			{
-				timingVersion: REQUEST_TIMING_VERSION,
-				provider: "openai",
-				modelId: "gpt-5",
-				turnMs: 6_200,
-				modelToToolMs: 800,
-				toolCallDurationsMs: [600, 700],
-				toolCallCount: 1,
-				toolWallMs: 900,
-			},
-			{
-				timingVersion: REQUEST_TIMING_VERSION,
-				provider: "openai",
-				modelId: "gpt-5",
-				turnMs: 8_400,
-				modelToToolMs: 1_200,
-				toolCallDurationsMs: [800, 900, 1_000],
-				toolCallCount: 2,
-				toolWallMs: 1_400,
-			},
-			{
-				timingVersion: REQUEST_TIMING_VERSION,
-				provider: "openai",
-				modelId: "other-model",
-				turnMs: 2_000,
-				toolCallDurationsMs: [],
-			},
-		];
-		const setup = await mount(
-			() => (
-				<Sidebar
-					state={
-						{
-							sessionName: "Timing session",
-							sessionId: "session",
-							model: {
-								provider: "openai",
-								id: "gpt-5",
-								contextWindow: 100_000,
-							},
-							thinkingLevel: "high",
-						} as RpcSessionState
-					}
-					runs={[]}
-					timingHistory={history}
-					subagentsAvailable={false}
-					todosAvailable={false}
-					height={24}
-				/>
-			),
-			80,
-			24,
-		);
-		const frame = setup.captureCharFrame();
-		expect(frame).toContain("Timing");
-		expect(frame).toContain("Turn 7s · Tool 800ms");
-		expect(frame).not.toContain("Turn 2s");
-		expect(frame).not.toContain("other-model");
-	});
-
-	test("keeps timing and tool dispatch readable in a 38-column sidebar", async () => {
-		const history: RequestTiming[] = [
-			{
-				timingVersion: REQUEST_TIMING_VERSION,
-				provider: "openai",
-				modelId: "gpt",
-				turnMs: 7_200,
-				toolCallDurationsMs: [980],
-				toolDispatchMs: [55],
-				toolCallCount: 1,
-			},
-		];
-		const setup = await mount(
-			() => (
-				<Sidebar
-					state={
-						{
-							sessionName: "Example",
-							model: { provider: "openai", id: "gpt", contextWindow: 100_000 },
-						} as RpcSessionState
-					}
-					runs={[]}
-					timingHistory={history}
-					subagentsAvailable={false}
-					todosAvailable={false}
-					height={24}
-				/>
-			),
-			38,
-			24,
-		);
-		const frame = setup.captureCharFrame();
-		expect(frame).toContain("Timing · dispatch 55ms");
-		expect(frame).toContain("Turn 7s · Tool 980ms");
-		const timingRows = frame
-			.split("\n")
-			.filter(
-				(line) =>
-					line.includes("Timing · dispatch") || line.includes("Turn 7s · Tool"),
-			);
-		expect(timingRows).toHaveLength(2);
-		expect(timingRows.every((line) => line.length <= 38)).toBe(true);
-	});
-
-	test("omits detailed tool timings from model picker while preserving them in sidebar", async () => {
+	test("omits detailed tool timings from the model picker", async () => {
 		const history: RequestTiming[] = [
 			{
 				timingVersion: REQUEST_TIMING_VERSION,
@@ -4158,14 +4048,13 @@ describe("OpenTUI components", () => {
 						generationMs: 1000,
 					}}
 					subagentsAvailable={false}
-					todosAvailable={false}
 					height={24}
 				/>
 			),
 			80,
 			24,
 		);
-		expect(setup.captureCharFrame()).not.toContain("Turn→output");
+		expect(setup.captureCharFrame()).not.toContain("tok/s");
 	});
 
 	test("hides timing until the selected model has produced a request", async () => {
@@ -4196,9 +4085,7 @@ describe("OpenTUI components", () => {
 						} as RpcSessionState
 					}
 					runs={[]}
-					timingHistory={history}
 					subagentsAvailable={false}
-					todosAvailable={false}
 					height={24}
 				/>
 			),
@@ -4263,8 +4150,9 @@ describe("OpenTUI components", () => {
 		);
 		const frame = setup.captureCharFrame();
 		const lines = frame.split("\n");
-		const y = lines.findIndex((line) => line.includes("Main chat"));
-		const x = y >= 0 ? lines[y]!.indexOf("Main chat") + 2 : -1;
+		// The "Main" breadcrumb is the close target.
+		const y = lines.findIndex((line) => line.includes("Main ›"));
+		const x = y >= 0 ? lines[y]!.indexOf("Main ›") + 1 : -1;
 		expect(y).toBeGreaterThanOrEqual(0);
 		expect(x).toBeGreaterThanOrEqual(0);
 		await setup.mockMouse.click(x, y);
@@ -4471,9 +4359,8 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		const inspectorFrame = inspector.captureCharFrame();
-		expect(inspectorFrame).toContain("Steering input hidden");
-		// Unknown model/context/thinking are omitted from the inspector's inline
-		// row — no sidebar-style placeholders here.
+		expect(inspectorFrame).toContain("finished · read only");
+		// Model/context belong to the sidebar scope; the inspector shows none.
 		expect(inspectorFrame).not.toContain("— / —");
 		expect(inspectorFrame).not.toContain("Thinking:");
 		expect(inspectorFrame).not.toContain("Context");
@@ -4496,17 +4383,21 @@ describe("OpenTUI components", () => {
 			42,
 			24,
 		);
-		expect(sidebar.captureCharFrame()).toContain("1s ago · working");
+		// Row one: agent and age; row two: what it is doing.
+		// No start time recorded: the row shows no run time rather than the
+		// status file's age.
+		expect(sidebar.captureCharFrame()).toMatch(/implementer #1\s*\n/);
+		expect(sidebar.captureCharFrame()).toContain("working");
 		const activeInspector = await mount(
 			() => <SubagentInspector target={active} items={[]} now={2_000} />,
 			100,
 			24,
 		);
 		const activeFrame = activeInspector.captureCharFrame();
-		expect(activeFrame).toContain("provider/child");
-		expect(activeFrame).toContain("Thinking: high");
-		expect(activeFrame).toContain("Working…");
-		expect(activeFrame).toContain("working");
+		expect(activeFrame).toContain("◐ working");
+		// Each child's own model reaches the sidebar through its scope.
+		expect(sidebarScopeForTarget(active).model).toBe("provider/child");
+		expect(sidebarScopeForTarget(active).thinking).toBe("high");
 		expect(activeFrame).not.toContain("parallel/running");
 		expect(activeFrame).not.toContain("▤");
 		expect(activeFrame).not.toContain("◆");
@@ -4546,6 +4437,13 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		expect(setup.captureCharFrame()).not.toContain("\u001b");
+		const scoped = await mount(
+			() => <Sidebar runs={[]} scope={sidebarScopeForTarget(target)} inspecting />,
+			42,
+			24,
+		);
+		expect(scoped.captureCharFrame()).not.toContain("\u001b");
+		expect(scoped.captureCharFrame()).not.toContain("\u0007");
 	});
 
 	test("inspector uses one friendly state vocabulary", async () => {
@@ -4592,15 +4490,27 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("50K / 200K");
-		expect(frame).toContain("25% used");
-		expect(frame).toContain("anthropic/claude-opus");
-		expect(frame).toContain("Thinking: high");
-		expect(frame).toContain("◓ Working…");
-		expect(frame).toContain("working");
+		expect(frame).toContain("◓ working");
 		expect(frame).not.toContain("profiled/running");
-		expect(frame).not.toContain("▤");
-		expect(frame).not.toContain("◆");
+		// The child's model and window render in the sidebar scope, once.
+		expect(frame).not.toContain("anthropic/claude-opus");
+		const sidebar = await mount(
+			() => (
+				<Sidebar
+					runs={[run]}
+					scope={sidebarScopeForTarget(target)}
+					inspecting
+					selectedTargetKey={target.key}
+				/>
+			),
+			42,
+			24,
+		);
+		const sidebarFrame = sidebar.captureCharFrame();
+		expect(sidebarFrame).toContain("50K / 200K");
+		expect(sidebarFrame).toContain("25%");
+		expect(sidebarFrame).toContain("anthropic/claude-opus");
+		expect(sidebarFrame).toContain("high");
 	});
 
 	test("inspector omits model/context rows when the child reports neither", async () => {
@@ -4628,9 +4538,8 @@ describe("OpenTUI components", () => {
 		expect(frame).not.toContain("Thinking:");
 		expect(frame).not.toContain("Context");
 		expect(frame).not.toContain("Model");
-		expect(frame).toContain("◆ resident · idle");
-		expect(frame).toContain("resident");
-		expect(frame).not.toContain("Working…");
+		expect(frame).toContain("○ resident");
+		expect(frame).not.toContain("working");
 		expect(frame).not.toContain("◐");
 		expect(frame).not.toContain("◓");
 		expect(frame).not.toContain("◑");
@@ -4660,8 +4569,7 @@ describe("OpenTUI components", () => {
 			24,
 		);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("Awaiting parent answer");
-		expect(frame).toContain("Approve the retention hold?");
+		expect(frame).toContain("asked main  Approve the retention hold?");
 		expect(frame).toContain("Delete is blocked");
 	});
 
@@ -4688,14 +4596,14 @@ describe("OpenTUI components", () => {
 		};
 		const glyphs = ["◐", "◓", "◑", "◒"];
 		const queued = await frameFor("queued");
-		expect(queued).toContain("◐ Working…");
+		expect(queued).toContain("◐ working");
 		const waiting = await frameFor("waiting");
-		expect(waiting).toContain("⏸ waiting for parent");
-		expect(waiting).not.toContain("Working…");
+		expect(waiting).toContain("◷ waiting for parent");
+		expect(waiting).not.toContain("working");
 		for (const glyph of glyphs) expect(waiting).not.toContain(glyph);
 		const idle = await frameFor("idle");
-		expect(idle).toContain("◆ resident · idle");
-		expect(idle).not.toContain("Working…");
+		expect(idle).toContain("○ resident");
+		expect(idle).not.toContain("working");
 		for (const glyph of glyphs) expect(idle).not.toContain(glyph);
 	});
 
@@ -4881,7 +4789,7 @@ describe("OpenTUI components", () => {
 		expect(cursor.captureCharFrame()).toContain("▍");
 	});
 
-	test("shared model/context rows keep the sidebar 32-char truncation", async () => {
+	test("sidebar model row keeps the 35-column truncation", async () => {
 		const full = "openai-codex/gpt-5.6-sol-very-long-model-identifier-xyz";
 		const state = {
 			sessionId: "session-1",
@@ -4905,76 +4813,6 @@ describe("OpenTUI components", () => {
 		const sidebarFrame = sidebar.captureCharFrame();
 		expect(sidebarFrame).toContain("…");
 		expect(sidebarFrame).not.toContain(full);
-		// Finished child, so no Working… line contributes its own ellipsis.
-		const run: SubagentRun = {
-			runId: "truncate-child",
-			mode: "single",
-			state: "completed",
-			agent: "worker",
-			model: full,
-			steps: [],
-		};
-		const target = subagentTargets([run])[0]!;
-		const inspector = await mount(
-			() => <SubagentInspector target={target} items={[]} now={2_000} />,
-			100,
-			24,
-		);
-		const inspectorFrame = inspector.captureCharFrame();
-		// The wide inspector uses the full width (per-field caps, no 32-column
-		// clip), so the long model renders in full on its single inline row.
-		// The sidebar half above still pins the 32-char truncation.
-		expect(inspectorFrame).toContain(full);
-		expect(inspectorFrame).not.toContain("…");
-	});
-
-	test("inspector renders context, model and thinking side by side on one row", async () => {
-		// 36 chars: longer than the sidebar's 32-column clip, so its presence
-		// in full proves the inline row uses the full available width.
-		const model = "opencode-go/muse-spark-1.3-extended";
-		expect(model.length).toBeGreaterThan(32);
-		const run: SubagentRun = {
-			runId: "inline-rows",
-			asyncDir: "/tmp/inline-rows",
-			mode: "single",
-			state: "running",
-			agent: "implementer",
-			model,
-			thinking: "medium",
-			tokens: {
-				total: 40000,
-				input: 33000,
-				output: 7000,
-				window: 33000,
-				windowPeak: 33000,
-			},
-			contextWindow: 400000,
-			currentTool: "bash",
-			steps: [],
-		};
-		const target = subagentTargets([run])[0]!;
-		const setup = await mount(
-			() => <SubagentInspector target={target} items={[]} now={2_000} />,
-			110,
-			30,
-		);
-		const frame = setup.captureCharFrame();
-		const detailLines = frame
-			.split("\n")
-			.filter(
-				(line) =>
-					line.includes("Context") ||
-					line.includes("Model") ||
-					line.includes("Thinking:"),
-			);
-		// One row, not five: Context, Model and Thinking share a single line,
-		// so the block above the transcript takes one row instead of five.
-		expect(detailLines).toHaveLength(1);
-		expect(detailLines[0]).toContain("Context 33K / 400K · 8% used");
-		expect(detailLines[0]).toContain(`Model ${model}`);
-		expect(detailLines[0]).toContain("Thinking: medium");
-		expect(frame).toContain(model);
-		expect(frame).not.toContain("— / —");
 	});
 
 	test("inspector passes live time to child items while the target is active", async () => {
@@ -5010,7 +4848,9 @@ describe("OpenTUI components", () => {
 			100,
 			30,
 		);
-		expect(activeView.captureCharFrame()).toContain("took 1m 0s");
+		const toolRow = (frame: string) =>
+			frame.split("\n").find((line) => line.includes(" bash")) ?? "";
+		expect(toolRow(activeView.captureCharFrame())).toContain("1m 0s");
 		const finishedTarget = subagentTargets([
 			makeRun("finished", "completed"),
 		])[0]!;
@@ -5025,7 +4865,10 @@ describe("OpenTUI components", () => {
 			100,
 			30,
 		);
-		expect(finishedView.captureCharFrame()).toContain("took 0ms");
+		// A finished target freezes item time: no live `1m 0s`, and the
+		// zero-length call shows no duration at all.
+		expect(toolRow(finishedView.captureCharFrame())).not.toContain("1m 0s");
+		expect(toolRow(finishedView.captureCharFrame())).not.toContain("0ms");
 	});
 
 	test("sidebar parent rows render context usage, model, and thinking level", async () => {
@@ -5051,9 +4894,10 @@ describe("OpenTUI components", () => {
 		);
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("33K / 400K");
-		expect(frame).toContain("8% used");
+		expect(frame).toContain("367K left");
+		expect(frame).toMatch(/Context\s+8%/);
 		expect(frame).toContain("openai-codex/gpt-5.6-sol");
-		expect(frame).toContain("Thinking: high");
+		expect(frame).toMatch(/Model\s+high/);
 	});
 
 	test("shows inspector actions only for applicable file-backed targets", async () => {
@@ -5101,41 +4945,39 @@ describe("OpenTUI components", () => {
 			100,
 			24,
 		);
-		expect(runningView.captureCharFrame()).toContain("⏸ Pause");
-		expect(runningView.captureCharFrame()).toContain("⏹ Stop");
+		expect(runningView.captureCharFrame()).toContain("⏸ pause");
+		expect(runningView.captureCharFrame()).toContain("⏹ stop");
 		const queuedView = await mount(
 			() => <SubagentInspector target={queued} items={[]} now={1} />,
 			100,
 			24,
 		);
-		expect(queuedView.captureCharFrame()).toContain("⏹ Stop");
-		expect(queuedView.captureCharFrame()).toContain("Ctrl+Shift+A stop");
-		expect(queuedView.captureCharFrame()).not.toContain("⏸ Pause");
-		expect(queuedView.captureCharFrame()).not.toContain("Ctrl+A pause");
+		expect(queuedView.captureCharFrame()).toContain("⏹ stop");
+		expect(queuedView.captureCharFrame()).toContain("ctrl+shift+a stop");
+		expect(queuedView.captureCharFrame()).not.toContain("⏸ pause");
+		expect(queuedView.captureCharFrame()).not.toContain("ctrl+a pause");
 		const pausedView = await mount(
 			() => <SubagentInspector target={paused} items={[]} now={1} />,
 			100,
 			24,
 		);
-		expect(pausedView.captureCharFrame()).toContain("▶ Resume");
-		expect(pausedView.captureCharFrame()).toContain("⏹ Stop");
-		expect(pausedView.captureCharFrame()).toContain(
-			"Resume via click · Ctrl+Shift+A stop",
-		);
-		expect(pausedView.captureCharFrame()).not.toContain("⏸ Pause");
-		expect(pausedView.captureCharFrame()).not.toContain("Ctrl+A pause");
+		expect(pausedView.captureCharFrame()).toContain("▶ resume");
+		expect(pausedView.captureCharFrame()).toContain("⏹ stop");
+		expect(pausedView.captureCharFrame()).toContain("ctrl+shift+a stop");
+		expect(pausedView.captureCharFrame()).not.toContain("⏸ pause");
+		expect(pausedView.captureCharFrame()).not.toContain("ctrl+a pause");
 		const finishedView = await mount(
 			() => <SubagentInspector target={finished} items={[]} now={1} />,
 			100,
 			24,
 		);
-		expect(finishedView.captureCharFrame()).not.toContain("⏹ Stop");
+		expect(finishedView.captureCharFrame()).not.toContain("⏹ stop");
 		const foregroundView = await mount(
 			() => <SubagentInspector target={foreground} items={[]} now={1} />,
 			100,
 			24,
 		);
-		expect(foregroundView.captureCharFrame()).not.toContain("⏹ Stop");
+		expect(foregroundView.captureCharFrame()).not.toContain("⏹ stop");
 	});
 
 	test("keeps subagent transcript rendering uncullled", async () => {
@@ -5177,7 +5019,7 @@ describe("OpenTUI components", () => {
 		expect(setup.captureCharFrame()).toContain("first update");
 	});
 
-	test("uses lifecycle state for active target border colors", async () => {
+	test("uses lifecycle state for agent row glyphs and colours", async () => {
 		const runs: SubagentRun[] = [
 			{
 				runId: "border-running",
@@ -5207,30 +5049,21 @@ describe("OpenTUI components", () => {
 				steps: [],
 			},
 		];
-		const setup = await mount(() => <Sidebar runs={runs} />, 42, 24);
-		const running = setup.renderer.root.findDescendantById(
-			"subagent-border-running",
-		) as BoxRenderable | undefined;
-		const queued = setup.renderer.root.findDescendantById(
-			"subagent-border-queued",
-		) as BoxRenderable | undefined;
-		const failed = setup.renderer.root.findDescendantById(
-			"subagent-border-failed",
-		) as BoxRenderable | undefined;
-		if (!running || !queued || !failed)
-			throw new Error("border target fixture missing");
-		expect(running.borderColor.toInts().slice(0, 3)).toEqual(
-			RGBA.fromHex(colors.green).toInts().slice(0, 3),
-		);
-		expect(queued.borderColor.toInts().slice(0, 3)).toEqual(
-			RGBA.fromHex(colors.yellow).toInts().slice(0, 3),
-		);
-		expect(failed.borderColor.toInts().slice(0, 3)).toEqual(
-			RGBA.fromHex(colors.red).toInts().slice(0, 3),
-		);
+		// Rows carry state in a single-cell glyph and its colour, not a border.
+		const frame = (
+			await mount(() => <Sidebar runs={runs} />, 42, 24)
+		).captureCharFrame();
+		expect(frame).toContain("● running-worker");
+		expect(frame).toContain("◌ queued-worker");
+		expect(frame).toContain("✗ failed-worker");
+		expect(stateColor("running")).toBe(colors.accent);
+		expect(stateColor("queued")).toBe(colors.yellow);
+		expect(stateColor("failed")).toBe(colors.red);
+		expect(stateColor("completed")).toBe(colors.green);
+		expect(stateIcon("waiting")).toBe("◷");
 	});
 
-	test("collapses and expands thinking while keeping a visible preview", async () => {
+	test("collapses a finished thought to its heading and expands it on demand", async () => {
 		const item: ConversationItem = {
 			kind: "assistant",
 			id: "thinking-toggle",
@@ -5248,9 +5081,9 @@ describe("OpenTUI components", () => {
 			/>
 		));
 		const collapsedFrame = collapsed.captureCharFrame();
-		expect(collapsedFrame).toContain("▶ Thinking");
-		expect(collapsedFrame).toContain("UNIQUE_EXPANDED_DETAIL");
-		expect(collapsedFrame).toContain("expand");
+		// A finished, collapsed thought is one heading row with its size.
+		expect(collapsedFrame).toContain("∴ Thought · 2 lines");
+		expect(collapsedFrame).not.toContain("UNIQUE_EXPANDED_DETAIL");
 		expect(collapsedFrame).not.toContain("HEAD_MARKER_ALPHA");
 
 		const expanded = await mount(() => (
@@ -5262,8 +5095,7 @@ describe("OpenTUI components", () => {
 			/>
 		));
 		const expandedFrame = expanded.captureCharFrame();
-		expect(expandedFrame).toContain("▼ Thinking");
-		expect(expandedFrame).toContain("collapse");
+		expect(expandedFrame).toContain("▾ Thought · 2 lines");
 		expect(expandedFrame).toContain("UNIQUE_EXPANDED_DETAIL");
 	});
 
@@ -5290,7 +5122,7 @@ describe("OpenTUI components", () => {
 		const thinkingLine = frame
 			.split("\n")
 			.find((line) => line.includes("Inspecting the branch state"));
-		expect(thinkingLine?.indexOf("Inspecting the branch state")).toBe(2);
+		expect(thinkingLine?.indexOf("Inspecting the branch state")).toBe(1);
 		expect(frame).not.toContain("▍");
 	});
 
@@ -5744,9 +5576,9 @@ describe("runtime theme transitions", () => {
 			expect(lightSurface.backgroundColor.toInts().slice(0, 3)).toEqual([
 				253, 246, 227,
 			]);
-			expect(lightTool.backgroundColor.toInts().slice(0, 3)).toEqual([
-				253, 246, 227,
-			]);
+			// Tool rows paint no background of their own; they show the
+			// themed surface beneath them.
+			expect(lightTool.backgroundColor.toInts()[3]).toBe(0);
 			expect(lightAnswer.syntaxStyle).toBe(controller.markdownStyle);
 			expect(lightThinking.syntaxStyle).toBe(controller.thinkingMarkdownStyle);
 			expect(lightAnswer.syntaxStyle).not.toBe(initialAnswerStyle);
@@ -5776,54 +5608,35 @@ describe("runtime theme transitions", () => {
 });
 
 describe("sidebar panel allocation", () => {
-	test("allocates all panels proportionally", () => {
+	test("allocates agents and notices proportionally", () => {
 		expect(
-			allocateSidebarPanels(100, {
-				subagents: true,
-				todos: true,
-				notifications: true,
-			}),
-		).toEqual({ subagents: 50, todos: 30, notifications: 20 });
+			allocateSidebarPanels(100, { subagents: true, notifications: true }),
+		).toEqual({ subagents: 70, notifications: 30 });
 	});
-	test("redistributes absent panel shares", () => {
+	test("gives an absent panel's share to the other", () => {
 		expect(
-			allocateSidebarPanels(100, {
-				subagents: false,
-				todos: true,
-				notifications: true,
-			}),
-		).toEqual({ subagents: 0, todos: 60, notifications: 40 });
+			allocateSidebarPanels(100, { subagents: false, notifications: true }),
+		).toEqual({ subagents: 0, notifications: 100 });
 		expect(
-			allocateSidebarPanels(100, {
-				subagents: true,
-				todos: false,
-				notifications: true,
-			}),
-		).toEqual({ subagents: 71, todos: 0, notifications: 29 });
+			allocateSidebarPanels(100, { subagents: true, notifications: false }),
+		).toEqual({ subagents: 100, notifications: 0 });
 	});
-	test("keeps notifications no larger than higher-priority panels across available rows", () => {
+	test("keeps notices no larger than agents and spends exactly the rows owned", () => {
 		for (let rows = 0; rows <= 100; rows++) {
 			const allocation = allocateSidebarPanels(rows, {
 				subagents: true,
-				todos: true,
 				notifications: true,
 			});
 			expect(allocation.notifications).toBeLessThanOrEqual(
 				allocation.subagents,
 			);
-			expect(allocation.notifications).toBeLessThanOrEqual(allocation.todos);
-			expect(
-				allocation.subagents + allocation.todos + allocation.notifications,
-			).toBe(rows);
+			expect(allocation.subagents + allocation.notifications).toBe(rows);
 		}
 	});
-	test("never allocates more rows than a constrained sidebar owns", () => {
-		const allocation = allocateSidebarPanels(5, {
-			subagents: true,
-			todos: true,
-			notifications: true,
-		});
-		expect(allocation).toEqual({ subagents: 3, todos: 2, notifications: 0 });
+	test("prefers agents when rows are below both floors", () => {
+		expect(
+			allocateSidebarPanels(3, { subagents: true, notifications: true }),
+		).toEqual({ subagents: 2, notifications: 1 });
 	});
 });
 
@@ -5943,7 +5756,7 @@ describe("duration and sidebar repaint regressions", () => {
 			expect(Renderable.renderablesByNumber.size).toBeLessThanOrEqual(baseline);
 		}
 	}, 15_000);
-	test("fits a large sidebar list and Todo panel in a 253x78 pane", async () => {
+	test("fits a large sidebar agent list in a 253x78 pane", async () => {
 		const runs: SubagentRun[] = Array.from({ length: 40 }, (_, index) => ({
 			runId: `geometry-${index}`,
 			asyncDir: `/tmp/geometry-${index}`,
@@ -5952,12 +5765,6 @@ describe("duration and sidebar repaint regressions", () => {
 			agent: `worker-${index}`,
 			steps: [],
 			startedAt: index,
-		}));
-		const todos: TodoViewItem[] = Array.from({ length: 12 }, (_, index) => ({
-			id: String(index),
-			text: `Todo item ${index}`,
-			status: index % 2 === 0 ? "pending" : "completed",
-			done: index % 2 === 1,
 		}));
 		const stats = {
 			sessionFile: "/tmp/session.jsonl",
@@ -5973,12 +5780,12 @@ describe("duration and sidebar repaint regressions", () => {
 		} as SessionStats;
 		const [height, setHeight] = createSignal(78);
 		const setup = await mount(
-			() => <Sidebar runs={runs} stats={stats} todos={todos} height={height} />,
+			() => <Sidebar runs={runs} stats={stats} height={height} />,
 			253,
 			78,
 		);
 		const assertBounds = (expectedHeight: number) => {
-			for (const id of ["subagent-panel", "subagent-scroll", "todo-panel"]) {
+			for (const id of ["subagent-panel", "subagent-scroll"]) {
 				const renderable = setup.renderer.root.findDescendantById(id);
 				if (!renderable)
 					throw new Error(`sidebar geometry fixture missing: ${id}`);
@@ -6003,7 +5810,6 @@ describe("duration and sidebar repaint regressions", () => {
 		const frame = setup.captureCharFrame();
 		expect(frame.split("\n")).toHaveLength(79);
 		expect(frame).toContain("worker-39");
-		expect(frame).toContain("Todos");
 		for (const line of frame.split("\n"))
 			expect(line.length).toBeLessThanOrEqual(253);
 	});
@@ -6025,7 +5831,7 @@ describe("duration and sidebar repaint regressions", () => {
 		const setup = await mount(() => (
 			<MessageView item={item} showThinking toolExpanded={false} now={2_000} />
 		));
-		expect(setup.captureCharFrame()).toContain("took 347ms");
+		expect(setup.captureCharFrame()).toContain("347ms");
 	});
 
 	test("clips and sanitizes long subagent rows without stale suffixes", async () => {
@@ -6110,8 +5916,10 @@ describe("duration and sidebar repaint regressions", () => {
 			24,
 		);
 		const frame = tool.captureCharFrame();
-		expect(frame).toContain("Subagents");
-		expect(frame).toContain("last activity 1s ago");
+		// Children render as tree rows under the spawn row.
+		expect(frame).toMatch(/├ . /);
+		expect(frame).toMatch(/└ . /);
+		expect(frame).toContain("1s ago");
 		expect(frame).toContain("working");
 		expect(frame).toContain("finished");
 		expect(frame).not.toContain("◇ Agents ×");
@@ -6332,9 +6140,12 @@ describe("duration and sidebar repaint regressions", () => {
 		await setup.waitForVisualIdle({ quietFrames: 2, maxFrames: 120 });
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("▾ spawn cards");
-		expect(frame.split("Subagents").length - 1).toBe(4);
+		// Each spawn card owns one child and draws it as a tree row.
+		expect(
+			frame.split("\n").filter((line) => /^\s*└ . /.test(line)).length,
+		).toBe(4);
 		// The collapsed one-line rows are gone; each child now renders its
-		// own 3-row inline block.
+		// own two-row tree block.
 		for (const target of targets)
 			expect(frame).not.toContain(spawnGroupRowText(target, 2_000));
 	});
@@ -6481,35 +6292,35 @@ describe("duration and sidebar repaint regressions", () => {
 			},
 		});
 		expect(spawnGroupRowText(working, 2_000)).toBe(
-			`🟢 @w1 — helper · working · 1s ago · 3 tools`,
+			`● @w1 — helper · working · 1s ago · 3 tools`,
 		);
 		// Working child without usage yet: honestly `starting…`, once.
 		const starting = child("w2", "running");
 		const startingRow = spawnGroupRowText(starting, 2_000);
-		expect(startingRow).toBe(`🟢 @w2 — helper · working · 1s ago · starting…`);
+		expect(startingRow).toBe(`● @w2 — helper · working · 1s ago · starting…`);
 		expect(startingRow.split("starting…").length - 1).toBe(1);
 		// Finished / resident / unresponsive children: the state word appears
 		// exactly once — the usage line stays empty instead of restating it.
 		const finished = child("done-1", "completed");
 		expect(spawnGroupRowText(finished, 2_000)).toBe(
-			`⚪ @done-1 — helper · finished · 1s ago`,
+			`✓ @done-1 — helper · finished · 1s ago`,
 		);
 		// A resident (`idle`) child is live-but-idle: the status-file timestamp
 		// is not an age of anything the user did, so the row names the state
 		// on its own. A waiting child reads the same way.
 		const resident = child("res-1", "idle");
 		expect(spawnGroupRowText(resident, 2_000)).toBe(
-			`⚪ @res-1 — helper · resident`,
+			`○ @res-1 — helper · resident`,
 		);
 		expect(spawnGroupRowText(resident, 2_000)).not.toContain("ago");
 		const waiting = child("wait-1", "waiting");
 		expect(spawnGroupRowText(waiting, 2_000)).toBe(
-			`⚪ @wait-1 — helper · waiting for parent`,
+			`◷ @wait-1 — helper · waiting for parent`,
 		);
 		expect(spawnGroupRowText(waiting, 2_000)).not.toContain("ago");
 		const unresponsive = child("st-1", "unresponsive");
 		expect(spawnGroupRowText(unresponsive, 2_000)).toBe(
-			`⚪ @st-1 — helper · unresponsive · 1s ago`,
+			`○ @st-1 — helper · unresponsive · 1s ago`,
 		);
 		for (const [row, word] of [
 			[spawnGroupRowText(finished, 2_000), "finished"],
@@ -6555,14 +6366,21 @@ describe("duration and sidebar repaint regressions", () => {
 		// placeholder is unrelated.)
 		expect(frame).toContain("resident");
 		expect(frame).not.toContain("ago");
-		expect(frame.split("resident").length - 1).toBe(1);
+		// Once in the row itself; the Agents header summary is separate.
+		expect(
+			frame
+				.split("\n")
+				.filter((line) => !line.includes("Agents"))
+				.join("\n")
+				.split("resident").length - 1,
+		).toBe(1);
 		const box = setup.renderer.root.findDescendantById(
 			"subagent-resident-child",
 		) as BoxRenderable;
 		expect(box.height).toBe(2);
 	});
 
-	test("sidebar keeps the active count visible next to the inspect hint", async () => {
+	test("sidebar agents header shows the live count", async () => {
 		const now = Date.now();
 		const run: SubagentRun = {
 			runId: "profiled:count",
@@ -6579,10 +6397,10 @@ describe("duration and sidebar repaint regressions", () => {
 		};
 		const setup = await mount(() => <Sidebar runs={[run]} now={now} />, 42, 30);
 		const frame = setup.captureCharFrame();
-		// The count and the navigation hint share one row. The count is the
-		// information, so it must survive the squeeze and the hint is what clips.
-		expect(frame).toContain("Subagents (1 active)");
-		expect(frame).toContain("Ctrl+I");
+		// The Agents header carries the live count; the key hint moved to the
+		// footer, so the header never has to squeeze it.
+		expect(frame).toMatch(/Agents\s+1 working/);
+		expect(frame).not.toContain("Ctrl+I");
 	});
 
 	test("heartbeat-dead children read unresponsive on every surface, never stale", async () => {
@@ -6652,7 +6470,7 @@ describe("duration and sidebar repaint regressions", () => {
 		const sidebarFrame = sidebar.captureCharFrame();
 		// Wherever a state word is shown, it reads unresponsive…
 		expect(cardFrame).toContain("unresponsive");
-		expect(selectorFrame).toContain("UNRESPONSIVE");
+		expect(selectorFrame).toContain("unresponsive");
 		// …and the old word appears in no rendered frame. (The inactive
 		// sidebar row shows icon + label only, so it names no state.)
 		for (const frame of [cardFrame, selectorFrame, sidebarFrame]) {
@@ -6878,7 +6696,7 @@ describe("batch A data truth", () => {
 		// never the epoch, and timing renders empty without a clock.
 		expect(inspectorItemNow(false, assistant, 500)).toBeUndefined();
 		expect(toolTiming(tool)).toBe("");
-		expect(toolTiming(tool, 500)).toContain("took");
+		expect(toolTiming(tool, 500)).toBe("400ms");
 	});
 });
 

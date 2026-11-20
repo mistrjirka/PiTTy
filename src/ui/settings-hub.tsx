@@ -1,5 +1,7 @@
 import type { SelectRenderable, TextRenderable } from "@opentui/core";
 import { createEffect, createMemo } from "solid-js";
+import { DialogFrame } from "./dialog-frame.tsx";
+import { selectOptionIndexAtMouse } from "./select-mouse.ts";
 import { colors } from "./theme.ts";
 
 export type SettingsSectionDescriptor = {
@@ -34,11 +36,13 @@ export function SettingsHub(props: SettingsHubProps) {
   createEffect(() => {
     const current = rows();
     if (select) {
+      // One row per setting: label column, then its current value.
       select.options = current.map((row) => ({
-        name: row.label,
-        description: row.busy()
-          ? "Applying…"
-          : (row.disabledReason() ?? row.summary()),
+        name: settingsRowText(
+          row.label,
+          row.busy() ? "Applying…" : (row.disabledReason() ?? row.summary()),
+        ),
+        description: "",
         value: row.id,
       }));
       select.selectedIndex = selectedIndex();
@@ -50,36 +54,7 @@ export function SettingsHub(props: SettingsHubProps) {
     if (errorText) errorText.content = errors.join("  ");
   });
   return (
-    <box
-      position="absolute"
-      left="15%"
-      right="15%"
-      top="12%"
-      bottom={5}
-      flexDirection="column"
-      backgroundColor={colors.panelRaised}
-      border
-      borderColor={colors.borderStrong}
-      padding={1}
-      zIndex={150}
-    >
-      <box flexDirection="row">
-        <text fg={colors.textBright} attributes={1}>
-          Settings
-        </text>
-        <box flexGrow={1} />
-        <text
-          fg={colors.muted}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onClose();
-          }}
-        >
-          × Close
-        </text>
-      </box>
-      <text fg={colors.subtle}>↑/↓ choose · Enter open · Esc close</text>
+    <DialogFrame title="Settings" hint="↑/↓ choose · enter open" onClose={props.onClose}>
       <select
         ref={(value) => {
           select = value;
@@ -88,19 +63,18 @@ export function SettingsHub(props: SettingsHubProps) {
         options={[]}
         selectedIndex={0}
         focused
-        height={Math.min(12, Math.max(5, rows().length * 2))}
+        showDescription={false}
+        height={Math.min(14, Math.max(3, rows().length))}
         backgroundColor={colors.panelRaised}
         focusedBackgroundColor={colors.panelRaised}
         textColor={colors.text}
         focusedTextColor={colors.textBright}
         selectedBackgroundColor={colors.selection}
         selectedTextColor={colors.textBright}
-        descriptionColor={colors.muted}
-        selectedDescriptionColor={colors.text}
         onMouseDown={(event) => {
           if (!select) return;
-          const index = Math.floor((event.y - select.screenY) / 2);
-          const row = rows()[index];
+          const index = selectOptionIndexAtMouse(select, event.y);
+          const row = index === undefined ? undefined : rows()[index];
           if (!row) return;
           event.preventDefault();
           event.stopPropagation();
@@ -120,7 +94,12 @@ export function SettingsHub(props: SettingsHubProps) {
         }}
         fg={colors.red}
       />
-      <text fg={colors.subtle}>Changes apply immediately.</text>
-    </box>
+    </DialogFrame>
   );
+}
+
+/** `Label` padded to a fixed column so values line up down the list. */
+export function settingsRowText(label: string, value: string): string {
+  const column = 24;
+  return `${label.padEnd(column - 1)} ${value}`;
 }

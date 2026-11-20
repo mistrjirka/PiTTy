@@ -1,4 +1,4 @@
-/** Background tasks, child agents, todos and notifications in allocated sidebar space. */
+/** Live work in allocated sidebar space: background commands, agents, notices. */
 import { type Accessor, For, type JSX, Show } from "solid-js";
 import type { BackgroundTask } from "../state/background-tasks.ts";
 import { backgroundStatus } from "../state/background-tasks.ts";
@@ -10,9 +10,10 @@ import { clip } from "./model-context.tsx";
 import {
 	notificationToneColor,
 	notificationToneIcon,
+	SIDEBAR_CONTENT_WIDTH,
 } from "./sidebar-layout.ts";
+import { SplitRow } from "./split-row.tsx";
 import { colors } from "./theme.ts";
-import { TodoPanel, type TodoViewItem } from "./todos.tsx";
 export interface SidebarActivityPanelsProps {
 	backgroundHeight: Accessor<number>;
 	backgroundTasks: Accessor<BackgroundTask[]>;
@@ -20,55 +21,45 @@ export interface SidebarActivityPanelsProps {
 	onOpenBackgroundTask?: ((id: string) => void) | undefined;
 	hasSubagents: () => boolean;
 	subagentHeight: Accessor<number>;
-	targets: Accessor<SubagentTarget[]>;
-	active: () => SubagentTarget[];
+	/** `2 working · 1 finished`, from the same buckets as spawn groups. */
+	agentSummary: () => string;
+	/** The `◆ Main` row at the top of the agent tree. */
+	mainRow: () => JSX.Element;
 	treeRows: Accessor<SubagentTreeRow[]>;
 	renderTarget: (target: SubagentTarget, prefix: string) => JSX.Element;
-	hasTodos: () => boolean;
-	todoHeight: Accessor<number>;
-	todos: () => TodoViewItem[];
-	onOpenTodo?: ((todo: TodoViewItem) => void) | undefined;
 	hasNotifications: () => boolean;
 	notificationHeight: Accessor<number>;
 	orderedNotifications: Accessor<NotificationRecord[]>;
 	onOpenNotification?: ((id: string) => void) | undefined;
 }
+
+function backgroundGlyph(task: BackgroundTask): { glyph: string; color: string } {
+	if (task.state === "running") return { glyph: "●", color: colors.accent };
+	if (task.state === "exited" && task.exitCode === 0)
+		return { glyph: "✓", color: colors.green };
+	return { glyph: "✗", color: colors.red };
+}
+
 export function SidebarActivityPanels(props: SidebarActivityPanelsProps) {
-	const {
-		backgroundHeight,
-		backgroundTasks,
-		now,
-		hasSubagents,
-		subagentHeight,
-		targets,
-		active,
-		treeRows,
-		renderTarget,
-		hasTodos,
-		todoHeight,
-		todos,
-		hasNotifications,
-		notificationHeight,
-		orderedNotifications,
-	} = props;
+	const running = () =>
+		props.backgroundTasks().filter((task) => task.state === "running").length;
+	const unread = () =>
+		props.orderedNotifications().filter((record) => !record.read).length;
 	return (
 		<>
-			<Show when={backgroundHeight() > 0}>
+			<Show when={props.backgroundHeight() > 0}>
 				<box
 					id="background-panel"
-					height={backgroundHeight()}
-					minHeight={backgroundHeight()}
+					height={props.backgroundHeight()}
+					minHeight={props.backgroundHeight()}
 					flexShrink={0}
 					flexDirection="column"
-					border={["top"]}
-					borderColor={colors.borderStrong}
 				>
-					<text height={1} fg={colors.textBright} attributes={1}>
-						{clip(
-							`Background (${backgroundTasks().filter((task) => task.state === "running").length} active · ${backgroundTasks().length} total)`,
-							31,
-						)}
-					</text>
+					<SplitRow
+						left="Running"
+						leftColor={colors.muted}
+						right={`${running()} of ${props.backgroundTasks().length}`}
+					/>
 					<scrollbox
 						id="background-scroll"
 						flexGrow={1}
@@ -77,42 +68,41 @@ export function SidebarActivityPanels(props: SidebarActivityPanelsProps) {
 						scrollX={false}
 						viewportCulling
 					>
-						<For each={backgroundTasks()}>
+						<For each={props.backgroundTasks()}>
 							{(task) => (
 								<box
 									id={`background-row-${task.id}`}
 									height={1}
 									minHeight={1}
 									flexShrink={0}
-									border={["left"]}
-									borderColor={
-										task.state === "running"
-											? colors.green
-											: task.exitCode === 0
-												? colors.borderStrong
-												: colors.red
-									}
-									paddingLeft={1}
+									flexDirection="row"
 									onMouseDown={(event) => {
 										event.preventDefault();
 										event.stopPropagation();
 										props.onOpenBackgroundTask?.(task.id);
 									}}
 								>
+									<text fg={backgroundGlyph(task).color} wrapMode="none" flexShrink={0}>
+										{`${backgroundGlyph(task).glyph} `}
+									</text>
+									{/* The id is how the agent and its tools name the job. */}
+									<text fg={colors.subtle} wrapMode="none" flexShrink={0}>
+										{`${task.id} `}
+									</text>
 									<text
-										height={1}
-										width="100%"
-										fg={
-											task.state === "running"
-												? colors.textBright
-												: colors.muted
-										}
+										fg={task.state === "running" ? colors.text : colors.muted}
 										wrapMode="none"
+										flexShrink={1}
 									>
 										{clip(
-											`${task.state === "running" ? "●" : task.state === "exited" && task.exitCode === 0 ? "✓" : "×"} ${task.id} ${backgroundTaskDuration(task, now()) ?? ""} ${task.command.replace(/\s+/g, " ").trim() || backgroundStatus(task)}`,
-											31,
+											task.command.replace(/\s+/g, " ").trim() ||
+												backgroundStatus(task),
+											SIDEBAR_CONTENT_WIDTH - task.id.length - 10,
 										)}
+									</text>
+									<box flexGrow={1} minWidth={1} />
+									<text fg={colors.subtle} wrapMode="none" flexShrink={0}>
+										{backgroundTaskDuration(task, props.now()) ?? ""}
 									</text>
 								</box>
 							)}
@@ -120,25 +110,20 @@ export function SidebarActivityPanels(props: SidebarActivityPanelsProps) {
 					</scrollbox>
 				</box>
 			</Show>
-			<Show when={hasSubagents()}>
+			<Show when={props.hasSubagents()}>
 				<box
 					id="subagent-panel"
-					height={subagentHeight()}
-					minHeight={subagentHeight()}
+					height={props.subagentHeight()}
+					minHeight={props.subagentHeight()}
 					flexShrink={1}
 					flexDirection="column"
 				>
-					<box height={1} minHeight={1} flexShrink={0} flexDirection="row">
-						<text flexShrink={0} fg={colors.textBright} attributes={1}>
-							Subagents ({active().length} active)
-						</text>
-						<box flexGrow={1} />
-						<Show when={targets().length > 0}>
-							<text fg={colors.subtle} wrapMode="none">
-								Ctrl+I · Ctrl+Down inspect
-							</text>
-						</Show>
-					</box>
+					<SplitRow
+						left="Agents"
+						leftColor={colors.muted}
+						right={props.agentSummary()}
+					/>
+					{props.mainRow()}
 					<scrollbox
 						id="subagent-scroll"
 						flexGrow={1}
@@ -158,49 +143,27 @@ export function SidebarActivityPanels(props: SidebarActivityPanelsProps) {
 							event.stopPropagation();
 						}}
 					>
-						<Show
-							when={targets().length > 0}
-							fallback={
-								<text width="100%" height={1} fg={colors.muted}>
-									No async subagents for this session
-								</text>
-							}
-						>
-							<For each={treeRows()}>
-								{(row) => renderTarget(row.target, row.prefix)}
-							</For>
-						</Show>
+						<For each={props.treeRows()}>
+							{(row) => props.renderTarget(row.target, row.prefix)}
+						</For>
 					</scrollbox>
 				</box>
 			</Show>
-
-			<Show when={hasTodos()}>
-				<box
-					id="todo-panel"
-					height={todoHeight()}
-					minHeight={todoHeight()}
-					flexShrink={1}
-				>
-					<TodoPanel
-						todos={todos()}
-						height={todoHeight()}
-						onOpenTodo={props.onOpenTodo}
-					/>
-				</box>
-			</Show>
-			<Show when={hasNotifications() && notificationHeight() > 0}>
+			<box flexGrow={1} />
+			<Show when={props.hasNotifications() && props.notificationHeight() > 0}>
 				<box
 					id="notification-panel"
-					height={notificationHeight()}
-					minHeight={notificationHeight()}
+					height={props.notificationHeight()}
+					minHeight={props.notificationHeight()}
 					flexShrink={1}
-					border={["top"]}
-					borderColor={colors.borderStrong}
-					paddingTop={1}
+					flexDirection="column"
 				>
-					<text height={1} fg={colors.textBright} attributes={1}>
-						Notifications ({orderedNotifications().length})
-					</text>
+					<SplitRow
+						left="Notices"
+						leftColor={colors.muted}
+						right={unread() > 0 ? `${unread()} new` : undefined}
+						rightColor={colors.yellow}
+					/>
 					<scrollbox
 						flexGrow={1}
 						minHeight={1}
@@ -208,31 +171,28 @@ export function SidebarActivityPanels(props: SidebarActivityPanelsProps) {
 						scrollX={false}
 						viewportCulling={true}
 					>
-						<For each={orderedNotifications()}>
+						<For each={props.orderedNotifications()}>
 							{(record) => (
 								<box
 									height={1}
 									minHeight={1}
 									flexShrink={0}
-									paddingLeft={1}
-									border={["left"]}
-									borderColor={notificationToneColor(record.tone)}
+									flexDirection="row"
 									onMouseDown={(event) => {
 										event.preventDefault();
 										event.stopPropagation();
 										props.onOpenNotification?.(record.id);
 									}}
 								>
+									<text fg={notificationToneColor(record.tone)} wrapMode="none" flexShrink={0}>
+										{`${notificationToneIcon(record.tone)} `}
+									</text>
 									<text
-										height={1}
-										width="100%"
 										fg={record.read ? colors.subtle : colors.text}
-										attributes={record.read ? 0 : 1}
 										wrapMode="none"
+										flexShrink={1}
 									>
-										{clip(
-											`${notificationToneIcon(record.tone)} ${record.text}`,
-										)}
+										{clip(record.text, SIDEBAR_CONTENT_WIDTH - 2)}
 									</text>
 								</box>
 							)}

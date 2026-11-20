@@ -1,6 +1,8 @@
 import type { SelectRenderable, TextRenderable } from "@opentui/core";
 import { Show, createEffect, createMemo, createSignal } from "solid-js";
 import type { ThinkingLevel } from "../rpc/pi-rpc-client.ts";
+import { DialogFrame } from "./dialog-frame.tsx";
+import { selectOptionIndexAtMouse } from "./select-mouse.ts";
 import { colors } from "./theme.ts";
 import {
   EXTENSION_THINKING_LEVELS,
@@ -76,6 +78,8 @@ export function ThinkingSelector(props: {
   busy?: boolean;
   error?: string;
   context?: string | undefined;
+  /** Where Esc returns to; defaults to Settings. */
+  backLabel?: string | undefined;
   onSelect: (level: string) => void;
   onCancel: () => void;
 }) {
@@ -102,7 +106,7 @@ export function ThinkingSelector(props: {
     if (status)
       status.content = props.busy
         ? "Applying…"
-        : (props.error ?? "Enter select · Esc back");
+        : (props.error ?? "");
   });
   const choose = (level: string | undefined) => {
     if (level && !props.busy) {
@@ -111,44 +115,19 @@ export function ThinkingSelector(props: {
     }
   };
   return (
-    <box
-      position="absolute"
-      left="25%"
-      right="25%"
-      top={2}
-      bottom={4}
-      flexDirection="column"
-      backgroundColor={colors.panelRaised}
-      border
-      borderColor={colors.borderStrong}
-      padding={1}
+    <DialogFrame
+      title="Thinking effort"
+      hint="↑/↓ move · enter select"
+      width="narrow"
+      closeLabel={props.backLabel ?? "esc ‹ settings"}
       zIndex={160}
+      onClose={props.onCancel}
     >
-      <box flexDirection="row">
-        <text fg={colors.textBright} attributes={1}>Thinking effort</text>
-        <box flexGrow={1} />
-        <text
-          fg={colors.cyan}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onCancel();
-          }}
-        >← Settings</text>
-      </box>
       <Show when={props.context}>
         <text fg={colors.subtle} wrapMode="none">
           {props.context}
         </text>
       </Show>
-      <text
-        ref={(value) => {
-          status = value;
-        }}
-        fg={props.error ? colors.red : colors.subtle}
-      >
-        Enter select · Esc back
-      </text>
       <select
         ref={(value) => {
           select = value;
@@ -160,7 +139,8 @@ export function ThinkingSelector(props: {
         }))}
         selectedIndex={0}
         focused
-        height={12}
+        showDescription={false}
+        height={Math.max(3, levels().length)}
         backgroundColor={colors.panelRaised}
         focusedBackgroundColor={colors.panelRaised}
         textColor={colors.text}
@@ -169,7 +149,8 @@ export function ThinkingSelector(props: {
         selectedTextColor={colors.textBright}
         onMouseDown={(event) => {
           if (!select) return;
-          const level = levels()[Math.floor((event.y - select.screenY) / 2)];
+          const index = selectOptionIndexAtMouse(select, event.y);
+          const level = index === undefined ? undefined : levels()[index];
           if (!level) return;
           event.preventDefault();
           event.stopPropagation();
@@ -177,6 +158,14 @@ export function ThinkingSelector(props: {
         }}
         onSelect={(_i, option) => choose(resolve(option?.value))}
       />
-    </box>
+      {/* Busy and error state only; the keys live in the hint row. */}
+      <text
+        ref={(value) => {
+          status = value;
+        }}
+        fg={props.error ? colors.red : colors.subtle}
+        wrapMode="word"
+      />
+    </DialogFrame>
   );
 }

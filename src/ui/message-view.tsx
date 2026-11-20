@@ -16,6 +16,7 @@ import {
 	cleanThinkingText,
 	collapsedThinkingPreview,
 	currentMessageItem,
+	thinkingHeading,
 	thinkingLineCount,
 } from "./message-format.tsx";
 import {
@@ -38,7 +39,10 @@ export function MessageView(props: {
 	onInspectSubagentTarget?: ((targetKey: string) => void) | undefined;
 	onFork?: ((entryId: string) => void) | undefined;
 	canFork?: boolean;
-
+	/** Label before a user message: "you" in the main chat, "task"/"steer" in a subagent. */
+	userLabel?: string | undefined;
+	/** See `ToolMessageProps.compactBelow`. */
+	compactBelow?: boolean | undefined;
 	now?: number;
 }) {
 	const currentItem = createMemo(() => currentMessageItem(props.item));
@@ -131,16 +135,22 @@ export function MessageView(props: {
 			<Show when={item.kind === "user"}>
 				<box
 					id={item.id}
+					flexDirection="row"
 					backgroundColor={colors.panelRaised}
-					paddingLeft={2}
-					paddingRight={2}
-					paddingTop={1}
-					paddingBottom={1}
+					paddingLeft={1}
+					paddingRight={1}
 					marginBottom={1}
-					border={["left"]}
-					borderColor={colors.accent}
 				>
-					<text fg={colors.textBright} selectable wrapMode="word">
+					<text fg={colors.accent} wrapMode="none" flexShrink={0}>
+						{`${props.userLabel ?? "you"}  `}
+					</text>
+					<text
+						fg={colors.textBright}
+						selectable
+						wrapMode="word"
+						flexGrow={1}
+						flexShrink={1}
+					>
 						{(item.kind === "user" ? item.text : "") +
 							(item.kind === "user" && item.optimistic ? "  …" : "")}
 					</text>
@@ -152,19 +162,19 @@ export function MessageView(props: {
 							props.onFork
 						}
 					>
-						<box flexDirection="row" justifyContent="flex-end" width="100%">
-							<text
-								fg={colors.cyan}
-								onMouseDown={(event) => {
-									event.preventDefault();
-									event.stopPropagation();
-									if (item.kind === "user" && item.entryId)
-										props.onFork?.(item.entryId);
-								}}
-							>
-								⑂ fork
-							</text>
-						</box>
+						<text
+							fg={colors.subtle}
+							wrapMode="none"
+							flexShrink={0}
+							onMouseDown={(event) => {
+								event.preventDefault();
+								event.stopPropagation();
+								if (item.kind === "user" && item.entryId)
+									props.onFork?.(item.entryId);
+							}}
+						>
+							{"  ⑂ fork"}
+						</text>
 					</Show>
 				</box>
 			</Show>
@@ -176,8 +186,6 @@ export function MessageView(props: {
 					marginBottom={1}
 					paddingLeft={0}
 					paddingRight={0}
-					border={["left"]}
-					borderColor={colors.cyan}
 				>
 					<box
 						id={`${item.id}-thinking`}
@@ -186,7 +194,9 @@ export function MessageView(props: {
 						marginBottom={answer().trim() ? 1 : 0}
 						paddingLeft={1}
 						paddingRight={1}
-						backgroundColor={colors.thinkingBg}
+						backgroundColor={
+							thinkingIsExpanded() ? colors.thinkingBg : "transparent"
+						}
 					>
 						<box
 							flexDirection="row"
@@ -196,22 +206,25 @@ export function MessageView(props: {
 								props.onToggleThinking?.();
 							}}
 						>
-							<text fg={colors.purple} attributes={1}>
-								{thinkingIsExpanded() ? "▼ Thinking" : "▶ Thinking"}
+							<text fg={colors.subtle} wrapMode="none">
+								{thinkingHeading(
+									assistantStatus() === "streaming",
+									thinkingIsExpanded(),
+									thinkingLineCount(thinking()),
+								)}
 								{item.kind === "assistant" &&
 								item.retriedAfterInterruptedThinking
 									? " · retry"
 									: ""}
 							</text>
-							<box flexGrow={1} />
-							<text fg={colors.subtle}>
-								{thinkingLineCount(thinking())} line
-								{thinkingLineCount(thinking()) === 1 ? "" : "s"} ·{" "}
-								{thinkingIsExpanded() ? "collapse" : "expand"}
-							</text>
 						</box>
 						<text
-							visible={!thinkingIsExpanded()}
+							// A finished, collapsed thought is just its heading. The
+							// one-line preview only earns its row while the thought is
+							// still streaming and the user wants to see it move.
+							visible={
+								!thinkingIsExpanded() && assistantStatus() === "streaming"
+							}
 							fg={colors.subtle}
 							selectable
 							wrapMode="none"
@@ -303,6 +316,7 @@ export function MessageView(props: {
 							subagentTargets={props.subagentTargets}
 							onInspectSubagentTarget={props.onInspectSubagentTarget}
 							now={props.now}
+							compactBelow={props.compactBelow}
 						/>
 					) : null)()}
 			</Show>

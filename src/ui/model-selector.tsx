@@ -23,6 +23,7 @@ import {
 	handleSearchableDialogCancel,
 } from "./searchable-dialog-focus.ts";
 import { selectOptionIndexAtMouse } from "./select-mouse.ts";
+import { DialogFrame } from "./dialog-frame.tsx";
 import { colors } from "./theme.ts";
 
 export type ModelChoice = {
@@ -141,6 +142,8 @@ export function ModelSelectorDialog(props: {
 	timingHistory?: readonly RequestTiming[] | (() => readonly RequestTiming[]);
 	/** Optional line naming the value this picker changes, e.g. the current profile model. */
 	context?: string | undefined;
+	/** Set when opened from Settings, e.g. `esc ‹ agent`; top-level picks close. */
+	backLabel?: string | undefined;
 	/** Optional sync status, e.g. "syncing with Pi…" or a refresh failure. */
 	notice?: string | undefined;
 }) {
@@ -248,38 +251,14 @@ export function ModelSelectorDialog(props: {
 				event.stopPropagation();
 			}}
 		>
-			<box
-				position="absolute"
-				left="12%"
-				right="12%"
-				top="8%"
-				bottom={5}
-				flexDirection="column"
-				backgroundColor={colors.panelRaised}
-				border
-				borderColor={colors.borderStrong}
-				padding={1}
-				zIndex={150}
-				onMouseDown={(event) => {
-					event.stopPropagation();
-				}}
+			<DialogFrame
+				title="Model"
+				summary={`${filteredModels().length} match${filteredModels().length === 1 ? "" : "es"}`}
+				hint="tab list · ↑/↓ move · enter select"
+				height="tall"
+				closeLabel={props.backLabel}
+				onClose={props.onCancel}
 			>
-				<box flexDirection="row">
-					<text fg={colors.textBright} attributes={1}>
-						Select model
-					</text>
-					<box flexGrow={1} />
-					<text
-						fg={colors.muted}
-						onMouseDown={(event) => {
-							event.preventDefault();
-							event.stopPropagation();
-							props.onCancel();
-						}}
-					>
-						× Close
-					</text>
-				</box>
 				<Show when={props.context}>
 					<text fg={colors.subtle} wrapMode="none">
 						{props.context}
@@ -312,12 +291,6 @@ export function ModelSelectorDialog(props: {
 						});
 					}}
 				/>
-				<text fg={colors.subtle} wrapMode="none">31-day speed median · TTFT = turn to first output</text>
-				<text fg={colors.subtle}>
-					Tab list · Shift+Tab search · ↑/↓ move · Enter select · Esc close ·{" "}
-					{filteredModels().length} match
-					{filteredModels().length === 1 ? "" : "es"}
-				</text>
 				<Show when={props.notice}>
 					<text fg={colors.yellow} wrapMode="none">
 						{props.notice}
@@ -373,7 +346,7 @@ export function ModelSelectorDialog(props: {
 						}}
 					/>
 				)}
-			</box>
+			</DialogFrame>
 		</box>
 	);
 }

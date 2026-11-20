@@ -14,7 +14,6 @@ export interface SubagentInspectorProps {
 	onResume?: () => void;
 	onStop?: () => void;
 	onChooseTarget?: () => void;
-	targetCount?: number;
 	allTargets?: readonly SubagentTarget[];
 	onInspectSubagentTarget?: (targetKey: string) => void;
 	/** Current shared spinner glyph from the main conversation's 250 ms tick. */

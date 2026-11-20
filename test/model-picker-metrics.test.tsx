@@ -22,15 +22,15 @@ describe("live model picker metrics", () => {
       onCancel={() => {}} onSelect={() => {}} />, { width: 112, height: 32 });
     active.push(render);
     await render.flush();
-    expect(render.captureCharFrame()).not.toContain("Median 50 tok/s");
+    expect(render.captureCharFrame()).not.toContain("median 50 tok/s");
     setHistory({ [modelPerformanceKey("openai-codex", "gpt")]: [
       { timestamp: now, ttftMs: 200, outputTokensPerSecond: 50, version: 3 },
     ] });
     setTiming([]);
     await render.flush();
     const updated = render.captureCharFrame();
-    expect(updated).toContain("Median 50 tok/s");
-    expect(updated).toContain("TTFT 200ms");
+    expect(updated).toContain("median 50 tok/s");
+    expect(updated).toContain("first token 200ms");
     expect(updated).not.toContain("Tool 0");
     expect(updated).not.toContain("Other ·");
   });

@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.0.0
+
+### Quiet transcript
+
+- Show each tool call as one row: status, tool, main argument and duration. `Ctrl+O` still expands details.
+- Hide durations under 100ms. Show a timeout or wait limit only when it is over 10 seconds.
+- Collapse a finished thought to `∴ Thought · N lines`. Click it to show the reasoning.
+- Show user messages and the prompt as single rows.
+
+### Agents in the sidebar
+
+- Keep only sessions in the top bar. List agents in the right sidebar under `◆ Main`.
+- Open an agent in the main view with the same layout as the main chat. Steer it, or pause, resume and stop it.
+- Show the open agent's model and context in the sidebar, so only one model shows at a time.
+- Show an agent's run time in both the sidebar and the agent view. A finished agent with no recorded end time shows no time instead of counting up.
+- Show `Context compacted` rows in agent transcripts and restored sessions.
+
+### Context and speed
+
+- Show a context meter with the remaining tokens.
+- Show the model's live tokens per second, marked faster, usual or slower than its median.
+- Remove the Todo, session and timing blocks from the sidebar.
+
+### Consistent dialogs
+
+- Give every dialog the same frame, close label and hint row. Dialogs stop above the prompt, so an unsent draft stays visible.
+- Show an unset subagent model as `main model`.
+- Show the MCP scope as a choice and shorten the config path with `~`.
+
+### Screenshots
+
+- Render documentation screenshots from tmux's own cells with headless Chromium. No window opens and nothing on the desktop is captured.
+
 ## 0.8.1
 
 ### Keep input responsive across tabs and waits

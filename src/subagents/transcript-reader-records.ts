@@ -35,6 +35,20 @@ export function readSessionMessages(
 	}
 	const messages: unknown[] = [];
 	for (const { record } of parseJsonlTail(content)) {
+		// Pi stores a compaction as its own entry, not a message. Project it the
+		// way Pi's get_messages does for the main chat (`compactionSummary`), so
+		// both views share one decoder and one row.
+		if (text(record.type) === "compaction") {
+			messages.push({
+				role: "compactionSummary",
+				summary: text(record.summary),
+				...(typeof record.tokensBefore === "number" ? { tokensBefore: record.tokensBefore } : {}),
+				...(Number.isFinite(Date.parse(text(record.timestamp)))
+					? { timestamp: Date.parse(text(record.timestamp)) }
+					: {}),
+			});
+			continue;
+		}
 		const message = objectRecord(record.message);
 		if (!message) continue;
 		const entryId = text(record.id).trim();

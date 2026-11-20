@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { asyncRunsRoot } from "../src/subagents/artifacts.ts";
+import { CELL_HEIGHT, CELL_WIDTH, chromiumBinary, renderTerminalFramePng } from "./terminal-frame-png.ts";
 
 type SubagentScreenshotState = {
   name: "subagent-running" | "subagent-paused";
@@ -19,17 +20,9 @@ type SubagentScreenshotState = {
 const outputDir = join(import.meta.dir, "..", "docs", "screenshots");
 const columns = 140;
 const rows = 44;
-const surfaceWidth = 1400;
-const surfaceHeight = 1028;
+const surfaceWidth = columns * CELL_WIDTH;
+const surfaceHeight = rows * CELL_HEIGHT;
 const executable = join(import.meta.dir, "mock-pi-rpc.mjs");
-/**
- * A Wayland compositor only captures windows it renders itself, and an XWayland
- * terminal's contents come back blank. So on a Wayland session the capture
- * terminal runs natively and the frame comes from the desktop portal; on X11
- * nothing changes.
- */
-const waylandNative = Boolean(process.env.WAYLAND_DISPLAY);
-
 // ANSI/SGR escape sequences are matched with named constants so the ESC byte
 // (\u001b) and the trailing <\/span> replacement never appear as raw literals
 // that are hard to read or parse inline.
@@ -43,25 +36,12 @@ const states: SubagentScreenshotState[] = [
   {
     name: "subagent-running",
     runState: "running",
-    expected: [
-      "Subagent detail",
-      "⏸ Pause",
-      "⏹ Stop",
-      "← Main chat",
-      "Ctrl+A pause · Ctrl+Shift+A stop",
-      "Steer reviewer",
-    ],
+    expected: ["⏸ pause", "⏹ stop", "ctrl+a pause  ctrl+shift+a stop"],
   },
   {
     name: "subagent-paused",
     runState: "paused",
-    expected: [
-      "Subagent detail",
-      "▶ Resume",
-      "⏹ Stop",
-      "← Main chat",
-      "Resume via click · Ctrl+Shift+A stop",
-    ],
+    expected: ["▶ resume", "⏹ stop"],
   },
 ];
 
@@ -104,43 +84,6 @@ function ansiToHtml(value: string): string {
 function requireTool(command: string, args: string[], label: string): void {
   runNativeCommand(command, args, label);
 }
-/**
- * A captured TUI frame carries text and colour, so it has real variance; an
- * unpainted or half-painted window does not.
- */
-const minimumFrameStandardDeviation = 2_000;
-function pngStandardDeviation(png: string): number {
-  const result = spawnSync("identify", ["-format", "%[standard-deviation]", png], { encoding: "utf8", timeout: 15_000 });
-  return result.status === 0 ? Number(result.stdout.trim()) : 0;
-}
-/**
- * Capture the terminal to `png`. ImageMagick reads a window's own contents and is
- * the X11 path. A Wayland compositor owns window size, placement and visibility,
- * so there the frame comes from the desktop portal's active-window grab, cropped
- * to the capture surface. Both paths are validated: a window that has not painted
- * is retried, and an empty grab fails, because an empty image must never be
- * written out as a screenshot.
- */
-function captureNativePng(windowId: number | undefined, png: string, label: string): void {
-  if (windowId !== undefined) {
-    spawnSync("import", ["-window", String(windowId), png], { encoding: "utf8", timeout: 20_000 });
-    if (pngStandardDeviation(png) >= minimumFrameStandardDeviation) return;
-  }
-  let failure = "no capture attempt was made";
-  for (let attempt = 0; attempt < 6; attempt++) {
-    if (attempt > 0) sleep(1_500);
-    const viaPortal = spawnSync("spectacle", ["-b", "-n", "-a", "-o", png], { encoding: "utf8", timeout: 60_000 });
-    if (viaPortal.status !== 0) {
-      failure = viaPortal.stderr.trim() || `spectacle exit ${viaPortal.status}`;
-      continue;
-    }
-    spawnSync("magick", [png, "-crop", `${surfaceWidth}x${surfaceHeight}+0+0`, "+repage", png], { encoding: "utf8", timeout: 30_000 });
-    if (pngStandardDeviation(png) >= minimumFrameStandardDeviation) return;
-    failure = `the captured frame is empty (standard deviation ${pngStandardDeviation(png)})`;
-  }
-  throw new Error(`${label}: ${failure}`);
-}
-
 function stripAnsi(value: string): string {
   return value.replace(CSI_NON_SGR, "").replace(SGR_SEQUENCE, "");
 }
@@ -184,9 +127,10 @@ function locateSubagentRow(captured: string): { row: number; column: number } | 
   const lines = stripAnsi(captured).split("\n");
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
-    if (!line.includes("reviewer") || line.includes("TOOL")) continue;
-    const column = line.indexOf("reviewer");
-    if (column < 0) continue;
+    // The agent row lives in the right sidebar; the transcript's tool row
+    // also names the reviewer but toggles the call instead of opening it.
+    const column = line.lastIndexOf("reviewer");
+    if (column < columns - 40) continue;
     return { row: index, column };
   }
   return undefined;
@@ -204,7 +148,7 @@ function capturePane(socket: string, session: string): string {
   return runNativeCommand("tmux", ["-L", socket, "capture-pane", "-e", "-p", "-t", session], "capture pane").stdout;
 }
 
-function captureState(state: SubagentScreenshotState): void {
+function captureState(state: SubagentScreenshotState, chromium: string): void {
   const userId = process.getuid?.();
   if (userId === undefined) throw new Error("native screenshot capture requires a Unix user id");
   const runsRoot = asyncRunsRoot();
@@ -213,15 +157,12 @@ function captureState(state: SubagentScreenshotState): void {
   const session = `pitty-subagent-${process.pid}-${state.name}`;
   const socket = `pitty-subagent-shot-${process.pid}-${state.name}`;
   const tmuxSocketPath = join(process.env.TMUX_TMPDIR ?? "/tmp", `tmux-${userId}`, socket);
-  const kittySocket = `/tmp/pitty-subagent-kitty-${process.pid}-${state.name}`;
-  const kittyClass = `pitty-subagent-${process.pid}-${state.name}`;
   const temporaryDir = join(tmpdir(), `pitty-subagent-screenshot-${process.pid}`);
   const homeDir = join(temporaryDir, "home");
   const cleanup = () => rmSync(temporaryDir, { recursive: true, force: true });
   const cleanupFixture = () => rmSync(fixtureDir, { recursive: true, force: true });
   process.once("exit", cleanup);
   process.once("exit", cleanupFixture);
-  let windowId: number | undefined;
 
   try {
     // Subagent runs live under the real uid temp root (independent of HOME), so
@@ -250,88 +191,8 @@ function captureState(state: SubagentScreenshotState): void {
       `unable to start production PiTTy for ${state.name}`,
     );
     runNativeCommand("tmux", ["-L", socket, "set-option", "-t", session, "status", "off"], "hide tmux chrome");
-    runNativeCommand(
-      "kitty",
-      [
-        "--detach",
-        `--listen-on=unix:${kittySocket}`,
-        `--class=${kittyClass}`,
-        // A Wayland compositor only captures windows it renders itself, and an
-        // XWayland terminal's contents come back blank, so the capture terminal
-        // runs natively there and the frame comes from the desktop portal.
-        ...(waylandNative ? [] : ["--start-as=hidden"]),
-        "--override",
-        "allow_remote_control=socket-only",
-        ...(waylandNative ? [] : ["--override", "linux_display_server=x11"]),
-        "--override",
-        "font_family=Noto Sans Mono",
-        "--override",
-        "font_size=10",
-        "--override",
-        "window_padding_width=0",
-        "--override",
-        "hide_window_decorations=yes",
-        "--override",
-        `initial_window_width=${columns}c`,
-        "--override",
-        `initial_window_height=${rows}c`,
-        "--override",
-        "background=#10131a",
-        "--override",
-        "foreground=#d8dee9",
-        "--",
-        "tmux",
-        "-L",
-        socket,
-        "attach-session",
-        "-t",
-        session,
-      ],
-      `launch native terminal for ${state.name}`,
-    );
-
-    // Discover the kitty window and resize it to the capture surface.
-    for (let attempt = 0; attempt < 40 && windowId === undefined; attempt++) {
-      sleep(100);
-      const found = spawnSync("xdotool", ["search", "--class", kittyClass], { encoding: "utf8", timeout: 2_000 });
-      if (found.status === 0) {
-        for (const candidate of found.stdout.trim().split("\n")) {
-          const id = Number(candidate);
-          const geometry = Number.isInteger(id) && id > 0
-            ? spawnSync("xdotool", ["getwindowgeometry", String(id)], { encoding: "utf8", timeout: 2_000 })
-            : undefined;
-          if (geometry?.status === 0) {
-            windowId = id;
-            break;
-          }
-        }
-      }
-    }
-    if (windowId === undefined) {
-      // A native Wayland terminal has no X11 window to size, place or map: the
-      // compositor owns all three. Pin the session grid instead, so the app still
-      // renders the capture surface's cells in the window's top-left region, and
-      // let the portal capture keep that region.
-      runNativeCommand("tmux", ["-L", socket, "set-option", "-t", session, "window-size", "manual"], `pin the session grid for ${state.name}`);
-      runNativeCommand("tmux", ["-L", socket, "resize-window", "-t", session, "-x", String(columns), "-y", String(rows)], `size the session grid for ${state.name}`);
-      sleep(500);
-    } else {
-      sleep(300);
-      let resized = false;
-      for (let attempt = 0; attempt < 40 && !resized; attempt++) {
-        const geometry = spawnSync("xdotool", ["getwindowgeometry", String(windowId)], { encoding: "utf8", timeout: 2_000 });
-        if (geometry.status === 0) {
-          const result = spawnSync("xdotool", ["windowsize", String(windowId), String(surfaceWidth), String(surfaceHeight)], {
-            encoding: "utf8", timeout: 2_000,
-          });
-          resized = result.status === 0;
-        }
-        if (!resized) sleep(100);
-      }
-      if (!resized) throw new Error(`unable to resize kitty window for ${state.name}`);
-      runNativeCommand("xdotool", ["windowmove", String(windowId), "0", "0"], "position terminal");
-      runNativeCommand("xdotool", ["windowmap", String(windowId)], "map terminal");
-    }
+    // Detached, the session keeps exactly the requested grid; nothing is shown on screen.
+    runNativeCommand("tmux", ["-L", socket, "set-option", "-t", session, "window-size", "manual"], `pin the session grid for ${state.name}`);
     runNativeCommand("tmux", ["-L", socket, "select-pane", "-t", session, "-d"], "disable pane input");
 
     // Wait for the sidebar subagent row, then click it to open the inspector.
@@ -368,50 +229,31 @@ function captureState(state: SubagentScreenshotState): void {
     );
 
     const png = join(outputDir, `${state.name}.png`);
-    captureNativePng(windowId, png, `capture PNG for ${state.name}`);
-    const dimensions = runNativeCommand("identify", ["-format", "%w %h", png], "inspect PNG").stdout.trim().split(/\s+/).map(Number);
-    if (dimensions[0] !== surfaceWidth || dimensions[1] !== surfaceHeight) {
-      throw new Error(`PNG is ${dimensions[0]}x${dimensions[1]}, expected ${surfaceWidth}x${surfaceHeight}`);
-    }
+    renderTerminalFramePng(ansi, png, columns, rows, chromium);
     process.stdout.write(`captured ${state.name}: ${surfaceWidth}x${surfaceHeight} with ${state.expected.length} control markers\n`);
   } finally {
     cleanupFixture();
     spawnSync("tmux", ["-L", socket, "kill-session", "-t", session], { encoding: "utf8" });
-    if (windowId !== undefined) spawnSync("xdotool", ["windowclose", String(windowId)], { encoding: "utf8", timeout: 2_000 });
     sleep(500);
     try {
       rmSync(tmuxSocketPath);
     } catch {
       /* tmux may remove its socket */
     }
-    try {
-      rmSync(kittySocket);
-    } catch {
-      /* kitty may remove its socket */
-    }
   }
 }
 
 function main(): void {
   mkdirSync(outputDir, { recursive: true });
-  const prerequisites: Array<[string, string[], string]> = [
-    ["tmux", ["-V"], "tmux is required"],
-    ["kitty", ["--version"], "kitty is required for native PNG capture"],
-    ["xdotool", ["-v"], "xdotool is required for native PNG capture"],
-    ["identify", ["-version"], "ImageMagick identify is required"],
-  ];
-  for (const [command, args, label] of prerequisites) requireTool(command, args, label);
-  // ImageMagick captures X11 windows; spectacle captures the active Wayland window.
-  const hasCapture = (command: string) =>
-    ["--version", "-version"].some((flag) => spawnSync(command, [flag], { encoding: "utf8", timeout: 5_000 }).status === 0);
-  if (!hasCapture("import") && !hasCapture("spectacle")) {
-    throw new Error("native PNG capture requires ImageMagick import (X11) or spectacle (Wayland)");
-  }
+  requireTool("tmux", ["-V"], "tmux is required");
+  // PiTTy runs in an off-screen tmux terminal; headless Chromium only draws
+  // tmux's recorded cells. No window opens and nothing on the desktop is read.
+  const chromium = chromiumBinary();
 
   for (const state of states) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        captureState(state);
+        captureState(state, chromium);
         break;
       } catch (error) {
         if (attempt === 1) throw error;
@@ -420,7 +262,7 @@ function main(): void {
       }
     }
   }
-  process.stdout.write(`Generated ${states.length} subagent inspector PNGs (${columns}x${rows} cells, ${surfaceWidth}x${surfaceHeight}, Kitty X11) in ${outputDir}\n`);
+  process.stdout.write(`Generated ${states.length} subagent inspector PNGs (${columns}x${rows} cells, ${surfaceWidth}x${surfaceHeight}, headless Chromium) in ${outputDir}\n`);
 }
 
 main();

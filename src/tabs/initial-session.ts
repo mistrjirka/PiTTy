@@ -82,9 +82,6 @@ export function startInitialSession(ports: InitialSessionPorts): Promise<void> {
 		!ports.integrations.subagents.installed
 			? "a supported subagent runtime (@mistrjirka/pi-subagent or pi-subagents)"
 			: undefined,
-		!ports.integrations.todos.installed
-			? "@juicesharp/rpiv-todo (Todo panel)"
-			: undefined,
 	].filter((value): value is string => value !== undefined);
 	if (missingIntegrations.length) {
 		queueMicrotask(() =>

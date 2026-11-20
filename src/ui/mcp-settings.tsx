@@ -1,6 +1,8 @@
-import { createMemo, createSignal, type Accessor } from "solid-js";
+import { homedir } from "node:os";
+import { createMemo, createSignal, type Accessor, type JSX } from "solid-js";
 import type { TextareaRenderable } from "@opentui/core";
 import stripAnsi from "strip-ansi";
+import { DialogFrame } from "./dialog-frame.tsx";
 import { colors } from "./theme.ts";
 import type { McpConfigBackend, McpConfigSnapshot, McpHttpAuthMode, McpMutation, McpPreview, McpScope, McpServerForm } from "../config/mcp-config.ts";
 
@@ -37,6 +39,37 @@ function McpAction(props: McpActionProps) {
     props.onPress();
   };
   return <text id={`mcp-action-${props.label.toLowerCase().replaceAll(" ", "-")}`} fg={colors.cyan} onMouseDown={press}>[{props.label}]</text>;
+}
+
+/** Config paths are long; `~` keeps the common case on one row. */
+function shortenHomePath(path: string): string {
+  const home = homedir();
+  return home && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+}
+
+function McpScopeChoice(props: { scope: McpScope; selected: boolean; onPress: () => void }) {
+  return (
+    <text
+      id={`mcp-scope-${props.scope}`}
+      fg={props.selected ? colors.textBright : colors.muted}
+      wrapMode="none"
+      flexShrink={0}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        props.onPress();
+      }}
+    >
+      {`${props.selected ? "●" : "○"} ${props.scope}  `}
+    </text>
+  );
+}
+
+/** A scrollbox has no content height of its own, so a `fit` frame needs a plain box. */
+function McpBody(props: { scrolls: boolean; children: JSX.Element }) {
+  return props.scrolls
+    ? <scrollbox flexGrow={1} minHeight={1} scrollY viewportCulling={true}>{props.children}</scrollbox>
+    : <box flexDirection="column" flexShrink={1}>{props.children}</box>;
 }
 
 export type McpSettingsProps = {
@@ -83,8 +116,12 @@ export function McpSettings(props: McpSettingsProps) {
   const [executionError, setExecutionError] = createSignal<string>();
   const snapshot = createMemo(() => props.snapshot());
   const names = createMemo(() => Object.keys(snapshot()?.servers ?? {}));
-  const pathText = createMemo(() => snapshot()?.filePath ?? "Select a scope to inspect MCP configuration.");
+  const pathText = createMemo(() => {
+    const filePath = snapshot()?.filePath;
+    return filePath ? shortenHomePath(filePath) : "Select a scope to inspect MCP configuration.";
+  });
   const state = createMemo(() => props.configState());
+  const scrolls = () => view() === "form" || (state() === "mutation-preview" && props.preview() !== undefined);
   const parseMap = (raw: string): Record<string, string> => {
     const result: Record<string, string> = {};
     for (const line of raw.split("\n")) { const separator = line.indexOf("="); if (separator > 0) result[line.slice(0, separator).trim()] = line.slice(separator + 1); }
@@ -110,15 +147,22 @@ export function McpSettings(props: McpSettingsProps) {
     props.onAdd(form, { confirmDuplicate: confirmDuplicate(), confirmPlaintext: confirmPlaintext() });
   };
   return (
-    <box position="absolute" left="12%" right="12%" top={1} bottom={2} flexDirection="column" padding={1} backgroundColor={colors.panelRaised} border borderColor={colors.borderStrong} zIndex={150} onKeyDown={(event) => {
-      if (event.name !== "escape" || view() !== "form") return;
-      event.preventDefault();
-      event.stopPropagation();
-      closeForm();
-    }}>
-      <box height={1} minHeight={1} flexShrink={0} flexDirection="row"><text fg={colors.textBright} attributes={1}>MCP servers</text><box flexGrow={1} /><text fg={colors.cyan} onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); if (view() === "form") closeForm(); else props.onBack(); }}>← {view() === "form" ? "Servers" : "Settings"}</text></box>
-      <text fg={colors.subtle}>{backend() === "native" ? "Pi's built-in MCP reads ~/.pi/agent/mcp.json and .pi/mcp.json. Changes apply on the next session start." : "Standard config only; PiTTy never invokes /mcp or /mcp setup."}</text>
-      <scrollbox flexGrow={1} minHeight={1} scrollY viewportCulling={true}>
+    <DialogFrame
+      title="MCP servers"
+      summary={backend() === "native" ? "Pi built-in · applies next session" : "pi-mcp-adapter"}
+      // The server list is a few rows; only the form and the write preview
+      // can outgrow the screen and need the tall, scrolling frame.
+      height={scrolls() ? "tall" : "fit"}
+      closeLabel={view() === "form" ? "esc ‹ servers" : "esc ‹ settings"}
+      onClose={() => { if (view() === "form") closeForm(); else props.onBack(); }}
+      onKeyDown={(event) => {
+        if (event.name !== "escape" || view() !== "form") return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeForm();
+      }}
+    >
+      <McpBody scrolls={scrolls()}>
       {props.adapterState() === "missing" ? <text fg={colors.yellow}>pi-mcp-adapter is missing. Configured commands execute with your user permissions.</text> : null}
       {props.adapterState() === "installing" ? <text fg={colors.muted}>Installing pi-mcp-adapter…</text> : null}
       {props.adapterState() === "install-failed" ? <text fg={colors.red}>Install failed; PiTTy remains usable. Check the retained install log and retry.</text> : null}
@@ -126,8 +170,13 @@ export function McpSettings(props: McpSettingsProps) {
       {props.adapterState() === "native-disabled" ? <text fg={colors.yellow}>Pi's built-in MCP is disabled by -builtin:mcp in settings.json.</text> : null}
       {props.adapterState() === "native-disabled" ? <McpAction label="Enable built-in MCP" onPress={() => props.onEnableBuiltin?.()} /> : null}
       {props.adapterState() === "missing" ? <McpAction label="Install adapter" onPress={props.onInstall} /> : null}
-      <box flexDirection="row"><McpAction label="Project scope" onPress={() => { closeForm(); props.onScope("project"); }} /><McpAction label="Global scope" onPress={() => { closeForm(); props.onScope("global"); }} /></box>
-      <text fg={colors.muted}>Scope: {props.scope()} · Path: {pathText()}</text>
+      <box flexDirection="row" height={1} flexShrink={0}>
+        <text fg={colors.muted} wrapMode="none" flexShrink={0}>{"Scope  "}</text>
+        {(["project", "global"] as const).map((scope) => (
+          <McpScopeChoice scope={scope} selected={props.scope() === scope} onPress={() => { closeForm(); props.onScope(scope); }} />
+        ))}
+      </box>
+      <text fg={colors.subtle} wrapMode="char">{pathText()}</text>
       {props.scope() === "global" ? <text fg={colors.yellow}>Global changes affect other MCP hosts.</text> : null}
       {(snapshot()?.laterPrecedenceNames ?? []).length ? <text fg={colors.yellow}>Later-precedence sources may shadow: {(snapshot()?.laterPrecedenceNames ?? []).join(", ")}</text> : null}
       {state() === "malformed-readonly" ? <text fg={colors.red}>Malformed or unsafe config: read-only; no rewrite is possible.</text> : null}
@@ -172,8 +221,8 @@ export function McpSettings(props: McpSettingsProps) {
       </box>}
       {state() === "mutation-preview" && props.preview() ? <box flexDirection="column"><text fg={colors.yellow}>Before/after preview — confirm to write.</text><text>Scope: {props.scope()} · Path: {pathText()}</text><text>{JSON.stringify(props.preview()?.before ?? null)} → {JSON.stringify(props.preview()?.after ?? null)}</text>{props.preview()?.warnings.map((warning) => <text fg={colors.yellow}>{warning}</text>)}<text>Cancel leaves the selected file unchanged.</text><McpAction label="Confirm atomic write" onPress={props.onConfirmPreview} /><McpAction label="Cancel preview" onPress={props.onCancelPreview} /></box> : null}
       {props.error() ? <text fg={colors.red}>{props.error()}</text> : null}
-      </scrollbox>
-    </box>
+      </McpBody>
+    </DialogFrame>
   );
 }
 

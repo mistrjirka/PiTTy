@@ -5,12 +5,9 @@ import {
 	ownedSubagentTargetsForItems,
 	type SubagentTarget,
 	subagentTargets,
-	targetContextPercent,
-	targetContextUsage,
 } from "../subagents/targets.ts";
 import {
 	directSubagentChildren,
-	parentSubagentTarget,
 	subagentAncestors,
 } from "../subagents/tree.ts";
 import type { ConversationItem, SubagentRun, ToolItem } from "../types.ts";
@@ -18,11 +15,11 @@ import { formatDuration } from "./duration.ts";
 import { cleanTerminalText } from "./message.tsx";
 import {
 	friendlyTargetState,
-	ModelContextRows,
 	stateColor,
 	stateIcon,
 } from "./model-context.tsx";
 import { spinnerFrames } from "./spinner.ts";
+import { subagentElapsedMs } from "./subagent-format.ts";
 import {
 	InspectorSteerPanel,
 	InspectorTranscriptPane,
@@ -70,9 +67,6 @@ export function SubagentInspector(props: SubagentInspectorProps) {
 	const run = () => target().run;
 	const allTargets = () => props.allTargets ?? [target()];
 	const ancestors = createMemo(() => subagentAncestors(target(), allTargets()));
-	const parentTarget = createMemo(() =>
-		parentSubagentTarget(target(), allTargets()),
-	);
 	const directChildren = createMemo(() =>
 		directSubagentChildren(target(), allTargets()),
 	);
@@ -86,12 +80,6 @@ export function SubagentInspector(props: SubagentInspectorProps) {
 		const id = entry.run.agentId ? `@${entry.run.agentId}` : entry.label;
 		return entry.run.profile ? `${id} · ${entry.run.profile}` : id;
 	};
-	const breadcrumb = () =>
-		[
-			"Main",
-			...ancestors().map(compactAgentName),
-			compactAgentName(target()),
-		].join(" › ");
 	// Legacy pi-subagents supports pause/resume through its file-control inbox.
 	// Profiled subagents deliberately expose only steer/stop; do not invent a
 	// pause state that the resident Pi RPC child does not have.
@@ -99,24 +87,8 @@ export function SubagentInspector(props: SubagentInspectorProps) {
 		run().control === "profiled" || run().runtime === "profiled-subagents";
 	const controlAvailability = () => subagentControlAvailability(target());
 	const canControl = () => controlAvailability().canControl;
-	const controlHint = () => {
-		if (profiled()) return "Steer below · Ctrl+Shift+A stop";
-		if (run().state === "running") return "Ctrl+A pause · Ctrl+Shift+A stop";
-		if (run().state === "paused") return "Resume via click · Ctrl+Shift+A stop";
-		return "Ctrl+Shift+A stop";
-	};
 	const step = () => target().step;
 	const spinnerGlyph = () => props.spinner ?? spinnerFrames[0] ?? "◐";
-	// Residents (`idle`) and parent-waiters (`waiting`) are live-but-idle:
-	// their context window is stale, so the inline Context field drops (the
-	// tool count stays visible through the activity row). Mirrors the
-	// `targetToolUsage` resident rule at the row choke point.
-	const residentIdle = () =>
-		target().state === "idle" || target().state === "waiting";
-	const childContextUsage = () =>
-		residentIdle() ? "" : (targetContextUsage(target()) ?? "");
-	const childContextPercent = () =>
-		residentIdle() ? undefined : targetContextPercent(target());
 	// `active` is not "working": profiled `idle`/`waiting` children are live
 	// (resident / blocked on the parent) but must not show the spinner.
 	const isWorkingState = (state: string): boolean =>
@@ -124,25 +96,14 @@ export function SubagentInspector(props: SubagentInspectorProps) {
 		state === "queued" ||
 		state === "active" ||
 		state === "working";
-	const presenceText = (): string | undefined => {
-		const state = target().state;
-		if (isWorkingState(state)) return `${spinnerGlyph()} Working…`;
-		if (state === "waiting") return "⏸ waiting for parent";
-		if (state === "idle") return "◆ resident · idle";
-		return undefined;
-	};
+	// Row 1 already names the state, so this row is only what the agent is
+	// doing right now.
 	const activityText = () => {
-		const parts: string[] = [];
-		const presence = presenceText();
-		if (presence) parts.push(presence);
 		const tool = currentTool();
 		const path = currentPath();
-		if (tool ?? path) {
-			parts.push(
-				`⚙${cleanTerminalText(tool ?? "working")}${toolElapsed() !== undefined ? ` ${formatDuration(toolElapsed())}` : ""}${path ? ` · ${cleanTerminalText(path)}` : ""}`,
-			);
-		}
-		return parts.join(" · ");
+		if (!tool && !path) return "";
+		const timing = toolElapsed() !== undefined ? ` ${formatDuration(toolElapsed())}` : "";
+		return `↳ ${cleanTerminalText(tool ?? "working")}${timing}${path ? ` · ${cleanTerminalText(path)}` : ""}`;
 	};
 	const activeTools = () =>
 		target().active && target().state === "running"
@@ -152,22 +113,18 @@ export function SubagentInspector(props: SubagentInspectorProps) {
 		tool: NonNullable<SubagentRun["activeTools"]>[number],
 	) => {
 		const elapsed = Math.max(0, props.now - tool.startedAt);
-		const prefix = `${cleanTerminalText(tool.toolName)} running · elapsed ${formatDuration(elapsed)}`;
-		if (tool.timeoutSeconds === undefined)
-			return `${prefix} · command timeout not specified`;
+		const prefix = `↳ ${cleanTerminalText(tool.toolName)} ${formatDuration(elapsed)}`;
+		if (tool.timeoutSeconds === undefined) return `${prefix} · no timeout`;
 		const limit = tool.timeoutSeconds * 1000;
-		return `${prefix} · command timeout ${formatDuration(limit)} · ${
+		return `${prefix} of ${formatDuration(limit)} · ${
 			elapsed < limit
 				? `${formatDuration(limit - elapsed)} left`
-				: "timeout reached; awaiting completion"
+				: "timed out, waiting for exit"
 		}`;
 	};
 	const itemNow = (item: ConversationItem): number | undefined =>
 		inspectorItemNow(target().active, item, props.now);
-	const elapsed = () =>
-		target().startedAt
-			? (step()?.endedAt ?? run().endedAt ?? props.now) - target().startedAt!
-			: undefined;
+	const elapsed = () => subagentElapsedMs(target(), props.now);
 	const toolStartedAt = () =>
 		step()?.currentToolStartedAt ?? run().currentToolStartedAt;
 	const toolElapsed = () =>
@@ -205,229 +162,157 @@ export function SubagentInspector(props: SubagentInspectorProps) {
 		props.onSteer?.(message);
 	};
 
+	const statusGlyph = () =>
+		isWorkingState(target().state)
+			? spinnerGlyph()
+			: stateIcon(target().state);
+	const crumbSeparator = () => (
+		<text fg={colors.border} wrapMode="none" flexShrink={0}>
+			{" › "}
+		</text>
+	);
+	const controlButton = (
+		id: string,
+		label: string,
+		color: string,
+		action: (() => void) | undefined,
+	) => (
+		<text
+			id={id}
+			fg={color}
+			wrapMode="none"
+			flexShrink={0}
+			marginRight={2}
+			onMouseDown={(event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				action?.();
+			}}
+		>
+			{label}
+		</text>
+	);
+	// Keyboard twins of the pause/stop buttons, shown in the prompt box so
+	// keyboard-only users can find them.
+	const controlKeys = () => {
+		if (!canControl()) return "";
+		const pause =
+			!profiled() && controlAvailability().canPause ? "ctrl+a pause  " : "";
+		return canStop() ? `${pause}ctrl+shift+a stop` : pause.trim();
+	};
+	const canStop = () =>
+		profiled()
+			? ["running", "queued", "waiting", "idle"].includes(run().state)
+			: ["running", "paused", "queued"].includes(run().state);
+
+	// The subagent view is the main view scoped to one agent: same transcript
+	// rows, same prompt box. Model and context for the agent live in the
+	// sidebar, so this header is a breadcrumb plus at most a few detail rows.
 	return (
 		<box
 			flexGrow={1}
 			minHeight={1}
 			flexDirection="column"
-			paddingLeft={2}
-			paddingRight={2}
+			paddingLeft={1}
+			paddingRight={1}
 		>
-			<box
-				flexDirection="column"
-				flexShrink={0}
-				border={["bottom"]}
-				borderColor={colors.borderStrong}
-				paddingBottom={1}
-				marginBottom={1}
-			>
-				<box
-					height={1}
-					minHeight={1}
-					flexShrink={0}
-					flexDirection="row"
-					zIndex={10}
-				>
+			<box flexDirection="column" flexShrink={0} marginBottom={1}>
+				<box height={1} minHeight={1} flexShrink={0} flexDirection="row">
 					<text
-						height={1}
+						id="subagent-inspector-close"
+						fg={colors.subtle}
 						wrapMode="none"
-						fg={colors.textBright}
-						attributes={1}
+						flexShrink={0}
+						onMouseDown={requestClose}
 					>
-						{cleanTerminalText(breadcrumb())}
+						Main
 					</text>
-					<box flexGrow={1} height={1} />
+					<For each={ancestors()}>
+						{(ancestor) => (
+							<>
+								{crumbSeparator()}
+								<text
+									fg={colors.subtle}
+									wrapMode="none"
+									flexShrink={0}
+									onMouseDown={(event) => {
+										event.preventDefault();
+										event.stopPropagation();
+										props.onInspectSubagentTarget?.(ancestor.key);
+									}}
+								>
+									{cleanTerminalText(compactAgentName(ancestor))}
+								</text>
+							</>
+						)}
+					</For>
+					{crumbSeparator()}
 					<text
 						id="subagent-inspector-choose"
 						fg={colors.purple}
 						attributes={1}
+						wrapMode="none"
+						flexShrink={1}
 						onMouseDown={(event) => {
 							event.preventDefault();
 							event.stopPropagation();
 							props.onChooseTarget?.();
 						}}
 					>
-						{cleanTerminalText(target().label)} ▼
+						{cleanTerminalText(compactAgentName(target()))}
 					</text>
-					<text
-						id="subagent-inspector-close"
-						fg={colors.cyan}
-						attributes={1}
-						marginLeft={2}
-						onMouseDown={requestClose}
-					>
-						← Main chat
-					</text>
-				</box>
-				<box height={1} minHeight={1} flexShrink={0} flexDirection="row">
-					<Show when={parentTarget()}>
-						{(parent) => (
-							<text
-								id="subagent-inspector-parent"
-								fg={colors.purple}
-								attributes={1}
-								onMouseDown={(event) => {
-									event.preventDefault();
-									event.stopPropagation();
-									props.onInspectSubagentTarget?.(parent().key);
-								}}
-							>
-								← {cleanTerminalText(compactAgentName(parent()))} parent
-							</text>
-						)}
+					<box flexGrow={1} minWidth={2} />
+					<Show when={canControl() && controlAvailability().canPause}>
+						{controlButton("subagent-pause", "⏸ pause", colors.yellow, props.onPause)}
 					</Show>
-					<Show when={parentTarget()}>
-						<text fg={colors.subtle}> · </text>
+					<Show when={canControl() && controlAvailability().canResume}>
+						{controlButton("subagent-resume", "▶ resume", colors.green, props.onResume)}
 					</Show>
-					<text wrapMode="none" fg={colors.subtle}>
-						{props.targetCount && props.targetCount > 1 ? "←/→ switch · " : ""}
-						Esc / Ctrl+I main chat
+					<Show when={canControl() && canStop()}>
+						{controlButton("subagent-stop", "⏹ stop", colors.red, props.onStop)}
+					</Show>
+					<text fg={stateColor(target().state)} wrapMode="none" flexShrink={0}>
+						{`${statusGlyph()} ${cleanTerminalText(friendlyTargetState(target().state))}`}
 					</text>
+					<Show when={elapsed() !== undefined}>
+						<text fg={colors.subtle} wrapMode="none" flexShrink={0}>
+							{` ${formatDuration(elapsed())}`}
+							{timeoutMs() && remaining() !== undefined && target().active
+								? ` · ${formatDuration(Math.max(0, remaining()!))} left`
+								: ""}
+						</text>
+					</Show>
 				</box>
-				<Show when={canControl()}>
-					<box flexDirection="row" height={1} minHeight={1} flexShrink={0}>
-						<Show when={controlAvailability().canPause}>
-							<text
-								id="subagent-pause"
-								fg={colors.yellow}
-								attributes={1}
-								wrapMode="none"
-								onMouseDown={(event) => {
-									event.preventDefault();
-									event.stopPropagation();
-									props.onPause?.();
-								}}
-							>
-								⏸ Pause
-							</text>
-						</Show>
-						<Show when={controlAvailability().canResume}>
-							<text
-								id="subagent-resume"
-								fg={colors.green}
-								attributes={1}
-								wrapMode="none"
-								onMouseDown={(event) => {
-									event.preventDefault();
-									event.stopPropagation();
-									props.onResume?.();
-								}}
-							>
-								▶ Resume
-							</text>
-						</Show>
-						<Show
-							when={
-								profiled()
-									? ["running", "queued", "waiting", "idle"].includes(
-											run().state,
-										)
-									: ["running", "paused", "queued"].includes(run().state)
-							}
-						>
-							<text
-								id="subagent-stop"
-								marginLeft={2}
-								fg={colors.red}
-								attributes={1}
-								wrapMode="none"
-								onMouseDown={(event) => {
-									event.preventDefault();
-									event.stopPropagation();
-									props.onStop?.();
-								}}
-							>
-								⏹ Stop
-							</text>
-						</Show>
-						<box flexGrow={1} height={1} />
-						<text fg={colors.muted} wrapMode="none">
-							{controlHint()}
-						</text>
-					</box>
-				</Show>
-				{(() => {
-					const currentStep = step();
-					const who = currentStep
-						? `${cleanTerminalText(currentStep.agent)} #${currentStep.index + 1}`
-						: cleanTerminalText(target().label);
-					const timing = [
-						`⏱${formatDuration(elapsed())}`,
-						timeoutMs() ? `⏳${formatDuration(timeoutMs())}` : "",
-						remaining() !== undefined && target().active
-							? `${formatDuration(Math.max(0, remaining()!))} left`
-							: "",
-					]
-						.filter(Boolean)
-						.join(" · ");
-					return (
-						<text
-							height={1}
-							minHeight={1}
-							flexShrink={0}
-							wrapMode="none"
-							fg={stateColor(target().state)}
-						>
-							{stateIcon(target().state)} {who} ·{" "}
-							{cleanTerminalText(friendlyTargetState(target().state))} ·{" "}
-							{timing}
-						</text>
-					);
-				})()}
 				<Show when={activityText()}>
-					<text
-						height={1}
-						minHeight={1}
-						flexShrink={0}
-						wrapMode="none"
-						fg={colors.cyan}
-					>
+					<text height={1} minHeight={1} flexShrink={0} wrapMode="none" fg={colors.subtle}>
 						{activityText()}
 					</text>
 				</Show>
 				<Show when={target().state === "waiting" && run().pendingQuestion}>
-					<box
-						flexDirection="column"
-						border={["left"]}
-						borderColor={colors.purple}
-						paddingLeft={1}
-					>
-						<text fg={colors.purple} attributes={1}>
-							Awaiting parent answer
+					<box flexDirection="row" flexShrink={0}>
+						<text fg={colors.subtle} wrapMode="none" flexShrink={0}>
+							{"asked main  "}
 						</text>
-						<text fg={colors.textBright} selectable wrapMode="word">
+						<text fg={colors.text} selectable wrapMode="word" flexShrink={1}>
 							{run().pendingQuestion}
 						</text>
-						<Show when={run().pendingQuestionContext}>
-							<text fg={colors.muted} selectable wrapMode="word">
-								{run().pendingQuestionContext}
-							</text>
-						</Show>
 					</box>
+					<Show when={run().pendingQuestionContext}>
+						<text fg={colors.subtle} selectable wrapMode="word" paddingLeft={12}>
+							{run().pendingQuestionContext}
+						</text>
+					</Show>
 				</Show>
 				<For each={activeTools()}>
 					{(tool) => (
-						<text minHeight={1} flexShrink={0} wrapMode="word" fg={colors.cyan}>
+						<text minHeight={1} flexShrink={0} wrapMode="word" fg={colors.subtle}>
 							{commandTiming(tool)}
 						</text>
 					)}
 				</For>
-				<ModelContextRows
-					layout="inline"
-					contextText={childContextUsage() ?? ""}
-					percentUsed={childContextPercent()}
-					modelText={target().model ?? ""}
-					thinkingText={target().thinking ?? ""}
-				/>
 				<Show when={target().error}>
-					<text
-						height={1}
-						minHeight={1}
-						flexShrink={0}
-						wrapMode="none"
-						fg={colors.red}
-					>
-						✖ {cleanTerminalText(target().error!)}
+					<text height={1} minHeight={1} flexShrink={0} wrapMode="none" fg={colors.red}>
+						✗ {cleanTerminalText(target().error!)}
 					</text>
 				</Show>
 			</box>
@@ -435,8 +320,6 @@ export function SubagentInspector(props: SubagentInspectorProps) {
 				props={props}
 				target={target}
 				run={run}
-				currentTool={currentTool}
-				toolElapsed={toolElapsed}
 				itemNow={itemNow}
 				ownedChildren={ownedChildren}
 			/>
@@ -448,6 +331,7 @@ export function SubagentInspector(props: SubagentInspectorProps) {
 				}}
 				getSteerEditor={() => steerEditor}
 				sendSteer={sendSteer}
+				controlKeys={controlKeys}
 			/>
 		</box>
 	);

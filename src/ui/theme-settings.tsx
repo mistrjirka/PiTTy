@@ -3,6 +3,7 @@ import { For, createEffect, createMemo, createSignal, untrack } from "solid-js";
 import { createDynamic, useKeyboard } from "@opentui/solid";
 import { createSearchableDialogFocus, handleSearchableDialogCancel } from "./searchable-dialog-focus.ts";
 import { contrastWarnings } from "./theme-contrast.ts";
+import { DialogFrame } from "./dialog-frame.tsx";
 import { colors, getThemeRevision, type ThemePalette } from "./theme.ts";
 import {
   isThemeColorToken,
@@ -87,32 +88,14 @@ export function ThemePresetBrowser(props: ThemePresetBrowserProps) {
   });
 
   const Contents = () => (
-    <box
-      position="absolute"
-      left="12%"
-      right="12%"
-      top={1}
-      bottom={1}
-      flexDirection="column"
-      backgroundColor={colors.panelRaised}
-      border
-      borderColor={colors.borderStrong}
-      padding={1}
+    <DialogFrame
+      title="Theme"
+      hint="↑/↓ choose · enter apply · c customize"
+      height="tall"
+      closeLabel="esc ‹ settings"
       zIndex={170}
+      onClose={props.onCancel}
     >
-      <box flexDirection="row">
-        <text fg={colors.textBright} attributes={1}>Theme presets</text>
-        <box flexGrow={1} />
-        <text
-          fg={colors.cyan}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onCancel();
-          }}
-        >← Settings</text>
-      </box>
-      <text fg={colors.subtle}>↑/↓ choose · Enter apply · C customize colors · Esc back</text>
       <For each={[selectedIndex()]}>
         {() => <For each={themePresetNames}>
         {(name, index) => {
@@ -140,7 +123,7 @@ export function ThemePresetBrowser(props: ThemePresetBrowserProps) {
         }}
         </For>}
       </For>
-      <box flexDirection="row">
+      <box flexDirection="row" flexShrink={0}>
         <text
           fg={busy() ? colors.muted : colors.cyan}
           onMouseDown={(event) => {
@@ -152,7 +135,7 @@ export function ThemePresetBrowser(props: ThemePresetBrowserProps) {
         <box flexGrow={1} />
         <text ref={(value) => { status = value; updateStatus(); }} fg={colors.subtle}>Changes apply immediately</text>
       </box>
-    </box>
+    </DialogFrame>
   );
   const EvenTheme = () => <Contents />;
   const OddTheme = () => <Contents />;
@@ -313,32 +296,14 @@ export function ThemeTokenEditor(props: ThemeTokenEditorProps) {
   });
 
   const Contents = () => (
-    <box
-      position="absolute"
-      left="12%"
-      right="12%"
-      top={1}
-      bottom={1}
-      flexDirection="column"
-      backgroundColor={colors.panelRaised}
-      border
-      borderColor={colors.borderStrong}
-      padding={1}
+    <DialogFrame
+      title="Custom colors"
+      hint="tab search · enter edit · ctrl+r reset"
+      height="tall"
+      closeLabel="esc ‹ theme"
       zIndex={175}
+      onClose={props.onCancel}
     >
-      <box flexDirection="row">
-        <text fg={colors.textBright} attributes={1}>Custom theme colors</text>
-        <box flexGrow={1} />
-        <text
-          fg={colors.cyan}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onCancel();
-          }}
-        >← Theme presets</text>
-      </box>
-      <text fg={colors.subtle}>Tab search/list · Enter edit · valid #RRGGBB applies immediately · Ctrl+R reset · Esc back</text>
       <textarea
         ref={(value) => { search = value; }}
         focused={focus.focusTarget() === "search" && !fieldFocused() && !busy()}
@@ -361,7 +326,8 @@ export function ThemeTokenEditor(props: ThemeTokenEditorProps) {
         options={options()}
         selectedIndex={0}
         focused={focus.focusTarget() === "list" && !fieldFocused() && !busy()}
-        height={8}
+        flexGrow={1}
+        minHeight={3}
         backgroundColor={colors.panelRaised}
         focusedBackgroundColor={colors.panelRaised}
         textColor={colors.text}
@@ -375,7 +341,7 @@ export function ThemeTokenEditor(props: ThemeTokenEditorProps) {
           if (typeof option?.value === "string" && isThemeColorToken(option.value)) selectToken(option.value);
         }}
       />
-      <box flexDirection="row">
+      <box flexDirection="row" flexShrink={0}>
         <text ref={(value) => { selectedLabel = value; updateSelectedStatus(); }} fg={colors.muted}>background </text>
         <textarea
           id="theme-token-value"
@@ -409,13 +375,13 @@ export function ThemeTokenEditor(props: ThemeTokenEditorProps) {
           }}
         />
       </box>
-      <text ref={(value) => { validationStatus = value; updateSelectedStatus(); }} fg={colors.subtle}>
+      <text ref={(value) => { validationStatus = value; updateSelectedStatus(); }} fg={colors.subtle} flexShrink={0}>
         Effective background: {colors.background}
       </text>
-      <text height={2} minHeight={2} fg={liveWarnings().length ? colors.yellow : colors.subtle} wrapMode="word">
+      <text height={2} minHeight={2} flexShrink={0} fg={liveWarnings().length ? colors.yellow : colors.subtle} wrapMode="word">
         {warningSummary()}
       </text>
-      <box flexDirection="row">
+      <box flexDirection="row" flexShrink={0}>
         <text
           fg={busy() ? colors.muted : colors.cyan}
           onMouseDown={(event) => {
@@ -427,7 +393,7 @@ export function ThemeTokenEditor(props: ThemeTokenEditorProps) {
         <box flexGrow={1} />
         <text ref={(value) => { status = value; updateStatus(); }} fg={colors.subtle}>Changes apply immediately</text>
       </box>
-    </box>
+    </DialogFrame>
   );
   const EvenTheme = () => <Contents />;
   const OddTheme = () => <Contents />;

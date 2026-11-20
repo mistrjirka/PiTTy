@@ -312,7 +312,9 @@ export function createAppSignals(options: AppSignalsOptions): AppSignals {
 
 	const [memorySnapshot, setMemorySnapshot] = createSignal<MemorySnapshot>();
 
-	const [thinkingExpanded, setThinkingExpanded] = createSignal(true);
+	// Thoughts start collapsed to one muted heading each; the transcript reads
+	// as answers and tool rows. The thinking slash command flips the default.
+	const [thinkingExpanded, setThinkingExpanded] = createSignal(false);
 
 	const [compactionExpanded, setCompactionExpanded] = createSignal(false);
 

@@ -3,20 +3,28 @@ import { createMemo } from "solid-js";
 import type { SubagentTarget } from "../subagents/targets.ts";
 import { subagentTreeRows } from "../subagents/tree.ts";
 import { formatDuration } from "./duration.ts";
+import { DialogFrame } from "./dialog-frame.tsx";
+import { friendlyTargetState, stateIcon } from "./model-context.tsx";
+import { subagentElapsedMs } from "./subagent-format.ts";
 import { colors } from "./theme.ts";
 
-function description(target: SubagentTarget): string {
-  const elapsed = target.startedAt ? formatDuration((target.run.endedAt ?? Date.now()) - target.startedAt) : "";
-  const group = target.active ? "ACTIVE" : target.state === "unresponsive" ? "UNRESPONSIVE" : "FINISHED";
-  return [group, target.state, target.run.mode, elapsed].filter(Boolean).join(" · ");
+/** `working · 49s`: the same state words and glyphs as the sidebar tree. */
+function stateText(target: SubagentTarget): string {
+  const ms = subagentElapsedMs(target, Date.now());
+  const elapsed = ms === undefined ? "" : formatDuration(ms);
+  return [friendlyTargetState(target.state), elapsed].filter(Boolean).join(" · ");
 }
 
 export function subagentSelectorOptions(targets: readonly SubagentTarget[]) {
-  return subagentTreeRows(targets).map((row) => ({
-    name: `${row.prefix}${row.target.active ? "●" : "○"} ${row.target.label}`,
-    description: description(row.target),
-    value: row.target,
-  }));
+  return subagentTreeRows(targets).map((row) => {
+    const name = `${row.prefix}${stateIcon(row.target.state)} ${row.target.label}`;
+    return {
+      // One row per agent: name column, then state.
+      name: `${name.padEnd(44)} ${stateText(row.target)}`,
+      description: "",
+      value: row.target,
+    };
+  });
 }
 
 export function SubagentSelectorDialog(props: {
@@ -34,40 +42,20 @@ export function SubagentSelectorDialog(props: {
   const activeCount = createMemo(() => props.targets.filter((target) => target.active).length);
 
   return (
-    <box
-      position="absolute"
-      left="14%"
-      right="14%"
-      top="10%"
-      maxHeight="80%"
-      flexDirection="column"
-      backgroundColor={colors.panelRaised}
-      border
-      borderColor={colors.borderStrong}
-      padding={1}
+    <DialogFrame
+      title="Agents"
+      summary={`${activeCount()} active · ${props.targets.length - activeCount()} finished`}
+      hint="↑/↓ move · enter open"
       zIndex={170}
+      onClose={props.onCancel}
     >
-      <box flexDirection="row">
-        <text fg={colors.textBright} attributes={1}>Select subagent</text>
-        <box flexGrow={1} />
-        <text fg={colors.muted}>{activeCount()} active · {props.targets.length - activeCount()} finished</text>
-        <text
-          fg={colors.cyan}
-          marginLeft={2}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onCancel();
-          }}
-        >× Close</text>
-      </box>
-      <text fg={colors.subtle}>Delegation tree · ↑/↓ move · Enter select · Esc close</text>
       <select
         ref={(value) => { select = value; }}
         options={options()}
         selectedIndex={selectedIndex()}
         focused
-        height={Math.min(22, Math.max(5, options().length))}
+        height={Math.min(22, Math.max(3, options().length))}
+        showDescription={false}
         backgroundColor={colors.panelRaised}
         focusedBackgroundColor={colors.panelRaised}
         textColor={colors.text}
@@ -83,6 +71,6 @@ export function SubagentSelectorDialog(props: {
           if (target) props.onSelect(target);
         }}
       />
-    </box>
+    </DialogFrame>
   );
 }

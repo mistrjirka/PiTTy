@@ -291,7 +291,7 @@ export function createExtensionModelActions(
 			id: entry.id,
 			label: entry.kind === "defaults" ? "Defaults" : entry.id,
 			summary: [
-				entry.model ?? "no model",
+				entry.model ?? "main model",
 				entry.thinking ? `thinking ${entry.thinking}` : "",
 				entry.source ?? "",
 			]
@@ -305,7 +305,7 @@ export function createExtensionModelActions(
 			{
 				id: "model",
 				label: "Model",
-				summary: `${entry.model ?? "no model"}${entry.source ? ` · ${entry.source}` : ""}`,
+				summary: `${entry.model ?? "main model"}${entry.source ? ` · ${entry.source}` : ""}`,
 			},
 			{
 				id: "thinking",
@@ -434,7 +434,7 @@ export function createExtensionModelActions(
 		const entry = selectedSubagentModelEntry();
 		if (!entry) return undefined;
 		return [
-			`${entry.kind === "defaults" ? "Defaults" : entry.id}: ${entry.model ?? "no model"}`,
+			`${entry.kind === "defaults" ? "Defaults" : entry.id}: ${entry.model ?? "main model"}`,
 			...(entry.thinking ? [`thinking ${entry.thinking}`] : []),
 			entry.source ?? "unset",
 		].join(" · ");

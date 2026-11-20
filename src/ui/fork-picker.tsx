@@ -2,6 +2,7 @@ import type { KeyEvent, SelectRenderable, TextareaRenderable } from "@opentui/co
 import { createMemo, createSignal } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import type { ForkPickerOption } from "../tabs/entry-index.ts";
+import { DialogFrame } from "./dialog-frame.tsx";
 import { colors } from "./theme.ts";
 import { createSearchableDialogFocus, handleSearchableDialogCancel } from "./searchable-dialog-focus.ts";
 
@@ -41,17 +42,24 @@ export function ForkPicker(props: ForkPickerProps) {
 		}
 	});
 	return (
-		<box position="absolute" left="12%" right="12%" top="8%" bottom={1} flexDirection="column" backgroundColor={colors.panelRaised} border borderColor={colors.borderStrong} padding={1} zIndex={150}>
-			<box flexDirection="row"><text fg={colors.textBright} attributes={1}>Fork conversation</text><box flexGrow={1} /><text fg={colors.muted} onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); props.onCancel(); }}>× Close</text></box>
+		<DialogFrame
+			title="Fork conversation"
+			// The summary carries the empty state: on a short terminal the frame
+			// has no rows left for a body message.
+			summary={choices().length === 0 ? "no fork points" : undefined}
+			hint={choices().length === 0 ? undefined : "tab list · ↑/↓ move · enter fork"}
+			height="tall"
+			onClose={props.onCancel}
+		>
 			<textarea ref={(value) => { search = value; }} focused={focus.focusTarget() === "search"} height={1} minHeight={1} maxHeight={1} placeholder="Search messages…" backgroundColor={colors.panel} focusedBackgroundColor={colors.panel} textColor={colors.textBright} placeholderColor={colors.muted} onKeyDown={cancel} onContentChange={() => { setQuery(search?.plainText ?? ""); queueMicrotask(() => select?.setSelectedIndex(0)); }} />
-			<text fg={colors.subtle}>Message list · ↑/↓ move · Enter select · Esc close</text>
-			{choices().length === 0 ? <text fg={colors.yellow}>No fork points.</text> : (
+			{choices().length === 0 ? null : (
 				<select
 					ref={(value) => { select = value; }}
 					options={options()}
 					selectedIndex={0}
 					focused={focus.focusTarget() === "list"}
-					height={Math.min(18, Math.max(5, options().length))}
+					flexGrow={1}
+					minHeight={1}
 					backgroundColor={colors.panelRaised}
 					focusedBackgroundColor={colors.panelRaised}
 					textColor={colors.text}
@@ -80,6 +88,6 @@ export function ForkPicker(props: ForkPickerProps) {
 					}}
 				/>
 			)}
-		</box>
+		</DialogFrame>
 	);
 }

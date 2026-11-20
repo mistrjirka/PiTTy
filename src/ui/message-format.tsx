@@ -89,6 +89,57 @@ export function prettyArgs(args: unknown): string {
 	}
 }
 
+/** Keys that carry the one value a reader needs to recognise a tool call. */
+const TOOL_SUMMARY_KEYS = [
+	"command",
+	"cmd",
+	"path",
+	"file_path",
+	"filePath",
+	"url",
+	"query",
+	"glob",
+] as const;
+
+/**
+ * One-line, human summary of a tool call's arguments for the quiet tool row
+ * (`bash  bun run typecheck`, `grep  "timeoutMs" src/rpc`). Falls back to
+ * compact JSON so unknown tools still show what they were called with.
+ */
+export function toolArgSummary(args: unknown, maxLength = 150): string {
+	if (args === undefined || args === null) return "";
+	const oneLine = (value: string) => value.replace(/\s+/g, " ").trim();
+	const clipped = (value: string) =>
+		value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+	if (typeof args === "string") return clipped(oneLine(args));
+	if (typeof args === "object" && !Array.isArray(args)) {
+		const record = args as Record<string, unknown>;
+		const text = (key: string) =>
+			typeof record[key] === "string" && record[key].trim()
+				? oneLine(record[key])
+				: undefined;
+		const pattern = text("pattern");
+		const target = TOOL_SUMMARY_KEYS.map(text).find(Boolean);
+		if (pattern) return clipped(target ? `"${pattern}" ${target}` : `"${pattern}"`);
+		if (target) return clipped(target);
+	}
+	const json = oneLine(prettyArgs(args));
+	// An empty argument object says nothing; keep the row to the tool name.
+	return json === "{}" || json === "[]" ? "" : clipped(json);
+}
+
+/** Status glyph shared by tool rows: running, failed, or finished. */
+export function toolStatusGlyph(item: Pick<ToolItem, "status" | "isError">): {
+	glyph: string;
+	color: string;
+} {
+	if (item.isError || item.status === "error")
+		return { glyph: "✗", color: colors.red };
+	if (item.status === "streaming" || item.status === "pending")
+		return { glyph: "◉", color: colors.accent };
+	return { glyph: "✓", color: colors.green };
+}
+
 export function expandedToolHeight(output: string): number {
 	// Layout is capped at 18 rows. Avoid allocating every line of a large log.
 	let lines = 1;
@@ -153,6 +204,28 @@ export function cleanAnswerText(value: string): string {
 export function thinkingLineCount(value: string): number {
 	const clean = value.trim();
 	return clean ? clean.split(/\r?\n/).length : 0;
+}
+
+/**
+ * Thought heading: one muted line instead of a labelled panel. Clicking it
+ * toggles the body, so the heading carries no separate expand/collapse word.
+ */
+export function thinkingHeading(
+	streaming: boolean,
+	expanded: boolean,
+	lines: number,
+): string {
+	if (streaming) return `${expanded ? "▾" : "∴"} Thinking…`;
+	return `${expanded ? "▾" : "∴"} Thought · ${lines} line${lines === 1 ? "" : "s"}`;
+}
+
+/** True when the next transcript item is a tool, so tool rows stack. */
+export function nextItemIsTool(
+	items: readonly ConversationItem[],
+	itemId: string,
+): boolean {
+	const index = items.findIndex((candidate) => candidate.id === itemId);
+	return index >= 0 && items[index + 1]?.kind === "tool";
 }
 
 export function collapsedThinkingPreview(
@@ -266,22 +339,32 @@ export function notificationText(value: unknown): string {
 	return typeof value === "string" ? value : "";
 }
 
+const SHOWN_LIMIT_MS = 10_000;
+const SHOWN_DURATION_MS = 100;
+
 export function toolTiming(item: ToolItem, now?: number): string {
-	const timeout = item.timeoutMs === undefined ? "" : `timeout ${formatDuration(item.timeoutMs, "")}`;
-	const wait = item.waitMs === undefined ? "" : `wait up to ${formatDuration(item.waitMs, "")}`;
+	// Short limits are noise next to a short run; only a limit a reader might
+	// actually wait for (over 10s) earns space on the row.
+	const shown = (ms: number | undefined) => ms !== undefined && ms > SHOWN_LIMIT_MS;
+	const timeout = shown(item.timeoutMs) ? `timeout ${formatDuration(item.timeoutMs!, "")}` : "";
+	const wait = shown(item.waitMs) ? `wait up to ${formatDuration(item.waitMs!, "")}` : "";
 	const limits = [timeout, wait].filter(Boolean).join(" · ");
 	const startedAt = item.startedAt;
 	if (startedAt === undefined) return limits;
 	const end = item.endedAt ?? now;
 	// No end and no clock: do not invent an epoch-based duration.
 	if (end === undefined) return limits;
-	const duration = formatDuration(Math.max(0, end - startedAt), "");
+	const elapsed = Math.max(0, end - startedAt);
+	// `0ms` reads as broken: sub-100ms calls are effectively instant, and a
+	// replayed session often has equal start and end stamps.
+	const duration = elapsed < SHOWN_DURATION_MS ? "" : formatDuration(elapsed, "");
 	if (item.status === "streaming" || item.status === "pending") {
+		if (!duration) return limits;
 		return `${duration}${limits ? ` / ${limits}` : ""}`;
 	}
-	return duration
-		? `took ${duration}${limits ? ` · ${limits}` : ""}`
-		: limits;
+	// The quiet tool row right-aligns this next to a ✓/✗ glyph, so a bare
+	// duration reads as "took" without spending the word.
+	return duration ? `${duration}${limits ? ` · ${limits}` : ""}` : limits;
 }
 
 export type MessageItemSource = ConversationItem | Accessor<ConversationItem>;

@@ -36,13 +36,16 @@ describe("tool timeout units and wait windows", () => {
 		expect(item.timeoutMs).toBeUndefined();
 		expect(item.waitMs).toBe(150_000);
 		expect(toolTiming(item, 6_000)).toBe("5s / wait up to 2m 30s");
-		expect(toolTiming({ ...item, status: "done", endedAt: 6_000 })).toBe("took 5s · wait up to 2m 30s");
-		expect(toolTiming(liveTool("agent_wait", { timeout_seconds: 0 }), 1_000)).toBe("0ms / wait up to 0ms");
+		expect(toolTiming({ ...item, status: "done", endedAt: 6_000 })).toBe("5s · wait up to 2m 30s");
+		// Under 100ms elapsed and a limit under 10s: nothing worth a column.
+		expect(toolTiming(liveTool("agent_wait", { timeout_seconds: 0 }), 1_000)).toBe("");
+		expect(toolTiming(liveTool("bash", { command: "x", timeout: 10 }), 1_050)).toBe("");
+		expect(toolTiming(liveTool("bash", { command: "x", timeout: 11 }), 1_050)).toBe("timeout 11s");
 	});
 
 	test("keeps an explicit execution limit separate from a polling wait", () => {
 		const item = liveTool("custom", { timeoutMs: 60_000, yield_time_ms: 500 });
-		expect(toolTiming(item, 2_000)).toBe("1s / timeout 1m 0s · wait up to 500ms");
+		expect(toolTiming(item, 2_000)).toBe("1s / timeout 1m 0s");
 		expect(liveTool("custom", { wait_seconds: 10 }).waitMs).toBe(10_000);
 	});
 

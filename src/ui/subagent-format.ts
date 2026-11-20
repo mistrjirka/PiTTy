@@ -1,3 +1,4 @@
+import type { SubagentTarget } from "../subagents/targets.ts";
 export type SubagentArgs = Record<string, unknown>;
 
 function argsRecord(args: unknown): SubagentArgs | undefined {
@@ -35,16 +36,6 @@ export function taskGist(args: unknown): string | undefined {
 	if (!task) return undefined;
 	const normalized = task.replace(/\s+/g, " ").trim();
 	return normalized.length > 90 ? `${normalized.slice(0, 89)}…` : normalized;
-}
-
-export function terminalBadge(
-	status: string,
-	isError: boolean,
-	timingText: string,
-): string | undefined {
-	if (isError || status === "error" || status === "failed") return "✗ failed";
-	if (status === "completed" || status === "done") return timingText ? `✓ completed · ${timingText}` : "✓ completed";
-	return undefined;
 }
 
 function childrenSummary(record: SubagentArgs | undefined): string | undefined {
@@ -97,4 +88,18 @@ function parseObject(value: string): SubagentArgs | undefined {
 	} catch {
 		return undefined;
 	}
+}
+
+/**
+ * How long a child has run. A finished child with no recorded end has an
+ * unknown duration: counting to `now` would make it grow forever after it
+ * stopped, so it reports nothing instead.
+ */
+export function subagentElapsedMs(
+	target: Pick<SubagentTarget, "startedAt" | "active" | "run" | "step">,
+	now: number,
+): number | undefined {
+	if (!target.startedAt) return undefined;
+	const end = target.step?.endedAt ?? target.run.endedAt ?? (target.active ? now : undefined);
+	return end === undefined ? undefined : Math.max(0, end - target.startedAt);
 }

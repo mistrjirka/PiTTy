@@ -8,6 +8,7 @@ import type { OwnedSubagentTargets } from "../subagents/targets.ts";
 import type { ConversationTabRuntime } from "../tabs/runtime.ts";
 import type { ConversationItem } from "../types.ts";
 import { CompactedSummary } from "./compaction-panel.tsx";
+import { nextItemIsTool } from "./message-format.tsx";
 import { MessageView } from "./message.tsx";
 
 export interface MessageRendererPorts {
@@ -48,6 +49,10 @@ export function createMessageRenderer(
 			const candidate = item();
 			return candidate?.kind === "tool" ? candidate : undefined;
 		});
+		const compactBelow = createMemo(
+			() =>
+				tool() !== undefined && nextItemIsTool(ports.visibleItems(), itemId),
+		);
 		const subagentTargetsForItem = createMemo(
 			() => ports.ownedVisibleSubagentTargets().get(itemId) ?? [],
 		);
@@ -77,6 +82,7 @@ export function createMessageRenderer(
 				onToggleDiff={ports.toggleDiff}
 				canFork={!ports.streaming()}
 				onFork={(entryId) => void ports.forkAt(entryId, item())}
+				compactBelow={compactBelow()}
 				subagentTargets={subagentTargetsForItem()}
 				onInspectSubagentTarget={ports.inspectSubagentTarget}
 				now={

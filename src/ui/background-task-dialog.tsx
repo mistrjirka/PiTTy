@@ -1,5 +1,6 @@
 import { Show, type Accessor } from "solid-js";
 import { backgroundStatus, type BackgroundOutputPage, type BackgroundTask } from "../state/background-tasks.ts";
+import { DialogFrame } from "./dialog-frame.tsx";
 import { colors } from "./theme.ts";
 import { backgroundTaskDuration } from "./background-task-duration.ts";
 
@@ -28,37 +29,17 @@ export function BackgroundTaskDialog(props: {
 			bottom={0}
 			onMouseDown={(event) => event.stopPropagation()}
 		>
-			<box
+			<DialogFrame
 				id="background-detail"
-				position="absolute"
-				left="8%"
-				right="8%"
-				top="6%"
-				bottom="6%"
-				flexDirection="column"
-				backgroundColor={colors.panelRaised}
-				border
-				borderColor={colors.borderStrong}
-				padding={1}
+				title={`Background ${task()?.id ?? "task"}`}
+				summary={`${task() ? backgroundStatus(task()!) : "unavailable"}${duration() ? ` · ${duration()}` : ""}`}
+				width="wide"
+				height="tall"
 				zIndex={170}
-				onMouseDown={(event) => event.stopPropagation()}
+				onClose={props.onClose}
 			>
-				<box height={1} flexDirection="row" flexShrink={0}>
-					<text fg={colors.textBright} attributes={1}>
-						Background {task()?.id ?? "task"} · {task() ? backgroundStatus(task()!) : "unavailable"}{duration() ? ` · ${duration()}` : ""}
-					</text>
-					<box flexGrow={1} />
-					<text
-						fg={colors.muted}
-						onMouseDown={(event) => {
-							event.preventDefault();
-							event.stopPropagation();
-							props.onClose();
-						}}
-					>× Close</text>
-				</box>
 				<text height={1} fg={colors.subtle} wrapMode="none">
-					{task()?.cwd ?? ""} · Esc close · scroll output
+					{task()?.cwd ?? ""}
 				</text>
 				<text height={1} fg={colors.textBright} attributes={1}>
 					{commandHeading()}
@@ -135,7 +116,7 @@ export function BackgroundTaskDialog(props: {
 				<text height={1} fg={props.error ? colors.red : colors.subtle} wrapMode="none">
 					{props.error ?? (props.busy ? "Refreshing…" : page() && page()!.maxPage > 0 ? `Page ${page()!.maxPage - page()!.page + 1} of ${page()!.maxPage + 1}` : "Read-only viewer · does not consume bash_output")}
 				</text>
-			</box>
+			</DialogFrame>
 		</box>
 	);
 }

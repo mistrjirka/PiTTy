@@ -244,7 +244,7 @@ try {
           <PromptComposer
             streaming={() => false}
             focused={() => true}
-            placeholder={() => "Ask Pi anything… (/help for commands)"}
+            placeholder={() => "Ask Pi anything…"}
             onEditor={(value) => { editor = value; }}
             onPaste={() => {}}
             onKeyDown={() => {}}

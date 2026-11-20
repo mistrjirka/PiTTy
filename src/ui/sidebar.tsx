@@ -6,3 +6,4 @@ export type {
 } from "./sidebar-layout.ts";
 export { allocateSidebarPanels } from "./sidebar-layout.ts";
 export { Sidebar } from "./sidebar-view.tsx";
+export { sidebarScopeForTarget } from "./sidebar-scope.ts";

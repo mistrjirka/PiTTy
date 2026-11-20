@@ -5,6 +5,7 @@ import { queuedPromptMatchesDraft, type SessionDrafts, sessionDrafts } from "../
 import { createPromptPasteBlock, expandPromptPasteTokens, insertPromptPasteBlock, promptPasteDeletionRange, promptPasteRange, prunePromptPasteBlocks, shouldCollapsePromptPaste } from "../state/paste-blocks.ts";
 import type { Toast } from "../types.ts";
 import type { ConversationTabRuntime } from "./runtime.ts";
+import { promptPlaceholder } from "../ui/prompt-composer.tsx";
 
 export interface PromptDraftPorts {
 	cwd: string;
@@ -49,9 +50,7 @@ export function createPromptDraftActions(
 		);
 	};
 	const mainPromptPlaceholder = () =>
-		ports.activeRuntime().conversation.isStreaming
-			? "Enter queues the next step · Alt+Up edits pending"
-			: "Ask Pi anything… (/help for commands)";
+		promptPlaceholder(ports.activeRuntime().conversation.isStreaming);
 	const syncPromptPlaceholder = (text: string) => {
 		const prompt = ports.getPrompt();
 		if (prompt)

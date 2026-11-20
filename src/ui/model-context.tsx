@@ -1,4 +1,3 @@
-import { Show } from "solid-js";
 import stripAnsi from "strip-ansi";
 import { compactTokenCount } from "../state/compaction-telemetry.ts";
 import { colors } from "./theme.ts";
@@ -35,19 +34,34 @@ export function clip(value: string, width = 32): string {
 	return `${clean.slice(0, Math.max(1, width - 1))}…`;
 }
 
+const WORKING_STATES = ["running", "active", "working"];
+const QUEUED_STATES = ["queued"];
+const ATTENTION_STATES = ["paused", "needs_attention"];
+const FAILED_STATES = ["failed", "error", "timed_out"];
+const FINISHED_STATES = ["completed", "finished", "done"];
+
+/** Colour for a state glyph. Running is the accent, like a running tool row. */
 export function stateColor(state: string): string {
-	if (["running", "active", "working"].includes(state)) return colors.green;
-	if (["queued", "paused", "needs_attention"].includes(state))
+	if (WORKING_STATES.includes(state)) return colors.accent;
+	if (QUEUED_STATES.includes(state) || ATTENTION_STATES.includes(state))
 		return colors.yellow;
-	if (["failed", "error", "timed_out"].includes(state)) return colors.red;
-	return colors.borderStrong;
+	if (FAILED_STATES.includes(state)) return colors.red;
+	if (FINISHED_STATES.includes(state)) return colors.green;
+	return colors.subtle;
 }
 
+/**
+ * Single-cell state glyph shared by tool rows, spawn groups, the sidebar and
+ * the subagent view. Plain glyphs, not emoji: emoji render two cells wide in
+ * most terminals and break column alignment.
+ */
 export function stateIcon(state: string): string {
-	if (["running", "active", "working"].includes(state)) return "🟢";
-	if (["queued", "paused", "needs_attention"].includes(state)) return "🟡";
-	if (["failed", "error", "timed_out"].includes(state)) return "🔴";
-	return "⚪";
+	if (WORKING_STATES.includes(state)) return "●";
+	if (QUEUED_STATES.includes(state)) return "◌";
+	if (state === "waiting" || ATTENTION_STATES.includes(state)) return "◷";
+	if (FAILED_STATES.includes(state)) return "✗";
+	if (FINISHED_STATES.includes(state)) return "✓";
+	return "○";
 }
 
 /**
@@ -99,7 +113,9 @@ export function isResidentTargetState(state: string): boolean {
 export function targetFreshness(target: SubagentTarget, now: number): string {
 	const lastUpdate = target.lastUpdate;
 	if (lastUpdate === undefined) return "unknown";
-	return `${formatDuration(Math.max(0, now - lastUpdate))} ago`;
+	const age = Math.max(0, now - lastUpdate);
+	// `0ms ago` reads as a glitch; under a second is simply now.
+	return age < 1_000 ? "just now" : `${formatDuration(age)} ago`;
 }
 
 /**
@@ -141,110 +157,14 @@ export function targetToolUsage(target: SubagentTarget, now = Date.now()): strin
 	return "";
 }
 
-/** Per-field caps for the inline inspector row, so one long value cannot crowd out the others. */
-export const INLINE_CONTEXT_VALUE_WIDTH = 30;
-export const INLINE_MODEL_VALUE_WIDTH = 60;
-export const INLINE_THINKING_VALUE_WIDTH = 24;
-
-export type ModelContextRowsProps = {
-	/**
-	 * `"stacked"` (default) is the sidebar pattern: `Context` / value /
-	 * `% used` / `Model` / value / `Thinking: …` as separate full-width rows.
-	 * `"inline"` is the wide-inspector variant: one row with the known fields
-	 * side by side. An empty (after sanitising) value omits that field.
-	 */
-	layout?: "stacked" | "inline" | undefined;
-	/** Preformatted `used / limit` line (or `"— / —"` when unknown). */
-	contextText: string;
-	/** Renders `{pct}% used` when defined (null/undefined hide it). */
-	percentUsed?: number | null | undefined;
-	/** Preformatted `provider/id` line (or `"—"` when unknown). */
-	modelText: string;
-	/** Preformatted thinking level (or `"—"` when unknown). */
-	thinkingText: string;
-	/**
-	 * Truncate row lines to this width (defaults to 32, the sidebar content
-	 * width both call sites inherited). Lines are always sanitised
-	 * (ANSI/control stripped) regardless of truncation.
-	 */
-	clipWidth?: number | undefined;
-};
-
 /**
- * Sidebar-pattern `Context` + `Model` rows shared by sidebar and inspector.
- *
- * The inline layout renders one row (`Context <value>` then `Model <value>`
- * then `Thinking: <value>`, percent appended to the Context field) for the
- * wide inspector. Unknown fields are omitted by passing an empty value; the
- * component stays dumb and the sidebar keeps its `"—"` placeholders.
+ * Short usage for the sidebar agent row: the live context window when known,
+ * else cumulative tokens. Empty for residents, whose window is stale.
  */
-export function ModelContextRows(props: ModelContextRowsProps) {
-	if (props.layout === "inline") {
-		const percent = () => props.percentUsed ?? undefined;
-		const hasContext = () => cleanInline(props.contextText) !== "";
-		const hasModel = () => cleanInline(props.modelText) !== "";
-		const hasThinking = () => cleanInline(props.thinkingText) !== "";
-		if (!hasContext() && !hasModel() && !hasThinking()) return <></>;
-		return (
-			<box flexDirection="row" height={1} minHeight={1} flexShrink={0} width="100%">
-				<Show when={hasContext()}>
-					<text fg={colors.textBright} attributes={1} wrapMode="none">
-						Context{" "}
-					</text>
-					<text fg={colors.muted} wrapMode="none">
-						{clip(props.contextText, INLINE_CONTEXT_VALUE_WIDTH)}
-						{percent() !== undefined ? ` · ${Math.round(percent() ?? 0)}% used` : ""}
-					</text>
-				</Show>
-				<Show when={hasContext() && (hasModel() || hasThinking())}>
-					<box width={2} flexShrink={0} />
-				</Show>
-				<Show when={hasModel()}>
-					<text fg={colors.textBright} attributes={1} wrapMode="none">
-						Model{" "}
-					</text>
-					<text fg={colors.muted} wrapMode="none">
-						{clip(props.modelText, INLINE_MODEL_VALUE_WIDTH)}
-					</text>
-				</Show>
-				<Show when={hasModel() && hasThinking()}>
-					<box width={2} flexShrink={0} />
-				</Show>
-				<Show when={hasThinking()}>
-					<text fg={colors.muted} wrapMode="none">
-						Thinking: {clip(props.thinkingText, INLINE_THINKING_VALUE_WIDTH)}
-					</text>
-				</Show>
-			</box>
-		);
-	}
-	const width = () => props.clipWidth ?? 32;
-	const contextLine = () => clip(props.contextText, width());
-	const modelLine = () => clip(props.modelText, width());
-	const thinkingLine = () => clip(props.thinkingText, width());
-	const percent = () => props.percentUsed ?? undefined;
-	return (
-		<>
-			<text width="100%" height={1} fg={colors.textBright} attributes={1}>
-				Context
-			</text>
-			<text width="100%" height={1} fg={colors.muted} wrapMode="none">
-				{contextLine()}
-			</text>
-			<Show when={percent() !== undefined}>
-				<text width="100%" height={1} fg={colors.muted}>
-					{Math.round(percent() ?? 0)}% used
-				</text>
-			</Show>
-			<text width="100%" height={1} fg={colors.textBright} attributes={1}>
-				Model
-			</text>
-			<text width="100%" height={1} fg={colors.muted} wrapMode="none">
-				{modelLine()}
-			</text>
-			<text width="100%" height={1} fg={colors.muted}>
-				Thinking: {thinkingLine()}
-			</text>
-		</>
-	);
+export function targetUsageShort(target: SubagentTarget): string {
+	if (isResidentTargetState(target.state)) return "";
+	const context = targetContextUsage(target);
+	if (context) return context;
+	const tokens = targetTokens(target);
+	return tokens === undefined ? "" : `${formatTokens(tokens)} tok`;
 }

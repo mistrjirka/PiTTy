@@ -8,6 +8,7 @@ import {
   type ProviderConnection,
   type ConnectionMethod,
 } from "../integrations/provider-connections.ts";
+import { DialogFrame } from "./dialog-frame.tsx";
 import { colors } from "./theme.ts";
 
 const mainProviders = new Set(["openai-codex", "claude-code", "opencode-go", "anthropic", "github-copilot", "openai", "opencode"]);
@@ -146,14 +147,12 @@ export function ProviderConnections(props: {
       .finally(() => { if (mounted) setBusy(false); });
   };
   const visible = () => providers().filter((provider) => expand() || mainProviders.has(provider.id));
-  return <box position="absolute" left="12%" right="12%" top="8%" bottom={3} zIndex={155}
-    padding={1} border borderColor={colors.borderStrong} backgroundColor={colors.panelRaised}
-    flexDirection="column" gap={1} onKeyDown={(event) => {
+  return <DialogFrame title="Provider connections" summary="shared with Pi" height="tall"
+    closeLabel="esc ‹ settings" zIndex={155}
+    onClose={() => { cancel(); props.onBack(); }}
+    onKeyDown={(event) => {
       if (event.name === "escape") { event.preventDefault(); event.stopPropagation(); if (busy()) cancel(); else props.onBack(); }
     }}>
-    <box flexDirection="row" height={1} minHeight={1}><text fg={colors.textBright} attributes={1}>Provider connections</text><box flexGrow={1} />
-      <ClickText label="Settings" onClick={() => { cancel(); props.onBack(); }} /></box>
-    <text fg={colors.subtle}>Use an account or API key supported by Pi. Connections are shared with Pi.</text>
     <scrollbox flexGrow={1} minHeight={1} scrollY viewportCulling={true}>
       {visible().map((provider) => <box flexDirection="column" gap={0} marginBottom={1}>
         <box flexDirection="row"><text fg={colors.textBright}>{provider.name}</text><box flexGrow={1}/>
@@ -186,5 +185,5 @@ export function ProviderConnections(props: {
       {error() ? <text fg={colors.red} wrapMode="word">{error()}</text> : null}
       {busy() ? <ClickText label="Cancel sign-in" onClick={cancel} /> : null}
     </scrollbox>
-  </box>;
+  </DialogFrame>;
 }
