@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.2
+
+- Stop compaction after the first extension supplies a summary. Prevent a later compactor from doing extra model work and replacing that summary. Keep completion notifications active for every extension.
+- Queue subagent notifications that would start a turn while compaction is running. Deliver them after the saved context is ready, together with pending user input. Keep pending input queued when manual compaction is cancelled or fails.
+- Add offline regression coverage for competing compactors and notifications arriving during compaction, including checks against the packaged Pi runtime.
+
 ## 1.1.1
 
 - Remove `rpiv-todo` from the recommended plugins, founder setup and both installers. Setup never uninstalls it.

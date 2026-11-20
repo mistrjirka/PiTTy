@@ -421,8 +421,7 @@ export async function runRpcMode(runtimeHost) {
             case "refresh_provider_models": {
                 // Authentication is handled by pi-ai's shared locked auth.json store.
                 // This command never accepts or returns credentials.
-                if (typeof command.providerId !== "string" ||
-                    !/^[-a-z0-9]{1,64}$/.test(command.providerId)) {
+                if (typeof command.providerId !== "string" || !/^[-a-z0-9]{1,64}$/.test(command.providerId)) {
                     return error(id, "refresh_provider_models", "Invalid provider ID");
                 }
                 if (session.isStreaming || session.isCompacting) {

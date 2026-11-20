@@ -40,7 +40,7 @@ async function waitFor(check: () => boolean | Promise<boolean>, label: string): 
   }
 }
 
-async function fixture(options: { foreground?: boolean } = {}) {
+async function fixture(options: { foreground?: boolean; compaction?: "manual" | "automatic" } = {}) {
   if (!executable || !existsSync(executable))
     throw new Error("PITTY_TEST_MANAGED_RUNTIME must point to an installed fork dist/cli.js.");
   const directory = await mkdtemp(path.join(os.tmpdir(), "pitty-managed-queue-"));
@@ -51,7 +51,7 @@ async function fixture(options: { foreground?: boolean } = {}) {
     defaultModel: "fixture",
     defaultThinkingLevel: "off",
     packages: [],
-    compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 1 },
+    compaction: { enabled: options.compaction === "automatic", keepRecentTokens: 1, reserveTokens: options.compaction === "automatic" ? 100 : 1 },
     retry: { enabled: false },
   }));
   // Resolve the helper from the installed runtime, not PiTTy's older development dependency.
@@ -73,13 +73,16 @@ async function fixture(options: { foreground?: boolean } = {}) {
     cwd: directory,
     executable,
     args: [
-      "--no-session", "--no-extensions", "--no-skills", "--no-prompt-templates",
+      ...(options.compaction ? [] : ["--no-session"]), "--no-extensions", "--no-skills", "--no-prompt-templates",
       ...(options.foreground ? ["--tools", "bash", "--extension", backgroundExtension!, "--extension", path.resolve(import.meta.dir, "..", "src", "pi-extensions", "bg-input-promotion.mjs")] : ["--no-tools"]),
-      "--extension", extension, "--provider", "pitty-queue-fixture", "--model", "fixture",
+      "--extension", extension,
+      ...(options.compaction ? ["--extension", path.join(import.meta.dir, "fixtures", "managed-compaction-fallback.mjs")] : []),
+      "--provider", "pitty-queue-fixture", "--model", "fixture",
     ],
     env: {
       PI_CODING_AGENT_DIR: agentDirectory,
       PITTY_QUEUE_FIXTURE_DIR: directory,
+      ...(options.compaction === "automatic" ? { PITTY_QUEUE_AUTOCOMPACT: "1" } : {}),
       PITTY_DISABLE_FORK_CODE_TOOL: "1",
       XDG_STATE_HOME: path.join(directory, "state"),
       ...(foregroundCommand ? {
@@ -107,8 +110,12 @@ async function fixture(options: { foreground?: boolean } = {}) {
     const result = await client.rpc({ type: "get_messages" }) as { messages: Array<{ role: string }> };
     return result.messages.filter((message): message is UserMessage => message.role === "user");
   };
+  const notifications = async () => {
+    const result = await client.rpc({ type: "get_messages" }) as { messages: Array<{ role: string; customType?: string }> };
+    return result.messages.filter((message) => message.role === "custom" && message.customType === "fixture-subagent-result");
+  };
   return {
-    client, directory, events, cleanup, users,
+    client, directory, events, cleanup, users, notifications,
     hold: (name: string) => writeFile(path.join(directory, "hold-" + name), ""),
     release: (name: string) => rm(path.join(directory, "hold-" + name), { force: true }),
     started: (name: string) => waitFor(() => existsSync(path.join(directory, name + "-started")), name + " to start"),
@@ -180,8 +187,62 @@ managedTest("managed RPC accepts and combines messages during manual compaction"
   }
 }, 45_000);
 
+
+for (const mode of ["manual", "automatic"] as const) {
+  managedTest("managed RPC keeps " + mode + " compaction exclusive when a child notification wakes the agent", async () => {
+    const f = await fixture({ compaction: mode });
+    try {
+      await f.hold("compaction");
+      await f.client.prompt("seed " + "context ".repeat(200));
+      let compact: Promise<unknown> | undefined;
+      if (mode === "manual") {
+        await f.settled();
+        compact = f.client.compact();
+        // Cleanup can stop this request after an earlier assertion fails.
+        void compact.catch(() => {});
+      }
+      await f.started("compaction");
+      const startIndex = f.events.findIndex((event) => event.type === "compaction_start");
+      expect(startIndex).toBeGreaterThanOrEqual(0);
+      await f.client.prompt("continue after compaction", "followUp", "continue");
+      await f.client.prompt("/queue-fixture-notify");
+      await f.client.getState();
+      expect(f.events.slice(startIndex + 1).some((event) => event.type === "agent_start")).toBe(false);
+      expect((await f.client.getQueue()).messages.map((item) => item.id)).toEqual(["continue"]);
+      expect(await f.notifications()).toHaveLength(0);
+
+      await f.release("compaction");
+      if (compact) await compact;
+      await waitFor(async () => (await f.users()).some((message) => text(message) === "continue after compaction"), "queued user input after compaction");
+      await waitFor(async () => (await f.notifications()).length === 1, "child notification after compaction");
+      await f.settled();
+      const endIndex = f.events.findIndex((event, index) => index > startIndex && event.type === "compaction_end");
+      expect(endIndex).toBeGreaterThan(startIndex);
+      expect(f.events.slice(startIndex + 1, endIndex).some((event) => event.type === "agent_start")).toBe(false);
+      expect(f.events.slice(endIndex + 1).some((event) => event.type === "agent_start")).toBe(true);
+      expect((await f.users()).filter((message) => text(message) === "continue after compaction")).toHaveLength(1);
+      expect(await f.notifications()).toHaveLength(1);
+      expect((await f.client.getQueue()).messages).toEqual([]);
+      expect(existsSync(path.join(f.directory, "fallback-compaction-called"))).toBe(false);
+
+      const sessionFile = (await f.client.getState()).sessionFile;
+      if (!sessionFile) throw new Error("The fixture must persist its isolated compaction record.");
+      const entries: Array<{ type: string; summary?: string; details?: unknown }> =
+        (await readFile(sessionFile, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+      expect(entries.filter((entry) => entry.type === "compaction")).toEqual([
+        expect.objectContaining({ summary: "Fixture summary", details: { fixtureOwner: "primary" } }),
+      ]);
+      const contexts = await readFile(path.join(f.directory, "contexts.jsonl"), "utf8");
+      expect(contexts).toContain("Fixture summary");
+      expect(contexts).not.toContain("Fallback fixture summary");
+    } finally {
+      await f.cleanup();
+    }
+  }, 45_000);
+}
+
 managedTest("managed RPC preserves queued messages when compaction is aborted", async () => {
-  const f = await fixture();
+  const f = await fixture({ compaction: "manual" });
   try {
     await f.client.prompt("seed " + "context ".repeat(200));
     await f.settled();
@@ -189,13 +250,22 @@ managedTest("managed RPC preserves queued messages when compaction is aborted", 
     const compact = f.client.compact().then(() => "", (error: Error) => error.message);
     await f.started("compaction");
     await f.client.prompt("keep pending", "steer", "pending");
+    const startIndex = f.events.findIndex((event) => event.type === "compaction_start");
+    await f.client.prompt("/queue-fixture-notify");
     await f.client.abort();
     expect(await compact).toMatch(/cancel|abort/i);
     expect((await f.client.getState()).isStreaming).toBe(false);
     expect((await f.client.getQueue()).messages.map((item) => item.message)).toEqual(["keep pending"]);
     expect((await f.users()).map(text)).not.toContain("keep pending");
+    expect(await f.notifications()).toHaveLength(0);
+    expect(f.events.slice(startIndex + 1).some((event) => event.type === "agent_start")).toBe(false);
     await f.client.removeQueuedMessage("pending");
     expect((await f.client.getQueue()).messages).toEqual([]);
+    await f.release("compaction");
+    await f.client.prompt("resume after cancellation");
+    await waitFor(async () => (await f.notifications()).length === 1, "preserved notification on the next turn");
+    await f.settled();
+    expect(await f.notifications()).toHaveLength(1);
   } finally {
     await f.cleanup();
   }

@@ -1746,7 +1746,7 @@ export class AgentSession {
     }
     _queuePromptIfBusy(text, images, options, submittedDuringCompaction) {
         const manualCompaction = this._compactionAbortController !== undefined;
-        const hasPending = this.pendingMessageCount > 0;
+        const hasPending = this.agent.hasQueuedMessages();
         if (!this.isStreaming && !manualCompaction && !submittedDuringCompaction && !hasPending)
             return false;
         const behavior = options?.streamingBehavior ??
@@ -1790,15 +1790,30 @@ export class AgentSession {
         const admitted = await this._admitInput(async () => {
             if (!this.isIdle)
                 return {};
-            const input = this._queuedInputs.takeNext();
-            if (!input)
+            const next = this.agent.peekNextQueuedMessage();
+            if (!next)
                 return {};
+            let trigger;
+            let restore;
+            if (next.message.role === "custom") {
+                const { message, mode } = next;
+                this.agent.replaceQueuedMessages([message]);
+                trigger = { messageType: "custom", message };
+                restore = () => this.agent.prependQueuedMessage(message, mode);
+            }
+            else {
+                const input = this._queuedInputs.takeNext();
+                if (!input)
+                    return {};
+                trigger = { messageType: "user", prompt: input.info.message, images: input.info.images };
+                restore = () => this._queuedInputs.restore(input);
+            }
             let started = false;
-            const run = this._startRun({ messageType: "user", prompt: input.info.message, images: input.info.images }, () => {
+            const run = this._startRun(trigger, () => {
                 started = true;
             }).catch((error) => {
                 if (!started)
-                    this._queuedInputs.restore(input);
+                    restore();
                 throw error;
             });
             return { run };
@@ -1971,6 +1986,7 @@ export class AgentSession {
      * - Streaming + triggerTurn false: appended to state/session once the current turn ends
      * - Not streaming + triggerTurn: appends to state/session, starts new turn
      * - Not streaming + no trigger: appends to state/session, no turn
+     * Explicit turn triggers wait in the existing delivery queues during compaction.
      *
      * @param message Custom message with customType, content, display, details
      * @param options.triggerTurn If true and not streaming, triggers a new LLM turn
@@ -1989,19 +2005,24 @@ export class AgentSession {
         if (options?.deliverAs === "nextTurn") {
             this._pendingNextTurnMessages.push(appMessage);
         }
-        else if (this.isStreaming && options?.triggerTurn !== false) {
+        else if (options?.triggerTurn && this._isEmittingAgentSettled) {
+            this._deferredSettledActions.push(async () => await this.sendCustomMessage(message, options));
+        }
+        else if ((this.isStreaming && options?.triggerTurn !== false) ||
+            (options?.triggerTurn === true &&
+                (this._compactionAbortController !== undefined ||
+                    this._autoCompactionAbortController !== undefined ||
+                    this.agent.hasQueuedMessages()))) {
             if (options?.deliverAs === "followUp") {
                 this.agent.followUp(appMessage);
             }
             else {
                 this.agent.steer(appMessage);
             }
+            if (this.isIdle)
+                this._scheduleQueuedPrompt();
         }
         else if (options?.triggerTurn) {
-            if (this._isEmittingAgentSettled) {
-                this._deferredSettledActions.push(async () => await this.sendCustomMessage(message, options));
-                return;
-            }
             await this._startRun({ messageType: "custom", message: appMessage });
         }
         else if (this.isStreaming) {

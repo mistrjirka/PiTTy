@@ -258,6 +258,14 @@ export class Agent {
         const steering = this.steeringQueue.peek();
         return steering.length > 0 ? steering : this.followUpQueue.peek();
     }
+    /** Preview the first pending message and its delivery mode without consuming it. */
+    peekNextQueuedMessage() {
+        const steering = this.steeringQueue.peek()[0];
+        if (steering)
+            return { message: steering, mode: "steer" };
+        const followUp = this.followUpQueue.peek()[0];
+        return followUp ? { message: followUp, mode: "followUp" } : undefined;
+    }
     /** Active abort signal for the current run, if any. */
     get signal() {
         return this.activeRun?.abortController.signal;

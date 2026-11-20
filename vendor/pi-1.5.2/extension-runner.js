@@ -837,7 +837,9 @@ export class ExtensionRunner {
                     const handlerResult = await handler(event, ctx);
                     if (this.isSessionBeforeEvent(event) && handlerResult) {
                         result = handlerResult;
-                        if (result.cancel) {
+                        // Stop at the first checkpoint to avoid duplicate summaries and overwritten metadata.
+                        if (result.cancel ||
+                            (event.type === "session_before_compact" && result.compaction)) {
                             return result;
                         }
                     }

@@ -18,6 +18,7 @@ async function waitGate(name, signal) {
 
 export default function (pi) {
   let foregroundLaunched = false;
+  let responseCount = 0;
   pi.registerProvider("pitty-queue-fixture", {
     baseUrl: "https://fixture.invalid",
     apiKey: "fixture-key-never-sent",
@@ -33,6 +34,7 @@ export default function (pi) {
     }],
     streamSimple(model, context, options) {
       const stream = createAssistantMessageEventStream();
+      const inputTokens = process.env.PITTY_QUEUE_AUTOCOMPACT === "1" && responseCount++ === 0 ? 199_950 : 1;
       const message = {
         role: "assistant",
         api: model.api,
@@ -40,7 +42,7 @@ export default function (pi) {
         model: model.id,
         content: [{ type: "text", text: "fixture response" }],
         usage: {
-          input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+          input: inputTokens, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: inputTokens + 1,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
         },
         stopReason: "stop",
@@ -81,6 +83,17 @@ export default function (pi) {
     },
   });
 
+  pi.registerCommand("queue-fixture-notify", {
+    handler: async () => {
+      pi.sendMessage({
+        customType: "fixture-subagent-result",
+        content: "Fixture child finished",
+        display: false,
+        details: { source: "offline child notification" },
+      }, { triggerTurn: true, deliverAs: "followUp" });
+    },
+  });
+
   pi.registerCommand("queue-fixture-snapshot", {
     handler: async () => {
       const registry = globalThis[Symbol.for("pi-bg-bash.registry")];
@@ -114,7 +127,7 @@ export default function (pi) {
         summary: "Fixture summary",
         firstKeptEntryId: event.preparation.firstKeptEntryId,
         tokensBefore: event.preparation.tokensBefore,
-        details: {},
+        details: { fixtureOwner: "primary" },
       },
     };
   });
