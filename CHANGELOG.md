@@ -1,11 +1,27 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
+
+### Diffs and speed
 
 - Show edit diffs side by side when the transcript is at least 90 columns wide: the old version on the left, the new on the right, each with its own line numbers.
 - Compare model speed as one number that folds the first-token wait into the output rate, measured for a 500-token reply. A fast stream with a slow start now reads slower.
+- Show the latest reply's tok/s and first-token time next to the verdict, and the median values on their own row.
+
+### Recommended plugins
+
 - Add **Recommended plugins** to Settings (`Ctrl+X`). It shows the founder setup plan (subagents, compaction, memory, PiTTy-BTW, curated skills and agents, tools) and installs it after you press Enter.
-- Render README screenshots against the theme background, and show only the main screen.
+
+### Quieter notices
+
+- Show finished `pi-bg-bash` jobs as one row (status, job id, command, run time) with the last three output lines under it.
+- Show other extension messages as `· source  first line` with a short tail.
+- Remove the old left border from subagent notification and question cards and from the working indicator.
+- Put a collapsed tool output's preview on the same row as `expand`.
+
+### Screenshots
+
+- Replay tmux colours across line breaks when rendering screenshots, so they match the terminal exactly. Show only the main screen in the README.
 
 ## 1.0.0
 
