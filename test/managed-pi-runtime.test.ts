@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { ensureManagedPi } from "../scripts/ensure-managed-pi.mjs";
+import { ensureManagedPi, managedPiIsCurrent } from "../scripts/ensure-managed-pi.mjs";
 
 describe("managed Pi runtime installer", () => {
 	const managedTest = process.platform === "linux" || process.platform === "darwin" ? test : test.skip;
@@ -24,7 +24,7 @@ describe("managed Pi runtime installer", () => {
 				"utf8",
 			);
 			const manifest = JSON.parse(manifestText) as {
-				pi: { modules: { target: string }[] };
+				pi: { sideQuestionProtocolVersion: number; modules: { target: string }[] };
 				codeTool: { version: string; modules: { target: string }[] };
 				monty: { version: string };
 			};
@@ -79,6 +79,7 @@ describe("managed Pi runtime installer", () => {
 				JSON.stringify({
 					schemaVersion: 1,
 					patchSha256: createHash("sha256").update(manifestText).digest("hex"),
+					sideQuestionProtocolVersion: manifest.pi.sideQuestionProtocolVersion,
 					montyVersion: manifest.monty.version,
 					montyNativePackage: "@pydantic/" + nativeName,
 				}),
@@ -88,6 +89,7 @@ describe("managed Pi runtime installer", () => {
 				PITTY_UPSTREAM_PI_ROOT: path.join(root, "unavailable-upstream"),
 			};
 			expect(ensureManagedPi(root, env).status).toBe("ready");
+			expect(managedPiIsCurrent(root)).toBe(true);
 			const agentModule = manifest.pi.modules.find((module) =>
 				module.target.includes("pi-agent-core"),
 			);
@@ -118,6 +120,11 @@ describe("managed Pi runtime installer", () => {
 			expect(existsSync(path.join(runtime, "pi/dist/cli.js"))).toBe(true);
 			writeFileSync(markerPath, JSON.stringify(marker));
 			expect(ensureManagedPi(root, env).status).toBe("ready");
+			writeFileSync(markerPath, JSON.stringify({ ...marker, sideQuestionProtocolVersion: 0 }));
+			expect(managedPiIsCurrent(root)).toBe(false);
+			expect(ensureManagedPi(root, env).status).toBe("unsupported");
+			writeFileSync(markerPath, JSON.stringify(marker));
+			expect(managedPiIsCurrent(root)).toBe(true);
 			const auxiliary = Object.keys(locked.packages).find(location =>
 				location && !location.startsWith("node_modules/@pydantic/"));
 			expect(auxiliary).toBeDefined();

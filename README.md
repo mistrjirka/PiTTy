@@ -89,6 +89,14 @@ node bin/pitty.mjs
 
 </details>
 
+## Founder setup
+
+Install the maintained plugins plus the selected skills and agents with `pitty founders-setup`.
+Use `--dry-run` to preview changes or `--check` to inspect the installation. The first-install
+scripts also accept `--founders-setup` / `-FoundersSetup`. Exported agents inherit the active
+model. See [Founder setup and side questions](docs/FOUNDERS_SETUP.md) for package sources,
+private repository access, compatibility and `/btw` commands.
+
 ## Get started
 
 ```bash

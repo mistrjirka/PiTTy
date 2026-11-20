@@ -42,7 +42,10 @@ function activatePending() {
 
 const isUpgrade = process.argv[2] === "upgrade";
 const bundledBun = findBundledBun(root);
-if (isUpgrade) {
+if (process.argv[2] === "founders-setup") {
+  const { main } = await import("../scripts/founders-setup.mjs");
+  process.exitCode = await main(process.argv.slice(3), { appRoot: root });
+} else if (isUpgrade) {
   if (!bundledBun) { console.error("PiTTy could not find its bundled Bun runtime for upgrade."); process.exit(1); }
   const childEnv = { ...process.env, PITTY_NODE_EXECUTABLE: process.execPath, PITTY_APP_ROOT: root };
   const upgradeEntry = fs.existsSync(path.join(root, "dist", "upgrade.js"))

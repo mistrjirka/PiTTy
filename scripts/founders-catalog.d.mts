@@ -1,0 +1,12 @@
+export interface FoundersPackage {
+  id: string;
+  source: string;
+  names: string[];
+  files: string[];
+  replaces: string[];
+  nodeMajor?: number;
+  build?: string;
+  version?: string;
+}
+export const FOUNDERS_PACKAGES: FoundersPackage[];
+export function foundersCatalog(overrides?: Record<string, string>): FoundersPackage[];

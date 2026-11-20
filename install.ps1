@@ -2,6 +2,7 @@
 param(
   [switch]$WithPlugins,
   [switch]$WithoutPlugins,
+  [switch]$FoundersSetup,
   [switch]$Yes,
   [switch]$AllowPluginFailure,
   [switch]$DeferApply,
@@ -11,6 +12,8 @@ param(
   [string]$Repo = $(if ($env:PITTY_REPO) { $env:PITTY_REPO } else { "mistrjirka/PiTTy" })
 )
 $ErrorActionPreference = "Stop"
+$FoundersEnabled = $FoundersSetup -or $env:PITTY_FOUNDERS_SETUP -eq "1"
+if ($FoundersEnabled -and $DeferApply) { Write-Error "Run pitty founders-setup after activating a deferred upgrade." -ErrorAction Continue; exit 64 }
 if (-not $Version) { $Version = "latest" }
 if (-not $InstallDir) { $InstallDir = Join-Path $env:LOCALAPPDATA "PiTTy\app" }
 if (-not $BinDir) { $BinDir = Join-Path $env:LOCALAPPDATA "PiTTy\bin" }
@@ -109,10 +112,11 @@ try {
     }
   } finally { Pop-Location }
   if (-not (Test-Path (Join-Path $NewDir "bin\pitty.mjs"))) { Fail "archive is missing bin/pitty.mjs" }
+  if ($FoundersEnabled -and -not (Test-Path (Join-Path $NewDir "scripts\founders-setup.mjs"))) { Fail "This release does not support founders-setup; choose a newer release." }
   if (-not (Test-Path (Join-Path $NewDir "package.json"))) { Fail "archive is missing package.json" }
   if (-not (Test-Path (Join-Path $NewDir "node_modules\.bin\bun.cmd")) -and -not (Test-Path (Join-Path $NewDir "node_modules\.bin\bun.exe")) -and -not (Test-Path (Join-Path $NewDir "node_modules\bun\bin\bun.exe"))) { Fail "staged dependencies are missing bundled Bun" }
   foreach ($BuiltFile in @("dist\index.js", "dist\preload.js", "dist\upgrade.js", "dist\.pitty-runtime-build-v1")) { if (-not (Test-Path (Join-Path $NewDir $BuiltFile))) { Fail "runtime build is missing $BuiltFile" } }
-  $PluginMode = if ($WithPlugins) { "yes" } elseif ($WithoutPlugins) { "no" } elseif ($env:PITTY_PLUGIN_MODE -in @("yes", "no")) { $env:PITTY_PLUGIN_MODE } else { "ask" }
+  $PluginMode = if ($FoundersEnabled) { "no" } elseif ($WithPlugins) { "yes" } elseif ($WithoutPlugins) { "no" } elseif ($env:PITTY_PLUGIN_MODE -in @("yes", "no")) { $env:PITTY_PLUGIN_MODE } else { "ask" }
   $Metadata = [ordered]@{ schemaVersion = 1; repository = $Repo; installedVersion = $Ver; installDirectory = $InstallDir; binDirectory = $BinDir; pluginMode = $PluginMode }
   $MetadataJson = $Metadata | ConvertTo-Json -Compress
   [IO.File]::WriteAllText((Join-Path $NewDir "pitty-install.json"), "$MetadataJson`n", (New-Object Text.UTF8Encoding($false)))
@@ -152,6 +156,17 @@ try {
   elseif ($PluginMode -eq "ask") { $PluginMode = if ($Yes) { "yes" } elseif ((Read-Host "Install missing recommended Pi packages ($($Missing -join ', '))? [Y/n]") -match '^(n|no)$') { "no" } else { "yes" } }
   $Failures = 0
   foreach ($Plugin in @(@("git:github.com/mistrjirka/pi-subagent", "github.com/mistrjirka/pi-subagent", "pi-subagents"), @("npm:@juicesharp/rpiv-todo", "@juicesharp/rpiv-todo", ""), @("npm:pi-web-access", "pi-web-access", ""), @("npm:pi-diet-semble", "pi-diet-semble", ""), @("npm:pi-hermes-memory", "pi-hermes-memory", ""), @("git:github.com/mistrjirka/pi-one-round-compaction", "github.com/mistrjirka/pi-one-round-compaction", "pi-smart-compact"))) { if ($PluginMode -eq "yes" -and -not $PiList.Contains($Plugin[1])) { if ($Plugin[2] -ne "" -and ($PiList.Contains($Plugin[2]) -or (& pi list 2>$null | Out-String).Contains($Plugin[2]))) { Write-Host "Skipping $($Plugin[0]): $($Plugin[2]) is already installed" } else { $Log = Join-Path $LogRoot ("plugin-" + $Plugin[1].Replace("@", "_").Replace("/", "_") + ".log"); & pi install $Plugin[0] *> $Log; if ($LASTEXITCODE -ne 0) { $Failures++; Write-Warning "Optional Pi package $($Plugin[0]) failed (exit code: $LASTEXITCODE); log: $Log" } } } }
+  if ($FoundersEnabled) {
+    $FoundersLog = Join-Path $LogRoot "founders-setup.log"
+    Write-Host "Installing the founders setup..."
+    & node (Join-Path $InstallDir "bin\pitty.mjs") founders-setup *> $FoundersLog
+    if ($LASTEXITCODE -ne 0) {
+      $FoundersExit = $LASTEXITCODE
+      $Failures++
+      Write-Warning "Founders setup was incomplete (exit code: $FoundersExit); command: pitty founders-setup; log: $FoundersLog"
+      Get-Content $FoundersLog -Tail 30 | Write-Host
+    } else { Get-Content $FoundersLog -Tail 20 | Write-Host }
+  } else { Write-Host "Our plugins, curated skills and agents: pitty founders-setup" }
   Write-Host "PiTTy $Ver installed. Installer logs: $LogRoot"
   if ($Failures -gt 0 -and -not $AllowPluginFailure) { exit 2 }
 } catch { Write-Error $_.Exception.Message -ErrorAction Continue; exit 1 } finally { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Temp }

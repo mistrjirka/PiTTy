@@ -10,6 +10,7 @@ case "$PLUGIN_MODE" in yes|no|ask) : ;; *) PLUGIN_MODE="ask" ;; esac
 ASSUME_YES=0
 ALLOW_PLUGIN_FAILURE=0
 DEFER_APPLY=0
+FOUNDERS_SETUP="${PITTY_FOUNDERS_SETUP:-0}"
 if [ "${PITTY_WITH_PLUGINS:-}" = "1" ]; then PLUGIN_MODE="yes"; fi
 if [ "${PITTY_WITHOUT_PLUGINS:-}" = "1" ]; then PLUGIN_MODE="no"; fi
 
@@ -20,6 +21,7 @@ PiTTy installer for Linux and macOS
 Usage: install.sh [options]
   --with-plugins          Install recommended optional Pi packages
   --without-plugins       Skip optional Pi packages
+  --founders-setup        Install our plugin, skill and agent bundle after PiTTy
   --yes                   Accept defaults without prompting
   --allow-plugin-failure  Exit successfully when only optional packages fail
   --version <version>     Install a release, for example 0.3.0 or v0.3.0
@@ -30,7 +32,7 @@ Usage: install.sh [options]
   -h, --help              Show this help
 
 Environment equivalents: PITTY_REPO, PITTY_VERSION, PITTY_INSTALL_DIR, PITTY_BIN_DIR,
-PITTY_WITH_PLUGINS=1, PITTY_WITHOUT_PLUGINS=1, and PITTY_LOG_DIR.
+PITTY_WITH_PLUGINS=1, PITTY_WITHOUT_PLUGINS=1, PITTY_FOUNDERS_SETUP=1, and PITTY_LOG_DIR.
 EOF
 }
 
@@ -38,6 +40,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --with-plugins) PLUGIN_MODE="yes" ;;
     --without-plugins) PLUGIN_MODE="no" ;;
+    --founders-setup) FOUNDERS_SETUP=1 ;;
     --yes) ASSUME_YES=1 ;;
     --allow-plugin-failure) ALLOW_PLUGIN_FAILURE=1 ;;
     --defer-apply) DEFER_APPLY=1 ;;
@@ -50,6 +53,13 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+if [ "$FOUNDERS_SETUP" = "1" ]; then
+  PLUGIN_MODE="no"
+  if [ "$DEFER_APPLY" -eq 1 ]; then
+    echo "error: run pitty founders-setup after activating a deferred upgrade" >&2
+    exit 64
+  fi
+fi
 
 say() { printf '%s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -168,6 +178,9 @@ fi
 # Metadata is part of the staged payload and is consumed by pitty upgrade.
 node -e 'const fs=require("fs"); const out={schemaVersion:1,repository:process.argv[1],installedVersion:process.argv[2],installDirectory:process.argv[3],binDirectory:process.argv[4],pluginMode:process.argv[5]}; fs.writeFileSync(process.argv[6], JSON.stringify(out)+"\n")' "$REPO" "$VER" "$INSTALL_DIR" "$BIN_DIR" "$PLUGIN_MODE" "$INSTALL_DIR.new/pitty-install.json"
 [ -f "$INSTALL_DIR.new/bin/pitty.mjs" ] || die "archive is missing bin/pitty.mjs"
+if [ "$FOUNDERS_SETUP" = "1" ]; then
+  [ -f "$INSTALL_DIR.new/scripts/founders-setup.mjs" ] || die "this release does not support founders-setup; choose a newer release"
+fi
 [ -f "$INSTALL_DIR.new/package.json" ] || die "archive is missing package.json"
 [ -f "$INSTALL_DIR.new/node_modules/.bin/bun" ] || die "staged dependencies are missing bundled Bun"
 [ -f "$INSTALL_DIR.new/dist/index.js" ] || die "runtime build is missing dist/index.js"
@@ -267,11 +280,25 @@ else
   say "Skipping optional Pi packages. PiTTy will hide their panels and continue normally."
 fi
 
+if [ "$FOUNDERS_SETUP" = "1" ]; then
+  FOUNDERS_LOG="$LOG_DIR/founders-setup.log"
+  say "Installing the founders setup..."
+  if node "$INSTALL_DIR/bin/pitty.mjs" founders-setup >"$FOUNDERS_LOG" 2>&1; then
+    tail -n 20 "$FOUNDERS_LOG"
+  else
+    code=$?
+    PLUGIN_FAILURES=$((PLUGIN_FAILURES + 1))
+    printf 'error: founders setup was incomplete.\n  command: pitty founders-setup\n  exit code: %s\n  log: %s\n' "$code" "$FOUNDERS_LOG" >&2
+    tail -n 30 "$FOUNDERS_LOG" >&2 || true
+  fi
+fi
+
 say ""
 say "PiTTy $VER installed."
 say "Installer logs: $LOG_DIR"
 say "Run: pitty -C /path/to/project --continue"
 say "Resume picker: pitty-resume -C /path/to/project"
+if [ "$FOUNDERS_SETUP" != "1" ]; then say "Our plugins, curated skills and agents: pitty founders-setup"; fi
 case ":${PATH:-}:" in *":$BIN_DIR:"*) : ;; *) warn "$BIN_DIR is not on PATH; add it to your shell profile or run $BIN_DIR/pitty" ;; esac
 
 if [ "$PLUGIN_FAILURES" -gt 0 ] && [ "$ALLOW_PLUGIN_FAILURE" -ne 1 ]; then

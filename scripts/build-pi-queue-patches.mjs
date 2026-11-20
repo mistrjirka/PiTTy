@@ -48,6 +48,16 @@ const modules = [
 	// This source snapshot has RPC diagnostics helpers absent from the published 1.5.2 package.
 	["packages/coding-agent/src/core/agent-session-runtime.ts", "dist/core/agent-session-runtime.js", "agent-session-runtime.js"],
 	["packages/coding-agent/src/modes/diagnostics-stderr.ts", "dist/modes/diagnostics-stderr.js", "diagnostics-stderr.js"],
+	// Side questions use the effective SDK request and explicit provider capabilities.
+	["packages/coding-agent/src/core/side-questions.ts", "dist/core/side-questions.js", "side-questions.js"],
+	["packages/coding-agent/src/core/sdk.ts", "dist/core/sdk.js", "sdk.js"],
+	["packages/coding-agent/src/core/extensions/types.ts", "dist/core/extensions/types.js", "extension-types.js"],
+	["packages/coding-agent/src/core/extensions/runner.ts", "dist/core/extensions/runner.js", "extension-runner.js"],
+	["packages/coding-agent/src/core/model-runtime.ts", "dist/core/model-runtime.js", "model-runtime.js"],
+	["packages/coding-agent/src/core/model-registry.ts", "dist/core/model-registry.js", "model-registry.js"],
+	["packages/coding-agent/src/core/provider-composer.ts", "dist/core/provider-composer.js", "provider-composer.js"],
+	["packages/ai/src/models.ts", "node_modules/@earendil-works/pi-ai/dist/models.js", "ai-models.js"],
+	["packages/ai/src/providers/all.ts", "node_modules/@earendil-works/pi-ai/dist/providers/all.js", "ai-providers-all.js"],
 ];
 for (const [source, target, filename] of modules) {
 	const file = path.join(sourceRoot, source);
@@ -83,4 +93,5 @@ manifest.pi.modules = modules.map(([, target, filename]) => {
 });
 manifest.pi.forkCommit = sourceCommit;
 manifest.pi.queueProtocolVersion = 1;
+manifest.pi.sideQuestionProtocolVersion = 1;
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");

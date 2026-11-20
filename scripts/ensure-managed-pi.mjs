@@ -285,6 +285,7 @@ function hasValidRuntime(appRoot, patchSha, manifest) {
 		return (
 			state.schemaVersion === 1 &&
 			state.patchSha256 === patchSha &&
+			state.sideQuestionProtocolVersion === manifest.pi.sideQuestionProtocolVersion &&
 			state.montyVersion === manifest.monty.version &&
 			state.montyNativePackage === "@pydantic/" + nativeMontyPackage() &&
 			Boolean(installedMonty(path.join(target, "pi-code-tool", "node_modules", "@pydantic"), manifest.monty.version, dependencies)) &&
@@ -297,6 +298,16 @@ function hasValidRuntime(appRoot, patchSha, manifest) {
 				existsSync(path.join(target, "pi-code-tool", modulePath)),
 			)
 		);
+	} catch {
+		return false;
+	}
+}
+
+/** Check the installed runtime against this release without installing or changing files. */
+export function managedPiIsCurrent(appRoot) {
+	try {
+		const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+		return hasValidRuntime(appRoot, safeHash(manifestPath), manifest);
 	} catch {
 		return false;
 	}
@@ -406,6 +417,7 @@ function prepareStagedRuntime(stage, piRoot, codeToolRoot, manifest, patchSha, a
 				schemaVersion: 1,
 				patchSha256: patchSha,
 				piVersion: manifest.pi.version,
+				sideQuestionProtocolVersion: manifest.pi.sideQuestionProtocolVersion,
 				codeToolVersion: manifest.codeTool.version,
 				piCommit: manifest.pi.forkCommit,
 				codeToolCommit: manifest.codeTool.forkCommit,

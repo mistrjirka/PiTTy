@@ -3,7 +3,7 @@
   "pi": {
     "version": "1.5.2",
     "originalSessionManagerSha256": "7e24f1c857c9f0e7be6485e9be12ba528fad9eea3423abf2c96fc27585a88b61",
-    "forkCommit": "28fde6970655d29178c393918cbcf8a688891dd7",
+    "forkCommit": "15dbd62ba671e228d05700ac6bb53fb0bb44266b",
     "forkRepository": "https://github.com/mistrjirka/pi",
     "modules": [
       {
@@ -45,9 +45,55 @@
         "source": "vendor/pi-1.5.2/diagnostics-stderr.js",
         "target": "dist/modes/diagnostics-stderr.js",
         "originalSha256": null
+      },
+      {
+        "source": "vendor/pi-1.5.2/side-questions.js",
+        "target": "dist/core/side-questions.js",
+        "originalSha256": null
+      },
+      {
+        "source": "vendor/pi-1.5.2/sdk.js",
+        "target": "dist/core/sdk.js",
+        "originalSha256": "c43e4e1d49ac3ec4b9f48465bf2081bc5980b55f23d44040d02e9046dea45725"
+      },
+      {
+        "source": "vendor/pi-1.5.2/extension-types.js",
+        "target": "dist/core/extensions/types.js",
+        "originalSha256": "447039081a7808371e07d85bacc719a11eea7b66f291b9949de33ef952a809fc"
+      },
+      {
+        "source": "vendor/pi-1.5.2/extension-runner.js",
+        "target": "dist/core/extensions/runner.js",
+        "originalSha256": "dc7fc776198ec315feecbc8fd5d471453271a3dbf4b1a6a41df342253759a191"
+      },
+      {
+        "source": "vendor/pi-1.5.2/model-runtime.js",
+        "target": "dist/core/model-runtime.js",
+        "originalSha256": "b17018cb70007a194f10b2aaf5ec3631329db20cf853ddc9ce4088e6b4373ab1"
+      },
+      {
+        "source": "vendor/pi-1.5.2/model-registry.js",
+        "target": "dist/core/model-registry.js",
+        "originalSha256": "588fa2d8df563fe0f41c99e54ecad1473cd325937b208cc1c3e103a8a032d0a1"
+      },
+      {
+        "source": "vendor/pi-1.5.2/provider-composer.js",
+        "target": "dist/core/provider-composer.js",
+        "originalSha256": "98facdd61bdb741804f8f303c5b2661db7f40b64a8ec0ef4767df0d71ec03608"
+      },
+      {
+        "source": "vendor/pi-1.5.2/ai-models.js",
+        "target": "node_modules/@earendil-works/pi-ai/dist/models.js",
+        "originalSha256": "f23dda9e5a472f9556c9b834d924504b771af8275d17a49496100a4f4b91e2dc"
+      },
+      {
+        "source": "vendor/pi-1.5.2/ai-providers-all.js",
+        "target": "node_modules/@earendil-works/pi-ai/dist/providers/all.js",
+        "originalSha256": "659c1eac079ce2bd0f695afa092c3aae16322bd25edb316cb0c2be225fc2badf"
       }
     ],
-    "queueProtocolVersion": 1
+    "queueProtocolVersion": 1,
+    "sideQuestionProtocolVersion": 1
   },
   "codeTool": {
     "version": "0.6.2",
@@ -133,7 +179,16 @@
     "vendor/pi-code-tool-0.6.2/toolstore.js": "5e472dc0ad8c3dbb4190da3893292d07d7513d94e1a0c3f19c17205e966b8dec",
     "vendor/pi-code-tool-0.6.2/types.js": "2c2691b9b497dffc3216ffb8b6e499f9df7deea145c0591cda260129f8a923f1",
     "vendor/pi-code-tool-0.6.2/runtime.js": "572e942ee23f769509263d8a2dbea986779247955c274220ef3db5e3bf2abf54",
-    "vendor/pi-code-tool-0.6.2/legacy.js": "e4d82888e5bf1a5b66aa7731027cfdac50f5f80c8b935033dff5a00d1e13013b"
+    "vendor/pi-code-tool-0.6.2/legacy.js": "e4d82888e5bf1a5b66aa7731027cfdac50f5f80c8b935033dff5a00d1e13013b",
+    "vendor/pi-1.5.2/side-questions.js": "01c12384ebdd42db14219b3d203e3a1157c8c3904dc9caf4b29dd349824124df",
+    "vendor/pi-1.5.2/sdk.js": "3464de4cb362c323e79e022fcebbeb4a9b58b98128b66590bfbaab58c40f1c29",
+    "vendor/pi-1.5.2/extension-types.js": "6ceb3e6ab787d0bd1585051e1c240a90b9c153bcedcc9030f59ccf3f3d595ea1",
+    "vendor/pi-1.5.2/extension-runner.js": "459fda0e39d42ae25231c9652e074c013fe3d409e9de6fc07859a1abf6731c79",
+    "vendor/pi-1.5.2/model-runtime.js": "10c703a850e7cd9048b7868f49cf8f7a1d55dc4209a79f1873c7a425acb445eb",
+    "vendor/pi-1.5.2/model-registry.js": "f06cd9e5c38054ea642652cb0118d2dbb5c0b40688900b6845934b1718b95014",
+    "vendor/pi-1.5.2/provider-composer.js": "b0cbed87b14d58bca1c4635ccad48de8e8e5a6556707c74872891fc53048f645",
+    "vendor/pi-1.5.2/ai-models.js": "3783c50047960340c1d528eca1a2f6087a025d5ca8fd2c72f8e84da02417b5d9",
+    "vendor/pi-1.5.2/ai-providers-all.js": "f1a69f26d9384744ff032c638721e4d42a949332ba018b0bd200d60566ecb18f"
   },
   "monty": {
     "version": "1.0.0",

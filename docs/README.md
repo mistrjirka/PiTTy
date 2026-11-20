@@ -7,6 +7,8 @@
 | Guide | Contents |
 |---|---|
 | [Usage and controls](USAGE.md) | Launch modes, commands, shortcuts, sessions, models, pending-message controls, integrations, and troubleshooting |
+| [Founder setup](FOUNDERS_SETUP.md) | Maintained plugins, selected skills and agents, and side questions |
+| [Extension text widgets](EXTENSION_WIDGETS.md) | RPC text widgets, placement, scrolling and lifecycle |
 | [Themes](THEMES.md) | Preset sources, semantic adaptation, persistence, and contrast policy |
 | [Branding](BRANDING.md) | Canonical bracket-pi artwork, terminal rendering, and asset usage |
 | [Open-source readiness](OPEN_SOURCE_READINESS.md) | Architecture, compatibility boundaries, privacy, and release support |

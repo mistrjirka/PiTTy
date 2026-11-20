@@ -56,26 +56,26 @@ Generate the captures from the repository root with Bun and `rsvg-convert` insta
 
 The preview starts no Pi process and sends no model requests.
 
-## Side-question extension assessment
+## Side-question integration
 
-This feature adds display support. It does not install a `/btw` command.
+[Founder setup](FOUNDERS_SETUP.md) installs the owned `mistrjirka/pi-btw` extension. Its `/btw` command uses this generic string-widget path for loading, answers, cancellation and errors. Other extensions use the same widget API.
 
 | Approach | Fits | Remaining work |
 | --- | --- | --- |
 | Adapt MIT `dbachelder/pi-btw` presentation | Persistent side conversations with tools, model selection and saved history | Publish string widgets, acknowledge commands immediately, replace delayed transcript output |
-| Own small `/btw` extension | Temporary, tool-free questions using a fresh snapshot of the main context | Safe request snapshots, provider adapters, cancellation and cache measurement |
+| Owned `mistrjirka/pi-btw` | Temporary, tool-free questions using safe main-context snapshots | Snapshot and provider support are in the managed fork. Live cache measurement remains pending. |
 
 The inspected [`pi-btw` v0.8.1](https://github.com/dbachelder/pi-btw/tree/374465f0a2bd3df502c4f981405e61567d92046b) contains 3,451 production TypeScript lines and ten commands. Its child-session path changes the system prompt and tool declarations, creates another session identity, and retains the original parent snapshot for later questions. Adapting its display is useful for its existing feature set. The requested one-shot behavior would replace its generation and state design, so a small owned extension is the cleaner choice.
 
 [Fatih's extension](https://github.com/Fatih0234/btw/tree/931930656e8d101b20d3155550f77832237d35ee) uses a component factory that RPC ignores. Its busy snapshot and provider routing also need changes. No license declaration was found in that inspected revision.
 
-The proposed owned extension should:
+The owned extension uses these boundaries:
 
 1. Keep the main model, effective prompt, tool schemas and cache identity, then append the side question.
 2. Use one request with no host tool execution and a separate cancellation signal. Do not replace the main provider continuation.
 3. Publish loading, answer and error through string widgets. Do not write the side exchange to the main session history.
 4. Capture fresh completed context for each question and discard late results after a session change.
 5. Use a dedicated native side-question adapter for DoppelClaude. Its normal provider stream is not an isolated side-question operation.
-6. Measure cache reads, latency and the following main request before claiming savings.
+6. Require live measurements of cache reads, latency and the following main request before claiming savings.
 
-DoppelClaude's locked SDK 0.3.310 implements `askSideQuestion` at runtime but omits it from the public Query declaration. Either extension approach therefore needs a capability-checked adapter. Matching a request prefix makes cache reuse possible, not guaranteed. No live cache or latency result was measured for this change.
+DoppelClaude's locked SDK 0.3.310 implements `askSideQuestion` at runtime but omits it from the public Query declaration. The fork checks that capability and validates its reply, using only an existing live query for the same session and model. OpenAI Codex side questions use an independent HTTP stream so they cannot replace the main WebSocket continuation. Matching a request prefix makes cache reuse possible, not guaranteed. No live cache or latency result was measured for this change.

@@ -18,7 +18,7 @@ node scripts/build-pi-queue-patches.mjs \
   --upstream-pi-root /path/to/installed/pi-coding-agent
 ```
 
-This rebuilds all eight Pi modules, including the session-memory modules, into `vendor/pi-1.5.2/`. It records the source checkout's current Git commit in `pi.forkCommit` and refreshes every generated module hash. Use a clean source checkout so the recorded commit matches the packaged code. Review the source changes and generated diff together.
+This rebuilds the declared Pi modules, including the session-memory, queue and side-question modules, into `vendor/pi-1.5.2/`. It records the source checkout's current Git commit in `pi.forkCommit` and refreshes every generated module hash. Use a clean source checkout so the recorded commit matches the packaged code. Review the source changes and generated diff together.
 
 ## Verify the packaged RPC process
 
@@ -31,6 +31,16 @@ PITTY_TEST_MANAGED_RUNTIME="$PWD/fork-runtime/pi/dist/cli.js" \
 ```
 
 The integration test runs the emitted RPC process with an isolated agent directory and a fake provider. It does not use a real model or the user's session. The normal unit suite skips this test unless the executable path is explicitly supplied.
+
+The owned BTW extension has a separate integration check:
+
+```sh
+PITTY_TEST_MANAGED_RUNTIME="$PWD/fork-runtime/pi/dist/cli.js" \
+PITTY_TEST_BTW_EXTENSION="/path/to/pi-btw/index.ts" \
+  bun test --conditions=browser test/managed-btw-rpc.test.ts
+```
+
+It checks founder-setup runtime readiness, immediate command acknowledgment during a main response, independent cancellation, and questions during compaction. Both the release manifest and installed runtime record the side-question protocol version. Founder setup checks that capability before activating its package settings.
 
 Build PiTTy after the client checks pass:
 

@@ -1,0 +1,502 @@
+import { isModelType, lazyStream, } from "@earendil-works/pi-ai";
+import { getApiProvider } from "@earendil-works/pi-ai/compat";
+import { classifierErrorResult, imageErrorResult } from "@earendil-works/pi-ai/utils/model-operations";
+import { clearConfigValueCache, getConfigValueEnvVarNames, isCommandConfigValue, isConfigValueConfigured, resolveConfigValueOrThrow, resolveHeadersOrThrow, } from "./resolve-config-value.js";
+export const clearApiKeyCache = clearConfigValueCache;
+function getAllProviderModels(provider) {
+    return provider ? (provider.getAllModels?.() ?? provider.getModels()) : [];
+}
+function mergeCompat(base, override) {
+    if (!override)
+        return base;
+    const merged = { ...base, ...override };
+    const baseNested = base;
+    const overrideNested = override;
+    const mergedNested = merged;
+    for (const key of ["openRouterRouting", "vercelGatewayRouting", "chatTemplateKwargs", "chatTemplateArgs"]) {
+        const baseValue = baseNested?.[key];
+        const overrideValue = overrideNested[key];
+        if ((typeof baseValue === "object" && baseValue !== null) ||
+            (typeof overrideValue === "object" && overrideValue !== null)) {
+            mergedNested[key] = { ...baseValue, ...overrideValue };
+        }
+    }
+    return merged;
+}
+function mergeInputLimits(base, override) {
+    if (!override)
+        return base;
+    return {
+        ...base,
+        ...override,
+        images: override.images
+            ? {
+                ...base?.images,
+                ...override.images,
+                resize: override.images.resize
+                    ? { ...base?.images?.resize, ...override.images.resize }
+                    : base?.images?.resize,
+            }
+            : base?.images,
+    };
+}
+function mergeSamplingParamsByThinkingLevel(base, override) {
+    if (!override)
+        return base;
+    const merged = { ...base };
+    for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+        const params = override[level];
+        if (params)
+            merged[level] = { ...base?.[level], ...params };
+    }
+    return merged;
+}
+function applyModelOverride(model, override) {
+    return {
+        ...model,
+        name: override.name ?? model.name,
+        reasoning: override.reasoning ?? model.reasoning,
+        thinkingLevelMap: override.thinkingLevelMap
+            ? { ...model.thinkingLevelMap, ...override.thinkingLevelMap }
+            : model.thinkingLevelMap,
+        input: override.input ?? model.input,
+        inputLimits: mergeInputLimits(model.inputLimits, override.inputLimits),
+        cost: override.cost
+            ? {
+                input: override.cost.input ?? model.cost.input,
+                output: override.cost.output ?? model.cost.output,
+                cacheRead: override.cost.cacheRead ?? model.cost.cacheRead,
+                cacheWrite: override.cost.cacheWrite ?? model.cost.cacheWrite,
+                tiers: override.cost.tiers ?? model.cost.tiers,
+            }
+            : model.cost,
+        promptCache: override.promptCache ? { ...model.promptCache, ...override.promptCache } : model.promptCache,
+        contextWindow: override.contextWindow ?? model.contextWindow,
+        maxTokens: override.maxTokens ?? model.maxTokens,
+        samplingParams: override.samplingParams
+            ? { ...model.samplingParams, ...override.samplingParams }
+            : model.samplingParams,
+        samplingParamsByThinkingLevel: mergeSamplingParamsByThinkingLevel(model.samplingParamsByThinkingLevel, override.samplingParamsByThinkingLevel),
+        compat: mergeCompat(model.compat, override.compat),
+    };
+}
+function modelFromJson(providerId, definition, providerConfig, defaults) {
+    const api = definition.api ?? providerConfig.api ?? defaults?.api;
+    if (!api) {
+        throw new Error(`Provider ${providerId}, model ${definition.id}: no "api" specified. Set at provider or model level.`);
+    }
+    const baseUrl = definition.baseUrl ?? providerConfig.baseUrl ?? defaults?.baseUrl;
+    if (!baseUrl)
+        throw new Error(`Provider ${providerId}: "baseUrl" is required when defining custom models.`);
+    if (definition.contextWindow !== undefined && definition.contextWindow <= 0) {
+        throw new Error(`Provider ${providerId}, model ${definition.id}: invalid contextWindow`);
+    }
+    if (definition.maxTokens !== undefined && definition.maxTokens <= 0) {
+        throw new Error(`Provider ${providerId}, model ${definition.id}: invalid maxTokens`);
+    }
+    return {
+        id: definition.id,
+        name: definition.name ?? definition.id,
+        api: api,
+        provider: providerId,
+        baseUrl,
+        reasoning: definition.reasoning ?? false,
+        thinkingLevelMap: definition.thinkingLevelMap,
+        input: (definition.input ?? ["text"]),
+        inputLimits: definition.inputLimits,
+        cost: definition.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        promptCache: definition.promptCache,
+        contextWindow: definition.contextWindow ?? 128000,
+        maxTokens: definition.maxTokens ?? 16384,
+        samplingParams: definition.samplingParams,
+        samplingParamsByThinkingLevel: definition.samplingParamsByThinkingLevel,
+        headers: undefined,
+        compat: mergeCompat(providerConfig.compat, definition.compat),
+    };
+}
+function findModelDefaults(models, modelId, api) {
+    const chatModels = models.filter((model) => isModelType(model, "chat"));
+    return (chatModels.find((model) => model.id === modelId) ??
+        (api ? chatModels.find((model) => model.api === api) : undefined) ??
+        chatModels.find((model) => model.api === "openai-completions") ??
+        chatModels[0]);
+}
+function findExtensionModelDefaults(models, definition) {
+    const type = definition.type ?? "chat";
+    const candidates = models.filter((model) => isModelType(model, type));
+    return (candidates.find((model) => model.id === definition.id) ??
+        (definition.api ? candidates.find((model) => model.api === definition.api) : undefined) ??
+        (type === "chat" ? candidates.find((model) => model.api === "openai-completions") : undefined) ??
+        candidates[0]);
+}
+function extensionModelFromDefinition(providerId, models, config, definition) {
+    const type = definition.type ?? "chat";
+    const defaults = findExtensionModelDefaults(models, definition);
+    const api = definition.api ?? (type === "chat" ? config.api : undefined) ?? defaults?.api;
+    if (!api) {
+        throw new Error(`Provider ${providerId}, model ${definition.id}: no "api" specified. Set it at model level${type === "chat" ? " or provider level" : ""}.`);
+    }
+    const baseUrl = definition.baseUrl ?? config.baseUrl ?? defaults?.baseUrl;
+    if (!baseUrl)
+        throw new Error(`Provider ${providerId}: "baseUrl" is required when defining custom models.`);
+    if (definition.type === "image") {
+        return { ...definition, api: api, provider: providerId, baseUrl, headers: undefined };
+    }
+    if (definition.type === "classifier") {
+        return { ...definition, api: api, provider: providerId, baseUrl, headers: undefined };
+    }
+    return { ...definition, api: api, provider: providerId, baseUrl, headers: undefined };
+}
+function applyModelsJson(providerId, baseModels, config) {
+    if (!config)
+        return [...baseModels];
+    if (config.oauth && !config.baseUrl) {
+        throw new Error(`Provider ${providerId}: "baseUrl" is required when "oauth" is set.`);
+    }
+    const hasOverrides = config.modelOverrides && Object.keys(config.modelOverrides).length > 0;
+    if (!config.models?.length &&
+        !config.baseUrl &&
+        !config.headers &&
+        !config.compat &&
+        !hasOverrides &&
+        !config.apiKey &&
+        !config.oauth &&
+        config.authHeader === undefined) {
+        throw new Error(`Provider ${providerId}: must specify "baseUrl", "headers", "compat", "modelOverrides", or "models".`);
+    }
+    const models = baseModels.map((model) => {
+        const baseUrl = config.oauth === "radius" ? model.baseUrl : (config.baseUrl ?? model.baseUrl);
+        if (isModelType(model, "chat"))
+            return { ...model, baseUrl, compat: mergeCompat(model.compat, config.compat) };
+        // Classifier APIs read their own compat fields, such as how a System One service takes images.
+        if (isModelType(model, "classifier") && config.compat) {
+            return { ...model, baseUrl, compat: { ...model.compat, ...config.compat } };
+        }
+        return { ...model, baseUrl };
+    });
+    for (const definition of config.models ?? []) {
+        const existingIndex = models.findIndex((model) => isModelType(model, "chat") && model.id === definition.id);
+        const defaults = findModelDefaults(models, definition.id, definition.api ?? config.api);
+        const model = modelFromJson(providerId, definition, config, defaults);
+        if (existingIndex >= 0)
+            models[existingIndex] = model;
+        else
+            models.push(model);
+    }
+    return models;
+}
+function applyExtension(providerId, models, config) {
+    if (!config)
+        return [...models];
+    if (!config.models) {
+        return config.baseUrl ? models.map((model) => ({ ...model, baseUrl: config.baseUrl })) : [...models];
+    }
+    return config.models.map((definition) => extensionModelFromDefinition(providerId, models, config, definition));
+}
+function adaptOAuth(config) {
+    return {
+        name: config.name,
+        isSubscription: config.isSubscription,
+        login: async (callbacks) => {
+            const credential = await config.login({
+                onAuth: (info) => callbacks.notify({ type: "auth_url", ...info }),
+                onDeviceCode: (info) => callbacks.notify({ type: "device_code", ...info }),
+                onPrompt: (prompt) => callbacks.prompt({ type: "text", ...prompt }),
+                onProgress: (message) => callbacks.notify({ type: "progress", message }),
+                onManualCodeInput: () => callbacks.prompt({ type: "manual_code", message: "Paste the authorization code" }),
+                onSelect: (prompt) => callbacks.prompt({ type: "select", ...prompt }),
+                signal: callbacks.signal,
+            });
+            return { ...credential, type: "oauth" };
+        },
+        refresh: async (credential, signal) => ({ ...(await config.refreshToken(credential, signal)), type: "oauth" }),
+        toAuth: async (credential) => ({ apiKey: config.getApiKey(credential) }),
+    };
+}
+function withConfiguredAuth(auth, headers, authHeader) {
+    let mergedHeaders = auth.headers || headers ? { ...auth.headers, ...headers } : undefined;
+    if (authHeader) {
+        if (!auth.apiKey)
+            throw new Error("authHeader requires a resolved API key");
+        mergedHeaders = { ...mergedHeaders, Authorization: `Bearer ${auth.apiKey}` };
+    }
+    return { ...auth, headers: mergedHeaders };
+}
+function configuredApiKey(config, extension) {
+    return extension?.apiKey ?? config?.apiKey;
+}
+function configuredHeaders(config, extension) {
+    if (!config?.headers && !extension?.headers)
+        return undefined;
+    return { ...config?.headers, ...extension?.headers };
+}
+async function configContextEnv(values, ctx, explicit) {
+    const env = { ...explicit };
+    for (const name of new Set(values.flatMap(getConfigValueEnvVarNames))) {
+        if (env[name] !== undefined)
+            continue;
+        const value = await ctx.env(name);
+        if (value !== undefined)
+            env[name] = value;
+    }
+    return Object.keys(env).length > 0 ? env : undefined;
+}
+function composeApiKeyAuth(providerId, base, config, extension) {
+    const inherited = base?.auth.apiKey;
+    const rawKey = configuredApiKey(config, extension);
+    const oauth = extension?.oauth ?? base?.auth.oauth;
+    // OAuth-only providers get no fabricated API-key login method.
+    if (!inherited && rawKey === undefined && oauth)
+        return undefined;
+    const rawHeaders = configuredHeaders(config, extension);
+    const authHeader = extension?.authHeader ?? config?.authHeader ?? false;
+    return {
+        name: inherited?.name ?? "API key",
+        login: inherited?.login ??
+            (async (interaction) => ({
+                type: "api_key",
+                key: await interaction.prompt({ type: "secret", message: "Enter API key" }),
+            })),
+        check: async (input) => {
+            if (input.credential) {
+                if (inherited?.check)
+                    return inherited.check(input);
+                if (input.credential.key)
+                    return { type: "api_key", source: "stored credential" };
+                const resolved = await inherited?.resolve(input);
+                return resolved ? { type: "api_key", source: resolved.source } : undefined;
+            }
+            if (rawKey !== undefined) {
+                if (isCommandConfigValue(rawKey))
+                    return { type: "api_key", source: "configured API key" };
+                const envNames = getConfigValueEnvVarNames(rawKey);
+                for (const name of envNames) {
+                    if ((await input.ctx.env(name)) === undefined)
+                        return undefined;
+                }
+                return { type: "api_key", source: "configured API key" };
+            }
+            if (inherited?.check)
+                return inherited.check(input);
+            const resolved = await inherited?.resolve(input);
+            return resolved ? { type: "api_key", source: resolved.source } : undefined;
+        },
+        resolve: async (input) => {
+            let result;
+            if (input.credential) {
+                result = inherited
+                    ? await inherited.resolve(input)
+                    : input.credential.key
+                        ? { auth: { apiKey: input.credential.key }, env: input.credential.env, source: "stored credential" }
+                        : undefined;
+            }
+            else if (rawKey !== undefined) {
+                const env = await configContextEnv([rawKey], input.ctx);
+                const key = resolveConfigValueOrThrow(rawKey, `API key for provider "${providerId}"`, env);
+                result = inherited
+                    ? await inherited.resolve({ ...input, credential: { type: "api_key", key } })
+                    : { auth: { apiKey: key }, source: "configured API key" };
+            }
+            else {
+                result = await inherited?.resolve(input);
+            }
+            if (!result)
+                return undefined;
+            const explicitEnv = { ...(input.credential?.env ?? {}), ...(result.env ?? {}) };
+            const headerEnv = await configContextEnv(Object.values(rawHeaders ?? {}), input.ctx, explicitEnv);
+            const headers = resolveHeadersOrThrow(rawHeaders, `provider "${providerId}"`, headerEnv);
+            return { ...result, auth: withConfiguredAuth(result.auth, headers, authHeader) };
+        },
+    };
+}
+function composeOAuthAuth(providerId, base, config, extension) {
+    const oauth = extension?.oauth ? adaptOAuth(extension.oauth) : base?.auth.oauth;
+    if (!oauth)
+        return undefined;
+    const rawHeaders = configuredHeaders(config, extension);
+    const authHeader = extension?.authHeader ?? config?.authHeader ?? false;
+    return {
+        ...oauth,
+        toAuth: async (credential) => {
+            const auth = await oauth.toAuth(credential);
+            const env = credential.env;
+            const headers = resolveHeadersOrThrow(rawHeaders, `provider "${providerId}"`, typeof env === "object" && env !== null ? env : undefined);
+            return withConfiguredAuth(auth, headers, authHeader);
+        },
+    };
+}
+function rawModelHeaders(model, config, extension) {
+    // models.json definitions and overrides are chat-only. Extension definitions
+    // are matched by operation and id so colliding models cannot share headers.
+    const chatDefinition = isModelType(model, "chat")
+        ? config?.models?.find((entry) => entry.id === model.id)
+        : undefined;
+    const extensionModel = extension?.models?.find((entry) => (entry.type ?? "chat") === (model.type ?? "chat") && entry.id === model.id);
+    const headers = {
+        ...(isModelType(model, "chat") ? config?.modelOverrides?.[model.id]?.headers : undefined),
+        ...chatDefinition?.headers,
+        ...extensionModel?.headers,
+    };
+    return Object.keys(headers).length > 0 ? headers : undefined;
+}
+export function validateExtensionProvider(providerId, base, modelsConfig, extension) {
+    if (extension.streamSimple && !extension.api) {
+        throw new Error(`Provider ${providerId}: "api" is required when registering streamSimple.`);
+    }
+    applyExtension(providerId, applyModelsJson(providerId, getAllProviderModels(base), modelsConfig), extension);
+}
+/** Compose built-in, models.json, and extension layers without reading credentials. */
+export function composeModelProvider(providerId, base, modelConfig, extension) {
+    const config = modelConfig.getProvider(providerId);
+    let extensionOAuthCredential;
+    let refreshedExtensionModels;
+    const currentExtension = () => extension && refreshedExtensionModels ? { ...extension, models: refreshedExtensionModels } : extension;
+    // models.json modelOverrides are the topmost user-config layer: they apply once,
+    // after custom-model upserts, extension model replacement, and legacy OAuth projection.
+    const getAllModels = () => {
+        let models = applyExtension(providerId, applyModelsJson(providerId, getAllProviderModels(base), config), currentExtension());
+        if (extensionOAuthCredential && extension?.oauth?.modifyModels) {
+            // The extension hook is chat-only; other model types pass through untouched.
+            models = [
+                ...extension.oauth.modifyModels(models.filter((model) => isModelType(model, "chat")), extensionOAuthCredential),
+                ...models.filter((model) => !isModelType(model, "chat")),
+            ];
+        }
+        return models.map((model) => {
+            const override = config?.modelOverrides?.[model.id];
+            return override && isModelType(model, "chat") ? applyModelOverride(model, override) : model;
+        });
+    };
+    // Validate eagerly so registration/reload reports structural errors immediately.
+    getAllModels();
+    const apiKey = composeApiKeyAuth(providerId, base, config, extension);
+    const oauth = composeOAuthAuth(providerId, base, config, extension);
+    if (!apiKey && !oauth)
+        throw new Error(`Provider ${providerId}: no authentication method configured.`);
+    const supportsBaseApi = (model) => base?.getModels().some((entry) => entry.api === model.api) ?? false;
+    const streamWith = (model, context, options, simple) => lazyStream(model, async () => {
+        if (extension?.streamSimple && model.api === extension.api) {
+            return extension.streamSimple(model, context, options);
+        }
+        if (base && supportsBaseApi(model)) {
+            return simple
+                ? base.streamSimple(model, context, options)
+                : base.stream(model, context, options);
+        }
+        const api = getApiProvider(model.api);
+        if (!api)
+            throw new Error(`No API provider registered for api: ${model.api}`);
+        return simple
+            ? api.streamSimple(model, context, options)
+            : api.stream(model, context, options);
+    }, undefined, options?.signal);
+    const provider = {
+        id: providerId,
+        name: extension?.name ?? config?.name ?? base?.name ?? extension?.oauth?.name ?? providerId,
+        baseUrl: extension?.baseUrl ?? config?.baseUrl ?? base?.baseUrl,
+        headers: base?.headers,
+        auth: { ...(apiKey ? { apiKey } : {}), ...(oauth ? { oauth } : {}) },
+        getModels: () => getAllModels().filter((model) => isModelType(model, "chat")),
+        getAllModels,
+        // Extension hooks read context.credential, so they need the default credential refresh.
+        refreshModelsAuth: extension?.refreshModels || extension?.oauth?.modifyModels ? undefined : base?.refreshModelsAuth,
+        refreshModels: base?.refreshModels || extension?.refreshModels || extension?.oauth?.modifyModels
+            ? async (context) => {
+                await base?.refreshModels?.(context);
+                let refreshed;
+                if (extension?.refreshModels)
+                    refreshed = await extension.refreshModels(context);
+                if (context.signal.aborted)
+                    return;
+                const oauthCredential = context.credential?.type === "oauth" ? context.credential : undefined;
+                await context.publish({
+                    update: () => {
+                        if (refreshed) {
+                            // Validate before publishing the new synchronous list.
+                            applyExtension(providerId, applyModelsJson(providerId, getAllProviderModels(base), config), {
+                                ...extension,
+                                models: refreshed,
+                            });
+                            refreshedExtensionModels = refreshed;
+                        }
+                        extensionOAuthCredential = oauthCredential;
+                    },
+                });
+            }
+            : undefined,
+        filterModels: base?.filterModels
+            ? (models, credential) => base.filterModels(models, credential)
+            : undefined,
+        filterAllModels: base?.filterAllModels
+            ? (models, credential) => base.filterAllModels(models, credential)
+            : undefined,
+        stream: (model, context, options) => streamWith(model, context, options, false),
+        streamSimple: (model, context, options) => streamWith(model, context, options, true),
+        sideQuestionUsesLiveContext: base?.streamSideQuestion && !extension?.streamSimple ? base.sideQuestionUsesLiveContext : undefined,
+    };
+    const sideQuestion = base?.streamSideQuestion;
+    if (sideQuestion && !extension?.streamSimple) {
+        provider.streamSideQuestion = (model, context, options) => lazyStream(model, async () => {
+            if (!supportsBaseApi(model))
+                throw new Error(`Provider ${providerId} has no safe side-question implementation for "${model.api}"`);
+            return sideQuestion.call(base, model, context, options);
+        }, undefined, options?.signal);
+    }
+    const fetchDeferred = base?.fetchDeferred;
+    if (fetchDeferred) {
+        provider.fetchDeferred = (model, handle, options) => fetchDeferred(model, handle, options);
+    }
+    const cancelDeferred = base?.cancelDeferred;
+    if (cancelDeferred) {
+        provider.cancelDeferred = (model, handle, options) => cancelDeferred(model, handle, options);
+    }
+    const extensionImages = extension?.images;
+    const generateImages = base?.generateImages;
+    if (generateImages || Object.keys(extensionImages ?? {}).length > 0) {
+        provider.generateImages = (model, context, options) => {
+            const implementation = extensionImages?.[model.api];
+            if (implementation)
+                return implementation.generateImages(model, context, options);
+            if (generateImages)
+                return generateImages(model, context, options);
+            return Promise.resolve(imageErrorResult(model, new Error(`Provider ${providerId} has no image implementation for "${model.api}"`)));
+        };
+    }
+    const extensionClassifiers = extension?.classifiers;
+    const classify = base?.classify;
+    if (classify || Object.keys(extensionClassifiers ?? {}).length > 0) {
+        provider.classify = (model, context, options) => {
+            const implementation = extensionClassifiers?.[model.api];
+            if (implementation)
+                return implementation.classify(model, context, options);
+            if (classify)
+                return classify(model, context, options);
+            return Promise.resolve(classifierErrorResult(model, new Error(`Provider ${providerId} has no classifier implementation for "${model.api}"`)));
+        };
+    }
+    return provider;
+}
+export function resolveConfiguredModelHeaders(model, config, extension, env) {
+    return resolveHeadersOrThrow(rawModelHeaders(model, config, extension), `model "${model.provider}/${model.id}"`, env);
+}
+export function resolveCompatibilityRequestConfig(model, config, extension) {
+    const configured = resolveHeadersOrThrow({ ...configuredHeaders(config, extension), ...rawModelHeaders(model, config, extension) }, `model "${model.provider}/${model.id}"`);
+    return {
+        headers: model.headers || configured ? { ...model.headers, ...configured } : undefined,
+        authHeader: extension?.authHeader ?? config?.authHeader ?? false,
+    };
+}
+export function configuredRequestAuthStatus(config, extension) {
+    const value = configuredApiKey(config, extension);
+    if (value === undefined)
+        return undefined;
+    if (isCommandConfigValue(value))
+        return { configured: true, source: "models_json_command" };
+    const names = getConfigValueEnvVarNames(value);
+    if (names.length > 0) {
+        return isConfigValueConfigured(value)
+            ? { configured: true, source: "environment", label: names.join(", ") }
+            : { configured: false };
+    }
+    return { configured: true, source: extension?.apiKey !== undefined ? "fallback" : "models_json_key" };
+}

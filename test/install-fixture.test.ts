@@ -17,7 +17,9 @@ describe("POSIX installer executable fixture", () => {
     const archiveRoot = path.join(base, "payload");
     await mkdir(path.join(archiveRoot, "bin", "node_modules"), { recursive: true });
     await mkdir(path.join(archiveRoot, "node_modules", "bun"), { recursive: true });
-    await writeFile(path.join(archiveRoot, "bin", "pitty.mjs"), "#!/usr/bin/env node\n");
+    await writeFile(path.join(archiveRoot, "bin", "pitty.mjs"), "#!/usr/bin/env node\nimport fs from 'node:fs';\nif (process.argv[2] === 'founders-setup') { fs.writeFileSync(process.env.PITTY_FOUNDERS_FIXTURE_FILE, 'called'); console.log('Founders fixture called'); if (process.env.PITTY_FOUNDERS_FIXTURE_FAIL === '1') process.exit(1); }\n");
+    await mkdir(path.join(archiveRoot, "scripts"));
+    await writeFile(path.join(archiveRoot, "scripts", "founders-setup.mjs"), "// fixture\n");
     await writeFile(path.join(archiveRoot, "package.json"), "{}\n");
     await writeFile(path.join(archiveRoot, "old-marker"), "old");
     await writeFile(path.join(archiveRoot, "node_modules", "bun", "install.js"), "\n");
@@ -32,15 +34,35 @@ if [ "\${PITTY_MISSING_CHECKSUM:-}" = 1 ] && printf '%s' "$out" | grep SHA256SUM
     for (const command of ["curl", "npm", "pi"]) await chmod(path.join(fake, command), 0o755);
     const install = path.join(base, "install dir"); const bin = path.join(base, "bin dir");
     await mkdir(install, { recursive: true }); await writeFile(path.join(install, "old-marker"), "old");
-    const result = await shell("sh", [path.join(root, "install.sh"), "--defer-apply", "--version", "1.2.3", "--install-dir", install, "--bin-dir", bin, "--repo", "example/repo"], { ...process.env, PATH: `${fake}:${process.env.PATH}`, PITTY_FIXTURE_ARCHIVE: archive });
+    const result = await shell("sh", [path.join(root, "install.sh"), "--defer-apply", "--version", "1.2.3", "--install-dir", install, "--bin-dir", bin, "--repo", "example/repo"], { ...process.env, PATH: `${fake}:${process.env.PATH}`, PITTY_LOG_DIR: path.join(base, "logs"), PI_CODING_AGENT_DIR: path.join(base, "agent"), PITTY_FOUNDERS_SETUP: "0", PITTY_FIXTURE_ARCHIVE: archive });
     expect(result.code).toBe(0);
     expect(await readFile(path.join(`${install}.pending`, "pitty-install.json"), "utf8")).toBe(JSON.stringify({ schemaVersion: 1, repository: "example/repo", installedVersion: "1.2.3", installDirectory: install, binDirectory: bin, pluginMode: "ask" }) + "\n");
     expect(await readFile(path.join(install, "old-marker"), "utf8")).toBe("old");
     expect(result.output).toContain("staged");
-    const direct = await shell("sh", [path.join(root, "install.sh"), "--version", "1.2.3", "--install-dir", install, "--bin-dir", bin, "--repo", "example/repo"], { ...process.env, PATH: `${fake}:${process.env.PATH}`, PITTY_FIXTURE_ARCHIVE: archive });
+    const direct = await shell("sh", [path.join(root, "install.sh"), "--version", "1.2.3", "--install-dir", install, "--bin-dir", bin, "--repo", "example/repo"], { ...process.env, PATH: `${fake}:${process.env.PATH}`, PITTY_LOG_DIR: path.join(base, "logs"), PI_CODING_AGENT_DIR: path.join(base, "agent"), PITTY_FOUNDERS_SETUP: "0", PITTY_FIXTURE_ARCHIVE: archive });
     expect(direct.code).toBe(0);
     expect(direct.output).toContain("skipping plugin prompt");
     expect(direct.output).not.toContain("pi install");
+
+    const foundersFile = path.join(base, "founders-called");
+    const foundersInstall = path.join(base, "founders install");
+    const foundersEnv = {
+      ...process.env, PATH: `${fake}:${process.env.PATH}`,
+      PITTY_LOG_DIR: path.join(base, "founders logs"), PI_CODING_AGENT_DIR: path.join(base, "founders agent"),
+      PITTY_FIXTURE_ARCHIVE: archive, PITTY_FOUNDERS_SETUP: "0", PITTY_FOUNDERS_FIXTURE_FILE: foundersFile,
+    };
+    const foundersArgs = [path.join(root, "install.sh"), "--founders-setup", "--version", "1.2.3", "--install-dir", foundersInstall, "--bin-dir", bin, "--repo", "example/repo"];
+    const founders = await shell("sh", foundersArgs, foundersEnv);
+    expect(founders.code, founders.output).toBe(0);
+    expect(await readFile(foundersFile, "utf8")).toBe("called");
+    expect(founders.output).toContain("Founders fixture called");
+    expect(JSON.parse(await readFile(path.join(foundersInstall, "pitty-install.json"), "utf8")).pluginMode).toBe("no");
+    const foundersFailed = await shell("sh", foundersArgs, { ...foundersEnv, PITTY_FOUNDERS_FIXTURE_FAIL: "1" });
+    expect(foundersFailed.code).toBe(2);
+    expect(foundersFailed.output).toContain("founders setup was incomplete");
+    expect(await readFile(path.join(foundersInstall, "package.json"), "utf8")).toBe("{}\n");
+    const deferredFounders = await shell("sh", [...foundersArgs, "--defer-apply"], foundersEnv);
+    expect(deferredFounders.code).toBe(64);
 
     const badRoot = path.join(base, "bad-payload");
     await mkdir(path.join(badRoot, "bin"), { recursive: true });
@@ -50,15 +72,15 @@ if [ "\${PITTY_MISSING_CHECKSUM:-}" = 1 ] && printf '%s' "$out" | grep SHA256SUM
     await writeFile(path.join(badRoot, "node_modules", "bun", "install.js"), "\n");
     const badArchive = path.join(base, "bad.tar.gz");
     expect((await shell("tar", ["-czf", badArchive, "-C", base, "bad-payload"], process.env)).code).toBe(0);
-    const failed = await shell("sh", [path.join(root, "install.sh"), "--version", "1.2.3", "--install-dir", install, "--bin-dir", bin, "--repo", "example/repo"], { ...process.env, PATH: `${fake}:${process.env.PATH}`, PITTY_FIXTURE_ARCHIVE: badArchive, PITTY_WITHOUT_PLUGINS: "1" });
+    const failed = await shell("sh", [path.join(root, "install.sh"), "--version", "1.2.3", "--install-dir", install, "--bin-dir", bin, "--repo", "example/repo"], { ...process.env, PATH: `${fake}:${process.env.PATH}`, PITTY_LOG_DIR: path.join(base, "logs"), PI_CODING_AGENT_DIR: path.join(base, "agent"), PITTY_FOUNDERS_SETUP: "0", PITTY_FIXTURE_ARCHIVE: badArchive, PITTY_WITHOUT_PLUGINS: "1" });
     expect(failed.code).not.toBe(0);
     expect(await readFile(path.join(install, "old-marker"), "utf8")).toBe("old");
     expect(await readFile(`${install}.backup`, "utf8").catch(() => "")).toBe("");
     expect(failed.output).toContain("previous installation was restored");
-    const checksumFailure = await shell("sh", [path.join(root, "install.sh"), "--defer-apply", "--version", "1.2.3", "--install-dir", install, "--bin-dir", bin, "--repo", "example/repo"], { ...process.env, PATH: `${fake}:${process.env.PATH}`, PITTY_FIXTURE_ARCHIVE: archive, PITTY_FAIL_CHECKSUM: "1" });
+    const checksumFailure = await shell("sh", [path.join(root, "install.sh"), "--defer-apply", "--version", "1.2.3", "--install-dir", install, "--bin-dir", bin, "--repo", "example/repo"], { ...process.env, PATH: `${fake}:${process.env.PATH}`, PITTY_LOG_DIR: path.join(base, "logs"), PI_CODING_AGENT_DIR: path.join(base, "agent"), PITTY_FOUNDERS_SETUP: "0", PITTY_FIXTURE_ARCHIVE: archive, PITTY_FAIL_CHECKSUM: "1" });
     expect(checksumFailure.code).not.toBe(0);
     expect(checksumFailure.output).toContain("checksums were unavailable");
-    const missingEntry = await shell("sh", [path.join(root, "install.sh"), "--defer-apply", "--version", "1.2.3", "--install-dir", install, "--bin-dir", bin, "--repo", "example/repo"], { ...process.env, PATH: `${fake}:${process.env.PATH}`, PITTY_FIXTURE_ARCHIVE: archive, PITTY_MISSING_CHECKSUM: "1" });
+    const missingEntry = await shell("sh", [path.join(root, "install.sh"), "--defer-apply", "--version", "1.2.3", "--install-dir", install, "--bin-dir", bin, "--repo", "example/repo"], { ...process.env, PATH: `${fake}:${process.env.PATH}`, PITTY_LOG_DIR: path.join(base, "logs"), PI_CODING_AGENT_DIR: path.join(base, "agent"), PITTY_FOUNDERS_SETUP: "0", PITTY_FIXTURE_ARCHIVE: archive, PITTY_MISSING_CHECKSUM: "1" });
     expect(missingEntry.code).not.toBe(0);
     expect(missingEntry.output).toContain("did not contain");
   });
