@@ -7,6 +7,7 @@
 - Add `pitty founders-setup` with read-only check and dry-run modes. Install the maintained plugin set, 17 curated skills and 11 model-neutral agent profiles after preparation succeeds.
 - Publish the public MIT-licensed PiTTy-Skills and PiTTy-BTW packages. Remember selected forks and local checkouts across setup runs while preserving custom agents and package filters.
 - Add an explicit founder setup option to first-install scripts. Prepare the supported Pi base in an isolated prefix when needed, without replacing global Pi.
+- Keep DoppelClaude inactive when its settings section is absent, so installing the complete bundle does not block startup. Require the updated provider module before setup activates packages.
 - Run `/btw` as a separate tool-free request. Keep temporary results, cancellation and provider continuation state separate from the main conversation.
 - Preserve effective API request prefixes and cache identities where safe. Use DoppelClaude's existing native side-question request and reject unsupported or stale context.
 - Keep existing session files compatible. No conversation migration is required.

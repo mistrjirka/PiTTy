@@ -49,7 +49,9 @@ checks finish before the package settings and agent profiles are activated.
 
 DoppelClaude is built before activation. Installing its package does not sign in
 to Claude Code or create the user's provider prompt configuration. Existing
-provider configuration remains in place.
+provider configuration remains in place. When no `doppelclaude` settings section
+exists, DoppelClaude stays inactive and displays a setup notice. Configure it and reload Pi
+to make its models available.
 
 ## Where skills and agents live
 
