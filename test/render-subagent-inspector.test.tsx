@@ -10,7 +10,9 @@ import { subagentTargets, type SubagentTarget } from "../src/subagents/targets.t
 import type { ConversationItem, SubagentRun, ToolItem } from "../src/types.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
-import { tempDirs } from "./render-helpers/test-env.ts";
+import { tempDirs, useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("inspectedTargetScrollY opens finished runs at the top and keeps live runs at the tail", () => {

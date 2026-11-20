@@ -6,6 +6,9 @@ import type { SubagentRun } from "../src/types.ts";
 import type { PendingSteerEntry } from "../src/state/input-continuity.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("synchronizes subagent drafts when the owner restores or clears them", async () => {

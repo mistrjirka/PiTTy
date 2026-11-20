@@ -5,6 +5,9 @@ import { SubagentInspector } from "../src/ui/subagent-inspector.tsx";
 import type { ConversationItem, SubagentRun } from "../src/types.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("removes repeated provider thinking headings without changing prose", () => {

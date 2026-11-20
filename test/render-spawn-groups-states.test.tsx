@@ -5,6 +5,9 @@ import { computeSpawnGroups, spawnGroupRowText, spawnGroupSummary } from "../src
 import type { ToolItem } from "../src/types.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("duration and sidebar repaint regressions", () => {
 	test("a spawn owning no targets renders as a card, never grouped", async () => {

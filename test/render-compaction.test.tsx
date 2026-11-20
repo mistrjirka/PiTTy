@@ -12,6 +12,9 @@ import {
 import type { CompactionCompletion, CompactionTelemetry, OneRoundLaneTexts, OneRoundProgress } from "../src/state/compaction-telemetry.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("renders truthful compaction activity and context-size gauges", async () => {

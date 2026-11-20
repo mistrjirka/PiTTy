@@ -11,7 +11,9 @@ import { readSubagentConversation } from "../src/subagents/transcript.ts";
 import type { SubagentRun } from "../src/types.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
-import { tempDirs } from "./render-helpers/test-env.ts";
+import { tempDirs, useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("inspector, selector and sidebar keep their per-child views for parallel subagents", async () => {

@@ -7,6 +7,9 @@ import type { ConversationItem, NotificationRecord } from "../src/types.ts";
 import { appendNotificationHistory } from "../src/app.tsx";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("renders profiled notifications as bounded identity cards", async () => {

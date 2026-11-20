@@ -4,6 +4,9 @@ import { EmptyDashboard } from "../src/ui/empty-dashboard.tsx";
 import type { SessionChoice, SessionDiscoveryState } from "../src/sessions.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("renders the empty dashboard states and keeps constrained content inside the viewport", async () => {

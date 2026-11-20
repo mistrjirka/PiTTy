@@ -4,6 +4,9 @@ import { Sidebar } from "../src/ui/sidebar.tsx";
 import type { NotificationRecord, RpcSessionState, SessionStats, SubagentRun } from "../src/types.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("hides optional integration panels when packages are unavailable", async () => {

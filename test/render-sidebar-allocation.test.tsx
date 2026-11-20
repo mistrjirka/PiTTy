@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { allocateSidebarPanels } from "../src/ui/sidebar.tsx";
 
 import "./render-helpers/test-env.ts";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("sidebar panel allocation", () => {
 	test("allocates agents and notices proportionally", () => {

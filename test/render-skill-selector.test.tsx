@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { SkillSelector, skillDisplayName } from "../src/ui/skill-selector.tsx";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("skill selector lists only skills, strips the prefix for display, and sends with the prefix", async () => {

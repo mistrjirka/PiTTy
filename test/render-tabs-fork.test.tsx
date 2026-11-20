@@ -4,6 +4,9 @@ import { TabStrip } from "../src/ui/tab-strip.tsx";
 import { forkPickerOptions } from "../src/tabs/entry-index.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("renders and selects fork points by keyboard and mouse", async () => {

@@ -5,6 +5,9 @@ import type { ConversationItem } from "../src/types.ts";
 import { attachTranscriptSelectionCache } from "../src/app.tsx";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("duration and sidebar repaint regressions", () => {
 	test("transcript selection copy survives streaming mutations", async () => {

@@ -6,6 +6,9 @@ import { isUnmodifiedEnterKey, streamingCtrlCDecision, subagentInspectDecision }
 import { AppPromptDock } from "../src/ui/app-prompt-dock.tsx";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("chooses abort first and force-exit while an abort is pending", () => {

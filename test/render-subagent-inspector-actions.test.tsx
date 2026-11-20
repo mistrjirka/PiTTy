@@ -8,6 +8,9 @@ import { subagentTargets, type SubagentTarget } from "../src/subagents/targets.t
 import type { ConversationItem, SubagentRun } from "../src/types.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("profiled command visibility", () => {
 	test("renders independent command clocks until actual completion, including unknown timeouts", async () => {

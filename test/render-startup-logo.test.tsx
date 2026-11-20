@@ -12,6 +12,9 @@ import {
 } from "../src/state/startup.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("renders truthful startup progress", async () => {

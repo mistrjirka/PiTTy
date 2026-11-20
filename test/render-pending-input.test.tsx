@@ -3,6 +3,9 @@ import { type TextareaRenderable } from "@opentui/core";
 import { PendingInputPanel } from "../src/ui/pending-input-panel.tsx";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("keeps one queued row and hint visible in an 80x14 layout", async () => {

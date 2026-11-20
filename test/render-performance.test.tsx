@@ -8,6 +8,9 @@ import { ConversationModel } from "../src/state/conversation.ts";
 import type { PiEvent } from "../src/types.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("duration and sidebar repaint regressions", () => {
 	test("keeps native renderables bounded through 5,000 assistant updates", async () => {

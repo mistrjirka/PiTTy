@@ -10,6 +10,9 @@ import { MessageView } from "../src/ui/message.tsx";
 import type { ConversationItem } from "../src/types.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("keeps wheel scrolling transcript-first until output scrolling is explicit", async () => {

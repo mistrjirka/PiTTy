@@ -14,6 +14,9 @@ import type { RpcSessionState, SessionStats, SubagentRun, ToolItem } from "../sr
 import { colors } from "../src/ui/theme.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("idle residents show tool counts but no stale context usage", async () => {

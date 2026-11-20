@@ -4,6 +4,9 @@ import { MemoryBrowserDialog } from "../src/ui/memory-browser.tsx";
 import type { MemorySnapshot } from "../src/integrations/memory-store.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("renders a request map for jumping to previous prompts", async () => {

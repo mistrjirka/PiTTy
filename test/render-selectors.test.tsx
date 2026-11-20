@@ -7,6 +7,9 @@ import { SessionSelector } from "../src/ui/session-selector.tsx";
 import type { SessionChoice, SessionDiscoveryState } from "../src/sessions.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("renders every session picker state and selects the first search result", async () => {

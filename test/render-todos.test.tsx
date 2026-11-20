@@ -4,6 +4,9 @@ import { preserveEquivalentTodos, preserveReferencedList } from "../src/ui/list-
 import { deriveTodos, type TodoViewItem } from "../src/ui/todos.tsx";
 
 import "./render-helpers/test-env.ts";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("derives active todos first and completed todos at the end", () => {

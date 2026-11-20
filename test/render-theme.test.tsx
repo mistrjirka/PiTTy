@@ -7,6 +7,9 @@ import type { ConversationItem } from "../src/types.ts";
 import { colors, createThemeController, effectiveTheme } from "../src/ui/theme.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("runtime theme transitions", () => {
 	test("updates same-mounted surfaces and Markdown styles once per effective palette change", async () => {

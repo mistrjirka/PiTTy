@@ -10,6 +10,9 @@ import { REQUEST_TIMING_VERSION, type RequestTiming } from "../src/tabs/request-
 import type { RpcSessionState } from "../src/types.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("OpenTUI components", () => {
 	test("model selector arrows move one row from the highlighted model", async () => {

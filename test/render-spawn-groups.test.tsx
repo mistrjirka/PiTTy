@@ -12,6 +12,9 @@ import {
 import type { ConversationItem, SubagentRun, ToolItem } from "../src/types.ts";
 
 import { mount } from "./render-helpers/mount.tsx";
+import { useRenderTestEnv } from "./render-helpers/test-env.ts";
+
+useRenderTestEnv();
 
 describe("duration and sidebar repaint regressions", () => {
 	test("a single spawn card keeps its inline block for multiple children", async () => {
