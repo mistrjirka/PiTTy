@@ -8,7 +8,6 @@ import { createDiagnosticBundle } from "../diagnostics/bundle.ts";
 import { shouldRecoverPromptDraft } from "../state/prompt-history.ts";
 import {
 	hasAlt,
-	isEnterKey,
 	keyIs,
 	nextDetailToggle,
 	subagentInspectDecision,
@@ -37,7 +36,6 @@ export function registerAppKeyboard(ports: KeyboardPorts): void {
 		openModelSelector,
 		openPromptMap,
 		openSettings,
-		queueFollowUp,
 		renderer,
 		requestPauseSubagent,
 		requestStopSubagent,
@@ -73,12 +71,6 @@ export function registerAppKeyboard(ports: KeyboardPorts): void {
 		const suggestionDecision = handleSuggestionKey(event, ports, prompt);
 		if (suggestionDecision === "pass") return false;
 		if (suggestionDecision === "handled") return;
-		if (!inspectSubagent() && hasAlt(event) && isEnterKey(event)) {
-			event.preventDefault();
-			event.stopPropagation();
-			queueFollowUp();
-			return;
-		}
 		if (!inspectSubagent() && hasAlt(event) && event.name === "up") {
 			event.preventDefault();
 			event.stopPropagation();

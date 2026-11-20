@@ -92,29 +92,35 @@ describe("usageFooterSegments", () => {
 	test("hints yield to usage summaries instead of dropping providers", () => {
 		const tiers = footerHintTiers(false, 0);
 		const status = "● ready";
-		expect(line({ ...base, width: 200 })).toContain("codex");
-		// Compact usage at 180 columns: the full hint list still fits.
-		const compact = usageFooterWidth(usageFooterSegments({ ...base, width: 200 }));
-		expect(selectFooterHint(180, status.length, compact, false, 0)).toBe(tiers[2]!);
-		// Long usage (stale claude label, three oc windows) at 180 columns:
-		// usage stays complete and the hints step down one tier instead of
-		// dropping codex.
-		const long = usageFooterSegments({
+		const compact = usageFooterWidth(usageFooterSegments(base));
+		const compactWidth = `  ${status}${USAGE_FOOTER_SEPARATOR}${line(base)}  ${tiers[2]}`.length;
+		expect(selectFooterHint(compactWidth, status.length, compact, false, 0)).toBe(tiers[2]!);
+		const longInput = {
 			...base,
 			claudeAccountLabel: "work",
 			claudeUsage: { limits: claude.limits, staleAgeSeconds: 12722 },
 			width: 200,
-		});
-		expect(line({ ...base, width: 200 })).toContain("codex");
+		};
+		const long = usageFooterSegments(longInput);
+		expect(long.map((segment) => segment.text)).toEqual([
+			expect.stringMatching(/^claude/),
+			expect.stringMatching(/^codex/),
+			expect.stringMatching(/^oc /),
+		]);
+		const usageText = long.map((segment) => segment.text).join(USAGE_FOOTER_SEPARATOR);
 		const used = usageFooterWidth(long);
 		expect(used).toBeGreaterThan(compact);
-		// Full hints still fit at 180; at 172 they step down one tier while
-		// every usage segment stays visible.
-		expect(selectFooterHint(180, status.length, used, false, 0)).toBe(tiers[2]!);
-		const hint = selectFooterHint(172, status.length, used, false, 0);
+		// Measure the current text. One column below the full row must reduce
+		// the hints while preserving every provider and its complete summary.
+		const fullWidth = `  ${status}${USAGE_FOOTER_SEPARATOR}${usageText}  ${tiers[2]}`.length;
+		expect(selectFooterHint(fullWidth, status.length, used, false, 0)).toBe(tiers[2]!);
+		const narrowWidth = fullWidth - 1;
+		const hint = selectFooterHint(narrowWidth, status.length, used, false, 0);
 		expect(hint).toBe(tiers[1]!);
-		const row = 2 + status.length + 3 + used + 2 + hint.length;
-		expect(row).toBeLessThanOrEqual(172);
+		const usageBudget = narrowWidth - 2 - status.length - USAGE_FOOTER_SEPARATOR.length - 2 - hint.length;
+		expect(usageFooterSegments({ ...longInput, width: usageBudget })).toEqual(long);
+		const row = `  ${status}${USAGE_FOOTER_SEPARATOR}${usageText}  ${hint}`;
+		expect(row.length).toBeLessThanOrEqual(narrowWidth);
 	});
 	test("footer stays one row from 60 to 200 columns", () => {
 		for (let cols = 60; cols <= 200; cols++) {

@@ -14,7 +14,7 @@ export function footerHintTiers(
 	return [
 		`ctrl+x settings  ctrl+s sidebar  ctrl+p models${targetHint}`,
 		`ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}`,
-		`ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}  alt+enter queue  ctrl+o details`,
+		`ctrl+x settings  ctrl+p models  ctrl+r requests  ctrl+t effort${inspectHint}  ctrl+o details`,
 	];
 }
 

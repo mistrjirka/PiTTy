@@ -126,7 +126,7 @@ describe("pending message actions", () => {
 		expect(f.runtime.conversation.items.some((item) => item.kind === "system" && item.text === "Queue rejected")).toBe(true);
 	});
 
-	test("Alt+Enter uses the authoritative follow-up queue when supported", async () => {
+	test("explicit follow-up actions preserve authoritative queue compatibility", async () => {
 		const f = fixture();
 		f.draft = "later";
 		f.actions.queueFollowUp();

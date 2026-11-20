@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.1
+
+### Keep input responsive across tabs and waits
+
+- Keep delayed first-tab history, command choices, status, focus and scroll updates scoped to that tab. Recheck tab identity before deferred scrolling.
+- Keep a ready tab usable when another tab's initial startup fails. Preserve the failed tab's own startup diagnostics.
+- Remove the Alt+Enter follow-up shortcut and OpenTUI's default submission for that key. Keep Enter, Shift+Enter and pending-message editing, including saved legacy follow-up queues.
+- With pi-subagent 0.5.26 and managed Pi, release active same-session agent waits when ordinary user input is accepted. Deliver the message while the same child processes keep running.
+- Refresh older unpinned maintained skills and subagent packages during founder setup. Preserve selected forks, local checkouts, explicit refs, cache edits and unpublished commits.
+- Use PiTTy-Skills 0.2.0 with seven skills and eleven unchanged model-neutral agents. Restore the ten removed skills to their private wiki sources.
+
 ## 0.8.0
 
 ### Side questions and public founder setup

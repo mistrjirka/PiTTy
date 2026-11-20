@@ -7,6 +7,16 @@ export type StartupPhase =
 	| { kind: "ready" }
 	| { kind: "failed"; reason: StartupFailureReason };
 
+/** Boot diagnostics stay global, but other tabs own their startup readiness. */
+export function startupPhaseForRuntime(
+	bootPhase: StartupPhase,
+	runtime: { startupResolved: boolean },
+	bootRuntime: { startupResolved: boolean },
+): StartupPhase {
+	if (runtime === bootRuntime) return bootPhase;
+	return runtime.startupResolved ? { kind: "ready" } : { kind: "starting" };
+}
+
 export class StartupDeadlineError extends Error {
 	constructor() {
 		super("Pi startup deadline exceeded.");

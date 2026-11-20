@@ -11,7 +11,7 @@ import type {
 	BackgroundTaskSelection,
 } from "../state/background-tasks.ts";
 import { appendNotificationHistory } from "../state/notification-history.ts";
-import type { StartupPhase } from "../state/startup.ts";
+import { startupPhaseForRuntime, type StartupPhase } from "../state/startup.ts";
 import { createInspectorProjection } from "../subagents/inspector-projection.ts";
 import type {
 	NotificationRecord,
@@ -140,6 +140,10 @@ export function createAppControllerRoot(
 	const [startupPhase, setStartupPhase] = createSignal<StartupPhase>({
 		kind: "starting",
 	});
+	const activeStartupPhase = () => {
+		revision();
+		return startupPhaseForRuntime(startupPhase(), activeRuntime(), runtimeScope.bootRuntime);
+	};
 	let prompt: TextareaRenderable | undefined;
 	let scroll: ScrollBoxRenderable | undefined;
 	let subagentScroll: ScrollBoxRenderable | undefined;
@@ -210,7 +214,7 @@ export function createAppControllerRoot(
 		promptCursorOffset,
 		commandChoices,
 		clockNow,
-		startupPhase,
+		startupPhase: activeStartupPhase,
 		refreshCommandChoices,
 		revision,
 		thinkingExpanded,
@@ -288,6 +292,7 @@ export function createAppControllerRoot(
 			todoDetailId: [todoDetailId, setTodoDetailId],
 			status: [status, setStatus],
 			startupPhase: [startupPhase, setStartupPhase],
+			activeStartupPhase,
 			startupStartedAt,
 			getPrompt: () => prompt,
 			setPrompt: (value) => {

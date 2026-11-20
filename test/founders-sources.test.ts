@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { foundersCatalog } from "../scripts/founders-catalog.mjs";
 import { githubSourcePath, hash, sourceIdentity } from "../scripts/founders-state.mjs";
@@ -12,6 +13,21 @@ afterEach(() => { for (const root of roots.splice(0)) fs.rmSync(root, { recursiv
 const put = (file: string, text: string) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
 const putJson = (file: string, value: unknown) => put(file, JSON.stringify(value, null, 2) + "\n");
 const readJson = (file: string) => JSON.parse(fs.readFileSync(file, "utf8"));
+
+function initializeCache(directory: string) {
+  const git = (args: string[]) => execFileSync("git", args, { cwd: directory, stdio: "pipe" });
+  put(path.join(directory, ".gitignore"), "node_modules/\nlocal-notes.txt\n");
+  git(["init", "-q", "-b", "main"]);
+  git(["add", "--", "package.json", "manifest.json", "agents", "skills", ".gitignore"]);
+  const commit = () => git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+    "-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "-m", "Fixture cache"]);
+  commit();
+  git(["remote", "add", "origin", "https://github.com/mistrjirka/PiTTy-Skills.git"]);
+  git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+  git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+  git(["branch", "--set-upstream-to=origin/main", "main"]);
+  return { git, commit };
+}
 
 function fixture() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-founder-sources-"));
@@ -28,7 +44,10 @@ function fixture() {
   let beforeInstall = (_source: string) => {};
   const addPackage = (source: string, id: "skills" | "btw", body = "Review implementation.", directory?: string) => {
     const root = directory ?? path.join(base, "packages", String(available.size));
-    putJson(path.join(root, "package.json"), { name: id === "skills" ? "@mistrjirka/pitty-skills" : "@mistrjirka/pi-btw" });
+    putJson(path.join(root, "package.json"), {
+      name: id === "skills" ? "@mistrjirka/pitty-skills" : "@mistrjirka/pi-btw",
+      version: id === "skills" ? "0.2.0" : "0.1.0",
+    });
     if (id === "btw") put(path.join(root, "index.ts"), "export default () => {};\n");
     else {
       const content = "---\nname: implementation-review\ndescription: Review changes\n---\n" + body + "\n";
@@ -72,6 +91,97 @@ function fixture() {
 }
 
 describe("founders source preferences", () => {
+  test("refreshes an older maintained bundle once and reports it without writes in check mode", async () => {
+    const f = fixture();
+    await setupFounders(f.options);
+    const source = f.sourceFor("skills");
+    const cached = f.installed.get(sourceIdentity(source)!)!;
+    putJson(path.join(cached, "package.json"), { name: "@mistrjirka/pitty-skills", version: "0.1.0" });
+    initializeCache(cached);
+    putJson(path.join(cached, "package-lock.json"), { lockfileVersion: 3 });
+    put(path.join(cached, "node_modules", "fixture", "index.js"), "// Rebuilt by Pi.\n");
+    const latest = f.addPackage(source, "skills");
+    const settings = fs.readFileSync(f.settingsFile, "utf8");
+    const receipt = fs.readFileSync(f.receiptFile, "utf8");
+    f.installs.length = 0;
+    expect((await setupFounders({ ...f.options, check: true })).exitCode).toBe(1);
+    expect((await setupFounders({ ...f.options, dryRun: true })).exitCode).toBe(0);
+    expect(f.installs).toEqual([]);
+    expect(fs.readFileSync(f.settingsFile, "utf8")).toBe(settings);
+    expect(fs.readFileSync(f.receiptFile, "utf8")).toBe(receipt);
+    expect((await setupFounders(f.options)).exitCode).toBe(0);
+    expect(f.installs).toEqual([source]);
+    expect(f.installed.get(sourceIdentity(source)!)).toBe(latest);
+    f.installs.length = 0;
+    expect(await setupFounders(f.options)).toEqual({ exitCode: 0, changed: false });
+    expect((await setupFounders({ ...f.options, check: true })).exitCode).toBe(0);
+    expect(f.installs).toEqual([]);
+  });
+
+  test.each(["tracked", "untracked", "ignored", "commit", "other-upstream"] as const)("preserves %s cache work before an automatic refresh", async (kind) => {
+    const f = fixture();
+    await setupFounders(f.options);
+    const source = f.sourceFor("skills");
+    const cached = f.installed.get(sourceIdentity(source)!)!;
+    putJson(path.join(cached, "package.json"), { name: "@mistrjirka/pitty-skills", version: "0.1.0" });
+    const { git, commit } = initializeCache(cached);
+    f.addPackage(source, "skills");
+    const relative = kind === "ignored" ? "local-notes.txt"
+      : kind === "untracked" ? "custom-agent.md" : "agents/implementation-review.md";
+    const edited = path.join(cached, relative);
+    put(edited, "My changes must survive.\n");
+    if (kind === "commit" || kind === "other-upstream") {
+      git(["add", "--", relative]); commit();
+      if (kind === "other-upstream") {
+        git(["branch", "other"]);
+        git(["branch", "--set-upstream-to=other", "main"]);
+      }
+    }
+    const settings = fs.readFileSync(f.settingsFile, "utf8");
+    const receipt = fs.readFileSync(f.receiptFile, "utf8");
+    f.installs.length = 0;
+    await expect(setupFounders(f.options)).rejects.toThrow("local changes or unpublished commits");
+    expect(f.installs).toEqual([]);
+    expect(fs.readFileSync(edited, "utf8")).toBe("My changes must survive.\n");
+    expect(fs.readFileSync(f.settingsFile, "utf8")).toBe(settings);
+    expect(fs.readFileSync(f.receiptFile, "utf8")).toBe(receipt);
+  });
+
+  test("accepts a clean detached cache when explicitly returning from a pin to the maintained source", async () => {
+    const f = fixture();
+    await setupFounders(f.options);
+    const source = f.sourceFor("skills");
+    const cached = f.installed.get(sourceIdentity(source)!)!;
+    putJson(path.join(cached, "package.json"), { name: "@mistrjirka/pitty-skills", version: "0.1.0" });
+    const { git } = initializeCache(cached);
+    git(["checkout", "--detach", "-q"]);
+    const settings = readJson(f.settingsFile);
+    settings.packages[0].source = source + "@v0.1.0";
+    putJson(f.settingsFile, settings);
+    f.addPackage(source, "skills");
+    f.installs.length = 0;
+    expect((await setupFounders({ ...f.options, sources: { skills: source } })).exitCode).toBe(0);
+    expect(f.installs).toEqual([source]);
+    expect(readJson(f.settingsFile).packages[0].source).toBe(source);
+  });
+
+  test("keeps older versions selected through a fork, local checkout or canonical ref", async () => {
+    for (const kind of ["fork", "local", "pin"] as const) {
+      const f = fixture();
+      const source = kind === "fork" ? "git:https://github.com/Example/Skill-Fork.git"
+        : kind === "local" ? path.join(f.base, "editable skills")
+        : "git:git@github.com:mistrjirka/PiTTy-Skills.git@custom/older";
+      const root = f.addPackage(source, "skills");
+      putJson(path.join(root, "package.json"), { name: "@mistrjirka/pitty-skills", version: "0.1.0" });
+      expect((await setupFounders({ ...f.options, sources: { skills: source } })).exitCode).toBe(0);
+      f.installs.length = 0;
+      expect(await setupFounders(f.options)).toEqual({ exitCode: 0, changed: false });
+      expect((await setupFounders({ ...f.options, check: true })).exitCode).toBe(0);
+      expect(f.installs).toEqual([]);
+      expect(readJson(f.settingsFile).packages[0].source).toBe(source);
+      expect(readJson(path.join(root, "package.json")).version).toBe("0.1.0");
+    }
+  });
   test("reuses selected skills and BTW forks on later setup and check without installing defaults", async () => {
     const f = fixture();
     const choices = {

@@ -52,6 +52,7 @@ export interface AppControllerRootState {
 	todoDetailId: Signal<string | undefined>;
 	status: Signal<string>;
 	startupPhase: Signal<StartupPhase>;
+	activeStartupPhase: Accessor<StartupPhase>;
 	startupStartedAt: number;
 	getPrompt: () => TextareaRenderable | undefined;
 	setPrompt: (value: TextareaRenderable | undefined) => void;

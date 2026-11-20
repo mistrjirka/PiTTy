@@ -29,6 +29,7 @@ export function hash(content: string | Buffer): string;
 export function packageSource(entry: unknown): string | undefined;
 /** Case-preserving GitHub cache path, without a Git ref or .git suffix. */
 export function githubSourcePath(source: unknown): string | undefined;
+export function githubSourceRef(source: unknown): string | undefined;
 export function sourceIdentity(source: unknown, base?: string): string | undefined;
 export function readSettings(file: string): { value: FoundersSettings; raw: string | undefined };
 export function mergeFoundersPackages(settings: FoundersSettings, catalog: FoundersPackage[], base?: string): { settings: FoundersSettings; packages: PlannedPackage[] };

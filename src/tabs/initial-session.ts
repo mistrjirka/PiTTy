@@ -132,7 +132,8 @@ export function startInitialSession(ports: InitialSessionPorts): Promise<void> {
 			);
 			if (startupFailure) throw startupFailure;
 			ports.setStartupPhase({ kind: "history" });
-			ports.setStatus("loading conversation…");
+			if (ports.isRuntimeActive(runtime.id))
+				ports.setStatus("loading conversation…");
 			const [messages, remoteCommands] = await withStartupDeadline(
 				Promise.all([
 					runtime.client.getMessages(ports.sessionLoadTimeoutMs),
@@ -141,10 +142,14 @@ export function startInitialSession(ports: InitialSessionPorts): Promise<void> {
 				remainingMs(),
 			);
 			if (startupFailure) throw startupFailure;
-			ports.setCommandChoices(remoteCommands);
+			if (ports.isRuntimeActive(runtime.id))
+				ports.setCommandChoices(remoteCommands);
 			const historyItems = initialItems(messages);
 			runtime.conversation.replaceItems(historyItems);
-			ports.resetMessageWindow(historyItems.length);
+			// Startup may finish after the user has opened another tab. Its
+			// history belongs to this runtime, not the shared active viewport.
+			if (ports.isRuntimeActive(runtime.id))
+				ports.resetMessageWindow(historyItems.length);
 			logger.info("ui.history_loaded", {
 				rpcMessages: messages.length,
 				renderedItems: historyItems.length,
@@ -172,17 +177,20 @@ export function startInitialSession(ports: InitialSessionPorts): Promise<void> {
 			void ports.fetchAvailableModels().catch(() => undefined);
 			runtime.conversation.isStreaming = state.isStreaming;
 			ports.setStartupPhase({ kind: "ready" });
-			ports.setStatus(state.isStreaming ? "working" : "ready");
-			ports.touch();
-			ports.conversationTouch();
-			queueMicrotask(ports.scrollToLatest);
-			if (ports.openSessionSelectorOnStartup) ports.openSessionSelector();
-			else ports.focusPrompt();
+			if (ports.isRuntimeActive(runtime.id)) {
+				ports.setStatus(state.isStreaming ? "working" : "ready");
+				ports.touch();
+				ports.conversationTouch();
+				queueMicrotask(() => {
+					if (ports.isRuntimeActive(runtime.id)) ports.scrollToLatest();
+				});
+				if (ports.openSessionSelectorOnStartup) ports.openSessionSelector();
+				else ports.focusPrompt();
+			}
 			if (!ports.openSessionSelectorOnStartup)
 				void ports.discoverCurrentSessions();
 			if (ports.isRuntimeActive(runtime.id)) await ports.refreshState(runtime);
 		} catch (error) {
-			ports.setRpcAvailable(false);
 			const previousPhase = ports.startupPhase();
 			const reason = startupFailureReason(error, previousPhase);
 			ports.setStartupPhase({ kind: "failed", reason });
@@ -190,11 +198,14 @@ export function startInitialSession(ports: InitialSessionPorts): Promise<void> {
 			logger.error("ui.start_failed", error);
 			if (previousPhase.kind !== "failed")
 				runtime.conversation.system(message, "error");
-			ports.touch();
-			ports.conversationTouch();
-			ports.setStatus(
-				reason === "timeout" ? "startup timed out" : "failed to start Pi",
-			);
+			if (ports.isRuntimeActive(runtime.id)) {
+				ports.setRpcAvailable(false);
+				ports.touch();
+				ports.conversationTouch();
+				ports.setStatus(
+					reason === "timeout" ? "startup timed out" : "failed to start Pi",
+				);
+			}
 		}
 	})();
 }

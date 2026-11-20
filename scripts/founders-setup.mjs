@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { foundersCatalog } from "./founders-catalog.mjs";
 import { managedPiIsCurrent } from "./ensure-managed-pi.mjs";
 import { ensureFoundersRuntime } from "./founders-runtime.mjs";
-import { atomicWrite, githubSourcePath, installAgents, mergeFoundersPackages, planAgents, readFoundersReceipt, readSettings, sourceIdentity } from "./founders-state.mjs";
+import { atomicWrite, githubSourcePath, githubSourceRef, installAgents, mergeFoundersPackages, planAgents, readFoundersReceipt, readSettings, sourceIdentity } from "./founders-state.mjs";
 
 const releaseRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCE_PREFERENCE_IDS = ["skills", "btw"];
@@ -131,12 +131,58 @@ function buildPackage(entry, directory) {
   command("npm", ["prune", "--omit=dev", "--legacy-peer-deps", "--no-audit", "--no-fund"], directory);
 }
 
+// The catalog requires stable minimum versions. A prerelease of that exact
+// version is older, while a later major/minor/patch still meets the minimum.
+function meetsMinimumVersion(actual, minimum) {
+  const found = typeof actual === "string" && actual.match(/^(\d+)\.(\d+)\.(\d+)(-[^+]+)?(?:\+.+)?$/);
+  const required = minimum.split(".").map(Number);
+  if (!found) return false;
+  for (let index = 0; index < 3; index++) {
+    const difference = Number(found[index + 1]) - required[index];
+    if (difference !== 0) return difference > 0;
+  }
+  return !found[4];
+}
+
+function maintainedMinimum(entry) {
+  const minimum = entry.minimumVersion;
+  return minimum && sourceIdentity(entry.source) === sourceIdentity(minimum.source) &&
+    !githubSourceRef(entry.source) ? minimum.version : undefined;
+}
+
+// Pi refreshes Git packages with reset --hard and clean -fdx. Check before an
+// automatic refresh so direct cache edits and unpublished commits survive.
+function assertAutomaticUpdateSafe(entry, directory) {
+  if (!directory || !maintainedMinimum(entry)) return;
+  const runGit = (args) => spawnSync("git", args, { cwd: directory, encoding: "utf8", timeout: 10_000 });
+  const status = runGit(["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored=matching"]);
+  // Match Pi's update target. A detached checkout or a branch tracking another
+  // remote returns to origin's default branch when the user removes its pin.
+  const upstream = runGit(["rev-parse", "--abbrev-ref", "@{upstream}"]);
+  const target = upstream.status === 0 && upstream.stdout.trim().startsWith("origin/")
+    ? "@{upstream}" : "origin/HEAD";
+  const ahead = runGit(["rev-list", "--count", target + "..HEAD"]);
+  if (status.error || status.status !== 0 || ahead.error || ahead.status !== 0)
+    throw new Error("Cannot verify the cached Git checkout before updating " + entry.source +
+      " at " + directory + ". No settings or agents were changed.");
+  // Pi's npm install creates these disposable files. Tracked changes to them
+  // remain protected, as do every other untracked or ignored file.
+  const changes = status.stdout.split("\0").filter(Boolean).filter((line) =>
+    !/^(?:\?\?|!!) (?:node_modules\/|package-lock\.json)$/.test(line));
+  if (changes.length || Number(ahead.stdout.trim()) > 0)
+    throw new Error("Cannot automatically update " + entry.source + ": the cached checkout at " +
+      directory + " has local changes or unpublished commits. Preserve them in an editable checkout or fork first." +
+      " No settings or agents were changed.");
+}
+
 export function packageReady(entry, directory) {
   if (!directory) return false;
   try {
     const metadata = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"));
+    const minimum = maintainedMinimum(entry);
     return entry.names.includes(metadata.name) &&
       (!entry.version || metadata.version === entry.version) &&
+      (!minimum || meetsMinimumVersion(metadata.version, minimum)) &&
       entry.files.every((file) => fs.existsSync(path.join(directory, file)));
   } catch { return false; }
 }
@@ -225,6 +271,7 @@ export async function setupFounders(options = {}) {
     throw new Error("Founders plugins require Node.js 24 or newer. No settings or agents were changed.");
   for (const entry of plan.packages) {
     if (!needsInstall(entry)) continue;
+    assertAutomaticUpdateSafe(entry, getPath(entry));
     await manager.install(entry.source);
     const directory = getPath(entry);
     if (!directory) throw new Error("Pi did not install " + entry.source + ". No settings or agents were changed.");

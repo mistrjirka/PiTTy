@@ -5,11 +5,19 @@ import path from "node:path";
 export const hash = (content) => createHash("sha256").update(content).digest("hex");
 export const packageSource = (entry) => typeof entry === "string" ? entry : entry?.source;
 
+function githubSourceParts(source) {
+  if (typeof source !== "string" || !/^(git:|https?:\/\/|ssh:\/\/)/.test(source)) return undefined;
+  return source.replace(/^git:/, "").match(/^(?:(?:https?|ssh|git):\/\/(?:git@)?|git@)?github\.com[/:]([^/@\s]+)\/([^/@\s]+)(?:@([^\s]+))?\/?$/i);
+}
+
 /** Pi keeps owner/repository case in its Git cache, unlike GitHub identity matching. */
 export function githubSourcePath(source) {
-  if (typeof source !== "string") return undefined;
-  const git = /^(git:|https?:\/\/|ssh:\/\/)/.test(source) && source.replace(/^git:/, "").match(/^(?:(?:https?|ssh|git):\/\/(?:git@)?|git@)?github\.com[/:]([^/@\s]+)\/([^/@\s]+)(?:@[^\s]+)?\/?$/i);
+  const git = githubSourceParts(source);
   return git ? "github.com/" + git[1] + "/" + git[2].replace(/\.git$/, "") : undefined;
+}
+
+export function githubSourceRef(source) {
+  return githubSourceParts(source)?.[3];
 }
 
 export function sourceIdentity(source, base = process.cwd()) {

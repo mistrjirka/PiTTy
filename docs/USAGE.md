@@ -64,7 +64,6 @@ Type `/` to open command suggestions. PiTTy merges its local commands with exten
 | --- | --- |
 | `Enter` | Insert the highlighted slash suggestion first; otherwise submit or send immediate steering |
 | `Shift+Enter` | Insert a newline |
-| `Alt+Enter` | Queue a follow-up for after the current turn |
 | `Alt+Up` | Edit the last pending message |
 | `Up` / `Down` on an empty single-line prompt | Browse session-local prompt history |
 | `Ctrl+C` with a nonempty draft | Clear the draft and save it to prompt history |
@@ -115,7 +114,7 @@ Use `Ctrl+T`, `Shift+Tab`, or `/thinking` to change Pi's reasoning effort. Avail
 
 ## Follow-ups and steering
 
-While Pi is running, `Enter` queues text for the next model step. `Alt+Enter` queues it for after the current turn. If a slash suggestion is visible, `Enter` accepts that suggestion first.
+While Pi is running, `Enter` queues text for the next model step. If a slash suggestion is visible, `Enter` accepts that suggestion first. `Alt+Enter` has no action in the main editor and leaves the draft unchanged.
 
 The **Pending input** panel above the editor shows messages that Pi has not started processing:
 
@@ -206,7 +205,7 @@ Run the corresponding `pi install` command above, then restart PiTTy. Missing op
 
 ### The status bar lost a usage tracker
 
-The footer shows Claude, Codex, and OpenCode usage only while everything fits in one row. When space runs out, the key hints step down first (`alt+enter queue  ctrl+o details` disappears) and only then do usage summaries shrink. A missing Codex segment with no `sync failed` notice and no fetch failure in the diagnostics log usually means the row was full; widen the terminal. If `~/.pi/agent/auth.json` has no `openai-codex` OAuth entry, the Codex segment is hidden until the next `/login`.
+The footer shows Claude, Codex, and OpenCode usage only while everything fits in one row. When space runs out, the key hints step down first (`ctrl+o details` disappears) and only then do usage summaries shrink. A missing Codex segment with no `sync failed` notice and no fetch failure in the diagnostics log usually means the row was full; widen the terminal. If `~/.pi/agent/auth.json` has no `openai-codex` OAuth entry, the Codex segment is hidden until the next `/login`.
 
 A `·stale 3h32m` marker on the Claude segment means cswap's live usage needs a relogin, so PiTTy shows the last fetched usage and its age instead of claiming the login expired. The model itself keeps working through Pi's own credentials.
 

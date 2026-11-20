@@ -50,7 +50,7 @@ export function createPromptDraftActions(
 	};
 	const mainPromptPlaceholder = () =>
 		ports.activeRuntime().conversation.isStreaming
-			? "Enter queues the next step · Alt+Enter queues a follow-up · Alt+Up edits pending"
+			? "Enter queues the next step · Alt+Up edits pending"
 			: "Ask Pi anything… (/help for commands)";
 	const syncPromptPlaceholder = (text: string) => {
 		const prompt = ports.getPrompt();

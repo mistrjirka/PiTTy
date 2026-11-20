@@ -3,6 +3,7 @@ export const FOUNDERS_PACKAGES = [
   {
     id: "subagents", source: "git:github.com/mistrjirka/pi-subagent",
     names: ["@mistrjirka/pi-subagent"], files: ["index.ts"], nodeMajor: 24,
+    minimumVersion: { source: "git:github.com/mistrjirka/pi-subagent", version: "0.5.26" },
     replaces: ["npm:@mistrjirka/pi-subagent", "npm:@everyx/pi-subagent", "npm:pi-subagents", "git:github.com/everyx/pi-subagent"],
   },
   {
@@ -32,6 +33,7 @@ export const FOUNDERS_PACKAGES = [
   {
     id: "skills", source: "git:https://github.com/mistrjirka/PiTTy-Skills.git",
     names: ["@mistrjirka/pitty-skills"], files: ["manifest.json"],
+    minimumVersion: { source: "git:https://github.com/mistrjirka/PiTTy-Skills.git", version: "0.2.0" },
     replaces: ["git:github.com/mistrjirka/pitty-skills"],
   },
   {

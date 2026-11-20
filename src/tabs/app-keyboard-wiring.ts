@@ -56,7 +56,6 @@ export function registerScreenKeyboard(
 		openPromptMap: screen.modal.openPromptMap,
 		openSettings: screen.settings.openSettings,
 		promptMapOpen: s.promptMapOpen[0],
-		queueFollowUp: screen.input.queueFollowUp,
 		renderer,
 		requestPauseSubagent: screen.subagent.requestPauseSubagent,
 		requestStopSubagent: screen.subagent.requestStopSubagent,

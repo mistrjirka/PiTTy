@@ -13,6 +13,37 @@ const active: TestRendererSetup[] = [];
 afterEach(() => { for (const setup of active.splice(0)) setup.renderer.destroy(); });
 
 describe("pending message controls", () => {
+	test.each([false, true])("Alt+Enter leaves the draft unchanged with Kitty keyboard=%s", async (kittyKeyboard) => {
+		let editor: TextareaRenderable | undefined;
+		const submitted: string[] = [];
+		const setup = await testRender(() => (
+			<PromptComposer streaming={() => true} focused={() => true} placeholder={() => null}
+				onEditor={(value) => { editor = value; }} onPaste={() => {}}
+				onKeyDown={() => {}} onMouseDown={() => {}} onContentChange={() => {}}
+				onCursorChange={() => {}} onSubmit={() => { submitted.push(editor!.plainText); }} />
+		), { width: 80, height: 12, kittyKeyboard });
+		active.push(setup);
+		await setup.flush();
+		await setup.mockInput.typeText("keep this draft");
+
+		setup.mockInput.pressEnter({ meta: true });
+		await setup.flush();
+		expect(submitted).toEqual([]);
+		expect(editor?.plainText).toBe("keep this draft");
+
+		// Legacy terminals send a bare linefeed for Shift+Enter.
+		if (kittyKeyboard) setup.mockInput.pressEnter({ shift: true });
+		else setup.mockInput.pressKey("\n");
+		await setup.flush();
+		expect(submitted).toEqual([]);
+		expect(editor?.plainText).toBe("keep this draft\n");
+
+		await setup.mockInput.typeText("second line");
+		setup.mockInput.pressEnter();
+		await setup.flush();
+		expect(submitted).toEqual(["keep this draft\nsecond line"]);
+	});
+
 	test("clicks edit, cancel edit, combine, cancel and saves through the live composer", async () => {
 		const [revision, setRevision] = createSignal(0);
 		const touch = () => setRevision((value) => value + 1);
@@ -94,6 +125,10 @@ describe("pending message controls", () => {
 		await click("pending-edit-one");
 		editor?.clear();
 		await setup.mockInput.typeText("updated through composer");
+		setup.mockInput.pressEnter({ meta: true });
+		await flush();
+		expect(runtime.conversation.queue?.messages[0]?.message).toBe("first pending\n\nsecond pending");
+		expect(editor?.plainText).toBe("updated through composer");
 		setup.mockInput.pressEnter();
 		await flush();
 		expect(runtime.conversation.queue?.messages[0]?.message).toBe("updated through composer");

@@ -342,7 +342,7 @@ export function AppMainContents(props: AppMainContentsProps) {
 									props.promptValue().length > 0
 										? null
 										: props.streaming()
-											? "Enter queues the next step · Alt+Enter queues a follow-up · Alt+Up edits pending"
+											? "Enter queues the next step · Alt+Up edits pending"
 											: "Ask Pi anything… (/help for commands)"
 								}
 								onEditor={props.onPromptEditor}

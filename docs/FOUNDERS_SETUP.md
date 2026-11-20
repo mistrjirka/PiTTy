@@ -104,8 +104,16 @@ Setup remembers the selected source. Later runs keep using it. An explicit new
 source replaces the previously selected package without adding a duplicate.
 The same behavior applies to `--btw-source`.
 
-Setup reuses prepared Git checkouts. To fetch changes from a selected fork, update
-that package before refreshing its managed agent copies:
+Setup refreshes an unpinned maintained skills package older than `0.2.0` and an
+unpinned maintained subagent package older than `0.5.26`. This applies the revised
+seven-skill selection and enables new user input to wake an active `agent_wait`.
+Explicit refs, custom forks and editable local sources keep their own versions.
+Before automatic refresh, setup checks for edits or unpublished commits inside the
+maintained Git cache. It stops without discarding them. Keep such changes in an
+editable checkout or fork before updating. Pi-created dependency files can be rebuilt.
+
+Setup otherwise reuses prepared Git checkouts. To fetch changes from a selected
+fork, update that package before refreshing its managed agent copies:
 
 ```sh
 pi update git:https://github.com/YOUR_NAME/PiTTy-Skills.git

@@ -6,6 +6,7 @@ import type {
 	TextareaRenderable,
 } from "@opentui/core";
 import type { Accessor } from "solid-js";
+import { hasAlt, isEnterKey } from "./app-navigation.ts";
 import { colors } from "./theme.ts";
 
 export type PromptComposerProps = {
@@ -63,7 +64,16 @@ export function PromptComposer(props: PromptComposerProps) {
 				minHeight={2}
 				maxHeight={10}
 				onPaste={props.onPaste}
-				onKeyDown={props.onKeyDown}
+				onKeyDown={(event) => {
+					// OpenTUI also binds Alt+Enter to submit. Suppress that default
+					// now that the follow-up shortcut has been removed.
+					if (hasAlt(event) && isEnterKey(event)) {
+						event.preventDefault();
+						event.stopPropagation();
+						return;
+					}
+					return props.onKeyDown(event);
+				}}
 				onMouseDown={props.onMouseDown}
 				onContentChange={props.onContentChange}
 				onCursorChange={props.onCursorChange}

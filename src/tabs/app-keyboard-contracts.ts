@@ -65,7 +65,6 @@ export type KeyboardPorts = {
 	openPromptMap: () => void;
 	openSettings: () => void;
 	promptMapOpen: Accessor<boolean>;
-	queueFollowUp: () => void;
 	renderer: CliRenderer;
 	requestPauseSubagent: () => void;
 	requestStopSubagent: () => void;
