@@ -61,7 +61,7 @@ Possible files:
 ```text
 src/ui/logo.tsx
 src/app.tsx
-test/render.test.tsx
+test/render-*.test.tsx
 docs/images/pitty-tail-icon.svg
 ```
 

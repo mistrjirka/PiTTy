@@ -9,7 +9,7 @@
     "dev": "bun --watch run src/index.tsx",
     "typecheck": "tsc --noEmit",
     "test": "bun test --conditions=browser",
-    "test:ui": "bun test --conditions=browser test/render.test.tsx",
+    "test:ui": "bun test --conditions=browser test/render-*.test.tsx",
     "screenshots": "bun scripts/generate-screenshots.ts",
     "screenshots:subagents": "bun scripts/generate-subagent-screenshots.ts",
     "diagnostics": "bun run src/diagnostics/collect.ts",
