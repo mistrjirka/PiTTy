@@ -58,12 +58,12 @@ The preview starts no Pi process and sends no model requests.
 
 ## Side-question integration
 
-[Founder setup](FOUNDERS_SETUP.md) installs the owned `mistrjirka/pi-btw` extension. Its `/btw` command uses this generic string-widget path for loading, answers, cancellation and errors. Other extensions use the same widget API.
+[Founder setup](FOUNDERS_SETUP.md) installs the owned `mistrjirka/PiTTy-BTW` extension. Its `/btw` command uses this generic string-widget path for loading, answers, cancellation and errors. Other extensions use the same widget API.
 
 | Approach | Fits | Remaining work |
 | --- | --- | --- |
 | Adapt MIT `dbachelder/pi-btw` presentation | Persistent side conversations with tools, model selection and saved history | Publish string widgets, acknowledge commands immediately, replace delayed transcript output |
-| Owned `mistrjirka/pi-btw` | Temporary, tool-free questions using safe main-context snapshots | Snapshot and provider support are in the managed fork. Live cache measurement remains pending. |
+| Owned `mistrjirka/PiTTy-BTW` | Temporary, tool-free questions using safe main-context snapshots | Snapshot and provider support are in the managed fork. Live cache measurement remains pending. |
 
 The inspected [`pi-btw` v0.8.1](https://github.com/dbachelder/pi-btw/tree/374465f0a2bd3df502c4f981405e61567d92046b) contains 3,451 production TypeScript lines and ten commands. Its child-session path changes the system prompt and tool declarations, creates another session identity, and retains the original parent snapshot for later questions. Adapting its display is useful for its existing feature set. The requested one-shot behavior would replace its generation and state design, so a small owned extension is the cleaner choice.
 

@@ -24,13 +24,14 @@ export const FOUNDERS_PACKAGES = [
     replaces: ["npm:pi-doppelclaude", "git:github.com/thurstonsand/pi-doppelclaude"],
   },
   {
-    id: "btw", source: "git:git@github.com:mistrjirka/pi-btw.git",
+    id: "btw", source: "git:https://github.com/mistrjirka/PiTTy-BTW.git",
     names: ["@mistrjirka/pi-btw"], files: ["index.ts"],
-    replaces: ["npm:pi-btw", "git:github.com/dbachelder/pi-btw", "git:github.com/Fatih0234/btw"],
+    replaces: ["npm:pi-btw", "git:github.com/dbachelder/pi-btw", "git:github.com/Fatih0234/btw", "git:github.com/mistrjirka/pi-btw"],
   },
   {
-    id: "skills", source: "git:git@github.com:mistrjirka/pitty-skills.git",
-    names: ["@mistrjirka/pitty-skills"], files: ["manifest.json"], replaces: [],
+    id: "skills", source: "git:https://github.com/mistrjirka/PiTTy-Skills.git",
+    names: ["@mistrjirka/pitty-skills"], files: ["manifest.json"],
+    replaces: ["git:github.com/mistrjirka/pitty-skills"],
   },
   {
     id: "todo", source: "npm:@juicesharp/rpiv-todo",
@@ -58,6 +59,6 @@ export const FOUNDERS_PACKAGES = [
 export function foundersCatalog(overrides = {}) {
   return FOUNDERS_PACKAGES.map((entry) => ({
     ...entry,
-    ...(overrides[entry.id] ? { source: overrides[entry.id] } : {}),
+    ...(overrides[entry.id] ? { source: overrides[entry.id], replaces: [...entry.replaces, entry.source], explicitSource: true } : {}),
   }));
 }

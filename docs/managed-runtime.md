@@ -4,6 +4,12 @@ PiTTy installs a private copy of Pi and applies the version-pinned modules liste
 
 The installer checks the original module hashes before copying patches. Each declared module must exist before a previous installation can be reused. Installation stages the whole runtime before replacing its private directory. It does not modify global Pi, credentials, plugins, or session files.
 
+## Founder setup on an older Pi installation
+
+`pitty founders-setup` can prepare the exact supported Pi base when global Pi is older or unavailable. It downloads the pinned public package into a temporary prefix inside the PiTTy installation, validates the same original module hashes and startup behavior, and copies the prepared runtime into `fork-runtime/`. It removes the temporary prefix afterward. Global Pi and its settings stay unchanged.
+
+This preparation runs only for the explicit founder setup command. Normal installation and upgrades retain their existing upstream fallback. Explicit upstream selections or explicit source-runtime overrides are respected.
+
 ## Source repositories
 
 The source forks are [mistrjirka/pi](https://github.com/mistrjirka/pi) and [mistrjirka/pi-code-tool](https://github.com/mistrjirka/pi-code-tool). The manifest records each `forkRepository` and `forkCommit` alongside the generated file hashes.

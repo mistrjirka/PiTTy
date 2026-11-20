@@ -95,7 +95,7 @@ Install the maintained plugins plus the selected skills and agents with `pitty f
 Use `--dry-run` to preview changes or `--check` to inspect the installation. The first-install
 scripts also accept `--founders-setup` / `-FoundersSetup`. Exported agents inherit the active
 model. See [Founder setup and side questions](docs/FOUNDERS_SETUP.md) for package sources,
-private repository access, compatibility and `/btw` commands.
+public installation, forks, editing, compatibility and `/btw` commands.
 
 ## Get started
 
@@ -123,7 +123,9 @@ Old snapshots did not record direct file-read contents. Their conversion reads t
 
 If the installed Pi or code-tool differs from the verified versions, PiTTy uses the unchanged global Pi and reports why. This does not block the PiTTy update. The managed fork is currently supported on Linux and macOS. To opt out, run `PITTY_USE_UPSTREAM_PI=1 pitty`; `PI_BIN=/path/to/pi` and `pitty --pi /path/to/pi` also override automatic selection.
 
-For local source builds, run `npm run install:fork-runtime` once to prepare the managed runtime. The installer does not modify any global Pi configuration.
+`pitty founders-setup` also supports an older global Pi. It prepares the exact supported Pi base in an isolated temporary prefix, then validates and installs the managed runtime. Global Pi stays unchanged.
+
+For local source builds with matching upstream packages, run `npm run install:fork-runtime` once to prepare the managed runtime. The installer does not modify any global Pi configuration.
 
 ## Optional integrations
 

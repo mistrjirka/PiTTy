@@ -12,7 +12,10 @@ also needs a safe provider request path and a text widget that works over RPC.
 - Add an explicit founder setup option to first-install scripts.
 - Install the verified plugin catalog, including managed code-tool, memory,
   subagent, compaction, DoppelClaude, background commands and the owned BTW extension.
-- Install selected skills and agents from a separate private repository.
+- Install selected skills and agents from a separate public, forkable repository.
+- Remember selected forks or local checkouts across setup runs.
+- Prepare the exact supported Pi base inside an isolated temporary prefix when
+  an older global Pi cannot supply the managed runtime. Keep global Pi unchanged.
 - Select skills by authorship and substantive customization, with provenance.
 - Omit model pins from exported agents, preserving other instructions.
 - Publish one temporary BTW result through the existing generic string-widget API.

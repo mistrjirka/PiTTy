@@ -5,12 +5,19 @@ import path from "node:path";
 export const hash = (content) => createHash("sha256").update(content).digest("hex");
 export const packageSource = (entry) => typeof entry === "string" ? entry : entry?.source;
 
+/** Pi keeps owner/repository case in its Git cache, unlike GitHub identity matching. */
+export function githubSourcePath(source) {
+  if (typeof source !== "string") return undefined;
+  const git = /^(git:|https?:\/\/|ssh:\/\/)/.test(source) && source.replace(/^git:/, "").match(/^(?:(?:https?|ssh|git):\/\/(?:git@)?|git@)?github\.com[/:]([^/@\s]+)\/([^/@\s]+)(?:@[^\s]+)?\/?$/i);
+  return git ? "github.com/" + git[1] + "/" + git[2].replace(/\.git$/, "") : undefined;
+}
+
 export function sourceIdentity(source, base = process.cwd()) {
   if (typeof source !== "string") return undefined;
   const npm = source.match(/^npm:((?:@[^/\s]+\/)?[^@\s]+)(?:@[^\s]+)?$/);
   if (npm) return "npm:" + npm[1];
-  const git = /^(git:|https?:\/\/|ssh:\/\/)/.test(source) && source.replace(/^git:/, "").match(/^(?:(?:https?|ssh|git):\/\/(?:git@)?|git@)?github\.com[/:]([^/@\s]+)\/([^/@\s]+)(?:@[^\s]+)?\/?$/i);
-  if (git) return "git:github.com/" + git[1].toLowerCase() + "/" + git[2].replace(/\.git$/, "").toLowerCase();
+  const git = githubSourcePath(source);
+  if (git) return "git:" + git.toLowerCase();
   return "local:" + path.resolve(base, source);
 }
 
@@ -41,7 +48,7 @@ export function mergeFoundersPackages(settings, catalog, base) {
     // Preserve explicit pins and resource filters for an existing owned package.
     const existingSource = packageSource(existing);
     const unpinnedRequiredVersion = entry.version && existingSource === "npm:" + entry.names[0];
-    const source = existing && !unpinnedRequiredVersion && sourceIdentity(existingSource, base) === identity
+    const source = existing && !entry.explicitSource && !unpinnedRequiredVersion && sourceIdentity(existingSource, base) === identity
       ? existingSource : entry.source;
     const replacement = existing && typeof existing === "object" ? { ...existing, source } : source;
     const oldSources = matches.map(({ value }) => packageSource(value));
@@ -81,6 +88,23 @@ function packageFile(root, relative) {
   return file;
 }
 
+/** Schema 1 receipts without sourcePreferences remain valid. */
+export function readFoundersReceipt(agentDir) {
+  const receiptFile = path.join(agentDir, "pitty-founders.json");
+  let receipt = { schemaVersion: 1, agents: {} };
+  if (fs.existsSync(receiptFile)) {
+    receipt = JSON.parse(fs.readFileSync(receiptFile, "utf8"));
+    if (!receipt || receipt.schemaVersion !== 1 || !receipt.agents ||
+        typeof receipt.agents !== "object" || Array.isArray(receipt.agents))
+      throw new Error("Unsupported founders ownership receipt.");
+    const preferences = receipt.sourcePreferences;
+    if (preferences !== undefined && (!preferences || typeof preferences !== "object" || Array.isArray(preferences) ||
+        Object.values(preferences).some((value) => typeof value !== "string" || !value.trim())))
+      throw new Error("Invalid founders source preferences.");
+  }
+  return { receiptFile, receipt };
+}
+
 export function planAgents(bundleRoot, agentDir) {
   const manifest = JSON.parse(fs.readFileSync(path.join(bundleRoot, "manifest.json"), "utf8"));
   if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.agents) || !manifest.agents.length ||
@@ -90,13 +114,7 @@ export function planAgents(bundleRoot, agentDir) {
     if (typeof skill?.path !== "string") throw new Error("Invalid curated skill path.");
     packageFile(bundleRoot, skill.path + "/SKILL.md");
   }
-  const receiptFile = path.join(agentDir, "pitty-founders.json");
-  let receipt = { schemaVersion: 1, agents: {} };
-  if (fs.existsSync(receiptFile)) {
-    receipt = JSON.parse(fs.readFileSync(receiptFile, "utf8"));
-    if (receipt.schemaVersion !== 1 || !receipt.agents || typeof receipt.agents !== "object" || Array.isArray(receipt.agents))
-      throw new Error("Unsupported founders ownership receipt.");
-  }
+  const { receiptFile, receipt } = readFoundersReceipt(agentDir);
   const names = new Set();
   const agents = manifest.agents.map((entry) => {
     if (!entry || typeof entry.name !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(entry.name) ||
@@ -127,8 +145,11 @@ export function planAgents(bundleRoot, agentDir) {
 }
 
 /** Write only missing or unchanged managed profiles. Never replace custom files. */
-export function installAgents(plan) {
-  const next = { ...plan.receipt, agents: { ...plan.receipt.agents } };
+export function installAgents(plan, sourcePreferences) {
+  const next = {
+    ...plan.receipt, agents: { ...plan.receipt.agents },
+    ...(sourcePreferences ? { sourcePreferences } : {}),
+  };
   for (const agent of plan.agents) {
     if (agent.action === "preserve") continue;
     if (agent.action === "install" || agent.action === "update") {
@@ -144,4 +165,5 @@ export function installAgents(plan) {
   const nextText = JSON.stringify(next, null, 2) + "\n";
   const previous = fs.existsSync(plan.receiptFile) ? fs.readFileSync(plan.receiptFile, "utf8") : undefined;
   if (previous !== nextText) atomicWrite(plan.receiptFile, nextText);
+  return previous !== nextText;
 }

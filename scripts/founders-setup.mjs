@@ -6,10 +6,12 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { foundersCatalog } from "./founders-catalog.mjs";
-import { ensureManagedPi, managedPiIsCurrent } from "./ensure-managed-pi.mjs";
-import { atomicWrite, installAgents, mergeFoundersPackages, planAgents, readSettings, sourceIdentity } from "./founders-state.mjs";
+import { managedPiIsCurrent } from "./ensure-managed-pi.mjs";
+import { ensureFoundersRuntime } from "./founders-runtime.mjs";
+import { atomicWrite, githubSourcePath, installAgents, mergeFoundersPackages, planAgents, readFoundersReceipt, readSettings, sourceIdentity } from "./founders-state.mjs";
 
 const releaseRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const SOURCE_PREFERENCE_IDS = ["skills", "btw"];
 const HELP = `Usage: pitty founders-setup [options]
 
 Install our Pi plugins, the recommended tools, and curated skills and agents.
@@ -18,12 +20,15 @@ Existing credentials, model defaults, unrelated packages and custom agents stay 
   --check                 Report missing setup; exit 1 when changes are needed
   --dry-run               Show the plan without installing or changing files
   --agent-dir <path>       Pi agent directory (default: PI_CODING_AGENT_DIR or ~/.pi/agent)
-  --skills-source <path>   Curated package source; local paths or Pi git sources
-  --btw-source <path>      BTW package source; local paths or Pi git sources
+  --skills-source <path>   Remember a curated package source; local path or Pi git source
+  --btw-source <path>      Remember a BTW package source; local path or Pi git source
   -h, --help              Show this help
 
-Private packages use git:git@github.com:mistrjirka/<repository>.git.
-Use your existing GitHub SSH access. Setup never reads or changes credentials.
+The defaults are the public PiTTy-Skills and PiTTy-BTW repositories.
+Source choices are saved per Pi agent directory and reused on later runs.
+Pass a source flag again to switch repositories or return to the public default.
+Private forks can use git:git@github.com:<owner>/<repository>.git.
+Setup never reads or changes credentials.
 `;
 
 function localSource(value, cwd) {
@@ -85,7 +90,7 @@ function readOnlyPackageIndex(appRoot, agentDir, env) {
       const paths = identity?.startsWith("npm:")
         ? [path.join(agentDir, "npm", "node_modules", identity.slice(4)), ...npmRoots.map((root) => path.join(root, identity.slice(4)))]
         : identity?.startsWith("git:")
-          ? [path.join(agentDir, "git", identity.slice(4))]
+          ? [path.join(agentDir, "git", githubSourcePath(source))]
           : identity?.startsWith("local:") ? [identity.slice(6)] : [];
       return paths.find((candidate) => fs.existsSync(candidate));
     },
@@ -167,7 +172,16 @@ export async function setupFounders(options = {}) {
   const env = options.env ?? process.env;
   const appRoot = path.resolve(options.appRoot ?? env.PITTY_APP_ROOT ?? releaseRoot);
   const agentDir = path.resolve(options.agentDir ?? env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent"));
-  const catalog = options.catalog ?? foundersCatalog(options.sources);
+  const { receipt } = readFoundersReceipt(agentDir);
+  const catalog = (options.catalog ?? foundersCatalog()).map((entry) => {
+    const previous = SOURCE_PREFERENCE_IDS.includes(entry.id) ? receipt.sourcePreferences?.[entry.id] : undefined;
+    const selected = options.sources?.[entry.id] ?? previous;
+    return {
+      ...entry, ...(selected ? { source: selected } : {}),
+      replaces: [...entry.replaces, entry.source, ...(previous ? [previous] : [])],
+      explicitSource: Boolean(options.sources?.[entry.id]) || entry.explicitSource,
+    };
+  });
   const log = options.log ?? console.log;
   const settingsFile = path.join(agentDir, "settings.json");
   const original = readSettings(settingsFile);
@@ -178,9 +192,13 @@ export async function setupFounders(options = {}) {
     : await loadPackageManager(appRoot, agentDir, original.value, env));
   const getPath = (entry) => manager.getInstalledPath(entry.source, "user");
   const runtimeReady = options.runtimeReady ?? managedRuntimeReady;
+  // A changed explicit Git ref uses the same cache directory. Reconcile it
+  // through Pi even when an older checkout already has the expected files.
+  const needsInstall = (entry) => !packageReady(entry, getPath(entry)) ||
+    (entry.explicitSource && !entry.configured && /^(git:|https?:\/\/|ssh:\/\/)/.test(entry.source));
   log("Pi agent directory: " + agentDir);
   for (const entry of plan.packages) {
-    const ready = packageReady(entry, getPath(entry));
+    const ready = !needsInstall(entry);
     const action = !ready ? "Install" : !entry.configured ? "Configure" : "Present";
     log(action + ": " + entry.source);
     for (const previous of entry.oldSources.filter((source) => source !== entry.source))
@@ -206,7 +224,7 @@ export async function setupFounders(options = {}) {
   if (catalog.some((entry) => entry.nodeMajor > major))
     throw new Error("Founders plugins require Node.js 24 or newer. No settings or agents were changed.");
   for (const entry of plan.packages) {
-    if (packageReady(entry, getPath(entry))) continue;
+    if (!needsInstall(entry)) continue;
     await manager.install(entry.source);
     const directory = getPath(entry);
     if (!directory) throw new Error("Pi did not install " + entry.source + ". No settings or agents were changed.");
@@ -215,22 +233,30 @@ export async function setupFounders(options = {}) {
       throw new Error("Package validation failed for " + entry.source + ". No settings or agents were changed.");
   }
   const code = plan.packages.find((entry) => entry.id === "code");
-  const managed = await (options.ensureRuntime ?? ensureManagedPi)(appRoot, {
+  const runtimeEnv = {
     ...env, PI_CODING_AGENT_DIR: agentDir,
     ...(code ? { PITTY_UPSTREAM_CODE_TOOL_ROOT: getPath(code) } : {}),
-  });
+  };
+  const managed = options.ensureRuntime
+    ? await options.ensureRuntime(appRoot, runtimeEnv)
+    : await ensureFoundersRuntime(appRoot, runtimeEnv, { log });
   if (!["ready", "installed"].includes(managed.status))
     throw new Error("Managed Pi unavailable: " + (managed.reason ?? managed.status) + ". No settings or agents were changed.");
   if (!runtimeReady(appRoot))
     throw new Error("Managed Pi lacks the required side-question protocol. No settings or agents were changed.");
   if (!skillsEntry) throw new Error("The founders catalog has no curated skills package.");
   agents = planAgents(getPath(skillsEntry), agentDir);
+  if (SOURCE_PREFERENCE_IDS.some((id) => agents.receipt.sourcePreferences?.[id] !== receipt.sourcePreferences?.[id]))
+    throw new Error("Founders source preferences changed during setup. Prepared packages are cached; run setup again.");
   // Re-read settings after downloads. Preserve unrelated concurrent edits.
   const current = readSettings(settingsFile);
   if (JSON.stringify(current.value.packages) !== JSON.stringify(original.value.packages))
     throw new Error("Pi package settings changed during setup. Prepared packages are cached; run setup again.");
   const next = mergeFoundersPackages(current.value, catalog, agentDir).settings;
-  installAgents(agents);
+  const sourcePreferences = { ...agents.receipt.sourcePreferences };
+  for (const entry of plan.packages)
+    if (SOURCE_PREFERENCE_IDS.includes(entry.id)) sourcePreferences[entry.id] = entry.source;
+  const receiptChanged = installAgents(agents, sourcePreferences);
   const changed = JSON.stringify(next) !== JSON.stringify(current.value);
   if (changed) atomicWrite(settingsFile, JSON.stringify(next, null, 2) + "\n");
   const preserved = agents.agents.filter((agent) => agent.action === "preserve");
@@ -239,7 +265,7 @@ export async function setupFounders(options = {}) {
   for (const agent of preserved)
     log("Missing curated agent: " + agent.name + ". Existing custom file kept at " + agent.destination);
   log("Restart PiTTy to load the setup. Model defaults and credentials were not changed.");
-  return { exitCode: preserved.length ? 2 : 0, changed: changed || agents.agents.some((agent) => ["install", "update"].includes(agent.action)) };
+  return { exitCode: preserved.length ? 2 : 0, changed: changed || receiptChanged || agents.agents.some((agent) => ["install", "update"].includes(agent.action)) };
 }
 
 export async function main(args = process.argv.slice(2), options = {}) {

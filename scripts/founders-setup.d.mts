@@ -2,6 +2,7 @@ import type { FoundersPackage } from "./founders-catalog.mjs";
 export interface FoundersOptions {
   appRoot?: string;
   agentDir?: string;
+  /** Explicit choices replace saved sourcePreferences only after setup succeeds. */
   sources?: Record<string, string>;
   catalog?: FoundersPackage[];
   check?: boolean;
