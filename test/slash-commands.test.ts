@@ -34,6 +34,7 @@ function fixture() {
     addSystem(_runtime, message, tone = "info") { notices.push({ message, tone }); },
     openSessionSelector() { calls.push("sessions"); },
     openSettings() { calls.push("settings"); },
+    openProviders() { calls.push("providers"); },
     expandedTools() { return expanded; },
     setExpandedTools(value) { expanded = value; calls.push("tools:" + value); },
     setExpandedToolIds(value) { calls.push("toolids:" + value.size); },
@@ -122,6 +123,7 @@ describe("typed built-in slash command controller", () => {
     const f = fixture();
     await f.controller.handle("/sessions", f.runtime);
     await f.controller.handle("/settings", f.runtime);
+    await f.controller.handle("/login", f.runtime);
     await f.controller.handle("/status", f.runtime);
     await f.controller.handle("/thoughts expanded", f.runtime);
     await f.controller.handle("/prompts", f.runtime);
@@ -129,7 +131,7 @@ describe("typed built-in slash command controller", () => {
     await f.controller.handle("/memory", f.runtime);
     await f.controller.handle("/commands", f.runtime);
     await f.controller.handle("/models", f.runtime);
-    expect(f.calls).toEqual(["sessions", "settings", "thoughts:true", "promptmap:true", "skills:true", "commands-refresh", "memory", "commands-refresh"]);
+    expect(f.calls).toEqual(["sessions", "settings", "providers", "thoughts:true", "promptmap:true", "skills:true", "commands-refresh", "memory", "commands-refresh"]);
     expect(f.notices.some((n) => n.message.includes("Settings available in this RPC UI"))).toBe(true);
     expect(f.notices.some((n) => n.message.includes("/plugin — External"))).toBe(true);
     expect(f.notices.some((n) => n.message.includes("other/second"))).toBe(true);

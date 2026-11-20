@@ -3,7 +3,7 @@
   "pi": {
     "version": "1.5.2",
     "originalSessionManagerSha256": "7e24f1c857c9f0e7be6485e9be12ba528fad9eea3423abf2c96fc27585a88b61",
-    "forkCommit": "15dbd62ba671e228d05700ac6bb53fb0bb44266b",
+    "forkCommit": "e72084f535d6c1d4fe7d98f716e26f1fe579ca70",
     "forkRepository": "https://github.com/mistrjirka/pi",
     "modules": [
       {
@@ -165,7 +165,7 @@
     "vendor/pi-code-tool-0.6.2/state-codec.js": "8871bfcd41753b85e3cb114d09ce25d8c9d475371b9e8a33d3e24ed1d96edf1b",
     "vendor/pi-1.5.2/agent-session.js": "c0c46875254c1a4a17bad11dc4fa87c9a33f0818aa7c1f41f9bcc095ca07bffb",
     "vendor/pi-1.5.2/queued-input.js": "e09b1a23b3abbcdb4d9994231c4a3630738de1dd9d6d73041ddea3f951336c78",
-    "vendor/pi-1.5.2/rpc-mode.js": "be98820df7f65c4948ea95678c50842db679c41e6e18a44cb59532195083d434",
+    "vendor/pi-1.5.2/rpc-mode.js": "07f64f856c67c6c7627e857cb2a5833adadc6f5b2f36e2abeff534e14e02f710",
     "vendor/pi-1.5.2/agent.js": "ede5e0a5ddd758fcdc16d1f2a26619680209fed5e024d99c16717efbecbb76f0",
     "vendor/pi-1.5.2/agent-session-runtime.js": "b2005952a6c49638f7f9d7616a13cd5a97feab84a9657dbb5d6d0c64be7d20d9",
     "vendor/pi-1.5.2/diagnostics-stderr.js": "6a0458320312dbe0c42c8f1dd8c66ea1c87b61ec1a38e66e97c1143b5135a6b7",

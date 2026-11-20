@@ -157,14 +157,7 @@ integrationTest("accepted input releases a real agent_wait while its original ch
     expect((await f.client.getQueue()).messages).toEqual([]);
     expect(f.ended("fixture-wait-1")).toHaveLength(0);
 
-    // An accepted legacy follow-up reserves an ID without releasing the wait.
-    // A duplicate steering request must fail before emitting input_queued.
-    await f.client.prompt("legacy follow-up", "followUp", "reserved");
-    await expect(f.client.prompt("duplicate request", "steer", "reserved")).rejects.toThrow("already exists");
-    expect((await f.client.getQueue()).messages.map((message) => [message.id, message.mode]))
-      .toEqual([["reserved", "followUp"]]);
-    await f.client.removeQueuedMessage("reserved");
-    expect((await f.client.getQueue()).messages).toEqual([]);
+    // Rejected or handled input never releases the wait.
     expect(f.ended("fixture-wait-1")).toHaveLength(0);
     expect((await f.client.getState()).isStreaming).toBe(true);
     expect((await childStatus()).state).toBe("running");
@@ -186,7 +179,6 @@ integrationTest("accepted input releases a real agent_wait while its original ch
     expect(received?.some((message) => message.role === "toolResult" && message.toolCallId === "fixture-wait-1"
       && text(message).includes("new user input arrived"))).toBe(true);
     const accepted = await records<{ messageId: string; mode: string }>(path.join(f.directory, "accepted-inputs.jsonl"));
-    expect(accepted.filter((event) => event.messageId === "reserved").map((event) => event.mode)).toEqual(["followUp"]);
     expect(accepted.filter((event) => event.messageId === "accepted-steer")).toHaveLength(1);
     expect(accepted.some((event) => event.messageId === "handled" || event.messageId === "")).toBe(false);
     expect((await childStatus()).state).toBe("running");
@@ -217,6 +209,36 @@ integrationTest("accepted input releases a real agent_wait while its original ch
     const diagnostics = { toolResults: f.events.filter((event) => event.type === "tool_execution_end"),
       messages: await f.messages().catch(() => []) };
     throw new Error(String(error) + "\n" + JSON.stringify(diagnostics).slice(0, 12_000), { cause: error });
+  } finally {
+    await f.cleanup();
+  }
+}, 60_000);
+
+integrationTest("accepted follow-up releases a real agent_wait without stopping the child", async () => {
+  const f = await fixture();
+  try {
+    await f.client.prompt("Spawn child then wait", "steer", "first");
+    await f.started("fixture-wait-1");
+    await waitFor(() => existsSync(path.join(f.directory, "child-started.json")), "child started");
+    const child = JSON.parse(await readFile(path.join(f.directory, "child-started.json"), "utf8")) as {
+      pid: number; agentId: string;
+    };
+    expect(processAlive(child.pid)).toBe(true);
+    await f.client.prompt("A real follow-up should interrupt wait", "followUp", "wake-followup");
+    await waitFor(() => f.ended("fixture-wait-1").length === 1, "follow-up interrupted wait");
+    const result = f.ended("fixture-wait-1")[0]!;
+    expect(result.isError).toBe(false);
+    expect(result.result?.details?.interruptedByUser).toBe(true);
+    expect(result.result?.details?.agentId).toBe(child.agentId);
+    expect(processAlive(child.pid)).toBe(true);
+    const launches = await records(path.join(f.directory, "child-launches.jsonl"));
+    expect(launches).toHaveLength(1);
+    await f.settled();
+    const accepted = await records<{ messageId: string; mode: string }>(path.join(f.directory, "accepted-inputs.jsonl"));
+    expect(accepted.filter((event) => event.messageId === "wake-followup").map((event) => event.mode)).toEqual(["followUp"]);
+    expect((await f.messages()).filter((message) => message.role === "user"
+      && text(message) === "A real follow-up should interrupt wait")).toHaveLength(1);
+    expect(processAlive(child.pid)).toBe(true);
   } finally {
     await f.cleanup();
   }

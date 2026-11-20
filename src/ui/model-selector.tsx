@@ -137,7 +137,7 @@ export function ModelSelectorDialog(props: {
 	currentModelId?: string | undefined;
 	onSelect: (model: ModelChoice) => void;
 	onCancel: () => void;
-	performanceHistory?: ModelPerformanceHistory;
+	performanceHistory?: ModelPerformanceHistory | (() => ModelPerformanceHistory);
 	timingHistory?: readonly RequestTiming[] | (() => readonly RequestTiming[]);
 	/** Optional line naming the value this picker changes, e.g. the current profile model. */
 	context?: string | undefined;
@@ -154,42 +154,25 @@ export function ModelSelectorDialog(props: {
 	// so compute them once per input change (one history read, one pass over the timing
 	// history) instead of once per model on every keystroke.
 	const detailsByModel = createMemo(() => {
-		const performanceHistory = props.performanceHistory;
-		const timingByModel = new Map<string, RequestTiming[]>();
-		const timingHistory =
-			typeof props.timingHistory === "function"
-				? props.timingHistory()
-				: (props.timingHistory ?? []);
-		for (const sample of retainCurrentRequestTimings(timingHistory)) {
-			if (!sample.provider || !sample.modelId) continue;
-			const key = modelPerformanceKey(sample.provider, sample.modelId);
-			const bucket = timingByModel.get(key);
-			if (bucket) bucket.push(sample);
-			else timingByModel.set(key, [sample]);
-		}
+		// Read timing history first so a newly completed model call invalidates
+		// this memo, including if the picker stayed open during a turn.
+		// Track the per-session update signal without building unused tool rows.
+		if (typeof props.timingHistory === "function") props.timingHistory();
+		const performanceHistory = typeof props.performanceHistory === "function"
+			? props.performanceHistory()
+			: props.performanceHistory;
 		const details = new Map<string, string>();
 		for (const model of props.models) {
 			const key = modelPerformanceKey(model.provider, model.id);
-			const timing = requestTimingStats(
-				timingByModel.get(key) ?? [],
-				model.provider,
-				model.id,
-			);
 			details.set(
 				key,
 				[
 					formatContextWindow(model.contextWindow),
-					model.name && model.name !== model.id ? model.name : "",
 					formatModelPerformanceStats(
 						performanceHistory
-							? modelPerformanceStats(
-									performanceHistory,
-									model.provider,
-									model.id,
-								)
+							? modelPerformanceStats(performanceHistory, model.provider, model.id)
 							: undefined,
 					),
-					formatModelTimingLine(timing),
 				]
 					.filter(Boolean)
 					.join(" · "),
@@ -329,6 +312,7 @@ export function ModelSelectorDialog(props: {
 						});
 					}}
 				/>
+				<text fg={colors.subtle} wrapMode="none">31-day speed median · TTFT = turn to first output</text>
 				<text fg={colors.subtle}>
 					Tab list · Shift+Tab search · ↑/↓ move · Enter select · Esc close ·{" "}
 					{filteredModels().length} match

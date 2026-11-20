@@ -27,6 +27,7 @@ import {
 	type McpSettingsView,
 } from "./mcp-settings.tsx";
 import { type ModelChoice, ModelSelectorDialog } from "./model-selector.tsx";
+import { ProviderConnections } from "./provider-connections.tsx";
 import { SessionRename, SessionSettings } from "./session-settings.tsx";
 import type { SettingsAction } from "./settings-descriptors.ts";
 import {
@@ -71,6 +72,7 @@ export interface CoreSettingsOverlaysProps {
 	activateMcp: () => Promise<boolean>;
 	mcpBackend: () => McpConfigBackend;
 	enableBuiltinMcpInSettings: () => void;
+	onProvidersUpdated: (id: string) => Promise<void>;
 	modelOptions: Accessor<ModelChoice[]>;
 	sessionState: () => RpcSessionState | undefined;
 	readModelPerformanceHistory: () => ModelPerformanceHistory;
@@ -131,13 +133,16 @@ export function CoreSettingsOverlays(props: CoreSettingsOverlaysProps) {
 					onEnableBuiltin={props.enableBuiltinMcpInSettings}
 				/>
 			</Show>
+			<Show when={props.settingsRoute() === "providers"}>
+				<ProviderConnections onBack={() => props.setSettingsRoute("root")} onUpdated={props.onProvidersUpdated} />
+			</Show>
 			<Show when={props.settingsRoute() === "model"}>
 				<ModelSelectorDialog
 					models={props.modelOptions()}
 					currentProvider={props.sessionState()?.model?.provider}
 					currentModelId={props.sessionState()?.model?.id}
-					performanceHistory={props.readModelPerformanceHistory()}
-					timingHistory={props.requestTimingHistory()}
+					performanceHistory={props.readModelPerformanceHistory}
+					timingHistory={props.requestTimingHistory}
 					onSelect={(model) => void props.applySettingsModel(model)}
 					onCancel={() => props.setSettingsRoute("root")}
 				/>

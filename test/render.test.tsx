@@ -585,7 +585,7 @@ describe("OpenTUI components", () => {
 		await modelSetup.mockInput.typeText("beta");
 		await modelSetup.flush();
 		expect(modelSetup.captureCharFrame()).toContain("anthropic/beta");
-		expect(modelSetup.captureCharFrame()).toContain("Turn 2s · Tool 900ms");
+		expect(modelSetup.captureCharFrame()).not.toContain("Tool 900ms");
 		modelSetup.mockInput.pressArrow("down");
 		await modelSetup.flush();
 		modelSetup.mockInput.pressEnter();
@@ -3925,7 +3925,7 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("openai-codex/gpt-5.6-terra");
 		expect(frame).toContain("400k ctx");
 		expect(frame).toContain("1M ctx");
-		expect(frame).toContain("{42 tok/s · 800ms turn→first}");
+		expect(frame).toContain("Median 42 tok/s · TTFT 800ms");
 		expect(formatContextWindow(128000)).toBe("128k ctx");
 		expect(filterModelChoices(models, "SOL").map((model) => model.id)).toEqual([
 			"gpt-5.6-sol",
@@ -4105,7 +4105,7 @@ describe("OpenTUI components", () => {
 		expect(timingRows.every((line) => line.length <= 38)).toBe(true);
 	});
 
-	test("keeps model-picker timing compact when dispatch metrics exist", async () => {
+	test("omits detailed tool timings from model picker while preserving them in sidebar", async () => {
 		const history: RequestTiming[] = [
 			{
 				timingVersion: REQUEST_TIMING_VERSION,
@@ -4130,7 +4130,8 @@ describe("OpenTUI components", () => {
 			20,
 		);
 		const frame = setup.captureCharFrame();
-		expect(frame).toContain("Turn 7s · Tool 980ms");
+		expect(frame).toContain("openai/gpt");
+		expect(frame).not.toContain("Tool 980ms");
 		expect(frame).not.toContain("Dispatch 55ms");
 	});
 

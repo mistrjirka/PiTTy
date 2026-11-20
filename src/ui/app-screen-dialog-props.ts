@@ -30,6 +30,7 @@ export function createAppDialogProps(ports: AppScreenContext): AppDialogsProps {
 			activateMcp: ports.settings.activateMcp,
 			mcpBackend: ports.signals.mcpBackend,
 			enableBuiltinMcpInSettings: ports.settings.enableBuiltinMcpInSettings,
+			onProvidersUpdated: ports.settings.onProvidersUpdated,
 			modelOptions: ports.signals.modelOptions[0],
 			sessionState: ports.session.sessionState,
 			readModelPerformanceHistory: readModelPerformanceHistory,

@@ -6,7 +6,7 @@ export type RemoteCommand = Awaited<ReturnType<CommandClient["getCommands"]>>[nu
 
 export const localCommandChoices: CommandChoice[] = [
 	{ name: "help", description: "Show UI commands", source: "ui" },
-	{ name: "login", description: "Use /login in the Pi CLI", source: "ui" },
+	{ name: "login", description: "Connect providers using Pi accounts or keys", source: "ui" },
 	{
 		name: "settings",
 		description: "Show current UI and Pi settings",

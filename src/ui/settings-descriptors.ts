@@ -34,6 +34,7 @@ export type SettingsDescriptorPorts = {
 	mcpInstallState: () => McpInstallState;
 	mcpError: () => string | undefined;
 	openMcpSettings: () => void;
+	openProviders?: () => void;
 	memoryInstalled: () => boolean;
 	openMemoryBrowser: (fromSettings?: boolean) => void | Promise<void>;
 };
@@ -44,6 +45,11 @@ export function buildSettingsDescriptors(
 	const state = ports.sessionState();
 	const unavailable = ports.rpcAvailable() ? undefined : "Pi RPC unavailable";
 	return [
+		{
+			id: "providers", label: "Provider connections", summary: () => "Accounts and API keys",
+			disabledReason: () => undefined, busy: () => false, inlineError: () => undefined,
+			open: () => (ports.openProviders ? ports.openProviders() : ports.setRoute("providers")),
+		},
 		{
 			id: "model",
 			label: "Model",

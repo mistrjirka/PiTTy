@@ -6,6 +6,8 @@ import type { RpcSessionState, Toast } from "../types.ts";
 import type { CommandChoice } from "../ui/command-suggestions.tsx";
 import type { ModelChoice } from "../ui/model-selector.tsx";
 import { buildSettingsDescriptors } from "../ui/settings-descriptors.ts";
+import { normalizeModelChoices } from "../ui/model-selector.tsx";
+import { setCachedAvailableModels } from "./model-catalog-actions.ts";
 import type { SettingsSectionDescriptor } from "../ui/settings-hub.tsx";
 import {
 	createExtensionModelActions,
@@ -70,6 +72,8 @@ export interface AppSettingsCoordinatorActions
 		SessionPickerActions {
 	closeSettings: () => void;
 	openSettings: () => void;
+	openProviders: () => void;
+	onProvidersUpdated: (providerId: string) => Promise<void>;
 	settingsDescriptors: () => SettingsSectionDescriptor[];
 	closeModelSelector: () => void;
 	openModelSelector: () => Promise<void>;
@@ -149,6 +153,17 @@ export function createAppSettingsCoordinator(
 		});
 	};
 
+	const openProviders = () => {
+		if (settingsRoute() === "closed") openSettings();
+		setSettingsRoute("providers");
+	};
+	const onProvidersUpdated = async (providerId: string): Promise<void> => {
+		const runtime = activeRuntime();
+		const models = normalizeModelChoices(await runtime.client.refreshProviderModels(providerId));
+		setCachedAvailableModels(models);
+		setModelOptions(models);
+		await refreshState(runtime);
+	};
 	const openSettings = () => {
 		if (settingsRoute() !== "closed") return;
 		settingsOrigin = renderer.currentFocusedRenderable;
@@ -286,6 +301,7 @@ export function createAppSettingsCoordinator(
 			mcpInstallState,
 			mcpError,
 			openMcpSettings,
+			openProviders,
 			memoryInstalled: () => ports.props.integrations.memory.installed,
 			openMemoryBrowser,
 		});
@@ -350,6 +366,8 @@ export function createAppSettingsCoordinator(
 	return {
 		closeSettings,
 		openSettings,
+		openProviders,
+		onProvidersUpdated,
 		settingsDescriptors,
 		fetchAvailableModels,
 		loadModels,

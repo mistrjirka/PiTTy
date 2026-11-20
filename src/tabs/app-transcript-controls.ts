@@ -55,6 +55,7 @@ export interface AppTranscriptControlsPorts {
 	sessionLoadTimeoutMs: number;
 	openSessionSelector: () => void;
 	openSettings: () => void;
+	openProviders: () => void;
 	openMemoryBrowser: () => void;
 	fetchAvailableModels: () => Promise<ModelChoice[]>;
 	refreshCommandChoices: (
@@ -288,6 +289,7 @@ export function createAppTranscriptControls(
 			addSystem: addSystemToRuntime,
 			openSessionSelector: () => ports.openSessionSelector(),
 			openSettings: () => ports.openSettings(),
+			openProviders: () => ports.openProviders(),
 			expandedTools,
 			setExpandedTools,
 			setExpandedToolIds: (ids) => setExpandedToolIds(ids),

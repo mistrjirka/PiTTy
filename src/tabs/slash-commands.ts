@@ -23,7 +23,6 @@ export type SlashRuntime = ExtensionWidgetState & {
   } | undefined;
 };
 
-const LOGIN_GUIDANCE = "Sorry, login is not supported in PiTTy yet. Run `pi` and use /login there; your credentials will then be available to PiTTy.";
 
 export function parseOnOff(value: string | undefined): boolean | undefined {
   if (value === "on" || value === "true" || value === "enable" || value === "enabled") return true;
@@ -39,6 +38,7 @@ export function isThinkingLevel(value: string): value is ThinkingLevel {
 export type SlashCommandPorts<T extends SlashRuntime> = {
   addSystem(runtime: T, message: string, tone?: SystemItem["tone"]): void;
   openSessionSelector(): void;
+  openProviders(): void;
   openSettings(): void;
   expandedTools(): boolean;
   setExpandedTools(value: boolean): void;
@@ -67,7 +67,7 @@ export class SlashCommandController<T extends SlashRuntime> {
 
   async handle(text: string, runtime: T): Promise<boolean> {
     const {
-      openSessionSelector, openSettings,
+      openSessionSelector, openSettings, openProviders,
       expandedTools, setExpandedTools, setExpandedToolIds,
       sidebarEnabled, setSidebarEnabled, refreshState, refreshCommands, setAutoRetryEnabled,
       rememberThinkingLevel, applyRememberedThinkingLevel,
@@ -84,13 +84,13 @@ export class SlashCommandController<T extends SlashRuntime> {
 
 		switch (name) {
 			case "login":
-				addSystem(LOGIN_GUIDANCE, "warning");
+				openProviders();
 				return true;
 			case "help":
 				addSystem(
 					[
 						"UI commands:",
-						"  /settings /status /commands [search] /sessions /resume",
+						"  /settings /login /status /commands [search] /sessions /resume",
 						"  /model [provider/model] /thinking [level]",
 						"  /thoughts expanded|collapsed /prompts",
 						"  /compact [instructions] /new /name <name>",

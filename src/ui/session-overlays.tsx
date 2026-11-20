@@ -75,8 +75,8 @@ export function SessionOverlays(props: SessionOverlaysProps) {
 					models={props.modelOptions()}
 					currentProvider={props.sessionState()?.model?.provider}
 					currentModelId={props.sessionState()?.model?.id}
-					performanceHistory={props.readModelPerformanceHistory()}
-					timingHistory={props.requestTimingHistory()}
+					performanceHistory={props.readModelPerformanceHistory}
+					timingHistory={props.requestTimingHistory}
 					notice={props.modelListNotice()}
 					onSelect={(model) => void props.selectModel(model)}
 					onCancel={props.closeModelSelector}

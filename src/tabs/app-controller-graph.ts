@@ -224,6 +224,7 @@ export function createAppControllerGraph(
 		sessionLoadTimeoutMs: SESSION_LOAD_REQUEST_TIMEOUT_MS,
 		openSessionSelector: () => openSessionSelector(),
 		openSettings: () => openSettings(),
+		openProviders: () => settingsActions.openProviders(),
 		openMemoryBrowser: () => openMemoryBrowser(),
 		fetchAvailableModels: () => fetchAvailableModels(),
 		refreshCommandChoices,

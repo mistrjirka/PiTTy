@@ -13,6 +13,10 @@ import type { ConversationTabRuntime } from "./runtime.ts";
 let availableModelsCache: ModelChoice[] | undefined;
 let availableModelsFetch: Promise<ModelChoice[]> | undefined;
 
+export function setCachedAvailableModels(models: ModelChoice[]): void {
+  availableModelsCache = models;
+}
+
 export function cachedAvailableModels(): readonly ModelChoice[] | undefined {
 	return availableModelsCache;
 }

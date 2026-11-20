@@ -149,6 +149,14 @@ export class PiRpcClient extends PiRpcTransport {
 		return data.models;
 	}
 
+	/** Optional RPC in our managed Pi fork; older Pi processes require a restart. */
+	async refreshProviderModels(providerId: string): Promise<unknown[]> {
+		const data = this.data<{ models: unknown[] }>(
+			await this.request({ type: "refresh_provider_models", providerId }, 30_000),
+		);
+		return data.models;
+	}
+
 	async setModel(provider: string, modelId: string): Promise<unknown> {
 		return this.data(
 			await this.request({ type: "set_model", provider, modelId }),

@@ -82,8 +82,8 @@ export function ExtensionSettingsOverlays(
 					currentModelId={
 						parseModelRef(props.compactionModelState()?.model)?.id
 					}
-					performanceHistory={props.readModelPerformanceHistory()}
-					timingHistory={props.requestTimingHistory()}
+					performanceHistory={props.readModelPerformanceHistory}
+					timingHistory={props.requestTimingHistory}
 					context={props.compactionModelContext()}
 					onSelect={(model) => void props.applyCompactionModel(model)}
 					onCancel={() => props.setSettingsRoute("compaction")}
@@ -145,8 +145,8 @@ export function ExtensionSettingsOverlays(
 					currentModelId={
 						parseModelRef(props.selectedSubagentModelEntry()?.model)?.id
 					}
-					performanceHistory={props.readModelPerformanceHistory()}
-					timingHistory={props.requestTimingHistory()}
+					performanceHistory={props.readModelPerformanceHistory}
+					timingHistory={props.requestTimingHistory}
 					context={props.subagentModelContext()}
 					onSelect={(model) => void props.applySubagentModel(model)}
 					onCancel={() => props.setSettingsRoute("subagent")}

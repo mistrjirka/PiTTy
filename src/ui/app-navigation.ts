@@ -12,6 +12,7 @@ export type DetailToggleState = {
 export type SettingsRoute =
 	| "closed"
 	| "root"
+	| "providers"
 	| "model"
 	| "thinking"
 	| "compaction"

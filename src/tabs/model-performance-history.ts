@@ -198,10 +198,11 @@ export function modelPerformanceStats(history: ModelPerformanceHistory, provider
   const all = history[modelPerformanceKey(provider, modelId)] ?? [];
   // Do not mix incompatible measurement boundaries into the same median.
   // Older samples remain in the file for inspection, not current comparisons.
-  const samples = all.filter((sample) => sample.version === SAMPLE_VERSION);
+  const now = Date.now();
+  const samples = all.filter((sample) => sample.version === SAMPLE_VERSION && sample.timestamp <= now && now - sample.timestamp <= RETENTION_MS);
   if (!samples.length) return undefined;
   return { medianTtftMs: median(samples.map((sample) => sample.ttftMs)), medianOutputTokensPerSecond: median(samples.map((sample) => sample.outputTokensPerSecond)) };
 }
 export function formatModelPerformanceStats(stats: ModelPerformanceStats | undefined): string {
-  return stats ? `{${Math.round(stats.medianOutputTokensPerSecond)} tok/s · ${Math.round(stats.medianTtftMs)}ms turn→first}` : "";
+  return stats ? "Median " + Math.round(stats.medianOutputTokensPerSecond) + " tok/s · TTFT " + (stats.medianTtftMs < 1000 ? Math.round(stats.medianTtftMs) + "ms" : (stats.medianTtftMs / 1000).toFixed(1) + "s") : "";
 }

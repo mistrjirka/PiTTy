@@ -10,7 +10,7 @@ import type {
 
 import type { QueueCommand, QueueState } from "./rpc/queue-types.ts";
 
-export type RpcCommand = PiRpcCommand | QueueCommand |
+export type RpcCommand = PiRpcCommand | QueueCommand | { type: "refresh_provider_models"; providerId: string } |
  (Extract<PiRpcCommand, { type: "prompt" | "steer" | "follow_up" }> & { messageId: string });
 export type RpcSessionState = PiRpcSessionState & { queue?: QueueState };
 

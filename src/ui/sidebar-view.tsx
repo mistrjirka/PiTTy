@@ -16,6 +16,7 @@ import {
 import { type SubagentTarget, subagentTargets } from "../subagents/targets.ts";
 import { subagentTreeRows } from "../subagents/tree.ts";
 import type { RequestPerformance } from "../tabs/request-metrics.ts";
+import { readModelPerformanceHistory, modelPerformanceStats, formatModelPerformanceStats } from "../tabs/model-performance-history.ts";
 import {
 	type RequestTiming,
 	requestTimingStats,
@@ -162,8 +163,12 @@ export function Sidebar(props: {
 	});
 	const currentRequestPerformance = createMemo(() => {
 		const performance = props.lastRequestPerformance;
-		if (!performance) return undefined;
 		const selected = props.state?.model;
+		if (selected?.provider && selected.id) {
+			const stats = modelPerformanceStats(readModelPerformanceHistory(), selected.provider, selected.id);
+			if (stats) return { label: formatModelPerformanceStats(stats) };
+		}
+		if (!performance) return undefined;
 		// A recent request from a previous model must not masquerade as the
 		// current model's latency or throughput.
 		if (
@@ -173,7 +178,7 @@ export function Sidebar(props: {
 				performance.modelId !== selected.id)
 		)
 			return undefined;
-		return performance;
+		return { label: "Last " + Math.round(performance.outputTokens / (performance.generationMs / 1000)) + " tok/s · TTFT " + (performance.ttftMs / 1000).toFixed(1) + "s" };
 	});
 	const timingRows = () => (selectedModelTiming() ? 2 : 0);
 	const orderedNotifications = createMemo(() =>
@@ -350,11 +355,7 @@ export function Sidebar(props: {
 			<Show when={currentRequestPerformance()}>
 				{(performance) => (
 					<text width="100%" height={1} fg={colors.subtle} wrapMode="none">
-						Turn→output {(performance().ttftMs / 1000).toFixed(1)}s ·{" "}
-						{Math.round(
-							performance().outputTokens / (performance().generationMs / 1000),
-						)}{" "}
-						tok/s
+						{performance().label}
 					</text>
 				)}
 			</Show>

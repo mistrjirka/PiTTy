@@ -21,7 +21,7 @@ describe("model performance history", () => {
     saveModelPerformanceHistory(history, file);
     const loaded = loadModelPerformanceHistory(file);
     expect(modelPerformanceStats(loaded, "openai", "gpt")).toEqual({ medianTtftMs: 200, medianOutputTokensPerSecond: 15 });
-    expect(formatModelPerformanceStats(modelPerformanceStats(loaded, "openai", "gpt"))).toBe("{15 tok/s · 200ms turn→first}");
+    expect(formatModelPerformanceStats(modelPerformanceStats(loaded, "openai", "gpt"))).toBe("Median 15 tok/s · TTFT 200ms");
   });
 
   test("prunes samples older than 31 days and ignores malformed history", () => {
