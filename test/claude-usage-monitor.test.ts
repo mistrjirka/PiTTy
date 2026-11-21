@@ -56,6 +56,21 @@ describe("account-bound usage", () => {
 		expect(result.usage?.accountId).toBe("work");
 	});
 
+	test("an empty native usage response never borrows stale cswap limits without an account id", async () => {
+		let fallback = 0;
+		const result = await readClaudeUsage({ key: "tab-home", configDir: "/fixture/isolated-home",
+			getProviderUsage: async () => ({ provider: "doppelclaude", status: "unavailable", observedAt: null, limits: [], source: "claude-sdk" }),
+		}, { now: () => now, home: "/fixture",
+			fetchSnapshot: async () => { fallback++; return parseCswapSnapshot({ activeAccountNumber: 1, accounts: [
+				{ number: 1, alias: "work", lastGoodUsage: { fiveHour: { pct: 99 } }, lastGoodAgeSeconds: 1_300_000 },
+			] }, now); },
+			fetchUsage: async () => { fallback++; return { status: "error" }; },
+		});
+		expect(result.usage).toBeUndefined();
+		expect(result.hint).toBe("usage unavailable");
+		expect(fallback).toBe(0);
+	});
+
 	test("a known query account with unavailable usage does not fall through to a different account", async () => {
 		const result = await readClaudeUsage({
 			key: "work",

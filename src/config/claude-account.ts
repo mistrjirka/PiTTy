@@ -27,9 +27,35 @@ export function saveClaudeAccountPreference(choice: ClaudeAccountChoice, file = 
   }
 }
 
+/** Only use ~/.claude when its reported account identity matches the requested slot. */
+function globalProfileMatches(home: string, account: unknown): boolean {
+  try {
+    if (!account || typeof account !== "object") return false;
+    const expected = account as Record<string, unknown>;
+    const raw = JSON.parse(fs.readFileSync(path.join(home, ".claude.json"), "utf8")) as { oauthAccount?: Record<string, unknown> };
+    const active = raw.oauthAccount;
+    if (!active || !fs.existsSync(path.join(home, ".claude", ".credentials.json"))) return false;
+    const identifiers = [
+      [expected.uuid, active.accountUuid],
+      [expected.email, active.emailAddress],
+      [expected.organizationUuid, active.organizationUuid],
+    ] as const;
+    let verified = false;
+    for (const [wanted, actual] of identifiers) {
+      if (typeof wanted !== "string" || !wanted.trim() || typeof actual !== "string" || !actual.trim()) continue;
+      if (wanted.trim().toLowerCase() !== actual.trim().toLowerCase()) return false;
+      verified = true;
+    }
+    return verified;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resolve a pinned cswap account for a new Pi child process.
- * Never switch cswap globally. Missing inactive profiles fail closed.
+ * Never trust sequence.activeAccountNumber: it can disagree with ~/.claude.
+ * Never switch cswap globally. Missing isolated profiles fail closed.
  */
 export function resolveClaudeLaunchConfig(
   choice: ClaudeAccountChoice,
@@ -39,14 +65,11 @@ export function resolveClaudeLaunchConfig(
   try {
     const root = path.join(home, ".local", "share", "claude-swap");
     const state = JSON.parse(fs.readFileSync(path.join(root, "sequence.json"), "utf8")) as {
-      activeAccountNumber?: number; accounts?: Record<string, unknown>;
+      accounts?: Record<string, unknown>;
     };
-    if (!state.accounts?.[String(choice)]) return { error: `cswap slot ${choice} is no longer available` };
-    if (choice === state.activeAccountNumber) {
-      const active = path.join(home, ".claude");
-      return fs.existsSync(path.join(active, ".credentials.json"))
-        ? { configDir: active } : { error: `No active Claude credentials for cswap slot ${choice}` };
-    }
+    const account = state.accounts?.[String(choice)];
+    if (!account) return { error: `cswap slot ${choice} is no longer available` };
+    if (globalProfileMatches(home, account)) return { configDir: path.join(home, ".claude") };
     const sessions = path.join(root, "sessions");
     const candidates = fs.readdirSync(sessions).filter((name) => name.startsWith(`${choice}-`));
     const match = candidates.find((name) => fs.existsSync(path.join(sessions, name, ".credentials.json")));

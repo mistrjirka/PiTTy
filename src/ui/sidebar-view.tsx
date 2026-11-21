@@ -358,7 +358,8 @@ export function Sidebar(props: {
 			<SplitRow
 				left="Model"
 				leftColor={colors.muted}
-				right={thinkingText() ? clip(thinkingText()!, 16) : undefined}
+				right={thinkingText() ? `THINK ${clip(thinkingText()!.toUpperCase(), 16)}` : undefined}
+				rightColor={colors.accent}
 			/>
 			<text height={1} fg={colors.text} wrapMode="none">
 				{clip(modelText(), SIDEBAR_CONTENT_WIDTH)}

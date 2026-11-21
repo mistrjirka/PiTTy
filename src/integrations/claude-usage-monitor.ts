@@ -41,10 +41,9 @@ export async function readClaudeUsage(
 		const snapshot = await runtime.getProviderUsage();
 		const usage = claudeUsageFromProvider(snapshot, sources.now());
 		if (usage) return { usage, ...(snapshot.accountId ? { accountId: snapshot.accountId } : {}), pollAfterMs: 60_000 };
-		// An identified query failure must not be relabelled with another source's account.
-		if (snapshot.accountId || snapshot.status === "error" || snapshot.status === "stale") {
-			return { hint: "usage unavailable", ...(snapshot.accountId ? { accountId: snapshot.accountId } : {}), pollAfterMs: 60_000 };
-		}
+		// A supported native usage reply belongs to this tab, even when empty.
+		// Never replace it with stale cswap readings from a different account.
+		return { hint: "usage unavailable", ...(snapshot.accountId ? { accountId: snapshot.accountId } : {}), pollAfterMs: 60_000 };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		if (!/(?:unknown|unsupported|not implemented).*command|command.*(?:unknown|unsupported|not implemented)/i.test(message))

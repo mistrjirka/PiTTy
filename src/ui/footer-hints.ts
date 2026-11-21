@@ -1,6 +1,14 @@
 /** Width-aware footer hints, independent of the main UI component. */
 import { USAGE_FOOTER_SEPARATOR } from "./usage-footer.ts";
 
+/** Readable current-session level, not merely a Ctrl+T shortcut hint. */
+export function thinkingFooterText(level: string | undefined): string {
+	if (!level) return "";
+	return /^(?:off|minimal|low|medium|high|xhigh|max)$/.test(level)
+		? `THINK ${level.toUpperCase()}` : "";
+}
+
+
 export function footerHintTiers(
 	inspectorOpen: boolean,
 	targetCount = 0,

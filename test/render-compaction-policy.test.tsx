@@ -46,6 +46,7 @@ test("new-tab account picker names the running account separately from its saved
   const frame = setup.captureCharFrame();
   expect(frame).toContain("Claude account for new tabs");
   expect(frame).toContain("Current tab: work");
-  expect(frame).toContain("applies to new tabs");
+  expect(frame).toContain("New tabs: home");
+  expect(frame).toContain("Existing tabs keep their account.");
   expect(frame).toContain("5h ?%");
 });

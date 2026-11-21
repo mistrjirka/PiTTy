@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { globalFooterHint, selectFooterHint, footerHintTiers } from "../src/app.tsx";
+import { thinkingFooterText } from "../src/ui/footer-hints.ts";
 import {
 	USAGE_FOOTER_SEPARATOR,
 	usageFooterSegments,
@@ -33,6 +34,12 @@ const line = (input: UsageFooterInput) =>
 	usageFooterSegments(input).map((s) => s.text).join(USAGE_FOOTER_SEPARATOR);
 
 describe("usageFooterSegments", () => {
+	test("thinking level has an explicit readable label", () => {
+		expect(thinkingFooterText("high")).toBe("THINK HIGH");
+		expect(thinkingFooterText("off")).toBe("THINK OFF");
+		expect(thinkingFooterText(undefined)).toBe("");
+		expect(thinkingFooterText("bad\x1b[31m")).toBe("");
+	});
 	test("labels both Claude windows and orders Claude, Codex, OpenCode", () => {
 		expect(line(base)).toBe("claude 5h 40%·1h26m 7d 12%·3d0h │ codex 45%·4d22h │ oc 2% 3%·2d4h 1%");
 		expect(usageFooterSegments(base).map((s) => s.tone)).toEqual(["normal", "normal", "normal"]);

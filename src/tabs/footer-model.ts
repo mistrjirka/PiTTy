@@ -1,12 +1,13 @@
 /** Footer status, usage budgets and current-session hints. */
+import os from "node:os";
 import type { Accessor } from "solid-js";
-import type { CswapSnapshot } from "../integrations/claude-swap.ts";
+import { resolveCswapSlot, type CswapSnapshot } from "../integrations/claude-swap.ts";
 import type { CodexUsage } from "../integrations/codex-usage.ts";
 import type { UsageStats } from "../integrations/codex-usage-history.ts";
 import type { ClaudeUsage } from "../integrations/doppelclaude-usage.ts";
 import type { OpencodeUsage } from "../integrations/opencode-usage.ts";
 import type { SubagentTarget } from "../subagents/targets.ts";
-import { footerHintTiers, selectFooterHint } from "../ui/footer-hints.ts";
+import { footerHintTiers, selectFooterHint, thinkingFooterText } from "../ui/footer-hints.ts";
 import { cleanInline, clip } from "../ui/model-context.tsx";
 import {
 	USAGE_FOOTER_SEPARATOR,
@@ -61,6 +62,21 @@ export function createFooterModel(ports: FooterModelPorts): FooterModel {
 	};
 	const footerStatusText = () =>
 		`● ${displayStatus()}${ports.activeRuntime().smartCompactProgress ? ` · ${ports.activeRuntime().smartCompactProgress}` : ""}`;
+	const thinkingWidth = () => {
+		const text = thinkingFooterText(ports.activeRuntime().sessionState?.thinkingLevel);
+		return text ? USAGE_FOOTER_SEPARATOR.length + text.length : 0;
+	};
+	const currentClaudeLabel = () => {
+		const accountLabel = ports.claudeUsage()?.accountLabel;
+		if (accountLabel) return accountLabel;
+		// Only attribute a cswap alias when the actual tab's launch directory maps
+		// to that account. A saved preference applies to NEW tabs, not this one.
+		const dir = ports.activeRuntime().client.getClaudeConfigDir();
+		const snapshot = ports.cswapSnapshot();
+		if (!dir || !snapshot) return undefined;
+		const slot = resolveCswapSlot("auto", snapshot, dir, os.homedir());
+		return snapshot.accounts.find((account) => account.number === slot)?.label;
+	};
 	const footerMinHintLength = () =>
 		footerHintTiers(
 			ports.inspectSubagent(),
@@ -69,7 +85,7 @@ export function createFooterModel(ports: FooterModelPorts): FooterModel {
 	const footerHintText = () =>
 		selectFooterHint(
 			ports.dimensions().width,
-			footerStatusText().length,
+			footerStatusText().length + thinkingWidth(),
 			usageFooterWidth(footerUsageSegments()),
 			ports.inspectSubagent(),
 			ports.availableSubagentTargets().length,
@@ -77,9 +93,7 @@ export function createFooterModel(ports: FooterModelPorts): FooterModel {
 	const footerUsageSegments = () =>
 		usageFooterSegments({
 			claudeUsage: ports.claudeUsage(),
-			claudeAccountLabel: ports.claudeUsage()?.accountLabel ?? ports
-				.cswapSnapshot()
-				?.accounts.find((a) => a.number === ports.claudeEffectiveSlot())?.label,
+			claudeAccountLabel: currentClaudeLabel(),
 			claudeHint: ports.claudeHint(),
 			codexUsage: ports.codexUsage(),
 			codexUsageStats: ports.codexUsageStats(),
@@ -94,6 +108,7 @@ export function createFooterModel(ports: FooterModelPorts): FooterModel {
 				ports.dimensions().width -
 					2 -
 					footerStatusText().length -
+					thinkingWidth() -
 					footerMinHintLength() -
 					USAGE_FOOTER_SEPARATOR.length -
 					2,

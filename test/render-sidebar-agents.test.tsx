@@ -208,7 +208,7 @@ describe("OpenTUI components", () => {
 		expect(frame).toContain("367K left");
 		expect(frame).toMatch(/Context\s+8%/);
 		expect(frame).toContain("openai-codex/gpt-5.6-sol");
-		expect(frame).toMatch(/Model\s+high/);
+		expect(frame).toMatch(/Model\s+THINK HIGH/);
 	});
 
 	test("uses lifecycle state for agent row glyphs and colours", async () => {

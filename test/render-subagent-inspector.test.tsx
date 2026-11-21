@@ -434,7 +434,7 @@ describe("OpenTUI components", () => {
 		expect(sidebarFrame).toContain("50K / 200K");
 		expect(sidebarFrame).toContain("25%");
 		expect(sidebarFrame).toContain("anthropic/claude-opus");
-		expect(sidebarFrame).toContain("high");
+		expect(sidebarFrame).toContain("THINK HIGH");
 	});
 
 	test("inspector omits model/context rows when the child reports neither", async () => {

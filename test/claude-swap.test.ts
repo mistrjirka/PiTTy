@@ -78,7 +78,8 @@ describe("cswap account selection", () => {
       const dir = path.join(root, ".local", "share", "claude-swap");
       fs.mkdirSync(path.join(dir, "sessions", "1-work_test"), { recursive: true });
       fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-      fs.writeFileSync(path.join(dir, "sequence.json"), JSON.stringify({ activeAccountNumber: 2, accounts: { "1": {}, "2": {} } }));
+      fs.writeFileSync(path.join(dir, "sequence.json"), JSON.stringify({ activeAccountNumber: 2, accounts: { "1": { uuid: "work-uuid" }, "2": { uuid: "home-uuid" } } }));
+      fs.writeFileSync(path.join(root, ".claude.json"), JSON.stringify({ oauthAccount: { accountUuid: "home-uuid" } }));
       fs.writeFileSync(path.join(dir, "sessions", "1-work_test", ".credentials.json"), "{}");
       fs.writeFileSync(path.join(root, ".claude", ".credentials.json"), "{}");
       expect(resolveClaudeLaunchConfig("auto", root)).toEqual({});
@@ -87,6 +88,30 @@ describe("cswap account selection", () => {
       expect(resolveClaudeLaunchConfig(99, root).error).toContain("no longer available");
       fs.unlinkSync(path.join(dir, "sessions", "1-work_test", ".credentials.json"));
       expect(resolveClaudeLaunchConfig(1, root).error).toContain("no initialized session");
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test("stale sequence index cannot route Home into the active Work profile", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-cswap-stale-active-"));
+    try {
+      const dir = path.join(root, ".local", "share", "claude-swap");
+      const work = path.join(dir, "sessions", "1-work");
+      const homeProfile = path.join(dir, "sessions", "2-home");
+      for (const profile of [work, homeProfile, path.join(root, ".claude")]) {
+        fs.mkdirSync(profile, { recursive: true });
+        fs.writeFileSync(path.join(profile, ".credentials.json"), "{}");
+      }
+      fs.writeFileSync(path.join(dir, "sequence.json"), JSON.stringify({ activeAccountNumber: 2,
+        accounts: { 1: { uuid: "work-uuid", email: "work@example.test" }, 2: { uuid: "home-uuid", email: "home@example.test" } },
+      }));
+      // cswap's sequence.json claims Home, but the actual global Claude login is Work.
+      fs.writeFileSync(path.join(root, ".claude.json"), JSON.stringify({ oauthAccount: {
+        accountUuid: "work-uuid", emailAddress: "work@example.test",
+      } }));
+      expect(resolveClaudeLaunchConfig(2, root)).toEqual({ configDir: homeProfile });
+      expect(resolveClaudeLaunchConfig(1, root)).toEqual({ configDir: path.join(root, ".claude") });
+      fs.unlinkSync(path.join(homeProfile, ".credentials.json"));
+      expect(resolveClaudeLaunchConfig(2, root).error).toContain("no initialized session");
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -100,7 +125,8 @@ describe("cswap account selection", () => {
         fs.mkdirSync(profile, { recursive: true });
         fs.writeFileSync(path.join(profile, ".credentials.json"), "{}");
       }
-      fs.writeFileSync(path.join(dir, "sequence.json"), JSON.stringify({ activeAccountNumber: 2, accounts: { 1: {}, 2: {} } }));
+      fs.writeFileSync(path.join(dir, "sequence.json"), JSON.stringify({ activeAccountNumber: 2, accounts: { 1: { uuid: "work-uuid" }, 2: { uuid: "home-uuid" } } }));
+      fs.writeFileSync(path.join(root, ".claude.json"), JSON.stringify({ oauthAccount: { accountUuid: "home-uuid" } }));
       const preference = path.join(root, "choice.json");
       const launch = () => claudeLaunchEnvironment(readClaudeAccountPreference(preference), root);
       saveClaudeAccountPreference(1, preference);

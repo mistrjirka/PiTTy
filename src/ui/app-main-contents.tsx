@@ -399,6 +399,7 @@ export function AppMainContents(props: AppMainContentsProps) {
 			<AppFooter
 				streaming={props.streaming}
 				statusText={props.footerStatusText}
+				thinkingLevel={() => props.sessionState()?.thinkingLevel}
 				segments={props.footerUsageSegments}
 				hintText={props.footerHintText}
 			/>

@@ -48,7 +48,8 @@ export function ClaudeAccountSelector(props: {
           choose(item.value);
         }}
       />
-      <text fg={colors.subtle}>Current tab: {props.currentAccountLabel ?? props.accounts.find((a) => a.number === props.effectiveSlot)?.label ?? "Unknown"}. This selection applies to new tabs.</text>
+      <text fg={colors.text}>Current tab: {props.currentAccountLabel ?? props.accounts.find((a) => a.number === props.effectiveSlot)?.label ?? "Unknown"}</text>
+      <text fg={colors.muted}>New tabs: {props.selection === "auto" ? "Automatic" : props.accounts.find((a) => a.number === props.selection)?.label ?? "Unknown"}. Existing tabs keep their account.</text>
     </DialogFrame>
   );
 }

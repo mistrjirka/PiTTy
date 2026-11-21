@@ -1,6 +1,7 @@
 /** Footer usage and transient notifications, isolated from App state. */
 import type { Accessor } from "solid-js";
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
+import { thinkingFooterText } from "./footer-hints.ts";
 import type { Toast } from "../types.ts";
 import {
 	USAGE_FOOTER_SEPARATOR,
@@ -11,6 +12,7 @@ import { colors } from "./theme.ts";
 export type AppFooterProps = {
 	streaming: Accessor<boolean>;
 	statusText: Accessor<string>;
+	thinkingLevel: Accessor<string | undefined>;
 	segments: Accessor<UsageFooterSegment[]>;
 	hintText: Accessor<string>;
 };
@@ -31,6 +33,14 @@ export function AppFooter(props: AppFooterProps) {
 			>
 				{props.statusText()}
 			</text>
+			<Show when={thinkingFooterText(props.thinkingLevel())}>
+				{(label) => (
+					<>
+						<text fg={colors.muted} flexShrink={0}>{USAGE_FOOTER_SEPARATOR}</text>
+						<text fg={colors.accent} attributes={1} flexShrink={0} wrapMode="none">{label()}</text>
+					</>
+				)}
+			</Show>
 			<For each={props.segments()}>
 				{(segment) => (
 					<>
