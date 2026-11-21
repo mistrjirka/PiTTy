@@ -75,7 +75,7 @@ describe("account-bound usage", () => {
 		}, { now: () => now,
 			fetchUsage: async ({ credentialsPath }) => {
 				calls++;
-				expect(credentialsPath).toBe("/fixture/isolated-home/.credentials.json");
+				expect(credentialsPath).toBe(path.join("/fixture/isolated-home", ".credentials.json"));
 				return { status: "error" };
 			},
 		});
