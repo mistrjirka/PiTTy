@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import path from "node:path";
 import { ClaudeUsageMonitor, readClaudeUsage, type ClaudeUsageReading, type ClaudeUsageRuntime, type ClaudeUsageSources } from "../src/integrations/claude-usage-monitor.ts";
 import { parseCswapSnapshot } from "../src/integrations/claude-swap.ts";
 import { claudeUsageFromProvider, parseProviderUsageSnapshot, type ProviderUsageSnapshot } from "../src/integrations/provider-usage.ts";
@@ -51,7 +52,7 @@ describe("account-bound usage", () => {
 				return { status: "ok", usage: reading("work").usage! };
 			},
 		});
-		expect(paths).toEqual(["/fixture/profiles/work/.credentials.json"]);
+		expect(paths).toEqual([path.join("/fixture/profiles/work", ".credentials.json")]);
 		expect(result.usage?.accountId).toBe("work");
 	});
 
