@@ -7,6 +7,8 @@ import path from "node:path";
 import assert from "node:assert/strict";
 
 const root = path.resolve(import.meta.dir, "..");
+// Select the built release entry without changing the interaction fixture.
+const appEntry = path.resolve(process.env.PITTY_TEST_APP_ENTRY || path.join(root, "src/index.tsx"));
 const output = path.resolve(process.argv[2] || path.join(root, "../validation/cache-policy-terminal"));
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-cache-policy-"));
 const home = path.join(temp, "home");
@@ -86,7 +88,7 @@ try {
     "PI_CODING_AGENT_DIR=" + path.join(home, ".pi/agent"), "PI_PITTY_PROFILED_ROOT=" + path.join(temp, "profiled"),
     "CLAUDE_CONFIG_DIR=" + work, "MOCK_POLICY_LOG=" + log, "MOCK_POLICY_CONTROL=" + control,
     "PATH=" + fixtureBin + path.delimiter + (process.env.PATH || ""),
-    path.join(root, "node_modules/.bin/bun"), "run", path.join(root, "src/index.tsx"),
+    path.join(root, "node_modules/.bin/bun"), "run", appEntry,
     "--pi", path.join(root, "test/fixtures/cache-policy-rpc.mjs"), "--cwd", project, "--no-sidebar", "--no-logs");
   tmux("set-option", "-t", session, "status", "off");
   tmux("set-option", "-t", session, "window-size", "manual");
@@ -159,6 +161,7 @@ try {
   await capture("09-return-to-work", ["claude(work) 5h 89%", "7d 11%"]);
   fs.writeFileSync(path.join(output, "rpc-metadata.jsonl"), fs.readFileSync(log));
   console.log("PASS: real PTY profile selection, new-tab binding, both quota labels, live updates, stale/unknown states, method/policy setters, typing veto, unchanged extension configuration.");
+  console.log("App entry: " + appEntry);
   console.log("Terminal frames: " + output);
 } catch (error) {
   try { await capture("failure"); fs.copyFileSync(log, path.join(output, "failure-rpc-metadata.jsonl")); } catch { /* Preserve the original failure. */ }
