@@ -1,6 +1,4 @@
-import { isMissing, readMarkdownNames, readProfileRuntime } from "./extension-profile-discovery.ts";
-import { randomUUID } from "node:crypto";
-import fsp from "node:fs/promises";
+import { readMarkdownNames, readProfileRuntime } from "./extension-profile-discovery.ts";
 import os from "node:os";
 import path from "node:path";
 
@@ -12,7 +10,7 @@ import path from "node:path";
  * compaction. `@mistrjirka/pi-subagent` reads `subagentProfiles` from
  * `settings.json` (global and project) when it spawns a child.
  *
- * PiTTy edits only the model and thinking keys, keeps every other key
+ * PiTTy edits only the selected model, thinking and soft-target keys, keeps every other key
  * untouched, and writes atomically because these files are shared with Pi and
  * its extensions.
  */
@@ -34,6 +32,9 @@ export type CompactionModelState = {
 	/** Model PiTTy would write if the user picks one now. */
 	model?: string;
 	thinkingLevel?: string;
+	/** Extension's soft post-compaction target, not the live context/cache ceiling. */
+	targetPostCompactTokens: number;
+	targetScope: ExtensionModelScope | "default";
 	scope: ExtensionModelScope;
 	/** File PiTTy updates for a thinking-level change. */
 	thinkingScope: ExtensionModelScope;
@@ -65,6 +66,7 @@ export type SubagentModelEntry = {
 };
 
 const DEFAULT_COMPACTION_THINKING = "low";
+const DEFAULT_COMPACTION_TARGET_TOKENS = 40_000;
 const DEFAULT_AUDIT_THINKING = "medium";
 
 export type ExtensionModelOptions = {
@@ -72,7 +74,7 @@ export type ExtensionModelOptions = {
 	agentDir?: string;
 };
 
-type JsonObject = Record<string, unknown>;
+import { isRecord, readOptionalJson, writeJsonObject, type JsonObject } from "./extension-json.ts";
 
 const BUILTIN_CORE_PROFILE_NAMES = [
 	"explore",
@@ -91,17 +93,15 @@ const THINKING_LEVELS: ReadonlySet<string> = new Set(
 	EXTENSION_THINKING_LEVELS,
 );
 
-function isRecord(value: unknown): value is JsonObject {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+function positiveTokenTarget(value: unknown): number | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0)
+		throw new Error("targetPostCompactTokens must be a positive integer");
+	return value;
 }
-
 
 function stringField(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function message(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 export function piAgentDir(
@@ -121,64 +121,6 @@ export function parseModelRef(
 		provider: value.slice(0, separator),
 		id: value.slice(separator + 1),
 	};
-}
-
-async function readJsonObject(
-	filePath: string,
-): Promise<{ exists: boolean; value: JsonObject }> {
-	let raw: string;
-	try {
-		raw = await fsp.readFile(filePath, "utf8");
-	} catch (error) {
-		if (isMissing(error)) return { exists: false, value: {} };
-		throw error;
-	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch (error) {
-		throw new Error(`Cannot read ${filePath}: ${message(error)}`);
-	}
-	if (!isRecord(parsed)) {
-		throw new Error(`Cannot edit ${filePath}: expected a JSON object`);
-	}
-	return { exists: true, value: parsed };
-}
-
-async function writeJsonObject(
-	filePath: string,
-	value: JsonObject,
-): Promise<void> {
-	const directory = path.dirname(filePath);
-	await fsp.mkdir(directory, { recursive: true, mode: 0o700 });
-	let indent = "  ";
-	try {
-		const raw = await fsp.readFile(filePath, "utf8");
-		const match = /^\{\r?\n([ \t]+)/.exec(raw);
-		if (match?.[1]) indent = match[1];
-	} catch (error) {
-		if (!isMissing(error)) throw error;
-	}
-	const temporary = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
-	try {
-		await fsp.writeFile(temporary, `${JSON.stringify(value, null, indent)}\n`, {
-			encoding: "utf8",
-			mode: 0o600,
-			flag: "wx",
-		});
-		await fsp.rename(temporary, filePath);
-	} catch (error) {
-		try {
-			await fsp.rm(temporary, { force: true });
-		} catch {
-			// Keep the original write failure; temp cleanup is best effort.
-		}
-		throw error;
-	}
-}
-
-async function readOptionalJson(filePath: string): Promise<JsonObject> {
-	return (await readJsonObject(filePath)).value;
 }
 
 function settingsPaths(options: ExtensionModelOptions): {
@@ -230,6 +172,8 @@ export async function loadCompactionModelState(
 	const projectDocument = await readOptionalJson(paths.project);
 	const globalModel = stringField(globalDocument.model);
 	const projectModel = stringField(projectDocument.model);
+	const globalTarget = positiveTokenTarget(globalDocument.targetPostCompactTokens);
+	const projectTarget = positiveTokenTarget(projectDocument.targetPostCompactTokens);
 	const globalThinkingLevel = stringField(globalDocument.thinkingLevel);
 	const projectThinkingLevel = stringField(projectDocument.thinkingLevel);
 	const thinkingLevel = projectThinkingLevel ?? globalThinkingLevel;
@@ -261,6 +205,8 @@ export async function loadCompactionModelState(
 	return {
 		...(model ? { model } : {}),
 		...(thinkingLevel ? { thinkingLevel } : {}),
+		targetPostCompactTokens: projectTarget ?? globalTarget ?? DEFAULT_COMPACTION_TARGET_TOKENS,
+		targetScope: projectTarget !== undefined ? "project" : globalTarget !== undefined ? "global" : "default",
 		scope: projectModel ? "project" : "global",
 		thinkingScope:
 			projectThinkingLevel ||
@@ -304,6 +250,21 @@ export async function writeCompactionThinking(
 		const value = isRecord(lanes[lane]) ? lanes[lane] : (lanes[lane] = {});
 		value.thinkingLevel = level;
 	}
+	await writeJsonObject(target, document);
+}
+
+/** Change only the extension's target, preserving models, lane settings and project overrides. */
+export async function writeCompactionTarget(
+	tokens: number,
+	options: ExtensionModelOptions = {},
+): Promise<void> {
+	if (!Number.isSafeInteger(tokens) || tokens <= 0)
+		throw new Error("Compaction target must be a positive integer");
+	const paths = compactionPaths(options);
+	const state = await loadCompactionModelState(options);
+	const target = state.targetScope === "project" ? paths.project : paths.global;
+	const document = await readOptionalJson(target);
+	document.targetPostCompactTokens = tokens;
 	await writeJsonObject(target, document);
 }
 

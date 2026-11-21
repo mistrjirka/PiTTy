@@ -1,6 +1,5 @@
-import os from "node:os";
 import path from "node:path";
-import { fetchCswapSnapshot, resolveCswapSlot, type CswapSnapshot } from "./claude-swap.ts";
+import type { CswapSnapshot } from "./claude-swap.ts";
 import { fetchDoppelclaudeUsage, type ClaudeUsage, type ClaudeUsageOutcome } from "./doppelclaude-usage.ts";
 import { claudeUsageFromProvider, type ProviderUsageSnapshot } from "./provider-usage.ts";
 
@@ -20,51 +19,43 @@ export type ClaudeUsageReading = {
 	pollAfterMs: number;
 };
 export type ClaudeUsageSources = {
-	fetchSnapshot: () => Promise<CswapSnapshot | undefined>;
 	fetchUsage: (options: { credentialsPath: string }) => Promise<ClaudeUsageOutcome>;
 	now: () => number;
-	home: string;
 };
 const defaultSources: ClaudeUsageSources = {
-	fetchSnapshot: fetchCswapSnapshot,
 	fetchUsage: fetchDoppelclaudeUsage,
 	now: Date.now,
-	home: os.homedir(),
 };
 
-/** The SDK query is authoritative. Older runtimes fall back only to this tab's profile. */
+/** Prefer live SDK usage, then a direct OAuth reading from the same Pi child profile. */
 export async function readClaudeUsage(
 	runtime: ClaudeUsageRuntime,
 	sources: ClaudeUsageSources = defaultSources,
 ): Promise<ClaudeUsageReading> {
+	// The live provider may have no active query while the main conversation is
+	// idle. That means its usage snapshot is empty, not that Claude is logged out.
+	// Fetch the same child process's OAuth usage instead. Never borrow cswap's
+	// potentially stale last-good reading or another account's credentials.
+	let nativeAccountId: string | undefined;
 	try {
 		const snapshot = await runtime.getProviderUsage();
 		const usage = claudeUsageFromProvider(snapshot, sources.now());
 		if (usage) return { usage, ...(snapshot.accountId ? { accountId: snapshot.accountId } : {}), pollAfterMs: 60_000 };
-		// A supported native usage reply belongs to this tab, even when empty.
-		// Never replace it with stale cswap readings from a different account.
-		return { hint: "usage unavailable", ...(snapshot.accountId ? { accountId: snapshot.accountId } : {}), pollAfterMs: 60_000 };
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		if (!/(?:unknown|unsupported|not implemented).*command|command.*(?:unknown|unsupported|not implemented)/i.test(message))
-			return { hint: "usage unavailable", pollAfterMs: 60_000 };
-		// Only an explicitly unsupported older RPC falls back to this tab\'s profile.
+		nativeAccountId = snapshot.accountId;
+	} catch {
+		// Only a known tab-local profile may be used as fallback.
 	}
-	const snapshot = await sources.fetchSnapshot();
-	if (snapshot) {
-		const slot = resolveCswapSlot("auto", snapshot, runtime.configDir, sources.home);
-		const account = snapshot.accounts.find((candidate) => candidate.number === slot);
-		const usage = account?.usage ?? account?.lastGood?.usage;
-		if (usage) return { usage, snapshot, pollAfterMs: 5 * 60_000 };
+	if (!runtime.configDir || !path.isAbsolute(runtime.configDir)) {
+		return { hint: "usage unavailable", ...(nativeAccountId ? { accountId: nativeAccountId } : {}), pollAfterMs: 60_000 };
 	}
-	const configDir = runtime.configDir || path.join(sources.home, ".claude");
-	const outcome = await sources.fetchUsage({ credentialsPath: path.join(configDir, ".credentials.json") });
-	if (outcome.status === "ok") return { usage: outcome.usage, ...(snapshot ? { snapshot } : {}), pollAfterMs: 5 * 60_000 };
-	return {
-		hint: "usage unavailable",
-		...(snapshot ? { snapshot } : {}),
-		pollAfterMs: outcome.status === "rate-limited" ? 5 * 60_000 : 60_000,
-	};
+	const outcome = await sources.fetchUsage({ credentialsPath: path.join(runtime.configDir, ".credentials.json") });
+	if (outcome.status === "ok") {
+		if (nativeAccountId && outcome.usage.accountId && nativeAccountId !== outcome.usage.accountId)
+			return { hint: "usage unavailable", accountId: nativeAccountId, pollAfterMs: 60_000 };
+		return { usage: outcome.usage, ...(nativeAccountId ? { accountId: nativeAccountId } : {}), pollAfterMs: 5 * 60_000 };
+	}
+	return { hint: "usage unavailable", ...(nativeAccountId ? { accountId: nativeAccountId } : {}),
+		pollAfterMs: outcome.status === "rate-limited" ? 5 * 60_000 : 60_000 };
 }
 
 /** Coordinates account switches and overlapping reads without publishing another tab's result. */
@@ -91,18 +82,18 @@ export class ClaudeUsageMonitor {
 		this.runtime = runtime;
 		if (runtime.snapshot && snapshotChanged) {
 			const usage = claudeUsageFromProvider(runtime.snapshot, this.now());
-			{
-				const reading = this.keepPrevious(runtime.key, {
-					...(usage ? { usage } : { hint: "usage unavailable" }),
-					...(runtime.snapshot.accountId ? { accountId: runtime.snapshot.accountId } : {}),
-					pollAfterMs: 60_000,
-				});
-				this.versions.set(runtime.key, (this.versions.get(runtime.key) ?? 0) + 1);
-				this.cache.set(runtime.key, reading);
-				this.publish(reading);
-				this.schedule(60_000);
-				return;
-			}
+			const reading = this.keepPrevious(runtime.key, {
+				...(usage ? { usage } : { hint: "usage unavailable" }),
+				...(runtime.snapshot.accountId ? { accountId: runtime.snapshot.accountId } : {}),
+				pollAfterMs: 60_000,
+			});
+			// Only a real provider measurement supersedes an in-flight direct OAuth read.
+			// Empty push updates can arrive while the main SDK query is idle.
+			if (usage) this.versions.set(runtime.key, (this.versions.get(runtime.key) ?? 0) + 1);
+			this.cache.set(runtime.key, reading);
+			this.publish(reading);
+			this.schedule(usage ? 60_000 : Math.max(0, 60_000 - (this.now() - (this.lastAttempt.get(runtime.key) ?? 0))));
+			return;
 		}
 		if (changed) {
 			this.publish(this.cache.get(runtime.key) ?? { hint: "usage loading", pollAfterMs: 0 });

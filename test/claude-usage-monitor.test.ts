@@ -26,8 +26,7 @@ describe("account-bound usage", () => {
 	test("uses the actual SDK query and never polls another profile when it has limits", async () => {
 		let fallback = 0;
 		const sources: ClaudeUsageSources = {
-			now: () => now, home: "/fixture",
-			fetchSnapshot: async () => { fallback++; return undefined; },
+			now: () => now,
 			fetchUsage: async () => { fallback++; return { status: "missing-credentials" }; },
 		};
 		const result = await readClaudeUsage(runtime("work"), sources);
@@ -36,17 +35,30 @@ describe("account-bound usage", () => {
 		expect(fallback).toBe(0);
 	});
 
-	test("an older RPC fallback reads the child profile, never the parent's default credentials", async () => {
+	test("an empty native reading fetches the active tab's exact OAuth credentials", async () => {
+		const paths: string[] = [];
+		const result = await readClaudeUsage({
+			key: "home", configDir: "/fixture/sessions/2-home",
+			getProviderUsage: async () => ({ provider: "doppelclaude", status: "unavailable", observedAt: null, limits: [], source: "sdk" }),
+		}, {
+			now: () => now,
+			fetchUsage: async ({ credentialsPath }) => {
+				paths.push(credentialsPath);
+				return { status: "ok", usage: reading("home").usage! };
+			},
+		});
+		expect(paths).toEqual([path.join("/fixture/sessions/2-home", ".credentials.json")]);
+		expect(result.usage?.accountId).toBe("home");
+		expect(result.pollAfterMs).toBe(5 * 60_000);
+	});
+
+	test("unsupported older RPC still uses only the child account", async () => {
 		const paths: string[] = [];
 		const result = await readClaudeUsage({
 			key: "work", configDir: "/fixture/profiles/work",
 			getProviderUsage: async () => { throw new Error("Unknown command"); },
 		}, {
-			now: () => now, home: "/fixture",
-			fetchSnapshot: async () => parseCswapSnapshot({
-				activeAccountNumber: 2,
-				accounts: [{ number: 2, usage: { fiveHour: { pct: 99 } } }],
-			}, now),
+			now: () => now,
 			fetchUsage: async ({ credentialsPath }) => {
 				paths.push(credentialsPath);
 				return { status: "ok", usage: reading("work").usage! };
@@ -56,32 +68,36 @@ describe("account-bound usage", () => {
 		expect(result.usage?.accountId).toBe("work");
 	});
 
-	test("an empty native usage response never borrows stale cswap limits without an account id", async () => {
-		let fallback = 0;
+	test("a failed direct query never borrows another account's old percentages", async () => {
+		let calls = 0;
 		const result = await readClaudeUsage({ key: "tab-home", configDir: "/fixture/isolated-home",
 			getProviderUsage: async () => ({ provider: "doppelclaude", status: "unavailable", observedAt: null, limits: [], source: "claude-sdk" }),
-		}, { now: () => now, home: "/fixture",
-			fetchSnapshot: async () => { fallback++; return parseCswapSnapshot({ activeAccountNumber: 1, accounts: [
-				{ number: 1, alias: "work", lastGoodUsage: { fiveHour: { pct: 99 } }, lastGoodAgeSeconds: 1_300_000 },
-			] }, now); },
-			fetchUsage: async () => { fallback++; return { status: "error" }; },
+		}, { now: () => now,
+			fetchUsage: async ({ credentialsPath }) => {
+				calls++;
+				expect(credentialsPath).toBe("/fixture/isolated-home/.credentials.json");
+				return { status: "error" };
+			},
 		});
 		expect(result.usage).toBeUndefined();
 		expect(result.hint).toBe("usage unavailable");
-		expect(fallback).toBe(0);
+		expect(calls).toBe(1);
 	});
 
-	test("a known query account with unavailable usage does not fall through to a different account", async () => {
+	test("a native account ID with no matching child directory never reads global credentials", async () => {
 		const result = await readClaudeUsage({
-			key: "work",
-			getProviderUsage: async () => ({ ...snapshot("work"), status: "unavailable", limits: [] }),
-		}, {
-			now: () => now, home: "/fixture",
-			fetchSnapshot: async () => { throw new Error("must not read other profiles"); },
-			fetchUsage: async () => { throw new Error("must not read default credentials"); },
-		});
+			key: "work", getProviderUsage: async () => ({ ...snapshot("work"), status: "unavailable", limits: [] }),
+		}, { now: () => now, fetchUsage: async () => { throw new Error("must not read default credentials"); } });
 		expect(result.hint).toBe("usage unavailable");
 		expect(result.usage).toBeUndefined();
+	});
+
+	test("rejects direct OAuth usage when its explicit account ID disagrees with the SDK", async () => {
+		const result = await readClaudeUsage({ key: "home", configDir: "/fixture/home",
+			getProviderUsage: async () => ({ ...snapshot("home"), status: "unavailable", limits: [] }),
+		}, { now: () => now, fetchUsage: async () => ({ status: "ok", usage: reading("work").usage! }) });
+		expect(result.usage).toBeUndefined();
+		expect(result.accountId).toBe("home");
 	});
 
 	test("preserves unknown limits and reset times and rejects malformed envelopes", () => {
@@ -90,6 +106,23 @@ describe("account-bound usage", () => {
 		expect(usage?.limits[0]).toMatchObject({ percent: null, resetAt: null });
 		expect(usage?.status).toBe("unknown");
 		expect(parseProviderUsageSnapshot({ ...snapshot("work"), accountLabel: {} })).toBeUndefined();
+	});
+
+	test("an empty SDK push triggers same-profile OAuth polling immediately, not after one minute", async () => {
+		const published: ClaudeUsageReading[] = [];
+		let reads = 0;
+		const monitor = new ClaudeUsageMonitor((value) => published.push(value), async () => {
+			reads++;
+			return reading("home");
+		}, () => now);
+		try {
+			monitor.select({ ...runtime("home"), configDir: "/fixture/home", snapshot: {
+				provider: "doppelclaude", source: "sdk", status: "unavailable", observedAt: null, limits: [],
+			} });
+			for (let i = 0; i < 50 && reads === 0; i++) await new Promise<void>((resolve) => setTimeout(resolve, 5));
+			expect(reads).toBe(1);
+			expect(published.at(-1)?.usage?.accountId).toBe("home");
+		} finally { monitor.dispose(); }
 	});
 
 	test("an old tab's delayed read cannot overwrite the selected tab", async () => {
@@ -171,8 +204,7 @@ describe("account-bound usage", () => {
 		let fallback = 0;
 		const result = await readClaudeUsage({ ...runtime("work"),
 			getProviderUsage: async () => { throw new Error("Timed out waiting for Pi response to get_provider_usage"); },
-		}, { now: () => now, home: "/fixture",
-			fetchSnapshot: async () => { fallback++; return undefined; },
+		}, { now: () => now,
 			fetchUsage: async () => { fallback++; return { status: "missing-credentials" }; },
 		});
 		expect(result.hint).toBe("usage unavailable");

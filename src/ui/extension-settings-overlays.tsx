@@ -57,9 +57,9 @@ export function ExtensionSettingsOverlays(
 ) {
 	return (
 		<>
-			<Show when={["compaction", "compaction-method", "cache-maintenance"].includes(props.settingsRoute())}>
+			<Show when={["compaction", "compaction-method", "compaction-target", "cache-maintenance"].includes(props.settingsRoute())}>
 				<ExtensionSettingsList
-					title={props.settingsRoute() === "compaction-method" ? "Compaction method" : props.settingsRoute() === "cache-maintenance" ? "Before cache expiry" : "Compaction settings"}
+					title={props.settingsRoute() === "compaction-method" ? "Compaction method" : props.settingsRoute() === "compaction-target" ? "Target after compaction" : props.settingsRoute() === "cache-maintenance" ? "Before cache expiry" : "Compaction settings"}
 					backLabel={props.settingsRoute() === "compaction" ? "esc ‹ settings" : "esc ‹ compaction"}
 					rows={props.compactionSettingsRows()}
 					selectedId={props.detailSettingSelectedId()}
@@ -72,7 +72,7 @@ export function ExtensionSettingsOverlays(
 							props.setSettingsRoute("root");
 							props.setSettingsSelectedId("compaction");
 						} else {
-							props.setDetailSettingSelectedId(props.settingsRoute() === "compaction-method" ? "method" : "maintenance");
+							props.setDetailSettingSelectedId(props.settingsRoute() === "compaction-method" ? "method" : props.settingsRoute() === "compaction-target" ? "target" : "maintenance");
 							props.setSettingsRoute("compaction");
 						}
 					}}

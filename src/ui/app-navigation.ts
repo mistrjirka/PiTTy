@@ -20,6 +20,7 @@ export type SettingsRoute =
 	| "compaction-model"
 	| "compaction-thinking"
 	| "compaction-method"
+	| "compaction-target"
 	| "cache-maintenance"
 	| "subagents"
 	| "subagent"
@@ -39,7 +40,7 @@ export function settingsBackRoute(route: SettingsRoute): SettingsRoute {
 	if (route === "session-switch" || route === "session-rename")
 		return "session";
 	if (route === "theme-editor") return "theme";
-	if (route === "compaction-model" || route === "compaction-thinking" || route === "compaction-method" || route === "cache-maintenance")
+	if (route === "compaction-model" || route === "compaction-thinking" || route === "compaction-method" || route === "compaction-target" || route === "cache-maintenance")
 		return "compaction";
 	if (route === "subagent") return "subagents";
 	if (route === "subagent-model" || route === "subagent-thinking")

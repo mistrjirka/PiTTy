@@ -30,6 +30,21 @@ export function compactionMethodRows(state: Pick<RpcSessionState, "compactionMet
 	});
 }
 
+/** Presets for the extension's soft checkpoint target, not a continuous cache limit. */
+export const COMPACTION_TARGET_PRESETS = [10_000, 20_000, 30_000, 40_000, 50_000, 80_000, 100_000, 200_000] as const;
+export function compactionTargetRows(current: number): ExtensionSettingRow[] {
+	const choices: ExtensionSettingRow[] = COMPACTION_TARGET_PRESETS.map((tokens) => ({
+		id: `target:${tokens}`,
+		label: `${(tokens / 1000).toLocaleString("en-US")}k tokens`,
+		summary: tokens === current ? "Current · soft target" : "Soft target after compaction",
+	}));
+	if (!COMPACTION_TARGET_PRESETS.some((tokens) => tokens === current)) {
+		choices.unshift({ id: `current:${current}`, label: `Current: ${current.toLocaleString("en-US")} tokens`,
+			summary: "Custom value configured in JSON", disabledReason: "Choose a preset, or edit one-round-compaction.json for a custom target" });
+	}
+	return choices;
+}
+
 export function cacheMaintenanceRows(): ExtensionSettingRow[] {
 	return [
 		{ id: "maintenance:compact", label: CACHE_MAINTENANCE_LABELS.compact, summary: "Save a checkpoint before the cache expires" },

@@ -1,7 +1,8 @@
 /** Runtime-owned compaction policy. Extension model files are left to their own controls. */
 import { createSignal } from "solid-js";
+import { writeCompactionTarget } from "../config/extension-models.ts";
 import type { CacheMaintenanceMode, CompactionMethod } from "../types.ts";
-import { COMPACTION_METHOD_LABELS, cacheMaintenanceRows, cacheMaintenanceSummary, compactionMethodRows } from "../ui/compaction-policy.ts";
+import { COMPACTION_METHOD_LABELS, COMPACTION_TARGET_PRESETS, cacheMaintenanceRows, cacheMaintenanceSummary, compactionMethodRows, compactionTargetRows } from "../ui/compaction-policy.ts";
 import type { ExtensionSettingRow } from "../ui/extension-settings.tsx";
 import type { ExtensionModelPorts } from "./extension-model-actions.ts";
 
@@ -57,7 +58,34 @@ export function createCompactionPolicyActions(ports: ExtensionModelPorts, refres
       ports.setSettingsErrors((errors) => ({ ...errors, compaction: error instanceof Error ? error.message : String(error) }));
     } finally { ports.setSettingsBusy(undefined); }
   };
+  const targetRows = () => compactionTargetRows(ports.compactionModelState()?.targetPostCompactTokens ?? 40_000);
+	const applyCompactionTarget = async (tokens: number) => {
+		if (ports.settingsBusy() || !Number.isSafeInteger(tokens) || tokens <= 0) return;
+		ports.setSettingsRoute("compaction");
+		ports.setDetailSettingSelectedId("target");
+		ports.setSettingsBusy("compaction");
+		try {
+			await writeCompactionTarget(tokens, { cwd: ports.cwd });
+			await refreshExtensionModel();
+		} catch (error) {
+			ports.setSettingsErrors((errors) => ({ ...errors,
+				compaction: error instanceof Error ? error.message : String(error),
+			}));
+		} finally {
+			ports.setSettingsBusy(undefined);
+		}
+	};
   const activate = (id: string): boolean => {
+    if (id.startsWith("target:")) {
+      const tokens = Number(id.slice(7));
+      if (COMPACTION_TARGET_PRESETS.some((value) => value === tokens)) void applyCompactionTarget(tokens);
+      return true;
+    }
+    if (id === "target") {
+      ports.setDetailSettingSelectedId(`target:${ports.compactionModelState()?.targetPostCompactTokens ?? 40_000}`);
+      ports.setSettingsRoute("compaction-target");
+      return true;
+    }
     if (id.startsWith("method:") || id.startsWith("maintenance:")) { void apply(id); return true; }
     if (id === "method") {
       ports.setDetailSettingSelectedId("method:" + (ports.sessionState()?.compactionMethod ?? "cache-aware"));
@@ -71,5 +99,5 @@ export function createCompactionPolicyActions(ports: ExtensionModelPorts, refres
     }
     return false;
   };
-  return { openSettings, rows, activate };
+  return { openSettings, rows, targetRows, activate };
 }

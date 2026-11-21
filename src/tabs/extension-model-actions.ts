@@ -317,6 +317,7 @@ export function createExtensionModelActions(
 		const session = ports.sessionState();
 		const policyRows = policy.rows();
 		if (ports.settingsRoute() === "compaction-method" || ports.settingsRoute() === "cache-maintenance") return policyRows;
+		if (ports.settingsRoute() === "compaction-target") return policy.targetRows();
 		const state = ports.compactionModelState();
 		if (!state || session?.compactionMethod !== "extension") return policyRows;
 		const laneNote = (audit?: string, execution?: string): string =>
@@ -338,6 +339,11 @@ export function createExtensionModelActions(
 				: `audit ${effective.audit} · execution ${effective.execution}`;
 		return [
 			...policyRows,
+			{
+				id: "target", label: "Target after compaction",
+				summary: `${state.targetPostCompactTokens.toLocaleString("en-US")} tokens · soft · ${state.targetScope}`,
+				detail: "Applies to the two-model extension only. Does not cap live cache or system/tool tokens.",
+			},
 			{
 				id: "model",
 				label: "Model",
