@@ -43,3 +43,7 @@ The SDK normally reuses its usage snapshot for up to 60 seconds. After a failed 
 The forced `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` flag blocked the native quota endpoint. Source inspection of the pinned CLI confirmed that gate. The provider now uses separate telemetry, error-reporting, update and title-generation opt-outs. Explicit user traffic restrictions remain effective.
 
 Native SDK internal quota retries have no safe application barrier. This release compacts at idle or tool-result boundaries. It does not interrupt a model request that is still retrying inside the SDK.
+
+## Cross-platform follow-up
+
+The 1.2.0 release workflow and Linux/macOS CI passed. Windows CI found one new test assertion that used Unix path separators. Version 1.2.1 changes that assertion to use the platform path API. The application and managed-runtime behavior is unchanged by this follow-up.
