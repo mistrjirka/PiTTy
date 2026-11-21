@@ -12,6 +12,7 @@ import type { AppSignals } from "../state/app-signals.ts";
 import type { BackgroundTaskSelection } from "../state/background-tasks.ts";
 import type { SessionDrafts } from "../state/input-continuity.ts";
 import { clearTargetDraft } from "../state/input-continuity.ts";
+import { TransientWidgetDismissController } from "../state/extension-widgets.ts";
 import {
 	prunePromptPasteBlocks,
 	stripCollapsedPromptPasteFragments,
@@ -74,7 +75,11 @@ export interface AppUiActions extends SubagentControlActions {
 }
 export function createAppUiActions(ports: AppUiActionsPorts): AppUiActions {
 	const inputActivity = new InputActivityTracker();
-	onCleanup(() => inputActivity.dispose());
+	const transientWidgets = new TransientWidgetDismissController(() => ports.touch());
+	onCleanup(() => {
+		inputActivity.dispose();
+		transientWidgets.dispose();
+	});
 	const {
 		renderer,
 		transcriptSelectionCache,
@@ -294,6 +299,9 @@ export function createAppUiActions(ports: AppUiActionsPorts): AppUiActions {
 		const rawText = prompt?.plainText ?? "";
 		const text = stripCollapsedPromptPasteFragments(rawText, drafts.mainPastes);
 		if (prompt && text !== rawText) prompt.replaceText(text);
+		// A visible /btw help card stays for at least 30 seconds. A genuine
+		// editor edit then dismisses just that card, never an active answer.
+		if (text && text !== drafts.main) transientWidgets.onUserTyped(activeRuntime());
 		drafts.main = text;
 		syncPromptPlaceholder(text);
 		drafts.mainPastes = prunePromptPasteBlocks(text, drafts.mainPastes);

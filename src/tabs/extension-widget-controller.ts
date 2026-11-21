@@ -1,10 +1,16 @@
-import type { ExtensionWidgetState } from "../state/extension-widgets.ts";
+import {
+	btwHelpDismissAt,
+	type ExtensionWidgetState,
+} from "../state/extension-widgets.ts";
 
 export type ExtensionWidgetRuntime = ExtensionWidgetState & { id: string };
 
 /** Accepts text widgets from any extension without involving the modal request queue. */
 export class ExtensionWidgetController {
-	constructor(private readonly onChange: (runtime: ExtensionWidgetRuntime) => void) {}
+	constructor(
+		private readonly onChange: (runtime: ExtensionWidgetRuntime) => void,
+		private readonly now: () => number = Date.now,
+	) {}
 
 	handle(value: unknown, runtime: ExtensionWidgetRuntime): boolean {
 		if (!value || typeof value !== "object") return false;
@@ -24,7 +30,10 @@ export class ExtensionWidgetController {
 			return true;
 		const widgets = runtime.extensionWidgets ??= new Map();
 		// Map.set replaces an entry in place, preserving extension insertion order.
-		widgets.set(key, { key, lines: [...lines], placement: placement ?? "aboveEditor" });
+		const dismissalAt = btwHelpDismissAt(key, lines, this.now());
+		widgets.set(key, { key, lines: [...lines], placement: placement ?? "aboveEditor",
+			...(dismissalAt === undefined ? {} : { dismissOnTypingAt: dismissalAt }),
+		});
 		this.onChange(runtime);
 		return true;
 	}
