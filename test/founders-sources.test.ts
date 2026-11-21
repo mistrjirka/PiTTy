@@ -14,42 +14,42 @@ const put = (file: string, text: string) => { fs.mkdirSync(path.dirname(file), {
 const putJson = (file: string, value: unknown) => put(file, JSON.stringify(value, null, 2) + "\n");
 const readJson = (file: string) => JSON.parse(fs.readFileSync(file, "utf8"));
 
-function initializeCache(directory: string) {
+function initializeCache(directory: string, origin = "https://github.com/mistrjirka/PiTTy-Skills.git", ignoredBuild = "") {
   const git = (args: string[]) => execFileSync("git", args, { cwd: directory, stdio: "pipe" });
-  put(path.join(directory, ".gitignore"), "node_modules/\nlocal-notes.txt\n");
+  put(path.join(directory, ".gitignore"), "node_modules/\nlocal-notes.txt\n" + ignoredBuild);
   git(["init", "-q", "-b", "main"]);
-  git(["add", "--", "package.json", "manifest.json", "agents", "skills", ".gitignore"]);
+  git(["add", "--", "."]);
   const commit = () => git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
     "-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "-m", "Fixture cache"]);
   commit();
-  git(["remote", "add", "origin", "https://github.com/mistrjirka/PiTTy-Skills.git"]);
+  git(["remote", "add", "origin", origin]);
   git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
   git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
   git(["branch", "--set-upstream-to=origin/main", "main"]);
   return { git, commit };
 }
 
-function fixture() {
+function fixture(extraPackages: string[] = []) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-founder-sources-"));
   roots.push(base);
   const agentDir = path.join(base, "agent");
   const settingsFile = path.join(agentDir, "settings.json");
   const receiptFile = path.join(agentDir, "pitty-founders.json");
   const profileFile = path.join(agentDir, "agents", "implementation-review.md");
-  const catalog = foundersCatalog().filter((entry) => entry.id === "skills" || entry.id === "btw");
+  const catalog = foundersCatalog().filter((entry) => entry.id === "skills" || entry.id === "btw" || extraPackages.includes(entry.id));
   const sourceFor = (id: string) => catalog.find((entry) => entry.id === id)!.source;
   const available = new Map<string, string>();
   const installed = new Map<string, string>();
   const installs: string[] = [];
   let beforeInstall = (_source: string) => {};
-  const addPackage = (source: string, id: "skills" | "btw", body = "Review implementation.", directory?: string) => {
+  const addPackage = (source: string, id: string, body = "Review implementation.", directory?: string) => {
     const root = directory ?? path.join(base, "packages", String(available.size));
     putJson(path.join(root, "package.json"), {
-      name: id === "skills" ? "@mistrjirka/pitty-skills" : "@mistrjirka/pi-btw",
+      name: catalog.find((entry) => entry.id === id)!.names[0],
       version: id === "skills" ? "0.2.0" : "0.1.0",
     });
     if (id === "btw") put(path.join(root, "index.ts"), "export default () => {};\n");
-    else {
+    else if (id === "skills") {
       const content = "---\nname: implementation-review\ndescription: Review changes\n---\n" + body + "\n";
       put(path.join(root, "agents", "implementation-review.md"), content);
       put(path.join(root, "skills", "general", "SKILL.md"), "---\nname: general\ndescription: General work\n---\nSkill.\n");
@@ -57,11 +57,12 @@ function fixture() {
         schemaVersion: 1, skills: [{ name: "general", path: "skills/general" }],
         agents: [{ name: "implementation-review", path: "agents/implementation-review.md", sha256: hash(content) }],
       });
-    }
+    } else for (const file of catalog.find((entry) => entry.id === id)!.files)
+      put(path.join(root, file), "// Compiled fixture.\n");
     available.set(sourceIdentity(source, agentDir)!, root);
     return root;
   };
-  for (const entry of catalog) addPackage(entry.source, entry.id as "skills" | "btw");
+  for (const entry of catalog) addPackage(entry.source, entry.id);
   putJson(settingsFile, {
     defaultModel: "keep-model",
     packages: [
@@ -82,7 +83,7 @@ function fixture() {
   };
   const options: FoundersOptions = {
     agentDir, appRoot: path.join(base, "app"), env: { PATH: "" }, catalog, platform: "linux",
-    packageManager: manager, runtimeReady: () => true, ensureRuntime: () => ({ status: "ready" }), log: () => {},
+    packageManager: manager, buildPackage: () => {}, runtimeReady: () => true, ensureRuntime: () => ({ status: "ready" }), log: () => {},
   };
   return {
     base, agentDir, settingsFile, receiptFile, profileFile, catalog, sourceFor, addPackage, installed, installs, options,
@@ -146,6 +147,66 @@ describe("founders source preferences", () => {
     expect(fs.readFileSync(f.settingsFile, "utf8")).toBe(settings);
     expect(fs.readFileSync(f.receiptFile, "utf8")).toBe(receipt);
   });
+
+  for (const id of ["compaction", "doppelclaude"] as const) {
+    const missing = id === "compaction" ? "src/method-selection.ts" : "packages/doppelclaude/dist/account-usage.js";
+    test.each(["tracked", "untracked", "ignored", "commit", "other-upstream"] as const)(
+      "preserves " + id + " %s cache work when a newly required file is missing",
+      async (kind) => {
+        const f = fixture([id]);
+        const entry = f.catalog.find((item) => item.id === id)!;
+        delete entry.minimumVersion;
+        await setupFounders(f.options);
+        const cached = f.installed.get(sourceIdentity(entry.source)!)!;
+        fs.unlinkSync(path.join(cached, missing));
+        put(path.join(cached, "local-source.ts"), "Original source.\n");
+        const { git, commit } = initializeCache(cached, "https://" + entry.source.slice(4),
+          id === "doppelclaude" ? "packages/*/dist/\n" : "");
+        f.addPackage(entry.source, id);
+        const relative = kind === "ignored" ? "local-notes.txt" :
+          kind === "untracked" ? "custom-agent.md" : "local-source.ts";
+        const edited = path.join(cached, relative);
+        put(edited, "My changes must survive.\n");
+        if (kind === "commit" || kind === "other-upstream") {
+          git(["add", "--", relative]); commit();
+          if (kind === "other-upstream") {
+            git(["branch", "other"]);
+            git(["branch", "--set-upstream-to=other", "main"]);
+          }
+        }
+        const settings = fs.readFileSync(f.settingsFile, "utf8");
+        const receipt = fs.readFileSync(f.receiptFile, "utf8");
+        const profile = fs.readFileSync(f.profileFile, "utf8");
+        f.installs.length = 0;
+        await expect(setupFounders(f.options)).rejects.toThrow("local changes or unpublished commits");
+        expect(f.installs).toEqual([]);
+        expect(fs.existsSync(path.join(cached, missing))).toBe(false);
+        expect(fs.readFileSync(edited, "utf8")).toBe("My changes must survive.\n");
+        expect(fs.readFileSync(f.settingsFile, "utf8")).toBe(settings);
+        expect(fs.readFileSync(f.receiptFile, "utf8")).toBe(receipt);
+        expect(fs.readFileSync(f.profileFile, "utf8")).toBe(profile);
+      },
+    );
+
+    test("updates clean " + id + " Git cache when a newly required file is missing", async () => {
+      const f = fixture([id]);
+      const entry = f.catalog.find((item) => item.id === id)!;
+      delete entry.minimumVersion;
+      await setupFounders(f.options);
+      const cached = f.installed.get(sourceIdentity(entry.source)!)!;
+      fs.unlinkSync(path.join(cached, missing));
+      initializeCache(cached, "https://" + entry.source.slice(4),
+        id === "doppelclaude" ? "packages/*/dist/\n" : "");
+      const latest = f.addPackage(entry.source, id);
+      f.installs.length = 0;
+      expect((await setupFounders({ ...f.options, check: true })).exitCode).toBe(1);
+      expect(f.installs).toEqual([]);
+      expect((await setupFounders(f.options)).exitCode).toBe(0);
+      expect(f.installs).toEqual([entry.source]);
+      expect(f.installed.get(sourceIdentity(entry.source)!)).toBe(latest);
+      expect(fs.existsSync(path.join(latest, missing))).toBe(true);
+    });
+  }
 
   test("accepts a clean detached cache when explicitly returning from a pin to the maintained source", async () => {
     const f = fixture();
@@ -258,6 +319,7 @@ describe("founders source preferences", () => {
     const source = "git:https://github.com/Example/Pinned-Skills.git";
     f.addPackage(source, "skills");
     await setupFounders({ ...f.options, sources: { skills: source + "@v1" } });
+    initializeCache(f.installed.get(sourceIdentity(source)!)!);
     const settings = readJson(f.settingsFile);
     settings.packages[0].source = source + "@my-manual-pin";
     putJson(f.settingsFile, settings);

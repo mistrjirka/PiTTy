@@ -153,7 +153,7 @@ function maintainedMinimum(entry) {
 // Pi refreshes Git packages with reset --hard and clean -fdx. Check before an
 // automatic refresh so direct cache edits and unpublished commits survive.
 function assertAutomaticUpdateSafe(entry, directory) {
-  if (!directory || !maintainedMinimum(entry)) return;
+  if (!directory || !sourceIdentity(entry.source)?.startsWith("git:")) return;
   const runGit = (args) => spawnSync("git", args, { cwd: directory, encoding: "utf8", timeout: 10_000 });
   const status = runGit(["status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored=matching"]);
   // Match Pi's update target. A detached checkout or a branch tracking another
@@ -165,10 +165,14 @@ function assertAutomaticUpdateSafe(entry, directory) {
   if (status.error || status.status !== 0 || ahead.error || ahead.status !== 0)
     throw new Error("Cannot verify the cached Git checkout before updating " + entry.source +
       " at " + directory + ". No settings or agents were changed.");
-  // Pi's npm install creates these disposable files. Tracked changes to them
-  // remain protected, as do every other untracked or ignored file.
-  const changes = status.stdout.split("\0").filter(Boolean).filter((line) =>
-    !/^(?:\?\?|!!) (?:node_modules\/|package-lock\.json)$/.test(line));
+  // Pi's npm install and our Doppel build create disposable outputs. Tracked
+  // changes remain protected, as do all other untracked or ignored files.
+  const changes = status.stdout.split("\0").filter(Boolean).filter((line) => {
+    if (/^(?:\?\?|!!) (?:node_modules\/|package-lock\.json)$/.test(line)) return false;
+    if (entry.build === "doppelclaude" &&
+      /^!! packages\/(?:doppelclaude|pi-doppelclaude)\/dist\/$/.test(line)) return false;
+    return true;
+  });
   if (changes.length || Number(ahead.stdout.trim()) > 0)
     throw new Error("Cannot automatically update " + entry.source + ": the cached checkout at " +
       directory + " has local changes or unpublished commits. Preserve them in an editable checkout or fork first." +
