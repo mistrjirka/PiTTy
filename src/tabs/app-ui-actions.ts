@@ -5,7 +5,8 @@ import type {
 	ScrollBoxRenderable,
 	TextareaRenderable,
 } from "@opentui/core";
-import type { Accessor, Setter } from "solid-js";
+import { onCleanup, type Accessor, type Setter } from "solid-js";
+import { InputActivityTracker } from "./input-activity.ts";
 import type { DiagnosticLogger } from "../diagnostics/logger.ts";
 import type { AppSignals } from "../state/app-signals.ts";
 import type { BackgroundTaskSelection } from "../state/background-tasks.ts";
@@ -72,6 +73,8 @@ export interface AppUiActions extends SubagentControlActions {
 	onPromptCursorChange: () => void;
 }
 export function createAppUiActions(ports: AppUiActionsPorts): AppUiActions {
+	const inputActivity = new InputActivityTracker();
+	onCleanup(() => inputActivity.dispose());
 	const {
 		renderer,
 		transcriptSelectionCache,
@@ -295,6 +298,7 @@ export function createAppUiActions(ports: AppUiActionsPorts): AppUiActions {
 		syncPromptPlaceholder(text);
 		drafts.mainPastes = prunePromptPasteBlocks(text, drafts.mainPastes);
 		activeRuntime().promptHistory.noteEditorChange(text);
+		inputActivity.note(activeRuntime().client, text.length > 0);
 		setPromptText(text);
 		setPromptCursorOffset(prompt?.cursorOffset ?? text.length);
 		setCommandSuggestionIndex(0);

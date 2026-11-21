@@ -10,9 +10,21 @@ import type {
 
 import type { QueueCommand, QueueState } from "./rpc/queue-types.ts";
 
+export type CompactionMethod = "cache-aware" | "extension";
+export type CacheMaintenanceMode = "compact" | "keep-warm" | "off";
 export type RpcCommand = PiRpcCommand | QueueCommand | { type: "refresh_provider_models"; providerId: string } |
+ { type: "get_provider_usage" } |
+ { type: "set_compaction_method"; method: CompactionMethod } |
+ { type: "set_cache_maintenance"; mode: CacheMaintenanceMode } |
+ { type: "set_input_active"; active: boolean } |
  (Extract<PiRpcCommand, { type: "prompt" | "steer" | "follow_up" }> & { messageId: string });
-export type RpcSessionState = PiRpcSessionState & { queue?: QueueState };
+export type RpcSessionState = PiRpcSessionState & {
+ queue?: QueueState;
+ compactionMethod?: CompactionMethod;
+ cacheMaintenance?: CacheMaintenanceMode;
+ compactionMethods?: Array<{ id: CompactionMethod; available: boolean; reason?: string }>;
+ cacheMaintenanceStatus?: { state: string; reason?: string; action?: string; nextWarmAt?: number };
+};
 
 export type PiEvent =
 	| AgentSessionEvent

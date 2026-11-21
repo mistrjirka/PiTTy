@@ -34,12 +34,12 @@ function windowLimit(
   now: number,
 ): ClaudeUsage["limits"][number] | undefined {
   const entry = obj(value);
-  if (!entry || typeof entry.pct !== "number" || !Number.isFinite(entry.pct)) return;
+  if (!entry || (entry.pct !== null && (typeof entry.pct !== "number" || !Number.isFinite(entry.pct)))) return;
   const at = typeof entry.resetsAt === "string" ? Date.parse(entry.resetsAt) : NaN;
   return {
     kind, label,
-    percent: Math.min(1000, Math.max(0, entry.pct)),
-    resetAt: Number.isFinite(at) ? at : now,
+    percent: entry.pct === null ? null : Math.min(1000, Math.max(0, entry.pct as number)),
+    resetAt: Number.isFinite(at) ? at : null,
     active: kind === "session",
   };
 }
@@ -63,6 +63,11 @@ export function parseCswapSnapshot(value: unknown, now = Date.now()): CswapSnaps
       windowLimit(rawUsage?.fiveHour, "session", "Session", now),
       windowLimit(rawUsage?.sevenDay, "weekly_all", "Week", now),
     ].filter((limit): limit is ClaudeUsage["limits"][number] => limit !== undefined);
+    const measuredAt = typeof account.usageFetchedAt === "string" ? Date.parse(account.usageFetchedAt) : NaN;
+    const measuredAge = typeof account.usageAgeSeconds === "number" && Number.isFinite(account.usageAgeSeconds) && account.usageAgeSeconds >= 0
+      ? account.usageAgeSeconds : undefined;
+    const observedAt = Number.isFinite(measuredAt) && measuredAt > 0 && measuredAt <= now + 60_000
+      ? measuredAt : measuredAge !== undefined ? now - measuredAge * 1000 : null;
     const lastGoodRaw = obj(account.lastGoodUsage);
     const lastGoodLimits = lastGoodRaw
       ? [
@@ -81,9 +86,12 @@ export function parseCswapSnapshot(value: unknown, now = Date.now()): CswapSnaps
       number: slot,
       label,
       usageStatus: typeof account.usageStatus === "string" ? account.usageStatus : "unknown",
-      ...(limits.length ? { usage: { limits } } : {}),
+      ...(limits.length ? { usage: {
+        limits, observedAt, source: "cswap", accountLabel: label,
+        status: observedAt === null ? "unknown" as const : now - observedAt >= 180_000 ? "stale" as const : "ok" as const,
+      } } : {}),
       ...(lastGoodLimits.length && lastGoodAge !== undefined
-        ? { lastGood: { usage: { limits: lastGoodLimits }, ageSeconds: lastGoodAge } }
+        ? { lastGood: { usage: { limits: lastGoodLimits, observedAt: now - lastGoodAge * 1000, status: "stale", source: "cswap", accountLabel: label }, ageSeconds: lastGoodAge } }
         : {}),
     });
   }
@@ -97,22 +105,23 @@ export function parseCswapSnapshot(value: unknown, now = Date.now()): CswapSnaps
 
 /** Pi's actual process environment wins over cswap's globally active slot. */
 export function resolveCswapSlot(
-  choice: ClaudeAccountChoice,
+  _choice: ClaudeAccountChoice,
   snapshot: CswapSnapshot,
   piConfigDir?: string,
   home?: string,
 ): number | undefined {
-  if (choice !== "auto") return snapshot.accounts.some((a) => a.number === choice) ? choice : undefined;
   if (piConfigDir) {
     const base = path.basename(path.normalize(piConfigDir));
     const matched = /^(\d+)-/.exec(base);
-    if (matched && path.basename(path.dirname(path.normalize(piConfigDir))) === "sessions") {
+    if (matched && home && path.dirname(path.normalize(piConfigDir)) === path.join(home, ".local", "share", "claude-swap", "sessions")) {
       const slot = Number(matched[1]);
       if (snapshot.accounts.some((a) => a.number === slot)) return slot;
     }
     // ~/.claude is the currently switched (global) cswap profile.
     if (home && path.normalize(piConfigDir) === path.join(home, ".claude"))
       return snapshot.activeAccountNumber;
+    // A custom directory is not proof that Pi uses cswap's default account.
+    return undefined;
   }
   return snapshot.activeAccountNumber;
 }

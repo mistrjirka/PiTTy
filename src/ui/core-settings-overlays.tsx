@@ -82,6 +82,7 @@ export interface CoreSettingsOverlaysProps {
 	cswapSnapshot: Accessor<CswapSnapshot | undefined>;
 	claudeAccountChoice: Accessor<ClaudeAccountChoice>;
 	claudeEffectiveSlot: () => number | undefined;
+	claudeAccountLabel?: () => string | undefined;
 	chooseClaudeAccount: (choice: ClaudeAccountChoice) => void;
 	settingsBusy: Accessor<SettingsAction | undefined>;
 	settingsErrors: Accessor<SettingsErrorMap>;
@@ -161,6 +162,7 @@ export function CoreSettingsOverlays(props: CoreSettingsOverlaysProps) {
 					accounts={props.cswapSnapshot()!.accounts}
 					selection={props.claudeAccountChoice()}
 					effectiveSlot={props.claudeEffectiveSlot()}
+					currentAccountLabel={props.claudeAccountLabel?.()}
 					onSelect={props.chooseClaudeAccount}
 					onCancel={() => props.setSettingsRoute("root")}
 				/>

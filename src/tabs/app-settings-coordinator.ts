@@ -141,6 +141,7 @@ export function createAppSettingsCoordinator(
 		rpcAvailable: [rpcAvailable],
 		commandCatalog,
 		cswapSnapshot: [cswapSnapshot],
+		claudeAccountChoice: [claudeAccountChoice],
 	} = ports.signals;
 
 	const closeSettings = () => {
@@ -210,6 +211,9 @@ export function createAppSettingsCoordinator(
 	} = createExtensionModelActions({
 		cwd: ports.props.cwd,
 		activeRuntime,
+		sessionState,
+		refreshState,
+		settingsRoute,
 		toast,
 		modelSelectorLoading,
 		setModelSelectorLoading,
@@ -297,6 +301,7 @@ export function createAppSettingsCoordinator(
 			openSubagentModels,
 			cswapSnapshot,
 			claudeEffectiveSlot,
+			claudeAccountChoice,
 			themeConfig,
 			mcpInstallState,
 			mcpError,

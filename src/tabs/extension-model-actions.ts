@@ -1,5 +1,5 @@
-/** Compaction and subagent profile model settings. No RPC or UI ownership. */
-import type { Accessor, Setter } from "solid-js";
+/** Compaction policy and extension-owned model settings. */
+import { type Accessor, type Setter } from "solid-js";
 import {
 	type CompactionModelState,
 	EXTENSION_THINKING_LEVELS,
@@ -13,7 +13,8 @@ import {
 	writeSubagentModel,
 	writeSubagentThinking,
 } from "../config/extension-models.ts";
-import type { Toast } from "../types.ts";
+import type { RpcSessionState, Toast } from "../types.ts";
+import { createCompactionPolicyActions } from "./compaction-policy-actions.ts";
 import type { SettingsRoute } from "../ui/app-navigation.ts";
 import type { ExtensionSettingRow } from "../ui/extension-settings.tsx";
 import type { ModelChoice } from "../ui/model-selector.tsx";
@@ -26,6 +27,9 @@ export type SettingsErrorMap = Partial<Record<SettingsAction, string>>;
 export interface ExtensionModelPorts {
 	readonly cwd: string;
 	readonly activeRuntime: () => ConversationTabRuntime;
+	readonly sessionState: () => RpcSessionState | undefined;
+	readonly refreshState: (runtime: ConversationTabRuntime) => Promise<boolean>;
+	readonly settingsRoute: Accessor<SettingsRoute>;
 	readonly toast: (
 		text: string,
 		tone: Toast["tone"],
@@ -145,13 +149,8 @@ export function createExtensionModelActions(
 			ports.setSettingsBusy(undefined);
 		}
 	};
-	const openCompactionSettings = async () => {
-		ports.setSettingsSelectedId("compaction");
-		if (await refreshCompactionModel()) {
-			ports.setDetailSettingSelectedId("model");
-			ports.setSettingsRoute("compaction");
-		}
-	};
+	const policy = createCompactionPolicyActions(ports, refreshCompactionModel);
+	const openCompactionSettings = policy.openSettings;
 	const openCompactionModelPicker = async () => {
 		if (await ensureExtensionModels("compaction"))
 			ports.setSettingsRoute("compaction-model");
@@ -315,8 +314,11 @@ export function createExtensionModelActions(
 		];
 	};
 	const compactionSettingsRows = (): ExtensionSettingRow[] => {
+		const session = ports.sessionState();
+		const policyRows = policy.rows();
+		if (ports.settingsRoute() === "compaction-method" || ports.settingsRoute() === "cache-maintenance") return policyRows;
 		const state = ports.compactionModelState();
-		if (!state) return [];
+		if (!state || session?.compactionMethod !== "extension") return policyRows;
 		const laneNote = (audit?: string, execution?: string): string =>
 			audit && execution
 				? "audit+execution lanes override"
@@ -335,6 +337,7 @@ export function createExtensionModelActions(
 				? `${effective.audit} · both lanes`
 				: `audit ${effective.audit} · execution ${effective.execution}`;
 		return [
+			...policyRows,
 			{
 				id: "model",
 				label: "Model",
@@ -360,9 +363,10 @@ export function createExtensionModelActions(
 			ports.setSettingsRoute("subagent-thinking");
 	};
 	const openCompactionSetting = (id: string) => {
+		if (policy.activate(id)) return;
 		ports.setDetailSettingSelectedId(id);
 		if (id === "model") void openCompactionModelPicker();
-		else void openCompactionThinking();
+		else if (id === "thinking") void openCompactionThinking();
 	};
 	const openSubagentSetting = (id: string) => {
 		ports.setDetailSettingSelectedId(id);

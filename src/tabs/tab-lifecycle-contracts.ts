@@ -21,7 +21,7 @@ export interface TabLifecyclePorts {
 	readonly cwd: string;
 	readonly piArgs: string[];
 	readonly piExecutable: string | undefined;
-	readonly claudeLaunchEnv: NodeJS.ProcessEnv | undefined;
+	readonly claudeLaunchEnv: (() => NodeJS.ProcessEnv | undefined) | undefined;
 	readonly logger: DiagnosticLogger;
 	readonly renderer: Pick<CliRenderer, "setTerminalTitle">;
 	readonly tabManager: TabManager;

@@ -27,10 +27,7 @@ export type { TranscriptSelectionCache } from "./ui/transcript-selection-cache.t
 export { attachTranscriptSelectionCache } from "./ui/transcript-selection-cache.ts";
 
 import { useRenderer, useTerminalDimensions } from "@opentui/solid";
-import {
-	readClaudeAccountPreference,
-	resolveClaudeLaunchConfig,
-} from "./config/claude-account.ts";
+import { claudeLaunchEnvironment } from "./config/claude-account.ts";
 import { PiRpcClient } from "./rpc/pi-rpc-client.ts";
 import type { AppOptions } from "./state/app-options.ts";
 import { ConversationModel } from "./state/conversation.ts";
@@ -42,21 +39,14 @@ export function shouldShowEmptyDashboard(renderedItemCount: number): boolean {
 }
 
 export function App(props: AppOptions) {
-	const selectedAccount = readClaudeAccountPreference();
-	const initialClaudeLaunch = resolveClaudeLaunchConfig(selectedAccount);
-	if (initialClaudeLaunch.error)
-		throw new Error(
-			`Cannot start Pi with selected cswap account: ${initialClaudeLaunch.error}`,
-		);
-	const claudeLaunchEnv = initialClaudeLaunch.configDir
-		? { CLAUDE_CONFIG_DIR: initialClaudeLaunch.configDir }
-		: undefined;
+	const claudeLaunchEnv = () => claudeLaunchEnvironment();
+	const initialClaudeEnv = claudeLaunchEnv();
 	const renderer = useRenderer();
 	const dimensions = useTerminalDimensions();
 	const client = new PiRpcClient({
 		cwd: props.cwd,
 		args: props.piArgs,
-		...(claudeLaunchEnv ? { env: claudeLaunchEnv } : {}),
+		...(initialClaudeEnv ? { env: initialClaudeEnv } : {}),
 		...(props.piExecutable ? { executable: props.piExecutable } : {}),
 		logger: props.logger,
 	});

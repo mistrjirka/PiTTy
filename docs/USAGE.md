@@ -98,11 +98,17 @@ pitty-resume -C /path/to/project
 
 ## Settings
 
-`Ctrl+X` opens Settings. Model and Thinking effort control the active Pi session. Compaction model opens a Model/Thinking screen for `pi-one-round-compaction`, and Subagent models lists every `@mistrjirka/pi-subagent` profile (defaults plus each discovered agent); opening a profile shows its Model and Thinking level. A model or thinking change applies to the next compaction or the next spawned child without a restart.
+`Ctrl+X` opens Settings. Model and Thinking effort control the active Pi session. **Compaction** selects the method and the action before cache expiry. Cache-aware compaction is the default. Choose **Two-model extension** to use `pi-one-round-compaction` when that extension is loaded. Installing the extension does not select it. The selected method applies to manual, automatic, and cache-expiry compaction.
+
+**Before cache expiry** defaults to **Compact before expiry**. **Keep cache warm** refreshes a supported cache without compacting. **Off** disables expiry maintenance. Existing explicit cache-warming preferences are preserved. `/autocompact off` also pauses expiry compaction. Pi waits for a safe boundary and defers maintenance while you type. An unsupported method shows its reason.
+
+**Claude account for new tabs** saves the profile used by the next tab or fork. Existing tabs keep their account. The footer reads usage from the active tab's provider query, with a profile-bound fallback for older runtimes. It labels both the 5-hour and weekly windows. `?` means unknown, and failed reads keep the last measurement marked stale with its age. Selecting another account does not relabel the active tab's numbers.
+
+**Subagent models** lists every `@mistrjirka/pi-subagent` profile. Opening a profile shows its Model and Thinking level. In the Two-model extension mode, Compaction also exposes that extension's Model and Thinking settings. Changes apply to the next compaction or spawned child without a restart.
 
 Compaction thinking is written to the top-level setting and to both the `audit` and `execution` lanes. This matters because the extension pins the audit lane to its own `medium` default, so a top-level-only change never reached it. The row shows the effective value for each lane when they differ.
 
-Both sections edit the extension's own configuration — `one-round-compaction.json` in the Pi agent directory and `subagentProfiles` in `settings.json` — and preserve every other key, including per-lane compaction model overrides. Each row names the effective value and its source (`profile` means the agent's own `.md` frontmatter pins the value, so changing shared defaults alone will not move it — set the value on that agent instead). When a project-level `.pi/` configuration already overrides a value, PiTTy updates that file; otherwise it updates the global configuration. Thinking pickers list only the levels the selected model accepts, plus `off`.
+The extension model and thinking controls edit the extension's own configuration — `one-round-compaction.json` in the Pi agent directory and `subagentProfiles` in `settings.json` — and preserve every other key, including per-lane compaction model overrides. Each row names the effective value and its source (`profile` means the agent's own `.md` frontmatter pins the value, so changing shared defaults alone will not move it — set the value on that agent instead). When a project-level `.pi/` configuration already overrides a value, PiTTy updates that file; otherwise it updates the global configuration. Thinking pickers list only the levels the selected model accepts, plus `off`.
 
 ## Models and thinking effort
 

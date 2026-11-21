@@ -1,3 +1,4 @@
+import type { ProviderUsageSnapshot } from "../integrations/provider-usage.ts";
 import { parseQueueState } from "../rpc/queue-types.ts";
 import { reconcileExtensionWidgetSession, withExtensionWidgetTransition, type ExtensionTextWidget } from "../state/extension-widgets.ts";
 import type { PendingInputEdit } from "./queued-input-actions.ts";
@@ -126,6 +127,7 @@ export type ConversationTabRuntime = {
 	/** Live text widgets owned by this tab, outside the transcript. */
 	extensionWidgets?: Map<string, ExtensionTextWidget>;
 	sessionState?: RpcSessionState;
+	providerUsage?: ProviderUsageSnapshot;
 	sessionStats?: SessionStats;
 	runs: SubagentRun[];
 	inspectSubagent: boolean;

@@ -30,7 +30,7 @@ export interface AppRuntimeScopePorts {
 	dimensions: Accessor<{ width: number; height: number }>;
 	client: PiRpcClient;
 	conversation: ConversationModel;
-	claudeLaunchEnv: NodeJS.ProcessEnv | undefined;
+	claudeLaunchEnv: (() => NodeJS.ProcessEnv | undefined) | undefined;
 	status: Accessor<string>;
 	setStatus: (value: string) => void;
 	toast: (text: string, tone: Toast["tone"], durationMs?: number) => void;

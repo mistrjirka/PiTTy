@@ -33,8 +33,8 @@ const line = (input: UsageFooterInput) =>
 	usageFooterSegments(input).map((s) => s.text).join(USAGE_FOOTER_SEPARATOR);
 
 describe("usageFooterSegments", () => {
-	test("orders claude, codex, oc with · only on the tightest window", () => {
-		expect(line(base)).toBe("claude 40%·1h26m │ codex 45%·4d22h │ oc 2% 3%·2d4h 1%");
+	test("labels both Claude windows and orders Claude, Codex, OpenCode", () => {
+		expect(line(base)).toBe("claude 5h 40%·1h26m 7d 12%·3d0h │ codex 45%·4d22h │ oc 2% 3%·2d4h 1%");
 		expect(usageFooterSegments(base).map((s) => s.tone)).toEqual(["normal", "normal", "normal"]);
 	});
 	test("tone: severity, >=80%, and runs-out", () => {
@@ -61,22 +61,31 @@ describe("usageFooterSegments", () => {
 			claudeAccountLabel: "work",
 			claudeUsage: { limits: claude.limits, staleAgeSeconds: 12722 },
 		};
-		expect(line(stale)).toBe("claude(work) 40%·1h26m·stale 3h32m │ codex 45%·4d22h │ oc 2% 3%·2d4h 1%");
+		expect(line(stale)).toBe("claude(work) 5h 40%·1h26m 7d 12%·3d0h · stale 3h32m │ codex 45%·4d22h │ oc 2% 3%·2d4h 1%");
 	});
 	test("empty input yields nothing", () => {
 		expect(usageFooterSegments({ width: 100, now: NOW })).toEqual([]);
 	});
 
-	const full = line(base).length; // 54
-	test("truncation ladder", () => {
-		expect(line({ ...base, width: full - 1 })).toBe("claude 40%·1h26m │ codex 45%·4d22h │ oc 2% 3%·2d4h");
-		expect(line({ ...base, width: 47 })).toBe("claude 40%·1h26m │ codex 45%·4d22h │ oc 3%·2d4h");
-		expect(line({ ...base, width: 43 })).toBe("claude 40%·1h26m │ oc 3%·2d4h");
-		expect(line({ ...base, width: 28 })).toBe("claude 40%·1h26m");
-		// Claude-only no longer fits: the worst limit across providers (codex 45%) wins.
+	const full = line(base).length;
+	test("narrow layouts keep both Claude quota labels before dropping the provider", () => {
+		expect(line({ ...base, width: full - 1 })).toContain("claude 5h 40% 7d 12%");
+		expect(line({ ...base, width: 28 })).toBe("claude 5h 40% 7d 12%");
 		expect(line({ ...base, width: 15 })).toBe("codex 45%·4d22h");
 		expect(line({ ...base, width: 14 })).toBe("codex 45%");
 		expect(line({ ...base, width: 8 })).toBe("");
+	});
+	test("unknown values are never rendered as zero or an immediate reset", () => {
+		const value = line({ width: 100, now: NOW, claudeUsage: { limits: [
+			{ kind: "session", label: "Session", percent: null, resetAt: null, active: true },
+			{ kind: "weekly_all", label: "Week", percent: 0, resetAt: null, active: false },
+		], observedAt: null, status: "unknown" } });
+		expect(value).toBe("claude 5h ?·? 7d 0%·? · age unknown");
+	});
+	test("stale age advances from the original measurement", () => {
+		const value = { ...base, claudeUsage: { ...claude, observedAt: NOW - 180_000, status: "stale" as const } };
+		expect(line(value)).toContain("stale 3m");
+		expect(line({ ...value, now: NOW + 120_000 })).toContain("stale 5m");
 	});
 	test("falls back to the single worst limit across providers", () => {
 		const worst = { ...base, codexUsage: { windows: [{ ...codex.windows[1]!, usedPercent: 91 }] }, width: 15 };

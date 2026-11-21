@@ -1,6 +1,6 @@
 /** Claude account selection and usage projection for the active Pi process. */
 import os from "node:os";
-import { createEffect, type Accessor, type Setter } from "solid-js";
+import { type Accessor, type Setter } from "solid-js";
 import type { ClaudeUsage } from "../integrations/doppelclaude-usage.ts";
 import {
 	resolveCswapSlot,
@@ -76,11 +76,9 @@ export function createClaudeAccountActions(
 			}
 			saveClaudeAccountPreference(choice);
 			ports.setClaudeAccountChoice(choice);
-			const snapshot = ports.cswapSnapshot();
-			if (snapshot) applyCswapUsage(snapshot);
 			ports.setSettingsRoute("root");
 			ports.toast(
-				"Claude account selected. New Pi tabs use it; restart PiTTY to change the current session.",
+				"Claude account selected for new tabs. Existing tabs keep their account.",
 				"info",
 				7000,
 			);
@@ -92,12 +90,5 @@ export function createClaudeAccountActions(
 		}
 	};
 
-	// Re-select the monitored account immediately when the active Pi tab changes.
-	createEffect(() => {
-		ports.activeTabId();
-		ports.claudeAccountChoice();
-		const snapshot = ports.cswapSnapshot();
-		if (snapshot) applyCswapUsage(snapshot);
-	});
 	return { claudeEffectiveSlot, applyCswapUsage, chooseClaudeAccount };
 }

@@ -39,6 +39,7 @@ export function createAppDialogProps(ports: AppScreenContext): AppDialogsProps {
 			cswapSnapshot: ports.signals.cswapSnapshot[0],
 			claudeAccountChoice: ports.signals.claudeAccountChoice[0],
 			claudeEffectiveSlot: ports.runtime.claudeEffectiveSlot,
+			claudeAccountLabel: () => ports.signals.claudeUsage[0]()?.accountLabel,
 			chooseClaudeAccount: ports.runtime.chooseClaudeAccount,
 			settingsBusy: ports.signals.settingsBusy[0],
 			settingsErrors: ports.signals.settingsErrors[0],

@@ -1,5 +1,5 @@
 /** Poll optional provider usage without owning the Pi runtime or its UI. */
-import type { Setter } from "solid-js";
+import { createEffect, type Setter } from "solid-js";
 import type { DiagnosticLogger } from "../diagnostics/logger.ts";
 import {
 	fetchCodexUsage,
@@ -11,14 +11,9 @@ import {
 	fetchOpencodeUsage,
 	type OpencodeUsage,
 } from "../integrations/opencode-usage.ts";
-import {
-	fetchDoppelclaudeUsage,
-	type ClaudeUsage,
-} from "../integrations/doppelclaude-usage.ts";
-import {
-	fetchCswapSnapshot,
-	type CswapSnapshot,
-} from "../integrations/claude-swap.ts";
+import type { ClaudeUsage } from "../integrations/doppelclaude-usage.ts";
+import { fetchCswapSnapshot, type CswapSnapshot } from "../integrations/claude-swap.ts";
+import { ClaudeUsageMonitor, type ClaudeUsageRuntime } from "../integrations/claude-usage-monitor.ts";
 import {
 	computeUsageStats,
 	loadUsageHistory,
@@ -32,7 +27,7 @@ import {
 
 export interface UsagePollingPorts {
 	logger: Pick<DiagnosticLogger, "warn" | "info">;
-	doppelclaudeInstalled: boolean;
+	claudeRuntime: () => ClaudeUsageRuntime | undefined;
 	setCodexUsage: Setter<CodexUsage | undefined>;
 	setCodexUsageStats: Setter<Record<number, UsageStats>>;
 	setOpencodeUsage: Setter<OpencodeUsage | undefined>;
@@ -45,9 +40,9 @@ export interface UsagePollingPorts {
 }
 
 export function startUsagePolling(ports: UsagePollingPorts): () => void {
+	let cswapSnapshotTimer: ReturnType<typeof setInterval> | undefined;
 	let codexUsageTimer: ReturnType<typeof setInterval> | undefined;
 	let opencodeUsageTimer: ReturnType<typeof setInterval> | undefined;
-	let claudeUsageTimer: ReturnType<typeof setTimeout> | undefined;
 	let codexUsageHistory: UsageHistory = loadUsageHistory(
 		defaultCodexUsageHistoryPath(),
 	);
@@ -125,68 +120,30 @@ export function startUsagePolling(ports: UsagePollingPorts): () => void {
 	opencodeUsageTimer = setInterval(() => {
 		void fetchOpencodeUsage().then(updateOpencodeUsage);
 	}, 5 * 60_000);
-	if (ports.doppelclaudeInstalled) {
-		let claudeInFlight = false;
-
-		const scheduleClaude = (delayMs: number) => {
-			if (disposed) return;
-			claudeUsageTimer = setTimeout(() => void pollClaude(), delayMs);
-		};
-		const pollClaude = async () => {
-			if (claudeInFlight) return;
-			claudeInFlight = true;
-			// Match the Codex/OpenCode cadence; only back off when the endpoint
-			// pushes back (it is aggressively rate limited upstream).
-			let next = 5 * 60_000;
-			try {
-				const cswap = await fetchCswapSnapshot();
-				if (cswap) {
-					setCswapSnapshot(cswap);
-					ports.applyCswapUsage(cswap);
-					ports.logger.info("claude_usage.cswap", {
-						accounts: cswap.accounts.length,
-						selectedSlot: ports.claudeEffectiveSlot(),
-					});
-					return;
-				}
-				setCswapSnapshot(undefined);
-				const outcome = await fetchDoppelclaudeUsage();
-				ports.logger.info("claude_usage.fetch", {
-					status: outcome.status,
-					...(outcome.status === "ok"
-						? { limits: outcome.usage.limits.length }
-						: {}),
-					...(outcome.status === "http-error"
-						? { httpStatus: outcome.httpStatus }
-						: {}),
-				});
-				if (outcome.status === "ok") {
-					setClaudeUsage(outcome.usage);
-					setClaudeHint(undefined);
-				} else if (outcome.status === "expired") {
-					setClaudeUsage(undefined);
-					setClaudeHint("login expired (run Claude Code)");
-				} else if (outcome.status === "missing-credentials") {
-					setClaudeUsage(undefined);
-					setClaudeHint(undefined);
-				} else if (
-					outcome.status === "rate-limited" ||
-					outcome.status === "http-error"
-				) {
-					next = 30 * 60_000;
-				}
-			} finally {
-				claudeInFlight = false;
-				scheduleClaude(next);
-			}
-		};
-		scheduleClaude(3_000);
-	}
+	// Account discovery is independent of the active query's authoritative usage.
+	// Otherwise a working SDK usage endpoint would leave the new-tab selector empty.
+	const discoverClaudeAccounts = () => void fetchCswapSnapshot().then((snapshot) => {
+		if (!disposed && snapshot) setCswapSnapshot(snapshot);
+	});
+	discoverClaudeAccounts();
+	cswapSnapshotTimer = setInterval(discoverClaudeAccounts, 5 * 60_000);
+	const claudeMonitor = new ClaudeUsageMonitor((reading) => {
+		if (disposed) return;
+		if (reading.snapshot) setCswapSnapshot(reading.snapshot);
+		setClaudeUsage(reading.usage);
+		setClaudeHint(reading.hint);
+	});
+	createEffect(() => {
+		const runtime = ports.claudeRuntime();
+		if (runtime) claudeMonitor.select(runtime);
+		else claudeMonitor.clear();
+	});
 
 	return () => {
 		disposed = true;
+		if (cswapSnapshotTimer) clearInterval(cswapSnapshotTimer);
 		if (codexUsageTimer) clearInterval(codexUsageTimer);
 		if (opencodeUsageTimer) clearInterval(opencodeUsageTimer);
-		if (claudeUsageTimer) clearTimeout(claudeUsageTimer);
+		claudeMonitor.dispose();
 	};
 }

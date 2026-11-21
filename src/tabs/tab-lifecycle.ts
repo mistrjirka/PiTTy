@@ -209,6 +209,13 @@ export function createTabLifecycle(
 		else refreshTabs();
 	};
 	const createTab = (sessionFile?: string): string | undefined => {
+		let launchEnv: NodeJS.ProcessEnv | undefined;
+		try {
+			launchEnv = ports.claudeLaunchEnv?.();
+		} catch (error) {
+			ports.toast(error instanceof Error ? error.message : String(error), "warning");
+			return undefined;
+		}
 		const id = `tab-${++tabCounter}`;
 		if (!ports.tabManager.create({ id, badges: 0 })) {
 			ports.toast("Maximum of 8 conversation tabs.", "warning");
@@ -221,7 +228,7 @@ export function createTabLifecycle(
 			...(ports.piExecutable ? { executable: ports.piExecutable } : {}),
 			...(sessionFile ? { sessionFile } : {}),
 			logger: ports.logger,
-			...(ports.claudeLaunchEnv ? { env: ports.claudeLaunchEnv } : {}),
+			...(launchEnv ? { env: launchEnv } : {}),
 			onCacheWarning: ports.notifyCacheWarning,
 			onEvent: routeRuntimeEvent,
 			onConversationChange: (tabRuntime, reason) => {

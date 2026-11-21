@@ -1,3 +1,4 @@
+import { parseProviderUsageSnapshot, PROVIDER_USAGE_STATUS_KEY, type ProviderUsageSnapshot } from "../integrations/provider-usage.ts";
 import type { RpcExtensionUIRequest } from "../types.ts";
 import {
   BG_STATUS_KEY, parseBackgroundSnapshot, type BackgroundSnapshot,
@@ -11,6 +12,7 @@ export type ExtensionStatusRuntime = {
   id: string;
   sessionState?: { sessionId: string } | undefined;
   background?: BackgroundSnapshot;
+  providerUsage?: ProviderUsageSnapshot;
   mcpStatus?: McpStatusSnapshot;
   mcpCounts?: McpStatusCounts;
 };
@@ -22,6 +24,17 @@ export class ExtensionStatusController {
   /** Return true only if the status is fully handled. Footer status must still be routed. */
   handle(event: RpcExtensionUIRequest, runtime: ExtensionStatusRuntime): boolean {
     if (event.method !== "setStatus") return false;
+    if (event.statusKey === PROVIDER_USAGE_STATUS_KEY) {
+      const snapshot = parseProviderUsageSnapshot(event.statusText);
+      if (snapshot && (!snapshot.sessionId || !runtime.sessionState?.sessionId || snapshot.sessionId === runtime.sessionState.sessionId)) {
+        runtime.providerUsage = snapshot;
+        this.onChange(runtime);
+      } else if (event.statusText === undefined && runtime.providerUsage) {
+        delete runtime.providerUsage;
+        this.onChange(runtime);
+      }
+      return true;
+    }
     if (event.statusKey === BG_STATUS_KEY) {
       const snapshot = typeof event.statusText === "string"
         ? parseBackgroundSnapshot(event.statusText) : undefined;

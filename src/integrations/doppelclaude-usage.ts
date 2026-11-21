@@ -7,15 +7,22 @@ export type ClaudeLimitSeverity = "normal" | "warning" | "critical";
 export type ClaudeLimit = {
 	kind: string;
 	label: string;
-	percent: number;
+	percent: number | null;
 	severity?: ClaudeLimitSeverity;
-	resetAt: number;
+	resetAt: number | null;
 	active: boolean;
 };
 
 export type ClaudeUsage = {
 	planType?: string;
 	limits: ClaudeLimit[];
+	/** Provider measurement time, not the time the UI read a cached value. */
+	observedAt?: number | null;
+	status?: "ok" | "stale" | "unknown";
+	accountId?: string;
+	accountLabel?: string;
+	profileSource?: string;
+	source?: string;
 	/** Set when the limits are cswap's last good snapshot, not live data. */
 	staleAgeSeconds?: number;
 };
@@ -104,17 +111,18 @@ function limitLabel(kind: string, scope: unknown): string {
 	return scopeName ? `${titleCase(kind)} · ${scopeName}` : titleCase(kind);
 }
 
-function parsePercent(value: unknown): number | undefined {
+function parsePercent(value: unknown): number | null | undefined {
+	if (value === null) return null;
 	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
 	return Math.min(Math.max(value, 0), 1000);
 }
 
-function parseResetAt(value: unknown, now: number): number {
+function parseResetAt(value: unknown, _now: number): number | null {
 	if (typeof value === "string") {
 		const time = Date.parse(value);
 		if (Number.isFinite(time)) return time;
 	}
-	return now;
+	return null;
 }
 
 function parseSeverity(value: unknown): ClaudeLimitSeverity | undefined {
@@ -184,7 +192,7 @@ export function parseDoppelclaudeUsage(
 		].filter((limit): limit is ClaudeLimit => limit !== undefined);
 	}
 	if (limits.length === 0) return undefined;
-	return { ...(planType ? { planType } : {}), limits };
+	return { ...(planType ? { planType } : {}), limits, observedAt: now, status: "ok", source: "oauth" };
 }
 
 export type FetchDoppelclaudeUsageOptions = {

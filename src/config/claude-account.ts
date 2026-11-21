@@ -56,3 +56,13 @@ export function resolveClaudeLaunchConfig(
     return { error: "cswap account cannot be resolved" };
   }
 }
+
+/** Resolve each new process separately so a saved selection affects later tabs. */
+export function claudeLaunchEnvironment(
+  choice = readClaudeAccountPreference(),
+  home = os.homedir(),
+): NodeJS.ProcessEnv | undefined {
+  const resolved = resolveClaudeLaunchConfig(choice, home);
+  if (resolved.error) throw new Error(resolved.error);
+  return resolved.configDir ? { CLAUDE_CONFIG_DIR: resolved.configDir } : undefined;
+}

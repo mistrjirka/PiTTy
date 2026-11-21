@@ -8,15 +8,16 @@ export function ClaudeAccountSelector(props: {
   accounts: CswapAccount[];
   selection: ClaudeAccountChoice;
   effectiveSlot?: number | undefined;
+  currentAccountLabel?: string | undefined;
   onSelect: (choice: ClaudeAccountChoice) => void;
   onCancel: () => void;
 }) {
   let select: SelectRenderable | undefined;
   const choices = createMemo(() => [
-    { name: "Automatic (current Pi account)", description: "Follow the account used by Pi", value: "auto" },
+    { name: "Automatic (launcher profile)", description: "Use the launch environment for new tabs", value: "auto" },
     ...props.accounts.map((account) => ({
       name: `${account.label} (slot ${account.number})`,
-      description: account.usage?.limits.map((limit) => `${limit.label} ${Math.round(limit.percent)}%`).join(" · ") || account.usageStatus,
+      description: account.usage?.limits.map((limit) => `${limit.label} ${limit.percent === null ? "?" : Math.round(limit.percent)}%`).join(" · ") || account.usageStatus,
       value: String(account.number),
     })),
   ]);
@@ -31,7 +32,7 @@ export function ClaudeAccountSelector(props: {
     if (next === "auto" || props.accounts.some((a) => a.number === next)) props.onSelect(next);
   };
   return (
-    <DialogFrame title="Claude usage account" summary="cswap" width="narrow" closeLabel="esc ‹ settings" zIndex={160} onClose={props.onCancel}>
+    <DialogFrame title="Claude account for new tabs" summary="cswap" width="normal" closeLabel="esc ‹ settings" zIndex={160} onClose={props.onCancel}>
       <select ref={(value) => { select = value; }} focused height={Math.min(12, Math.max(5, choices().length * 2))}
         options={choices()} selectedIndex={0}
         backgroundColor={colors.panelRaised} focusedBackgroundColor={colors.panelRaised}
@@ -47,7 +48,7 @@ export function ClaudeAccountSelector(props: {
           choose(item.value);
         }}
       />
-      <text fg={colors.subtle}>Selected account: {props.accounts.find((a) => a.number === props.effectiveSlot)?.label ?? "Unknown"}. Restart PiTTY to apply to the current session.</text>
+      <text fg={colors.subtle}>Current tab: {props.currentAccountLabel ?? props.accounts.find((a) => a.number === props.effectiveSlot)?.label ?? "Unknown"}. This selection applies to new tabs.</text>
     </DialogFrame>
   );
 }

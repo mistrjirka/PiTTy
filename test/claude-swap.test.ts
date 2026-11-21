@@ -11,6 +11,7 @@ import {
   readClaudeAccountPreference,
   saveClaudeAccountPreference,
   resolveClaudeLaunchConfig,
+  claudeLaunchEnvironment,
 } from "../src/config/claude-account.ts";
 
 const now = Date.parse("2026-10-30T12:00:00Z");
@@ -40,7 +41,8 @@ describe("cswap account selection", () => {
     expect(resolveCswapSlot("auto", snapshot, work, home)).toBe(1);
     expect(resolveCswapSlot("auto", snapshot, path.join(home, ".claude"), home)).toBe(2);
     expect(resolveCswapSlot("auto", snapshot, undefined, home)).toBe(2);
-    expect(resolveCswapSlot(2, snapshot, work, home)).toBe(2);
+    expect(resolveCswapSlot(2, snapshot, work, home)).toBe(1);
+    expect(resolveCswapSlot(2, snapshot, "/custom/sessions/1-work", home)).toBeUndefined();
   });
   test("keeps last good usage with its age when live usage needs a relogin", () => {
     const relogin = parseCswapSnapshot({
@@ -68,7 +70,7 @@ describe("cswap account selection", () => {
   });
   test("rejects malformed account entries and invalid choices", () => {
     expect(parseCswapSnapshot({ accounts: [{ number: 0 }, { number: "1" }] })).toBeUndefined();
-    expect(resolveCswapSlot(99, snapshot)).toBeUndefined();
+    expect(resolveCswapSlot(2, snapshot, "/custom/claude", "/home/jirka")).toBeUndefined();
   });
   test("new Pi processes use the chosen cswap account without modifying the global login", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-cswap-launch-"));
@@ -86,6 +88,39 @@ describe("cswap account selection", () => {
       fs.unlinkSync(path.join(dir, "sessions", "1-work_test", ".credentials.json"));
       expect(resolveClaudeLaunchConfig(1, root).error).toContain("no initialized session");
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test("each new child resolves the latest saved selection while an existing child keeps its environment", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-cswap-new-tabs-"));
+    try {
+      const dir = path.join(root, ".local/share/claude-swap");
+      const first = path.join(dir, "sessions/1-work");
+      const second = path.join(root, ".claude");
+      for (const profile of [first, second]) {
+        fs.mkdirSync(profile, { recursive: true });
+        fs.writeFileSync(path.join(profile, ".credentials.json"), "{}");
+      }
+      fs.writeFileSync(path.join(dir, "sequence.json"), JSON.stringify({ activeAccountNumber: 2, accounts: { 1: {}, 2: {} } }));
+      const preference = path.join(root, "choice.json");
+      const launch = () => claudeLaunchEnvironment(readClaudeAccountPreference(preference), root);
+      saveClaudeAccountPreference(1, preference);
+      const existingChild = launch();
+      saveClaudeAccountPreference(2, preference);
+      expect(launch()).toEqual({ CLAUDE_CONFIG_DIR: second });
+      expect(existingChild).toEqual({ CLAUDE_CONFIG_DIR: first });
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+  test("preserves cached measurement time and unknown reset instead of claiming fresh zero", () => {
+    const parsed = parseCswapSnapshot({ accounts: [
+      { number: 1, alias: "work", usageFetchedAt: new Date(now - 600_000).toISOString(),
+        usage: { fiveHour: { pct: null }, sevenDay: { pct: 11, resetsAt: "invalid" } } },
+    ] }, now)!;
+    expect(parsed.accounts[0]?.usage).toMatchObject({ observedAt: now - 600_000, status: "stale" });
+    expect(parsed.accounts[0]?.usage?.limits.map((limit) => [limit.percent, limit.resetAt])).toEqual([[null, null], [11, null]]);
+    expect(snapshot.accounts[1]?.usage?.observedAt).toBeNull();
+    expect(snapshot.accounts[1]?.usage?.status).toBe("unknown");
+    expect(parseCswapSnapshot({ accounts: [{ number: 1, usageFetchedAt: new Date(now + 86400_000).toISOString(),
+      usage: { fiveHour: { pct: 3 } } }] }, now)?.accounts[0]?.usage?.observedAt).toBeNull();
   });
 
   test("selection persists without writing cswap settings", () => {

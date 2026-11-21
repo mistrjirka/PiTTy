@@ -226,11 +226,14 @@ describe("extension model settings type-safe extraction", () => {
 		);
 		const [, setSettingsSelectedId] = createSignal("model");
 		const [, setDetailSettingSelectedId] = createSignal("model");
-		const [, setSettingsRoute] = createSignal<SettingsRoute>("closed");
+		const [settingsRoute, setSettingsRoute] = createSignal<SettingsRoute>("closed");
 		const [modelSelectorLoading, setModelSelectorLoading] = createSignal(false);
 		const ports: ExtensionModelPorts = {
 			cwd: process.cwd(),
 			activeRuntime: () => runtime,
+			sessionState: () => runtime.sessionState,
+			refreshState: async () => true,
+			settingsRoute,
 			toast: () => {},
 			modelSelectorLoading,
 			setModelSelectorLoading,

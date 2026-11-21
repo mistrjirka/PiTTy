@@ -16,5 +16,5 @@ export function isFiniteNonNegativeInteger(value: unknown): value is number {
 }
 
 export function isCompactionReason(value: unknown): value is CompactionReason {
-	return value === "manual" || value === "threshold" || value === "overflow";
+	return value === "manual" || value === "threshold" || value === "overflow" || value === "cache-expiry";
 }

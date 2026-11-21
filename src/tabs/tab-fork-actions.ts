@@ -68,6 +68,13 @@ export function createTabForkActions(
 			);
 			return;
 		}
+		let launchEnv: NodeJS.ProcessEnv | undefined;
+		try {
+			launchEnv = ports.claudeLaunchEnv?.();
+		} catch (error) {
+			ports.toast(error instanceof Error ? error.message : String(error), "warning");
+			return;
+		}
 		sourceRuntime.forkInProgress = true;
 		ports.touch();
 		ports.setStatus("forking conversation…");
@@ -79,7 +86,7 @@ export function createTabForkActions(
 			...(ports.piExecutable ? { executable: ports.piExecutable } : {}),
 			sessionFile: originalSessionFile,
 			logger: ports.logger,
-			...(ports.claudeLaunchEnv ? { env: ports.claudeLaunchEnv } : {}),
+			...(launchEnv ? { env: launchEnv } : {}),
 			onCacheWarning: (warning, runtime) => {
 				ports.logger.warn("cache.large_rewrite", {
 					runtimeId: runtime.id,

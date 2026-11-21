@@ -1,5 +1,6 @@
 /** Typed Pi RPC command API built on the process and framing transport. */
 
+import { parseProviderUsageSnapshot, type ProviderUsageSnapshot } from "../integrations/provider-usage.ts";
 import type { ThinkingLevel } from "./pi-rpc-transport.ts";
 import { PiRpcTimeoutError, PiRpcTransport } from "./pi-rpc-transport.ts";
 
@@ -95,6 +96,24 @@ export class PiRpcClient extends PiRpcTransport {
 		return this.data(
 			await this.request({ type: "get_state" }, timeoutMsOverride),
 		);
+	}
+
+	async getProviderUsage(): Promise<ProviderUsageSnapshot> {
+		const snapshot = parseProviderUsageSnapshot(this.data(await this.request({ type: "get_provider_usage" }, 15_000)));
+		if (!snapshot) throw new Error("Pi returned invalid provider usage");
+		return snapshot;
+	}
+
+	async setCompactionMethod(method: "cache-aware" | "extension"): Promise<void> {
+		this.data(await this.request({ type: "set_compaction_method", method }));
+	}
+
+	async setCacheMaintenance(mode: "compact" | "keep-warm" | "off"): Promise<void> {
+		this.data(await this.request({ type: "set_cache_maintenance", mode }));
+	}
+
+	async setInputActive(active: boolean): Promise<void> {
+		this.data(await this.request({ type: "set_input_active", active }));
 	}
 
 	async getMessages(timeoutMsOverride?: number): Promise<unknown[]> {

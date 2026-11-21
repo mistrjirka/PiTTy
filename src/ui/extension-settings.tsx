@@ -1,5 +1,5 @@
 import type { SelectRenderable } from "@opentui/core";
-import { createEffect, createMemo, Show } from "solid-js";
+import { createEffect, createMemo, For, Show } from "solid-js";
 import { selectOptionIndexAtMouse } from "./select-mouse.ts";
 import { DialogFrame } from "./dialog-frame.tsx";
 import { settingsRowText } from "./settings-hub.tsx";
@@ -9,6 +9,8 @@ export type ExtensionSettingRow = {
 	id: string;
 	label: string;
 	summary: string;
+	disabledReason?: string;
+	detail?: string;
 };
 
 /**
@@ -47,7 +49,7 @@ export function ExtensionSettingsList(props: {
 		select.selectedIndex = selectedIndex();
 	});
 	const open = (row: ExtensionSettingRow | undefined) => {
-		if (!row || props.busy) return;
+		if (!row || props.busy || row.disabledReason) return;
 		props.onSelected(row.id);
 		props.onOpen(row.id);
 	};
@@ -95,6 +97,9 @@ export function ExtensionSettingsList(props: {
 					open(rows().find((row) => row.id === id));
 				}}
 			/>
+			<For each={rows().filter((row) => row.disabledReason || row.detail)}>
+				{(row) => <text fg={colors.muted}>{row.disabledReason ?? row.detail}</text>}
+			</For>
 			<Show when={props.busy}>
 				<text fg={colors.yellow}>Saving…</text>
 			</Show>

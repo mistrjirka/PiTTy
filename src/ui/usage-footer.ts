@@ -90,43 +90,52 @@ type Candidate = {
 };
 
 function claudeHintText(hint: string | undefined): string {
-	// "usage unavailable" (cswap account without usage data) must not read
-	// as an expired login; the model itself may work fine.
-	if (hint === "usage unavailable") return "claude usage unavailable";
-	return "claude login expired";
+	if (hint?.startsWith("login expired")) return "claude login expired";
+	return hint === "usage loading" ? "claude usage loading" : "claude usage unavailable";
+}
+
+function claudeWindowLabel(kind: string, label: string): string {
+	if (kind === "session" || kind === "five_hour") return "5h";
+	if (kind === "weekly_all" || kind === "week" || kind === "seven_day") return "7d";
+	return label.replace(/^Week(?: ·)?\s*/i, "7d ").slice(0, 20);
 }
 
 function claudeCandidate(input: UsageFooterInput): Candidate | undefined {
-	const limits = input.claudeUsage?.limits ?? [];
+	const usage = input.claudeUsage;
+	const limits = usage?.limits ?? [];
 	if (limits.length === 0) {
 		if (!input.claudeHint) return undefined;
 		return {
-			provider: "claude",
-			tone: "warning",
-			percent: 0,
+			provider: "claude", tone: "warning", percent: 0,
 			build: () => ({ text: claudeHintText(input.claudeHint), tone: "warning" }),
 		};
 	}
-	const entries = limits.map<Entry>((limit) => {
-		const tone = windowTone(limit.percent, undefined, limit.severity);
+	const entries = limits.map((limit) => {
+		const tone = limit.percent === null ? "normal" : windowTone(limit.percent, undefined, limit.percent >= 100 ? "critical" : limit.severity);
 		return {
-			percent: limit.percent,
-			tone,
-			rank: TONE_RANK[tone],
-			reset: compactReset((limit.resetAt - input.now) / 1000),
+			percent: limit.percent ?? -1, tone, rank: TONE_RANK[tone],
+			label: claudeWindowLabel(limit.kind, limit.label),
+			value: limit.percent === null ? "?" : pct(limit.percent),
+			reset: limit.resetAt === null ? "?" : compactReset((limit.resetAt - input.now) / 1000),
 		};
 	});
 	const best = tightest(entries)!;
-	const stale = input.claudeUsage?.staleAgeSeconds;
-	const staleSuffix =
-		stale !== undefined ? `·stale ${compactReset(stale)}` : "";
+	const observedAt = usage?.observedAt;
+	const age = typeof observedAt === "number" ? Math.max(0, (input.now - observedAt) / 1000) : usage?.staleAgeSeconds;
+	const stale = usage?.status === "stale" || usage?.staleAgeSeconds !== undefined || (age !== undefined && age >= 180);
+	const ageUnknown = usage?.status === "unknown" || observedAt === null;
+	const staleSuffix = stale
+		? age !== undefined ? " · stale " + compactReset(age) : " · stale"
+		: ageUnknown ? " · age unknown" : "";
+	const tone = worstTone(entries.map((entry) => entry.tone));
+	const label = input.claudeAccountLabel ?? usage?.accountLabel;
 	return {
-		provider: "claude",
-		tone: worstTone(entries.map((e) => e.tone)),
-		percent: best.percent,
+		provider: "claude", tone, percent: best.percent,
 		build: (opts) => ({
-			text: `claude${input.claudeAccountLabel ? `(${input.claudeAccountLabel.slice(0, 12)})` : ""} ${pct(best.percent)}${opts?.reset === false ? "" : `·${best.reset}`}${staleSuffix}`,
-			tone: worstTone(entries.map((e) => e.tone)),
+			text: "claude" + (label ? "(" + label.slice(0, 12) + ")" : "") + " " +
+				entries.map((entry) => entry.label + " " + entry.value +
+					(opts?.reset === false ? "" : "·" + entry.reset)).join(" ") + staleSuffix,
+			tone,
 		}),
 	};
 }
@@ -223,6 +232,7 @@ export function usageFooterWidth(segments: readonly UsageFooterSegment[]): numbe
  *
  * Degradation ladder, tried in order until the result fits:
  *  1. everything
+ *  Each step first tries removing Claude countdowns while keeping both labelled quotas.
  *  2. drop OpenCode's least-used window, 3. drop its next least-used window
  *  4. drop Codex
  *  5. drop OpenCode entirely (Claude only)
@@ -241,22 +251,28 @@ export function usageFooterSegments(input: UsageFooterInput): UsageFooterSegment
 	const attempt = (
 		list: (Candidate | undefined)[],
 		ocDrop = 0,
+		compactClaude = false,
 	): UsageFooterSegment[] =>
 		list
 			.filter((c): c is Candidate => c !== undefined)
 			.map((c) =>
-				c.provider === "oc" && ocDrop > 0
+				c.provider === "claude" && compactClaude ? c.build({ reset: false }) : c.provider === "oc" && ocDrop > 0
 					? c.build({ windows: opencodeKeep(input, ocDrop) })
 					: c.build(),
 			);
 
 	const ladder: UsageFooterSegment[][] = [attempt([claude, codex, oc])];
+	if (claude) ladder.push(attempt([claude, codex, oc], 0, true));
 	if (oc) {
-		for (let drop = 1; drop <= Math.min(2, ocWindowCount - 1); drop++)
+		for (let drop = 1; drop <= Math.min(2, ocWindowCount - 1); drop++) {
 			ladder.push(attempt([claude, codex, oc], drop));
+			if (claude) ladder.push(attempt([claude, codex, oc], drop, true));
+		}
 		ladder.push(attempt([claude, oc], Math.min(2, ocWindowCount - 1)));
+		if (claude) ladder.push(attempt([claude, oc], Math.min(2, ocWindowCount - 1), true));
 	}
 	if (codex || oc) ladder.push(attempt([claude]));
+	if (claude) ladder.push(attempt([claude], 0, true));
 
 	for (const segments of ladder) {
 		if (segments.length > 0 && usageFooterWidth(segments) <= input.width)

@@ -32,7 +32,7 @@ export interface AppControllerRootPorts {
 	dimensions: Accessor<{ width: number; height: number }>;
 	client: PiRpcClient;
 	conversation: ConversationModel;
-	claudeLaunchEnv: NodeJS.ProcessEnv | undefined;
+	claudeLaunchEnv: (() => NodeJS.ProcessEnv | undefined) | undefined;
 	closeBackgroundTask: () => void;
 	dropRefreshCoordinator: (id: string) => void;
 	resetMessageWindow: (count: number) => void;

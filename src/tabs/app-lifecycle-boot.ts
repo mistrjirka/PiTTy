@@ -125,7 +125,20 @@ export function registerAppLifecycleBoot(ports: AppLifecycleBootPorts): void {
 		});
 		const stopUsagePolling = startUsagePolling({
 			logger: props.logger,
-			doppelclaudeInstalled: props.integrations.doppelclaude.installed,
+			claudeRuntime: () => {
+				const runtime = activeRuntime();
+				const state = sessionState();
+				if (!runtime.startupResolved || !state?.sessionId) return;
+				if (!props.integrations.doppelclaude.installed && state?.model?.provider !== "doppelclaude") return;
+				const configDir = runtime.client.getClaudeConfigDir();
+				return {
+					key: JSON.stringify([runtime.id, state?.sessionId, state?.model?.provider, state?.model?.id, configDir]),
+					...(configDir ? { configDir } : {}),
+					activity: state?.messageCount ?? 0,
+					...(runtime.providerUsage && (!runtime.providerUsage.sessionId || runtime.providerUsage.sessionId === state?.sessionId) ? { snapshot: runtime.providerUsage } : {}),
+					getProviderUsage: () => runtime.client.getProviderUsage(),
+				};
+			},
 			setCodexUsage,
 			setCodexUsageStats,
 			setOpencodeUsage,

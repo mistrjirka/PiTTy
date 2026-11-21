@@ -22,7 +22,7 @@ export function parseSmartCompactProgress(value: unknown): string | undefined {
 	return value;
 }
 
-export type CompactionReason = "manual" | "threshold" | "overflow";
+export type CompactionReason = "manual" | "threshold" | "overflow" | "cache-expiry";
 
 export type CompactionPhase = "preparing" | "complete" | "failed";
 
@@ -272,7 +272,7 @@ export type OneRoundProgressV1 = {
 		| "error"
 		| "aborted";
 	mode: "normal" | "workflow";
-	reason: "manual" | "threshold" | "overflow";
+	reason: CompactionReason;
 	elapsedMs: number;
 	retainedTurns: number;
 	estimatedRetainedTokens: number;
@@ -294,7 +294,7 @@ export type OneRoundProgressV2 = {
 		| "complete"
 		| "error"
 		| "aborted";
-	reason: "manual" | "threshold" | "overflow";
+	reason: CompactionReason;
 	elapsedMs: number;
 	retainedTurns: number;
 	estimatedRetainedTokens: number;

@@ -1,6 +1,7 @@
 /** Settings-row descriptions, independent of the main App and settings overlay. */
 import type { RpcSessionState } from "../types.ts";
-import type { CswapSnapshot } from "../integrations/claude-swap.ts";
+import { CACHE_MAINTENANCE_LABELS, COMPACTION_METHOD_LABELS } from "./compaction-policy.ts";
+import type { ClaudeAccountChoice, CswapSnapshot } from "../integrations/claude-swap.ts";
 import type { ThemeConfigDocument } from "../config/theme-config.ts";
 import type {
 	CompactionModelState,
@@ -30,6 +31,7 @@ export type SettingsDescriptorPorts = {
 	openSubagentModels: () => void | Promise<void>;
 	cswapSnapshot: () => CswapSnapshot | undefined;
 	claudeEffectiveSlot: () => number | undefined;
+	claudeAccountChoice?: () => ClaudeAccountChoice;
 	themeConfig: () => ThemeConfigDocument;
 	mcpInstallState: () => McpInstallState;
 	mcpError: () => string | undefined;
@@ -84,23 +86,10 @@ export function buildSettingsDescriptors(
 		},
 		{
 			id: "compaction",
-			label: "Compaction model",
-			summary: () => {
-				const compaction = ports.compactionModelState();
-				if (!compaction)
-					return ports.settingsErrors().compaction ? "Unavailable" : "Loading…";
-				if (!compaction.model) return "Extension default";
-				const lanes = compaction.effectiveThinking;
-				const thinking =
-					lanes.audit === lanes.execution
-						? ` · ${lanes.audit}`
-						: ` · lanes ${lanes.audit}/${lanes.execution}`;
-				const laneOverride =
-					compaction.laneModels.audit || compaction.laneModels.execution
-						? " · model lane"
-						: "";
-				return `${compaction.model}${thinking}${laneOverride}`;
-			},
+			label: "Compaction",
+			summary: () => state?.compactionMethod
+				? COMPACTION_METHOD_LABELS[state.compactionMethod] + (state.cacheMaintenance ? " · " + CACHE_MAINTENANCE_LABELS[state.cacheMaintenance] : "")
+				: "Runtime policy unavailable",
 			disabledReason: () => undefined,
 			busy: () => ports.settingsBusy() === "compaction",
 			inlineError: () => ports.settingsErrors().compaction,
@@ -127,12 +116,11 @@ export function buildSettingsDescriptors(
 			? [
 					{
 						id: "claude-account",
-						label: "Claude usage account (cswap)",
-						summary: () =>
-							ports
-								.cswapSnapshot()
-								?.accounts.find((a) => a.number === ports.claudeEffectiveSlot())
-								?.label ?? "Automatic",
+						label: "Claude account for new tabs",
+						summary: () => {
+							const choice = ports.claudeAccountChoice?.() ?? "auto";
+							return choice === "auto" ? "Automatic" : ports.cswapSnapshot()?.accounts.find((account) => account.number === choice)?.label ?? "Unavailable";
+						},
 						disabledReason: () => undefined,
 						busy: () => false,
 						inlineError: () => undefined,

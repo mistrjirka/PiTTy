@@ -28,7 +28,7 @@ export interface AppControllerGraphPorts {
 	dimensions: Accessor<{ width: number; height: number }>;
 	client: PiRpcClient;
 	conversation: ConversationModel;
-	claudeLaunchEnv: NodeJS.ProcessEnv | undefined;
+	claudeLaunchEnv: (() => NodeJS.ProcessEnv | undefined) | undefined;
 }
 export function createAppControllerGraph(
 	ports: AppControllerGraphPorts,

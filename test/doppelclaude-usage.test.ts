@@ -66,7 +66,7 @@ describe("parseDoppelclaudeUsage", () => {
 			{ limits: [{ kind: "weekly_scoped", scope: "opus", percent: 10, severity: "bogus", resets_at: "x" }] },
 			NOW,
 		);
-		expect(usage?.limits[0]).toMatchObject({ label: "Week · Opus", resetAt: NOW, active: false });
+		expect(usage?.limits[0]).toMatchObject({ label: "Week · Opus", resetAt: null, active: false });
 		expect(usage?.limits[0]?.severity).toBeUndefined();
 	});
 	test("falls back to five_hour/seven_day when limits missing or empty", () => {
@@ -79,7 +79,8 @@ describe("parseDoppelclaudeUsage", () => {
 		expect(usage?.limits.map((l) => [l.label, l.percent])).toEqual([["Session", 12.5], ["Week", 40]]);
 	});
 	test("rejects non-finite or malformed percentages", () => {
-		expect(parseDoppelclaudeUsage({ limits: [{ kind: "session", percent: "5" }, { kind: "x", percent: null }] }, NOW)).toBeUndefined();
+		expect(parseDoppelclaudeUsage({ limits: [{ kind: "session", percent: "5" }] }, NOW)).toBeUndefined();
+		expect(parseDoppelclaudeUsage({ limits: [{ kind: "session", percent: null, resets_at: null }] }, NOW)?.limits[0]).toMatchObject({ percent: null, resetAt: null });
 		expect(parseDoppelclaudeUsage({ five_hour: { utilization: Number.NaN } }, NOW)).toBeUndefined();
 		expect(parseDoppelclaudeUsage(null, NOW)).toBeUndefined();
 		expect(parseDoppelclaudeUsage({ limits: [{ kind: "session", percent: -5 }] }, NOW)?.limits[0]?.percent).toBe(0);

@@ -77,7 +77,7 @@ export function createFooterModel(ports: FooterModelPorts): FooterModel {
 	const footerUsageSegments = () =>
 		usageFooterSegments({
 			claudeUsage: ports.claudeUsage(),
-			claudeAccountLabel: ports
+			claudeAccountLabel: ports.claudeUsage()?.accountLabel ?? ports
 				.cswapSnapshot()
 				?.accounts.find((a) => a.number === ports.claudeEffectiveSlot())?.label,
 			claudeHint: ports.claudeHint(),
