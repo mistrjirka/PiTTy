@@ -105,7 +105,9 @@ export class SideQuestionSnapshots {
             }
             return {
                 sessionId,
-                model: structuredClone(model),
+                // Provider-owned model markers are symbol keys. structuredClone drops them,
+                // making a trusted native model look unsupported in /btw.
+                model: cloneModelWithProviderMarkers(model),
                 context: normalizeContext({ messages: [] }),
                 options: requestOptions,
                 source: "native-live",
@@ -179,6 +181,16 @@ export function getSideQuestionSnapshot(sessionManager, options) {
         return Promise.reject(new Error("Side-question snapshots are not available in this session host. Update the Pi fork."));
     }
     return source.get(options);
+}
+/** Keep the model isolated without dropping provider-specific identity symbols. */
+function cloneModelWithProviderMarkers(model) {
+    const copy = structuredClone(model);
+    for (const key of Object.getOwnPropertySymbols(model)) {
+        const descriptor = Object.getOwnPropertyDescriptor(model, key);
+        if (descriptor && "value" in descriptor)
+            Object.defineProperty(copy, key, descriptor);
+    }
+    return copy;
 }
 function sameModel(left, right) {
     return (left.provider === right.provider &&

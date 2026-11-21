@@ -3,7 +3,7 @@
   "pi": {
     "version": "1.5.2",
     "originalSessionManagerSha256": "7e24f1c857c9f0e7be6485e9be12ba528fad9eea3423abf2c96fc27585a88b61",
-    "forkCommit": "3543a524e541207656c1e4249c86a9e8f77de910",
+    "forkCommit": "cd5ea5467f846c302dec71bccbca2da4ffdbb788",
     "forkRepository": "https://github.com/mistrjirka/pi",
     "modules": [
       {
@@ -220,7 +220,7 @@
     "vendor/pi-code-tool-0.6.2/types.js": "2c2691b9b497dffc3216ffb8b6e499f9df7deea145c0591cda260129f8a923f1",
     "vendor/pi-code-tool-0.6.2/runtime.js": "572e942ee23f769509263d8a2dbea986779247955c274220ef3db5e3bf2abf54",
     "vendor/pi-code-tool-0.6.2/legacy.js": "e4d82888e5bf1a5b66aa7731027cfdac50f5f80c8b935033dff5a00d1e13013b",
-    "vendor/pi-1.5.2/side-questions.js": "2c66a396e85510d5b89b1fb680686e5cb141ab201d2b2eae0b44acfe59a7afce",
+    "vendor/pi-1.5.2/side-questions.js": "7ec54469684f6a373b61c5edbd8f3ba7b3b1a7bb52b564b0a080711f5ad24f19",
     "vendor/pi-1.5.2/sdk.js": "cf4eb795ce64217e297ea2161eb3264fb6f3c888eca369c3190b139016a4f92d",
     "vendor/pi-1.5.2/extension-types.js": "6ceb3e6ab787d0bd1585051e1c240a90b9c153bcedcc9030f59ccf3f3d595ea1",
     "vendor/pi-1.5.2/extension-runner.js": "79e56c64e938affaead6483361d96a73f047bfeca880bf68e52688201b9d4052",
