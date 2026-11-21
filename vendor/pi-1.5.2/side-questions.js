@@ -1,10 +1,11 @@
-import { normalizeContext, toToolDeclaration, } from "@earendil-works/pi-ai";
+import { getPromptCacheTtlMs, normalizeContext, toToolDeclaration, } from "@earendil-works/pi-ai";
 import { isVirtualModel } from "./virtual-models.js";
 const sources = new WeakMap();
 /** Capture final main requests and provide isolated, completed-context side-question snapshots. */
 export class SideQuestionSnapshots {
     source;
     captured;
+    captureId = 0;
     constructor(source) {
         this.source = source;
         sources.set(source.sessionManager, this);
@@ -12,15 +13,51 @@ export class SideQuestionSnapshots {
     capture(model, context, options) {
         const { agent, sessionManager } = this.source;
         this.captured = {
+            id: ++this.captureId,
+            startedAt: Date.now(),
+            ttlMs: getPromptCacheTtlMs(model, options),
             sessionId: sessionManager.getSessionId(),
             selectedModel: agent.state.model,
             model,
             thinkingLevel: agent.state.thinkingLevel,
             runner: this.source.getExtensionRunner(),
             leafId: sessionManager.getLeafId(),
-            // Completed request messages are immutable. Clone only when a side question asks for them.
-            context: normalizeContext(context),
+            // Keep a private array. Completed contents are copied when an isolated request needs them.
+            context: normalizeContext({ ...context, messages: context.messages.slice() }),
             options: copyRequestOptions(options),
+        };
+        return this.captured.id;
+    }
+    /** Accept cache lifetime evidence only from the captured main request. */
+    observeCacheTiming(captureId, ttlMs) {
+        if (this.captured?.id === captureId)
+            this.captured.ttlMs = ttlMs;
+    }
+    /** Use persisted provenance, since projections recreate summaries and custom messages. */
+    isRequestCurrent(captureId) {
+        const captured = this.captured;
+        const { agent, sessionManager } = this.source;
+        return Boolean(captured &&
+            captured.id === captureId &&
+            captured.sessionId === sessionManager.getSessionId() &&
+            sameModel(captured.selectedModel, agent.state.model) &&
+            captured.thinkingLevel === agent.state.thinkingLevel &&
+            captured.runner === this.source.getExtensionRunner() &&
+            extendingTailIndex(captured.leafId, sessionManager.buildSessionProjection()) !== undefined);
+    }
+    /** Return the exact captured input only while the current branch still extends it. */
+    getCompactionRequest() {
+        const captured = this.captured;
+        if (!captured || !this.isRequestCurrent(captured.id))
+            return undefined;
+        return {
+            sessionId: captured.sessionId,
+            model: captured.model,
+            context: normalizeContext({ messages: structuredClone(captured.context.messages) }),
+            options: copyRequestOptions(captured.options),
+            sourceEntryId: captured.leafId,
+            startedAt: captured.startedAt,
+            ttlMs: captured.ttlMs,
         };
     }
     async get(options = {}) {
@@ -130,6 +167,10 @@ export class SideQuestionSnapshots {
             pendingMessagesOmitted,
         };
     }
+}
+/** Read an immutable main-request input for cache-aware compaction. */
+export function getCompactionCacheRequest(sessionManager) {
+    return sources.get(sessionManager)?.getCompactionRequest();
 }
 /** Read the SDK-owned snapshot source without exposing main-session mutation APIs. */
 export function getSideQuestionSnapshot(sessionManager, options) {

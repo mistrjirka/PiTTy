@@ -12,6 +12,7 @@
  */
 import * as crypto from "node:crypto";
 import { flushRawStdout, takeOverStdout, waitForRawStdoutBackpressure, writeRawStdout, } from "../../core/output-guard.js";
+import { readProviderUsage } from "../../core/provider-usage.js";
 import { killTrackedDetachedChildren } from "../../utils/shell.js";
 import { writeDiagnosticsToStderr } from "../diagnostics-stderr.js";
 import { theme } from "../interactive/theme/theme.js";
@@ -389,11 +390,43 @@ export async function runRpcMode(runtimeHost) {
                     sessionId: session.sessionId,
                     sessionName: session.sessionName,
                     autoCompactionEnabled: session.autoCompactionEnabled,
+                    compactionMethod: session.compactionMethod,
+                    cacheMaintenance: session.cacheMaintenance,
+                    cacheMaintenanceStatus: session.cacheMaintenanceStatus,
+                    compactionMethods: session.compactionMethods,
                     messageCount: session.messages.length,
                     pendingMessageCount: session.pendingMessageCount,
                     queue: session.getQueueState(),
                 };
                 return success(id, "get_state", state);
+            }
+            case "get_provider_usage": {
+                const usageSession = session;
+                const model = usageSession.model;
+                const sessionId = usageSession.sessionId;
+                if (!model) {
+                    return success(id, "get_provider_usage", {
+                        provider: "",
+                        status: "unavailable",
+                        observedAt: null,
+                        limits: [],
+                        source: "provider",
+                    });
+                }
+                const snapshot = await readProviderUsage({
+                    provider: model.provider,
+                    modelId: model.id,
+                    read: (request) => usageSession.extensionRunner.emitProviderUsage({ type: "provider_usage", ...request }),
+                    isCurrent: () => session === usageSession &&
+                        usageSession.sessionId === sessionId &&
+                        usageSession.model?.provider === model.provider &&
+                        usageSession.model?.id === model.id,
+                });
+                return success(id, "get_provider_usage", snapshot);
+            }
+            case "set_input_active": {
+                session.setInputActive(command.active);
+                return success(id, "set_input_active");
             }
             // =================================================================
             // Model
@@ -471,6 +504,14 @@ export async function runRpcMode(runtimeHost) {
             case "set_auto_compaction": {
                 session.setAutoCompactionEnabled(command.enabled);
                 return success(id, "set_auto_compaction");
+            }
+            case "set_compaction_method": {
+                session.setCompactionMethod(command.method);
+                return success(id, "set_compaction_method");
+            }
+            case "set_cache_maintenance": {
+                session.setCacheMaintenance(command.mode);
+                return success(id, "set_cache_maintenance");
             }
             // =================================================================
             // Retry
@@ -662,7 +703,7 @@ export async function runRpcMode(runtimeHost) {
             return;
         }
         const command = parsed;
-        const queueError = validateQueueInput(parsed);
+        const queueError = validateQueueInput(parsed) ?? validateMaintenanceInput(parsed);
         if (queueError) {
             output(error(command.id, command.type, queueError));
             return;
@@ -747,6 +788,25 @@ function validateQueueInput(value) {
                 typeof image.data !== "string" ||
                 typeof image.mimeType !== "string"))) {
         return "images must contain ImageContent objects.";
+    }
+    return undefined;
+}
+/** Validate maintenance settings only at the untyped JSONL input boundary. */
+function validateMaintenanceInput(value) {
+    if (typeof value !== "object" || value === null || !("type" in value))
+        return undefined;
+    const command = value;
+    if (command.type === "set_compaction_method" && command.method !== "cache-aware" && command.method !== "extension") {
+        return "method must be 'cache-aware' or 'extension'.";
+    }
+    if (command.type === "set_cache_maintenance" &&
+        command.mode !== "compact" &&
+        command.mode !== "keep-warm" &&
+        command.mode !== "off") {
+        return "mode must be 'compact', 'keep-warm', or 'off'.";
+    }
+    if (command.type === "set_input_active" && typeof command.active !== "boolean") {
+        return "active must be a boolean.";
     }
     return undefined;
 }

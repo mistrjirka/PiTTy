@@ -25,6 +25,7 @@ import { normalizeToolResultImages } from "../utils/tool-result-images.js";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.js";
 import { executeBashWithOperations } from "./bash-executor.js";
 import { generateBugReportSummary } from "./bug-report.js";
+import { compactCachedRequest, retainUnseenCompactionEntries, } from "./cache-compaction.js";
 import { calculateContextTokens, collectEntriesForBranchSummary, compact, estimateContextTokens, estimateProjectedContextTokens, estimateTokens, generateBranchSummary, prepareCompaction, shouldCompact, } from "./compaction/index.js";
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "./defaults.js";
 import { exportSessionToHtml } from "./export-html/index.js";
@@ -40,6 +41,7 @@ import { QueuedInputs } from "./queued-input.js";
 import { exportSessionToJsonl } from "./session-export.js";
 import { getLatestCompactionEntry, SessionManager, } from "./session-manager.js";
 import { applyToolModifiers, DEFAULT_TOOL_NAMES, } from "./settings-manager.js";
+import { getCompactionCacheRequest } from "./side-questions.js";
 import { BUILTIN_PATH_PREFIX, createSyntheticSourceInfo, isSyntheticPath } from "./source-info.js";
 import { buildSystemPrompt, buildSystemPromptSections, diffSystemPromptSections, normalizeBuildSystemPromptOptions, } from "./system-prompt.js";
 import { createLocalBashOperations } from "./tools/bash.js";
@@ -129,6 +131,8 @@ export class AgentSession {
     _completedManualCompactions = new WeakSet();
     _autoCompactionAbortController = undefined;
     _overflowRecoveryAttempted = false;
+    _cacheCompaction;
+    _inputActive = false;
     // Branch summarization state
     _branchSummaryAbortController = undefined;
     // Retry state
@@ -843,6 +847,7 @@ export class AgentSession {
         // handlers queued.
         if (event.type === "turn_end") {
             this._flushPendingCustomMessages();
+            await this._applyPreparedCacheCompaction();
         }
     };
     _willRetryAfterAgentEnd(event) {
@@ -1098,6 +1103,63 @@ export class AgentSession {
         this.settingsManager.setCacheWarmingMode(mode);
         this._cacheWarmer?.onModeChanged();
     }
+    get compactionMethod() {
+        return this.settingsManager.getCompactionMethod();
+    }
+    setCompactionMethod(method) {
+        this.settingsManager.setCompactionMethod(method);
+        this._cacheCompaction?.controller.abort();
+        this._cacheWarmer?.onModeChanged();
+    }
+    get cacheMaintenance() {
+        return this.settingsManager.getCacheMaintenanceMode();
+    }
+    get cacheMaintenanceStatus() {
+        if (this.cacheMaintenance === "compact" && !this.autoCompactionEnabled) {
+            return { state: "inactive", action: "compact", reason: "Automatic compaction disabled" };
+        }
+        if (this.cacheMaintenance === "keep-warm" &&
+            this.model &&
+            this._modelRuntime.getProvider(this.model.provider)?.sideQuestionUsesLiveContext) {
+            return { state: "inactive", action: "warm", reason: "This provider does not support safe cache warming" };
+        }
+        return this._cacheWarmer?.status;
+    }
+    setCacheMaintenance(mode) {
+        this.settingsManager.setCacheMaintenanceMode(mode);
+        this._cacheCompaction?.controller.abort();
+        this._cacheWarmer?.onModeChanged();
+    }
+    /** UI input activity vetoes maintenance without interrupting the user's tools. */
+    setInputActive(active) {
+        this._inputActive = active;
+        if (active && !this.isStreaming)
+            this._cacheCompaction?.controller.abort();
+    }
+    get compactionMethods() {
+        const provider = this.model && this._modelRuntime.getProvider(this.model.provider);
+        const customWireHooks = !provider?.sideQuestionUsesLiveContext &&
+            (this._extensionRunner.hasHandlers("before_provider_request") ||
+                this._extensionRunner.hasHandlers("before_provider_headers"));
+        const isolated = Boolean(provider?.streamSideQuestion) && !customWireHooks;
+        const extension = Boolean(this._extensionRunner.getCommand("one-round-compaction"));
+        return [
+            {
+                id: "cache-aware",
+                available: isolated,
+                reason: isolated
+                    ? undefined
+                    : customWireHooks
+                        ? "Custom provider payload or header hooks cannot be replayed safely"
+                        : "Provider has no isolated summary capability; ordinary compaction uses a standalone summary",
+            },
+            {
+                id: "extension",
+                available: extension,
+                reason: extension ? undefined : "Two-model compaction extension is not loaded",
+            },
+        ];
+    }
     /** Current model (may be undefined if not yet selected) */
     get model() {
         return this.agent.state.model;
@@ -1281,6 +1343,7 @@ export class AgentSession {
     /** Whether compaction or branch summarization is currently running */
     get isCompacting() {
         return (this._autoCompactionAbortController !== undefined ||
+            this._cacheCompaction !== undefined ||
             this._compactionAbortController !== undefined ||
             this._branchSummaryAbortController !== undefined);
     }
@@ -1343,6 +1406,7 @@ export class AgentSession {
         return Array.from(unique);
     }
     _rebuildSystemPrompt(toolNames) {
+        this._cacheCompaction?.controller.abort();
         const validToolNames = toolNames.filter((name) => this._toolRegistry.has(name));
         const toolSnippets = {};
         for (const name of this._toolRegistry.keys()) {
@@ -2012,6 +2076,7 @@ export class AgentSession {
             (options?.triggerTurn === true &&
                 (this._compactionAbortController !== undefined ||
                     this._autoCompactionAbortController !== undefined ||
+                    this._cacheCompaction !== undefined ||
                     this.agent.hasQueuedMessages()))) {
             if (options?.deliverAs === "followUp") {
                 this.agent.followUp(appMessage);
@@ -2162,6 +2227,8 @@ export class AgentSession {
     async _emitModelSelect(nextModel, previousModel, source) {
         if (modelsAreEqual(previousModel, nextModel))
             return;
+        this._cacheCompaction?.controller.abort();
+        this._cacheWarmer?.cancel();
         await this._extensionRunner.emit({
             type: "model_select",
             model: nextModel,
@@ -2286,6 +2353,7 @@ export class AgentSession {
             this.settingsManager.setDefaultThinkingLevel(level);
         }
         if (isChanging) {
+            this._cacheCompaction?.controller.abort();
             this.sessionManager.appendThinkingLevelChange(effectiveLevel);
             this._emit({ type: "thinking_level_changed", level: effectiveLevel });
             void this._extensionRunner.emit({
@@ -2366,11 +2434,206 @@ export class AgentSession {
     // =========================================================================
     // Compaction
     // =========================================================================
-    /** Generate Pi's built-in compaction summary for manual and automatic compaction. */
-    async _runDefaultCompaction(preparation, model, customInstructions, signal, reason) {
-        // Resolve the request only when Pi summarizes itself: routing may call models or fail.
+    /** An idle session or a running tool can prepare a summary without racing a model request. */
+    get canPrepareCacheCompaction() {
+        return (this.autoCompactionEnabled &&
+            this.cacheMaintenance === "compact" &&
+            !this.isCompacting &&
+            !this._inputActive &&
+            !this._extensionRunner.isAwaitingInput &&
+            this._extensionRunner.getUIContext().getEditorText().trim().length === 0 &&
+            this._promptPreflightCount === 0 &&
+            !this._isBeforeSettle &&
+            !this._isEmittingAgentSettled &&
+            (!this.isStreaming || (this.agent.state.pendingToolCalls.size > 0 && !this.agent.state.streamingMessage)));
+    }
+    /** Prepare during tools, or serialize idle maintenance with incoming input. */
+    async prepareCacheCompaction(signal) {
+        const prepare = async () => {
+            if (!this.canPrepareCacheCompaction || signal.aborted)
+                return false;
+            const request = getCompactionCacheRequest(this.sessionManager);
+            if (!request)
+                return false;
+            const entries = this.sessionManager.getBranch();
+            const candidate = prepareCompaction(entries, this.settingsManager.getCompactionSettings(request.model));
+            if (!candidate)
+                return false;
+            const preparation = retainUnseenCompactionEntries(candidate, entries, request);
+            const controller = new AbortController();
+            const combinedSignal = AbortSignal.any([signal, controller.signal]);
+            const work = {
+                controller,
+                signal: combinedSignal,
+                request,
+                entries,
+                preparation,
+                method: this.compactionMethod,
+                fromExtension: false,
+                onAbort: () => {
+                    void this._applyPreparedCacheCompaction();
+                },
+                promise: Promise.resolve().then(() => this._prepareCacheCompactionResult(work)),
+            };
+            this._cacheCompaction = work;
+            work.signal.addEventListener("abort", work.onAbort, { once: true });
+            this._emit({ type: "compaction_start", reason: "cache-expiry" });
+            const result = await work.promise;
+            if (!this.isStreaming || !result)
+                await this._applyPreparedCacheCompaction();
+            return result !== undefined && !work.signal.aborted;
+        };
+        return this.isStreaming ? prepare() : this._admitInput(prepare);
+    }
+    async _prepareCacheCompactionResult(work) {
+        const timeout = setTimeout(() => work.controller.abort(), 10 * 60_000);
+        timeout.unref?.();
+        let onAbort = () => { };
+        const aborted = new Promise((_, reject) => {
+            onAbort = () => reject(new Error("Compaction cancelled"));
+            work.signal.addEventListener("abort", onAbort, { once: true });
+        });
+        try {
+            work.signal.throwIfAborted();
+            return await Promise.race([
+                (async () => {
+                    const extension = await this._extensionRunner.emit({
+                        type: "session_before_compact",
+                        method: work.method,
+                        cacheRequest: work.request,
+                        preparation: work.preparation,
+                        branchEntries: work.entries,
+                        reason: "cache-expiry",
+                        willRetry: false,
+                        signal: work.signal,
+                    });
+                    work.signal.throwIfAborted();
+                    if (extension?.cancel) {
+                        work.controller.abort();
+                        throw new Error("Compaction cancelled");
+                    }
+                    work.fromExtension = extension?.compaction !== undefined;
+                    const result = extension?.compaction ??
+                        (await this._runDefaultCompaction(work.preparation, work.request.model, undefined, work.signal, "cache-expiry", work.request, work.method));
+                    return { result, fromExtension: work.fromExtension };
+                })(),
+                aborted,
+            ]);
+        }
+        catch (error) {
+            if (!work.signal.aborted)
+                work.errorMessage = error instanceof Error ? error.message : String(error);
+            return undefined;
+        }
+        finally {
+            clearTimeout(timeout);
+            work.signal.removeEventListener("abort", onAbort);
+        }
+    }
+    async _applyPreparedCacheCompaction() {
+        const work = this._cacheCompaction;
+        if (!work)
+            return;
+        work.applyPromise ??= this._commitPreparedCacheCompaction(work);
+        await work.applyPromise;
+    }
+    async _commitPreparedCacheCompaction(work) {
+        const prepared = await work.promise;
+        if (this._cacheCompaction !== work)
+            return;
+        let result;
+        let aborted = work.signal.aborted;
+        try {
+            const branch = this.sessionManager.getBranch();
+            const samePrefix = work.entries.every((entry, index) => branch[index]?.id === entry.id);
+            const invalidatingChange = branch
+                .slice(work.entries.length)
+                .some((entry) => entry.type === "compaction" ||
+                entry.type === "context_edit" ||
+                entry.type === "model_change" ||
+                entry.type === "thinking_level_change");
+            const current = work.request.sessionId === this.sessionId &&
+                samePrefix &&
+                !invalidatingChange &&
+                this.compactionMethod === work.method &&
+                this.autoCompactionEnabled &&
+                this.cacheMaintenance === "compact" &&
+                getCompactionCacheRequest(this.sessionManager) !== undefined;
+            if (!current)
+                aborted = true;
+            if (prepared && !aborted) {
+                const boundary = retainUnseenCompactionEntries({ ...work.preparation, firstKeptEntryId: prepared.result.firstKeptEntryId }, work.entries, work.request);
+                const checkpoint = { ...prepared.result, firstKeptEntryId: boundary.firstKeptEntryId };
+                const entryId = this.sessionManager.appendCompaction(checkpoint.summary, checkpoint.firstKeptEntryId, checkpoint.tokensBefore, checkpoint.details, prepared.fromExtension, checkpoint.usage);
+                this._refreshFinalizedContext();
+                result = { ...checkpoint, estimatedTokensAfter: estimateMessagesTokens(this.agent.state.messages) };
+                const entry = this.sessionManager.getEntry(entryId);
+                await this._extensionRunner.emit({
+                    type: "session_compact",
+                    compactionEntry: entry,
+                    fromExtension: prepared.fromExtension,
+                    reason: "cache-expiry",
+                    willRetry: false,
+                });
+            }
+            else {
+                await this._emitSessionCompactFailed({
+                    reason: "cache-expiry",
+                    errorMessage: work.errorMessage,
+                    aborted,
+                    willRetry: false,
+                    fromExtension: work.fromExtension,
+                });
+            }
+        }
+        catch (error) {
+            work.errorMessage = error instanceof Error ? error.message : String(error);
+        }
+        finally {
+            work.signal.removeEventListener("abort", work.onAbort);
+            if (this._cacheCompaction === work)
+                this._cacheCompaction = undefined;
+            this._resolveIdleWaitIfIdle();
+            this._emit({
+                type: "compaction_end",
+                reason: "cache-expiry",
+                result,
+                aborted,
+                willRetry: false,
+                errorMessage: work.errorMessage,
+            });
+            if (!this.isStreaming && !aborted)
+                this._scheduleQueuedPrompt();
+        }
+    }
+    /** Generate the selected summary, preserving the captured prefix when the provider supports it. */
+    async _runDefaultCompaction(preparation, model, customInstructions, signal, reason, cacheRequest, method = this.compactionMethod) {
+        if (method === "cache-aware" && cacheRequest) {
+            const provider = this._modelRuntime.getProvider(cacheRequest.model.provider);
+            if (provider?.streamSideQuestion &&
+                !provider.sideQuestionUsesLiveContext &&
+                !this._extensionRunner.hasHandlers("before_provider_request") &&
+                !this._extensionRunner.hasHandlers("before_provider_headers")) {
+                return compactCachedRequest(this._modelRuntime, cacheRequest, preparation, signal, customInstructions);
+            }
+        }
+        if (reason === "cache-expiry") {
+            throw new Error("The selected provider or extension did not provide an isolated compaction");
+        }
+        // Required context reduction remains available even without a reusable cached request.
         const request = await this._getSummarizationRequestAuth(model, signal);
-        return compact(preparation, request.model, request.apiKey, request.headers, customInstructions, signal, request.thinkingLevel, this.agent.streamFunction, request.env, this.settingsManager.getRetrySettings(), this._summarizationRetryCallbacks({ source: "compaction", reason }), undefined);
+        const result = await compact(preparation, request.model, request.apiKey, request.headers, customInstructions, signal, request.thinkingLevel, this.agent.streamFunction, request.env, this.settingsManager.getRetrySettings(), this._summarizationRetryCallbacks({ source: "compaction", reason }));
+        return method === "cache-aware"
+            ? {
+                ...result,
+                details: {
+                    ...result.details,
+                    method: "standalone",
+                    requestedMethod: method,
+                    fallbackReason: "An isolated cached request was unavailable",
+                },
+            }
+            : result;
     }
     _clearManualCompactionState() {
         this._compactionAbortController = undefined;
@@ -2404,7 +2667,9 @@ export class AgentSession {
             }
             const settings = this.settingsManager.getCompactionSettings(model);
             const pathEntries = this.sessionManager.getBranch();
-            const preparation = prepareCompaction(pathEntries, settings);
+            const method = this.compactionMethod;
+            const cacheRequest = method === "cache-aware" ? getCompactionCacheRequest(this.sessionManager) : undefined;
+            let preparation = prepareCompaction(pathEntries, settings);
             if (!preparation) {
                 // Check why we can't compact
                 const lastEntry = pathEntries[pathEntries.length - 1];
@@ -2413,10 +2678,14 @@ export class AgentSession {
                 }
                 throw new Error("Nothing to compact (session too small)");
             }
+            if (cacheRequest)
+                preparation = retainUnseenCompactionEntries(preparation, pathEntries, cacheRequest);
             let extensionCompaction;
             if (this._extensionRunner.hasHandlers("session_before_compact")) {
                 const result = (await this._extensionRunner.emit({
                     type: "session_before_compact",
+                    method,
+                    cacheRequest,
                     preparation,
                     branchEntries: pathEntries,
                     customInstructions,
@@ -2448,7 +2717,7 @@ export class AgentSession {
             }
             else {
                 // Shared default summary generator, also used by automatic compaction.
-                const result = await this._runDefaultCompaction(preparation, model, customInstructions, this._compactionAbortController.signal, "manual");
+                const result = await this._runDefaultCompaction(preparation, model, customInstructions, this._compactionAbortController.signal, "manual", cacheRequest, method);
                 summary = result.summary;
                 firstKeptEntryId = result.firstKeptEntryId;
                 tokensBefore = result.tokensBefore;
@@ -2528,6 +2797,7 @@ export class AgentSession {
     abortCompaction() {
         this._compactionAbortController?.abort();
         this._autoCompactionAbortController?.abort();
+        this._cacheCompaction?.controller.abort();
     }
     /**
      * Cancel in-progress branch summarization.
@@ -2698,10 +2968,14 @@ export class AgentSession {
                 return false;
             }
             const pathEntries = this.sessionManager.getBranch();
-            const preparation = prepareCompaction(pathEntries, settings);
+            const method = this.compactionMethod;
+            const cacheRequest = method === "cache-aware" ? getCompactionCacheRequest(this.sessionManager) : undefined;
+            let preparation = prepareCompaction(pathEntries, settings);
             if (!preparation) {
                 return false;
             }
+            if (cacheRequest)
+                preparation = retainUnseenCompactionEntries(preparation, pathEntries, cacheRequest);
             abortController = new AbortController();
             this._autoCompactionAbortController = abortController;
             started = true;
@@ -2711,6 +2985,8 @@ export class AgentSession {
             if (this._extensionRunner.hasHandlers("session_before_compact")) {
                 const extensionResult = (await this._extensionRunner.emit({
                     type: "session_before_compact",
+                    method,
+                    cacheRequest,
                     preparation,
                     branchEntries: pathEntries,
                     customInstructions: undefined,
@@ -2743,7 +3019,7 @@ export class AgentSession {
             }
             else {
                 // Shared default summary generator, also used by manual compaction.
-                const compactResult = await this._runDefaultCompaction(preparation, model, undefined, abortController.signal, reason);
+                const compactResult = await this._runDefaultCompaction(preparation, model, undefined, abortController.signal, reason, cacheRequest, method);
                 summary = compactResult.summary;
                 firstKeptEntryId = compactResult.firstKeptEntryId;
                 tokensBefore = compactResult.tokensBefore;
@@ -2820,6 +3096,9 @@ export class AgentSession {
      */
     setAutoCompactionEnabled(enabled) {
         this.settingsManager.setCompactionEnabled(enabled);
+        if (!enabled)
+            this._cacheCompaction?.controller.abort();
+        this._cacheWarmer?.onModeChanged();
     }
     /** Whether auto-compaction is enabled */
     get autoCompactionEnabled() {

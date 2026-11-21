@@ -50,6 +50,14 @@ const modules = [
 	["packages/coding-agent/src/modes/diagnostics-stderr.ts", "dist/modes/diagnostics-stderr.js", "diagnostics-stderr.js"],
 	// Side questions use the effective SDK request and explicit provider capabilities.
 	["packages/coding-agent/src/core/side-questions.ts", "dist/core/side-questions.js", "side-questions.js"],
+	// Cache maintenance and usage are part of the managed runtime RPC contract.
+	["packages/coding-agent/src/core/cache-compaction.ts", "dist/core/cache-compaction.js", "cache-compaction.js"],
+	["packages/coding-agent/src/core/cache-warmer.ts", "dist/core/cache-warmer.js", "cache-warmer.js"],
+	["packages/coding-agent/src/core/provider-usage.ts", "dist/core/provider-usage.js", "provider-usage.js"],
+	["packages/coding-agent/src/core/settings-defaults.ts", "dist/core/settings-defaults.js", "settings-defaults.js"],
+	["packages/coding-agent/src/core/settings-manager.ts", "dist/core/settings-manager.js", "settings-manager.js"],
+	["packages/coding-agent/src/core/settings-schema.ts", "dist/core/settings-schema.js", "settings-schema.js"],
+	["packages/coding-agent/src/modes/interactive/components/status-indicator.ts", "dist/modes/interactive/components/status-indicator.js", "status-indicator.js"],
 	["packages/coding-agent/src/core/sdk.ts", "dist/core/sdk.js", "sdk.js"],
 	["packages/coding-agent/src/core/extensions/types.ts", "dist/core/extensions/types.js", "extension-types.js"],
 	["packages/coding-agent/src/core/extensions/runner.ts", "dist/core/extensions/runner.js", "extension-runner.js"],
@@ -85,7 +93,15 @@ for (const [source, target, filename] of modules) {
 	console.log(source + " -> " + path.relative(root, output));
 }
 
-manifest.pi.modules = modules.map(([, target, filename]) => {
+const assets = [
+	["packages/coding-agent/schemas/settings.schema.json", "schemas/settings.schema.json", "settings.schema.json"],
+];
+for (const [source, , filename] of assets) {
+	const output = path.join(root, "vendor", "pi-" + manifest.pi.version, filename);
+	writeFileSync(output, readFileSync(path.join(sourceRoot, source)));
+}
+
+manifest.pi.modules = [...modules, ...assets].map(([, target, filename]) => {
 	const source = "vendor/pi-" + manifest.pi.version + "/" + filename;
 	const original = path.join(upstreamRoot, target);
 	manifest.patchFiles[source] = hash(path.join(root, source));

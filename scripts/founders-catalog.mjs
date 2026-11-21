@@ -8,7 +8,7 @@ export const FOUNDERS_PACKAGES = [
   },
   {
     id: "compaction", source: "git:github.com/mistrjirka/pi-one-round-compaction",
-    names: ["pi-one-round-compaction"], files: ["src/index.ts"],
+    names: ["pi-one-round-compaction"], files: ["src/index.ts", "src/method-selection.ts"],
     replaces: ["npm:pi-one-round-compaction", "npm:pi-smart-compact"],
   },
   {
@@ -21,7 +21,9 @@ export const FOUNDERS_PACKAGES = [
     names: ["pi-doppelclaude-workspace"],
     files: ["packages/doppelclaude/dist/index.js", "packages/pi-doppelclaude/dist/index.js",
       "packages/doppelclaude/dist/side-question.js", "packages/pi-doppelclaude/dist/pi-side-question.js",
-      "packages/pi-doppelclaude/dist/activation-settings.js"],
+      "packages/pi-doppelclaude/dist/activation-settings.js",
+      "packages/doppelclaude/dist/account-usage.js", "packages/doppelclaude/dist/cached-compaction.js",
+      "packages/pi-doppelclaude/dist/cached-compaction.js"],
     build: "doppelclaude",
     replaces: ["npm:pi-doppelclaude", "git:github.com/thurstonsand/pi-doppelclaude"],
   },

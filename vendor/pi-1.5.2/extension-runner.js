@@ -404,6 +404,10 @@ export class ExtensionRunner {
             void this.emit(event);
         });
     }
+    /** Whether an extension is waiting for a user-facing dialog. */
+    get isAwaitingInput() {
+        return this.uiPromptDepth > 0;
+    }
     getUIContext() {
         return this.uiContext;
     }
@@ -693,6 +697,10 @@ export class ExtensionRunner {
                 runner.assertActive();
                 return runner.getContextUsageFn();
             },
+            getCompactionMethod: () => {
+                runner.assertActive();
+                return runner.runtime.getSettings().compaction?.method === "extension" ? "extension" : "cache-aware";
+            },
             compact: (options) => {
                 runner.assertActive();
                 runner.compactFn(options);
@@ -857,6 +865,19 @@ export class ExtensionRunner {
             }
         }
         return result;
+    }
+    /** Return the first account-bound usage snapshot without invoking another provider. */
+    async emitProviderUsage(event) {
+        const ctx = this.createContext();
+        for (const { handlers } of snapshotEventHandlers(this.extensions, event.type)) {
+            for (const handler of handlers) {
+                event.signal.throwIfAborted();
+                const result = (await handler(event, ctx));
+                if (result !== undefined)
+                    return result;
+            }
+        }
+        return undefined;
     }
     /** Returns the event's own action unless a handler overrides it; the last override wins. */
     async emitCacheWarmingDecision(event) {
