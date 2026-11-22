@@ -1,5 +1,5 @@
 import {
-	btwHelpDismissAt,
+	btwDismissOnTypingAt,
 	type ExtensionWidgetState,
 } from "../state/extension-widgets.ts";
 
@@ -30,7 +30,7 @@ export class ExtensionWidgetController {
 			return true;
 		const widgets = runtime.extensionWidgets ??= new Map();
 		// Map.set replaces an entry in place, preserving extension insertion order.
-		const dismissalAt = btwHelpDismissAt(key, lines, this.now());
+		const dismissalAt = btwDismissOnTypingAt(key, lines, this.now());
 		widgets.set(key, { key, lines: [...lines], placement: placement ?? "aboveEditor",
 			...(dismissalAt === undefined ? {} : { dismissOnTypingAt: dismissalAt }),
 		});

@@ -1,8 +1,8 @@
-import type { ScrollBoxRenderable, TextRenderable } from "@opentui/core";
+import type { MarkdownRenderable, ScrollBoxRenderable, TextRenderable } from "@opentui/core";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
-import type { ExtensionTextWidget } from "../state/extension-widgets.ts";
+import { isBtwMarkdownWidget, type ExtensionTextWidget } from "../state/extension-widgets.ts";
 import { extensionWidgetText } from "./extension-widget-text.ts";
-import { colors } from "./theme.ts";
+import { colors, getMarkdownStyle, getThemeRevision } from "./theme.ts";
 
 export interface ExtensionWidgetAreaProps {
 	widgets: readonly ExtensionTextWidget[];
@@ -25,7 +25,32 @@ function WidgetText(props: { widget: ExtensionTextWidget; id: string }) {
 	);
 }
 
-/** String widgets are already formatted text, not Markdown or terminal components. */
+function WidgetMarkdown(props: { widget: ExtensionTextWidget; id: string }) {
+	let markdown: MarkdownRenderable | undefined;
+	createEffect(() => {
+		getThemeRevision();
+		if (markdown) markdown.syntaxStyle = getMarkdownStyle();
+	});
+	createEffect(() => {
+		const content = props.widget.lines.join("\n");
+		if (markdown) {
+			if (!markdown.streaming) markdown.streaming = true;
+			markdown.content = content;
+		}
+	});
+	const finalize = function (this: MarkdownRenderable) {
+		if (!this.streaming) return;
+		queueMicrotask(() => {
+			if (!this.isDestroyed) this.streaming = false;
+		});
+	};
+	return <markdown id={props.id} ref={(value) => { markdown = value; }}
+		syntaxStyle={getMarkdownStyle()} fg={colors.text} conceal streaming
+		minHeight={1} flexShrink={0} renderAfter={finalize}
+		tableOptions={{ style: "columns", wrapMode: "word", selectable: true }} />;
+}
+
+/** BTW answers are Markdown. Other extension widgets retain their ANSI text styling. */
 export function ExtensionWidgetArea(props: ExtensionWidgetAreaProps) {
 	let scroll: ScrollBoxRenderable | undefined;
 	const widgets = createMemo(() => new Map(
@@ -60,9 +85,11 @@ export function ExtensionWidgetArea(props: ExtensionWidgetAreaProps) {
 				}}
 				onMouseScroll={(event) => { event.preventDefault(); event.stopPropagation(); }}>
 				<For each={keys()}>
-					{(key) => (
-						<WidgetText id={`${props.id ?? "extension-widgets"}-${key}`} widget={widgets().get(key)!} />
-					)}
+					{(key) => <Show
+						when={isBtwMarkdownWidget(key, widgets().get(key)!.lines)}
+						fallback={<WidgetText id={`${props.id ?? "extension-widgets"}-${key}`} widget={widgets().get(key)!} />}>
+						<WidgetMarkdown id={`${props.id ?? "extension-widgets"}-${key}`} widget={widgets().get(key)!} />
+					</Show>}
 				</For>
 			</scrollbox>
 		</Show>

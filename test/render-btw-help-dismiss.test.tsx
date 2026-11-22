@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { createSignal } from "solid-js";
 import type { TextareaRenderable } from "@opentui/core";
 import {
-	BTW_HELP_WIDGET_KEY,
+	BTW_WIDGET_KEY,
 	TransientWidgetDismissController,
 } from "../src/state/extension-widgets.ts";
 import { ExtensionWidgetController, type ExtensionWidgetRuntime } from "../src/tabs/extension-widget-controller.ts";
@@ -43,7 +43,7 @@ test("typing after 30 seconds removes /btw help but keeps the draft and other wi
 		</box>
 	), 94, 24);
 	try {
-		widgets.handle({ type: "extension_ui_request", method: "setWidget", widgetKey: BTW_HELP_WIDGET_KEY,
+		widgets.handle({ type: "extension_ui_request", method: "setWidget", widgetKey: BTW_WIDGET_KEY,
 			widgetLines: ["BTW", "/btw <question>  Ask using the current conversation.", "/btw clear  Hide help."] }, runtime);
 		widgets.handle({ type: "extension_ui_request", method: "setWidget", widgetKey: "another", widgetLines: ["Other extension output"] }, runtime);
 		await setup.flush();
@@ -57,7 +57,6 @@ test("typing after 30 seconds removes /btw help but keeps the draft and other wi
 		expect(editor?.plainText).toBe("Continue my task");
 		expect(editor?.focused).toBe(true);
 	} finally {
-		dismiss.dispose();
 		setup.renderer.destroy();
 	}
 });

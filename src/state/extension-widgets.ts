@@ -1,19 +1,30 @@
 /** Display-only extension widgets. These never enter the conversation history. */
-export const BTW_HELP_WIDGET_KEY = "mistrjirka.btw";
-export const BTW_HELP_MIN_VISIBLE_MS = 30_000;
+export const BTW_WIDGET_KEY = "mistrjirka.btw";
+export const BTW_MIN_VISIBLE_MS = 30_000;
 
-/** Only the command guide is temporary. A live side-question answer is not. */
-export function btwHelpDismissAt(key: string, lines: readonly string[], now: number): number | undefined {
-	return key === BTW_HELP_WIDGET_KEY && lines[0] === "BTW" &&
-		lines.some((line) => line.startsWith("/btw <question>"))
-		? now + BTW_HELP_MIN_VISIBLE_MS : undefined;
+const completedBtwHeaders = new Set([
+	"BTW · Answer", "BTW · Error", "BTW · Cancelled",
+	"BTW · Output limit reached", "BTW · Tool request was not executed",
+]);
+
+/** A running answer stays visible. Help and completed results close on the next edit after 30 s. */
+export function btwDismissOnTypingAt(key: string, lines: readonly string[], now: number): number | undefined {
+	if (key !== BTW_WIDGET_KEY) return undefined;
+	if (lines[0] === "BTW" || completedBtwHeaders.has(lines[0] ?? ""))
+		return now + BTW_MIN_VISIBLE_MS;
+	return undefined;
+}
+
+/** BTW answer bodies contain Markdown. The command guide is literal text. */
+export function isBtwMarkdownWidget(key: string, lines: readonly string[]): boolean {
+	return key === BTW_WIDGET_KEY && (lines[0]?.startsWith("BTW · ") ?? false);
 }
 
 export type ExtensionTextWidget = {
 	key: string;
 	lines: string[];
 	placement: "aboveEditor" | "belowEditor";
-	/** Earliest time this help can close after the user edits the main prompt. */
+	/** Earliest time this result can close after the user edits the main prompt. */
 	dismissOnTypingAt?: number;
 };
 
@@ -62,37 +73,21 @@ export function reconcileExtensionWidgetSession(
 	// own old jobs; a late update cannot be identified as belonging to the old session.
 }
 
-/** Local help dismissal. Does not send RPC commands or alter side-question state. */
+/** Local widget dismissal. Does not send RPC commands or alter side-question state. */
 export class TransientWidgetDismissController {
-	private readonly timers = new Map<ExtensionTextWidget, ReturnType<typeof setTimeout>>();
 	constructor(
 		private readonly onChange: (runtime: ExtensionWidgetState) => void,
 		private readonly now: () => number = Date.now,
-		private readonly schedule: (callback: () => void, ms: number) => ReturnType<typeof setTimeout> = setTimeout,
 	) {}
 
-	/** Only call for a real editor content edit. Cursor moves and tab restoration do not count. */
+	/** An edit before the minimum visibility period does not arm an automatic dismissal. */
 	onUserTyped(runtime: ExtensionWidgetState): void {
-		for (const widget of runtime.extensionWidgets?.values() ?? []) {
-			const deadline = widget.dismissOnTypingAt;
-			if (deadline === undefined || this.timers.has(widget)) continue;
-			const closeIfStillCurrent = () => {
-				this.timers.delete(widget);
-				if (runtime.extensionWidgets?.get(widget.key) !== widget) return;
-				if (runtime.extensionWidgets.delete(widget.key)) this.onChange(runtime);
-			};
-			const remaining = Math.max(0, deadline - this.now());
-			if (remaining === 0) closeIfStillCurrent();
-			else {
-				const timer = this.schedule(closeIfStillCurrent, remaining);
-				timer.unref?.();
-				this.timers.set(widget, timer);
-			}
+		const widgets = runtime.extensionWidgets;
+		if (!widgets) return;
+		const now = this.now();
+		for (const [key, widget] of widgets) {
+			if (widget.dismissOnTypingAt === undefined || now < widget.dismissOnTypingAt) continue;
+			if (widgets.get(key) === widget && widgets.delete(key)) this.onChange(runtime);
 		}
-	}
-
-	dispose(): void {
-		for (const timer of this.timers.values()) clearTimeout(timer);
-		this.timers.clear();
 	}
 }

@@ -78,7 +78,6 @@ export function createAppUiActions(ports: AppUiActionsPorts): AppUiActions {
 	const transientWidgets = new TransientWidgetDismissController(() => ports.touch());
 	onCleanup(() => {
 		inputActivity.dispose();
-		transientWidgets.dispose();
 	});
 	const {
 		renderer,
@@ -299,8 +298,8 @@ export function createAppUiActions(ports: AppUiActionsPorts): AppUiActions {
 		const rawText = prompt?.plainText ?? "";
 		const text = stripCollapsedPromptPasteFragments(rawText, drafts.mainPastes);
 		if (prompt && text !== rawText) prompt.replaceText(text);
-		// A visible /btw help card stays for at least 30 seconds. A genuine
-		// editor edit then dismisses just that card, never an active answer.
+		// Help and completed BTW results stay for at least 30 seconds. A genuine
+		// editor edit dismisses them without interrupting a running side question.
 		if (text && text !== drafts.main) transientWidgets.onUserTyped(activeRuntime());
 		drafts.main = text;
 		syncPromptPlaceholder(text);
