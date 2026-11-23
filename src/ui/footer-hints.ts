@@ -1,5 +1,11 @@
 /** Width-aware footer hints, independent of the main UI component. */
 import { USAGE_FOOTER_SEPARATOR } from "./usage-footer.ts";
+import { appVersion } from "../version.ts";
+
+/** Always describe the executable currently running, not a pending upgrade. */
+export const footerVersionLabel = `PiTTy v${appVersion}`;
+/** Include the gap separating the version from other footer content. */
+export const footerVersionReservedWidth = footerVersionLabel.length + 1;
 
 /** Readable current-session level, not merely a Ctrl+T shortcut hint. */
 export function thinkingFooterText(level: string | undefined): string {

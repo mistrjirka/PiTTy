@@ -1,7 +1,7 @@
 /** Footer usage and transient notifications, isolated from App state. */
 import type { Accessor } from "solid-js";
 import { For, Show } from "solid-js";
-import { thinkingFooterText } from "./footer-hints.ts";
+import { footerVersionLabel, thinkingFooterText } from "./footer-hints.ts";
 import type { Toast } from "../types.ts";
 import {
 	USAGE_FOOTER_SEPARATOR,
@@ -64,8 +64,12 @@ export function AppFooter(props: AppFooterProps) {
 				)}
 			</For>
 			<box flexGrow={1} />
-			<text fg={colors.subtle} wrapMode="none">
+			<text fg={colors.subtle} wrapMode="none" flexShrink={1} minWidth={0}>
 				{props.hintText()}
+			</text>
+			<text id="footer-version" fg={colors.subtle} wrapMode="none"
+				flexShrink={0} marginLeft={1}>
+				{footerVersionLabel}
 			</text>
 		</box>
 	);

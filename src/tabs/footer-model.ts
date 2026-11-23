@@ -7,7 +7,7 @@ import type { UsageStats } from "../integrations/codex-usage-history.ts";
 import type { ClaudeUsage } from "../integrations/doppelclaude-usage.ts";
 import type { OpencodeUsage } from "../integrations/opencode-usage.ts";
 import type { SubagentTarget } from "../subagents/targets.ts";
-import { footerHintTiers, selectFooterHint, thinkingFooterText } from "../ui/footer-hints.ts";
+import { footerHintTiers, footerVersionReservedWidth, selectFooterHint, thinkingFooterText } from "../ui/footer-hints.ts";
 import { cleanInline, clip } from "../ui/model-context.tsx";
 import {
 	USAGE_FOOTER_SEPARATOR,
@@ -84,7 +84,7 @@ export function createFooterModel(ports: FooterModelPorts): FooterModel {
 		)[0]?.length ?? 0;
 	const footerHintText = () =>
 		selectFooterHint(
-			ports.dimensions().width,
+			Math.max(0, ports.dimensions().width - footerVersionReservedWidth),
 			footerStatusText().length + thinkingWidth(),
 			usageFooterWidth(footerUsageSegments()),
 			ports.inspectSubagent(),
@@ -100,12 +100,13 @@ export function createFooterModel(ports: FooterModelPorts): FooterModel {
 			opencodeUsage: ports.opencodeUsage(),
 			opencodeUsageStats: ports.opencodeUsageStats(),
 			now: ports.clockNow(),
-			// row padding (2) + leading separator (3) + two-column gap before the hint.
+			// Reserve room for the running version before allocating usage and hints.
 			// Budget against the shortest hints so usage wins over verbosity;
 			// the hint picker then upgrades verbosity with whatever is left.
 			width: Math.max(
 				0,
 				ports.dimensions().width -
+					footerVersionReservedWidth -
 					2 -
 					footerStatusText().length -
 					thinkingWidth() -

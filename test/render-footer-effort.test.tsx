@@ -37,3 +37,25 @@ test("the sidebar distinguishes thinking effort from the model name", async () =
     expect(frame).toContain("doppelclaude/claude-opus-5-5");
   } finally { setup.renderer.destroy(); }
 });
+
+
+test("the running PiTTy version stays at the right of the footer", async () => {
+  const { footerVersionLabel } = await import("../src/ui/footer-hints.ts");
+  for (const width of [55, 75, 100, 150]) {
+    const setup = await mount(() => (
+      <AppFooter streaming={() => true} statusText={() => "● working"}
+        thinkingLevel={() => "medium"}
+        segments={() => [{ text: "claude(home) 5h 15%", tone: "normal" }]}
+        hintText={() => "ctrl+p model  ctrl+t effort  ctrl+x settings"} />
+    ), width, 5);
+    try {
+      const line = setup.captureCharFrame().split("\n")[0]!;
+      expect(line).toContain(footerVersionLabel);
+      expect(line.indexOf(footerVersionLabel)).toBeGreaterThan(line.indexOf("● working"));
+      expect(line.length).toBeLessThanOrEqual(width);
+      expect(setup.renderer.root.findDescendantById("footer-version")).toBeDefined();
+    } finally {
+      setup.renderer.destroy();
+    }
+  }
+});
