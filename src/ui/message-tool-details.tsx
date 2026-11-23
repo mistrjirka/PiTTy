@@ -29,6 +29,7 @@ import { SPLIT_DIFF_MIN_WIDTH, SplitDiffView, splitDiffRows } from "./diff-split
 import { colors } from "./theme.ts";
 import { containsMermaidFence } from "./mermaid-renderer.ts";
 import { ToolOutputMarkdown } from "./tool-output-markdown.tsx";
+import { ToolImagePreviews } from "./tool-image-previews.tsx";
 import { hasMeaningfulToolOutput, isRedundantSpawnReceipt, structuredToolOutput, toolInputDetail } from "./tool-input-format.ts";
 
 export function ToolDetails(props: {
@@ -300,6 +301,11 @@ export function ToolDetails(props: {
 						</box>
 					</box>
 				</Show>
+			</Show>
+
+			<Show when={(props.item.images?.length ?? 0) > 0}>
+				<ToolImagePreviews id={`${props.item.id}-images`}
+					images={props.item.images ?? []} expanded={resolvedBoolean(props.toolExpanded)} />
 			</Show>
 
 			<Show when={diff().trim()}>

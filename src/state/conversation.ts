@@ -1,5 +1,5 @@
 import { parseQueueState, type QueueState } from "../rpc/queue-types.ts";
-import { id, extractText, extractThinking, objectRecord, stringArrayField, normalizedText, eventDelta, mergeStreamingText, toolOutput, stringField, numberField, messageRole, messageTimestamp, toolTimeLimits, customItemFromMessage } from "./conversation-shared.ts";
+import { id, extractText, extractThinking, objectRecord, stringArrayField, normalizedText, eventDelta, mergeStreamingText, toolOutput, toolResultImages, stringField, numberField, messageRole, messageTimestamp, toolTimeLimits, customItemFromMessage } from "./conversation-shared.ts";
 import { displayToolDetails } from "./conversation-history.ts";
 import { createMutationDiff } from "./conversation-mutation.ts";
 
@@ -452,6 +452,7 @@ export class ConversationModel {
 		this.items[index] = {
 			...current,
 			output: toolOutput(result),
+			images: toolResultImages(result),
 			...(objectRecord(result)?.details !== undefined
 				? { details: displayToolDetails(current.name, objectRecord(result)?.details) }
 				: {}),

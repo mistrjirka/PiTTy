@@ -296,6 +296,7 @@ export function appendProfiledStreamItems(
 				name: event.toolName,
 				args: backfill?.args,
 				output: backfill?.output ?? "",
+			images: backfill?.images,
 				...(diffBackfill ? { diff: diffBackfill.diff } : {}),
 				...(diffBackfill?.diffPath ? { diffPath: diffBackfill.diffPath } : {}),
 				...(diffBackfill ? { details: diffBackfill.details } : {}),
@@ -334,6 +335,7 @@ export function appendProfiledStreamItems(
 				endedAt: ts,
 				status: "done",
 				output: tool.output || backfill?.output || "",
+				images: tool.images ?? backfill?.images,
 				...(diffBackfill && !tool.diff ? { diff: diffBackfill.diff } : {}),
 				...(diffBackfill?.diffPath && !tool.diffPath
 					? { diffPath: diffBackfill.diffPath }

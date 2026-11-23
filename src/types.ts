@@ -9,6 +9,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import type { QueueCommand, QueueState } from "./rpc/queue-types.ts";
+import type { ToolResultImage } from "./state/conversation-shared.ts";
 
 export type CompactionMethod = "cache-aware" | "extension";
 export type CacheMaintenanceMode = "compact" | "keep-warm" | "off";
@@ -74,6 +75,7 @@ export type ToolItem = {
 	name: string;
 	args: unknown;
 	output: string;
+	images?: ToolResultImage[] | undefined;
 	details?: unknown;
 	diff?: string | undefined;
 	diffPath?: string | undefined;

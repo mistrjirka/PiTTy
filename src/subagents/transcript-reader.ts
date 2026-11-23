@@ -1,6 +1,7 @@
 /** Subagent transcript JSONL parsing and stream reconciliation | transcript-reader. */
 
 import { initialItems } from "../state/conversation.ts";
+import { toolResultImages } from "../state/conversation-shared.ts";
 
 import { normalizeResultDetails } from "../state/result-diff.ts";
 
@@ -192,6 +193,7 @@ export function readSubagentConversation(
 					name,
 					args: undefined,
 					output,
+					images: toolResultImages(rawMessage ?? record),
 					details,
 					diff: resultDiff(details),
 					timestamp,
@@ -209,6 +211,7 @@ export function readSubagentConversation(
 					...tool,
 					toolCallId: displayToolCallId,
 					output,
+					images: toolResultImages(rawMessage ?? record),
 					details,
 					diff: resultDiff(details),
 					diffPath:

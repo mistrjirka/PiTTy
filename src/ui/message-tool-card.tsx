@@ -57,7 +57,7 @@ export function ToolMessage(props: ToolMessageProps) {
 	const receipt = () => isRedundantSpawnReceipt(item.name, item.output, item.isError) ? item.output : undefined;
 	const output = () => receipt() ? "" : item.output;
 	const showDetails = () => detailsOverride() ?? resolvedBoolean(props.toolExpanded);
-	const hasDetails = () => Boolean(input() || hasMeaningfulToolOutput(output(), item.isError));
+	const hasDetails = () => Boolean(input() || hasMeaningfulToolOutput(output(), item.isError) || item.images?.length);
 	const toggleDetails = () => {
 		if (props.onToggleTool) props.onToggleTool(item.id);
 		else setDetailsOverride(!showDetails());

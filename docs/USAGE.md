@@ -218,6 +218,8 @@ A `·stale 3h32m` marker on the Claude segment means cswap's live usage needs a 
 
 Use a modern monospace terminal font with box-drawing support. Very small terminals fall back to the plain `PiTTy` wordmark to avoid clipping.
 
+Image attachments in tool results appear as bounded inline previews, not Base64 text. PiTTy asks OpenTUI to choose Kitty graphics, Sixel, or Unicode blocks according to detected terminal capabilities. The `details` control enlarges the preview and shows any additional images. tmux can hide graphics capabilities: when passthrough is disabled or the outer terminal lacks a supported image protocol, the Unicode-block fallback is expected. PiTTy does not change tmux settings.
+
 ### Login is unavailable
 
 Run the regular `pi` interface, complete `/login`, exit Pi, and start PiTTy again.

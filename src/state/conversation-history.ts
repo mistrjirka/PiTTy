@@ -1,6 +1,7 @@
 /** Decode persisted Pi messages into stable conversation items. */
 import { stableHash } from "../subagents/cache-key.ts";
 import type { ConversationItem, PiEvent } from "../types.ts";
+import type { ToolResultImage } from "./conversation-shared.ts";
 import {
 	contentBlocks,
 	customItemFromMessage,
@@ -12,6 +13,7 @@ import {
 	objectRecord,
 	stringField,
 	toolOutput,
+	toolResultImages,
 	toolTimeLimits,
 } from "./conversation-shared.ts";
 import { compactTokenCount } from "./compaction-results.ts";
@@ -68,6 +70,7 @@ export type SessionToolCall = {
 	name: string;
 	args: unknown;
 	output?: string | undefined;
+	images?: ToolResultImage[] | undefined;
 };
 
 /**
@@ -113,6 +116,7 @@ export function sessionToolCalls(
 			name: previous?.name ?? toolName ?? "tool",
 			args: previous?.args,
 			output: toolOutput(message),
+			images: toolResultImages(message),
 		});
 	}
 	return calls;
@@ -230,6 +234,7 @@ export function initialItems(
 				args: call?.arguments,
 				...toolTimeLimits(call?.name ?? toolName, call?.arguments),
 				output,
+				images: toolResultImages(message),
 				...(normalizedResult.diff ? { diff: normalizedResult.diff } : {}),
 				...(normalizedResult.path ? { diffPath: normalizedResult.path } : {}),
 				details: displayToolDetails(call?.name ?? toolName, record.details),

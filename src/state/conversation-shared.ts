@@ -87,23 +87,50 @@ export function customItemFromMessage(
 	};
 }
 
+/** Image blocks are binary attachments, never text to display in a transcript. */
+export type ToolResultImage = {
+	mimeType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+	/** Base64 payload is retained for the image renderable, not appended to output. */
+	data: string;
+};
+
+const MAX_IMAGE_BASE64_CHARS = 8 * 1024 * 1024;
+const MAX_DISPLAY_IMAGES = 4;
+function isImageMimeType(value: unknown): value is ToolResultImage["mimeType"] {
+	return value === "image/jpeg" || value === "image/png" ||
+		value === "image/webp" || value === "image/gif";
+}
+
+/** Retain bounded image attachments separately from text in live and restored tools. */
+export function toolResultImages(result: unknown): ToolResultImage[] {
+	const content = objectRecord(result)?.content;
+	if (!Array.isArray(content)) return [];
+	const images: ToolResultImage[] = [];
+	for (const part of content) {
+		if (images.length >= MAX_DISPLAY_IMAGES) break;
+		const block = objectRecord(part);
+		if (block?.type !== "image") continue;
+		const { mimeType, data } = block;
+		if (!isImageMimeType(mimeType) || typeof data !== "string" || data.length < 4 ||
+			data.length > MAX_IMAGE_BASE64_CHARS || data.length % 4 !== 0 ||
+			!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) continue;
+		images.push({ mimeType, data });
+	}
+	return images;
+}
+
 export function toolOutput(result: unknown): string {
 	if (!result || typeof result !== "object") return "";
 	const content = (result as Record<string, unknown>).content;
 	if (!Array.isArray(content))
 		return typeof content === "string" ? content : "";
 	return content
-		.filter(
-			(part): part is Record<string, unknown> =>
-				Boolean(part) && typeof part === "object",
-		)
+		.filter((part): part is Record<string, unknown> =>
+			Boolean(part) && typeof part === "object" && !Array.isArray(part))
 		.map((part) =>
-			typeof part.text === "string"
-				? part.text
-				: typeof part.data === "string"
-					? part.data
-					: "",
-		)
+			part.type === "image" ? "" :
+			typeof part.text === "string" ? part.text :
+			typeof part.data === "string" ? part.data : "")
 		.filter(Boolean)
 		.join("\n");
 }
