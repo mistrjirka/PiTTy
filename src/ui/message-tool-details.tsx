@@ -29,20 +29,20 @@ import { SPLIT_DIFF_MIN_WIDTH, SplitDiffView, splitDiffRows } from "./diff-split
 import { colors } from "./theme.ts";
 import { containsMermaidFence } from "./mermaid-renderer.ts";
 import { ToolOutputMarkdown } from "./tool-output-markdown.tsx";
-import { isRedundantSpawnReceipt, structuredToolOutput, toolInputDetail } from "./tool-input-format.ts";
+import { hasMeaningfulToolOutput, isRedundantSpawnReceipt, structuredToolOutput, toolInputDetail } from "./tool-input-format.ts";
 
 export function ToolDetails(props: {
 	item: ToolItem;
 	toolExpanded: boolean | Accessor<boolean>;
-	onToggleTool?: ((toolId: string) => void) | undefined;
 	diffExpanded?: boolean | Accessor<boolean> | undefined;
 	onToggleDiff?: ((toolId: string) => void) | undefined;
 }) {
 	// The spawn header already reports success. Keep the receipt inside the
 	// expandable request panel rather than repeating it under every child.
 	const output = () =>
-		toolInputDetail(props.item.name, props.item.args) &&
-		isRedundantSpawnReceipt(props.item.name, props.item.output, props.item.isError)
+		!hasMeaningfulToolOutput(props.item.output, props.item.isError) ||
+		(toolInputDetail(props.item.name, props.item.args) &&
+		isRedundantSpawnReceipt(props.item.name, props.item.output, props.item.isError))
 			? "" : props.item.output;
 	const structured = createMemo(() => structuredToolOutput(output()));
 	const diagramOutput = createMemo(() => containsMermaidFence(output()));
@@ -50,7 +50,7 @@ export function ToolDetails(props: {
 	const diff = () => props.item.diff ?? "";
 	const expandable = () => Boolean(output() && (structured() || diagramOutput() || toolOutputExpandable(output())));
 	const toolExpanded = () =>
-		expandable() && resolvedBoolean(props.toolExpanded);
+		Boolean(output()) && resolvedBoolean(props.toolExpanded);
 	const diffExpanded = () => resolvedBoolean(props.diffExpanded);
 	const stats = () => diffStats(diff());
 	// Hidden OpenTUI nodes still process their text. Gate full output and diff
@@ -58,12 +58,29 @@ export function ToolDetails(props: {
 	const expandedOutputText = createMemo(() =>
 		toolExpanded() ? (structured()?.expanded ?? cleanTerminalText(output())) : "",
 	);
-	const expandedOutputRows = () =>
-		toolExpanded() ? expandedToolHeight(expandedOutputText()) : 6;
+	const terminalDimensions = useTerminalDimensions();
+	const expandedOutputRows = () => {
+		if (!toolExpanded()) return 2;
+		const text = expandedOutputText();
+		if (diagramOutput()) return expandedToolHeight(text);
+		// Only reserve rows that contain output. Long wrapped lines still count.
+		// Bound the scan by the 18-row maximum for large tool results.
+		const available = Math.max(25, terminalDimensions().width -
+			(terminalDimensions().width >= 104 ? 38 : 0) - 9);
+		let rows = 0;
+		let at = 0;
+		while (at < text.length && rows < 18) {
+			const end = text.indexOf("\n", at);
+			const length = (end < 0 ? text.length : end) - at;
+			rows += Math.max(1, Math.ceil(length / available));
+			if (end < 0) break;
+			at = end + 1;
+		}
+		return Math.max(2, Math.min(18, rows + 1));
+	};
 	const expandedDiffLines = createMemo(() =>
 		diffExpanded() ? diffLines(diff()) : [],
 	);
-	const terminalDimensions = useTerminalDimensions();
 	// Same transcript width estimate as the thinking preview: wide terminals
 	// reserve the 38-column sidebar plus padding.
 	const splitDiff = () => {
@@ -171,19 +188,30 @@ export function ToolDetails(props: {
 				<Show
 					when={expandable()}
 					fallback={
-						<text fg={colors.muted} selectable wrapMode="word">
-							{cleanTerminalText(output())}
-						</text>
+						<box flexDirection="column">
+							<Show when={toolExpanded()} fallback={
+								<text fg={colors.subtle} wrapMode="none" selectable>
+									{`↳ ${outputPreview()}`}
+								</text>
+							}>
+								<text fg={colors.subtle} wrapMode="none">Output</text>
+								<text fg={colors.muted} selectable wrapMode="word">
+									{cleanTerminalText(output())}
+								</text>
+							</Show>
+						</box>
 					}
 				>
 					<box flexDirection="column">
-						{/* Collapsed, the header row carries the preview itself, so
-						    `expand` sits beside it instead of on a row of its own. */}
+						{/* The command row has one details toggle. Keep only a quiet
+						    result preview here when details are collapsed. */}
 						<box flexDirection="row">
 							<text fg={colors.subtle} wrapMode="none" flexShrink={1} minWidth={0}>
-								{toolExpanded() ? "Output" : outputPreview()}
+								{toolExpanded() ? "Output" : `↳ ${outputPreview()}`}
 							</text>
-							<box flexGrow={1} minWidth={2} />
+							<Show when={toolExpanded()}>
+								<box flexGrow={1} minWidth={2} />
+							</Show>
 							<box
 								id={`${props.item.id}-output-scroll-toggle`}
 								ref={(value) => {
@@ -210,29 +238,6 @@ export function ToolDetails(props: {
 									{scrollOwner() === "output" ? "chat scroll" : "scroll output"}
 								</text>
 							</box>
-							<text fg={colors.subtle} wrapMode="none" visible={toolExpanded()}>
-								{" · "}
-							</text>
-							<box
-								id={`${props.item.id}-tool-toggle`}
-								height={1}
-								flexShrink={0}
-								onMouseDown={(event) => {
-									event.preventDefault();
-									event.stopPropagation();
-									props.onToggleTool?.(props.item.id);
-								}}
-							>
-								<text
-									ref={(value) => {
-										toolToggleLabel = value;
-									}}
-									fg={colors.cyan}
-									wrapMode="none"
-								>
-									{toolExpanded() ? "collapse" : "expand"}
-								</text>
-							</box>
 						</box>
 						<box
 							ref={(value) => {
@@ -248,7 +253,7 @@ export function ToolDetails(props: {
 								}}
 								visible={scrollOwner() !== "output"}
 								height={expandedOutputRows()}
-								minHeight={6}
+								minHeight={2}
 								overflow="hidden"
 								onMouseScroll={(event) => {
 									scrollTranscriptFromPreview(outputPreviewBox, event);
@@ -271,7 +276,7 @@ export function ToolDetails(props: {
 								visible={scrollOwner() === "output"}
 								focusable={false}
 								height={expandedOutputRows()}
-								minHeight={6}
+								minHeight={2}
 								scrollY
 								scrollX={false}
 								stickyScroll

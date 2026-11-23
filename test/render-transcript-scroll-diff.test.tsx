@@ -55,7 +55,7 @@ describe("OpenTUI components", () => {
 			16,
 		);
 		let frame = setup.captureCharFrame();
-		expect(frame).toContain("scroll output · collapse");
+		expect(frame).toContain("scroll output");
 		const initiallyHiddenInner = setup.renderer.root.findDescendantById(
 			"scroll-owner-tool-output-scroll",
 		) as ScrollBoxRenderable | undefined;
@@ -85,7 +85,7 @@ describe("OpenTUI components", () => {
 		expect(inner).toBeDefined();
 		if (!inner) throw new Error("inner output scrollbox missing");
 		frame = setup.captureCharFrame();
-		expect(frame).toContain("chat scroll · collapse");
+		expect(frame).toContain("chat scroll");
 		inner.scrollTo(10);
 		await setup.flush();
 		const innerBefore = inner.scrollTop;
@@ -104,7 +104,7 @@ describe("OpenTUI components", () => {
 		await setup.flush();
 		await setup.waitForVisualIdle({ quietFrames: 4, maxFrames: 300 });
 		expect(expanded()).toBe(false);
-		expect(setup.captureCharFrame()).toContain("expand");
+		expect(setup.captureCharFrame()).toContain("▸ details");
 		expect(inner.visible).toBe(false);
 	});
 

@@ -82,3 +82,13 @@ export function structuredToolOutput(output: string): { preview: string; expande
 		expanded: JSON.stringify(value, null, 2),
 	};
 }
+
+/** A successful command with no stdout needs no second transcript row. */
+export function hasMeaningfulToolOutput(output: string, isError: boolean): boolean {
+	if (!output) return false;
+	// Only short, non-error placeholders are suppressed. Avoid scanning large
+	// live tool outputs on each repaint.
+	if (output.length > 32) return true;
+	const cleaned = output.trim();
+	return cleaned.length > 0 && (isError || cleaned !== "(no output)");
+}

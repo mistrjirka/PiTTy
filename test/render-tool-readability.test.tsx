@@ -20,9 +20,9 @@ test("code arguments show an accurate summary and reveal the original script on 
 		await setup.flush();
 		const frame = setup.captureCharFrame();
 		expect(frame).toContain("Python · 4 lines");
-		expect(frame).toContain("view code");
+		expect(frame).toContain("▸ details");
 		expect(frame).not.toContain("ids.append");
-		const toggle = setup.renderer.root.findDescendantById("example-input-toggle");
+		const toggle = setup.renderer.root.findDescendantById("example-tool-toggle");
 		expect(toggle).toBeDefined();
 		if (!toggle) return;
 		await setup.mockMouse.click(toggle.x + 1, toggle.y);
@@ -50,7 +50,7 @@ test("spawn cards use the real role and scope, not JSON or a duplicate receipt",
 		expect(frame).toContain("impl-check-behavior");
 		expect(frame).toContain("checks B1–B12");
 		expect(frame).not.toContain("Started background agent");
-		expect(frame).toContain("view input");
+		expect(frame).toContain("▸ details");
 		expect(taskGist({ prompt })).toContain("checks B1–B12");
 	} finally { setup.renderer.destroy(); }
 });
@@ -67,4 +67,89 @@ test("JSON results and wait calls show concise structured summaries", async () =
 		expect(frame).toContain("JSON · 2 fields · status: ok");
 		expect(frame).not.toContain('{"status":');
 	} finally { setup.renderer.destroy(); }
+});
+
+test("narrow tool rows keep the full tool name and one details action", async () => {
+	const command = "cd /home/jirka/programovani/SBHG-Buddy; " +
+		"grep -rni \"check-unavailable\" apps/frontend/web/src " +
+		"apps/frontend/mobile/src --exclude-dir=node_modules --exclude=*.map | head -100";
+	const item = {
+		...tool("bash", { command }, "apps/frontend/web/src/content/copy.ts:18: " + "value ".repeat(11) + "\nnext matched line", "narrow-bash"),
+		startedAt: 1_000, endedAt: 1_330,
+	};
+	for (const width of [76, 94, 126]) {
+		const setup = await mount(() => (
+			<MessageView item={item} showThinking toolExpanded={false} />
+		), width, 26);
+		try {
+			const frame = setup.captureCharFrame();
+			const row = frame.split("\n").find((line) => line.includes("330ms")) ?? "";
+			expect(row).toContain("✓ bash");
+			expect(row).toContain("330ms  ▸ details");
+			expect(row).not.toContain("view input");
+			expect(frame).not.toContain("expand");
+			expect(frame).toContain("↳ apps/frontend/web/src");
+			const button = setup.renderer.root.findDescendantById("narrow-bash-tool-toggle");
+			expect(button).toBeDefined();
+			if (!button) continue;
+			await setup.mockMouse.click(button.x + 2, button.y);
+			await setup.flush();
+			let expanded = setup.captureCharFrame();
+			expect(expanded).toContain("▾ hide");
+			expect(expanded).toContain("Command");
+			expect(expanded).toContain("Output");
+			const preview = setup.renderer.root.findDescendantById("narrow-bash-output-preview");
+			expect(preview?.height).toBeLessThan(6);
+			await setup.mockMouse.click(button.x + 1, button.y);
+			await setup.flush();
+			expanded = setup.captureCharFrame();
+			expect(expanded).toContain("▸ details");
+			expect(expanded).toContain("↳ apps/frontend/web/src");
+			expect(expanded).not.toContain("Command\n");
+		} finally {
+			setup.renderer.destroy();
+		}
+	}
+});
+
+test("successful commands without output do not waste a row on a placeholder", async () => {
+	const item = tool("bash", { command: "true" }, "(no output)", "silent-command");
+	const setup = await mount(() => (
+		<MessageView item={item} showThinking toolExpanded={false} />
+	), 95, 16);
+	try {
+		const frame = setup.captureCharFrame();
+		expect(frame).toContain("✓ bash  true");
+		expect(frame).not.toContain("(no output)");
+		expect(frame).not.toContain("▸ details");
+		const occupied = frame.split("\n").filter((line) => line.trim() !== "");
+		expect(occupied).toHaveLength(1);
+	} finally {
+		setup.renderer.destroy();
+	}
+});
+
+test("short results use the same preview and the details button toggles both ways", async () => {
+	const item = tool("bash", { command: "echo ready" }, "ready", "short-result");
+	const setup = await mount(() => <MessageView item={item}
+		showThinking toolExpanded={true} />, 85, 16);
+	try {
+		let frame = setup.captureCharFrame();
+		expect(frame).toContain("▾ hide");
+		expect(frame).toContain("Output");
+		const button = setup.renderer.root.findDescendantById("short-result-tool-toggle");
+		expect(button).toBeDefined();
+		if (!button) return;
+		await setup.mockMouse.click(button.x + 1, button.y);
+		await setup.flush();
+		frame = setup.captureCharFrame();
+		expect(frame).toContain("▸ details");
+		expect(frame).toContain("↳ ready");
+		expect(frame).not.toContain("Output\n");
+		await setup.mockMouse.click(button.x + 1, button.y);
+		await setup.flush();
+		expect(setup.captureCharFrame()).toContain("▾ hide");
+	} finally {
+		setup.renderer.destroy();
+	}
 });

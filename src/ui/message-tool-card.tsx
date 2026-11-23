@@ -11,14 +11,13 @@ import {
 	resolvedBoolean,
 	supervisorMessage,
 	supervisorToolLabel,
-	toolOutputExpandable,
 	toolStatusGlyph,
 	toolTiming,
 	toolVisual,
 } from "./message-format.tsx";
 import { ToolDetails } from "./message-tool-details.tsx";
 import { ToolInputPanel } from "./tool-input-panel.tsx";
-import { isRedundantSpawnReceipt, toolCallArgSummary, toolInputDetail } from "./tool-input-format.ts";
+import { hasMeaningfulToolOutput, isRedundantSpawnReceipt, toolCallArgSummary, toolInputDetail } from "./tool-input-format.ts";
 import {
 	isResidentTargetState,
 	stateColor,
@@ -51,11 +50,18 @@ export interface ToolMessageProps {
 }
 export function ToolMessage(props: ToolMessageProps) {
 	const item = props.item;
-	const [inputExpanded, setInputExpanded] = createSignal(false);
+	// The transcript owns per-tool expansion when it supplies a toggle callback.
+	// Standalone/inspector renderers can still open and close details locally.
+	const [detailsOverride, setDetailsOverride] = createSignal<boolean | undefined>(undefined);
 	const input = () => toolInputDetail(item.name, item.args);
 	const receipt = () => isRedundantSpawnReceipt(item.name, item.output, item.isError) ? item.output : undefined;
-	const expandable = () => toolOutputExpandable(item.output);
-	const expanded = () => expandable() && resolvedBoolean(props.toolExpanded);
+	const output = () => receipt() ? "" : item.output;
+	const showDetails = () => detailsOverride() ?? resolvedBoolean(props.toolExpanded);
+	const hasDetails = () => Boolean(input() || hasMeaningfulToolOutput(output(), item.isError));
+	const toggleDetails = () => {
+		if (props.onToggleTool) props.onToggleTool(item.id);
+		else setDetailsOverride(!showDetails());
+	};
 	const visual = () => toolVisual(item.name, item.isError);
 	const status = () => toolStatusGlyph(item);
 	const timing = () => toolTiming(item, props.now ?? Date.now());
@@ -109,7 +115,7 @@ export function ToolMessage(props: ToolMessageProps) {
 		<box
 			id={item.id}
 			flexDirection="column"
-			backgroundColor={expanded() ? colors.panelRaised : "transparent"}
+			backgroundColor={showDetails() ? colors.panelRaised : "transparent"}
 			paddingLeft={1}
 			paddingRight={1}
 			marginBottom={props.compactBelow ? 0 : 1}
@@ -120,7 +126,8 @@ export function ToolMessage(props: ToolMessageProps) {
 				</text>
 				{/* Subagent labels carry the task description and can be long: they
 				    shrink so timing and `inspect ›` stay inside the row. */}
-				<text fg={visual().accent} attributes={1} wrapMode="none" flexShrink={1}>
+				<text fg={visual().accent} attributes={1} wrapMode="none"
+					flexShrink={subagentFamily() ? 1 : 0}>
 					{supervisorLabel() ?? subagentLabel() ?? (item.name === "agent_wait" ? "Wait" : item.name)}
 				</text>
 				<Show when={children()}>
@@ -129,28 +136,30 @@ export function ToolMessage(props: ToolMessageProps) {
 					</text>
 				</Show>
 				<Show when={argSummary()}>
-					<text fg={colors.text} selectable wrapMode="none" flexShrink={1}>
+					<text fg={colors.text} selectable wrapMode="none" flexShrink={1} minWidth={0}>
 						{`  ${argSummary()}`}
 					</text>
 				</Show>
 				<box flexGrow={1} minWidth={1} />
-				<Show when={input()}>
-					{(detail) => <text
-						id={`${item.id}-input-toggle`}
+				<Show when={timing()}>
+					<text fg={colors.subtle} wrapMode="none" flexShrink={0} marginLeft={1}>
+						{timing()}
+					</text>
+				</Show>
+				<Show when={hasDetails()}>
+					<text
+						id={`${item.id}-tool-toggle`}
 						fg={colors.cyan}
 						wrapMode="none"
 						flexShrink={0}
+						marginLeft={2}
 						onMouseDown={(event) => {
 							event.preventDefault();
 							event.stopPropagation();
-							setInputExpanded((value) => !value);
-						}}>
-						{inputExpanded() ? "hide" : `view ${detail().title === "Python source" ? "code" : "input"}`}
-					</text>}
-				</Show>
-				<Show when={timing()}>
-					<text fg={colors.subtle} wrapMode="none" flexShrink={0}>
-						{timing()}
+							toggleDetails();
+						}}
+					>
+						{showDetails() ? "▾ hide" : "▸ details"}
 					</text>
 				</Show>
 				<Show when={singleProfiledTarget()}>
@@ -170,7 +179,7 @@ export function ToolMessage(props: ToolMessageProps) {
 					)}
 				</Show>
 			</box>
-			<Show when={inputExpanded() && input()}>
+			<Show when={showDetails() && input()}>
 				{(detail) => <ToolInputPanel id={`${item.id}-input-panel`}
 					detail={detail()} receipt={receipt()} />}
 			</Show>
@@ -231,8 +240,7 @@ export function ToolMessage(props: ToolMessageProps) {
 			<box flexDirection="column" paddingLeft={2}>
 				<ToolDetails
 					item={item}
-					toolExpanded={props.toolExpanded}
-					onToggleTool={props.onToggleTool}
+					toolExpanded={showDetails}
 					diffExpanded={props.diffExpanded}
 					onToggleDiff={props.onToggleDiff}
 				/>
