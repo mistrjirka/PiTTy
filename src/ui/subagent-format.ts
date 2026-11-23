@@ -35,7 +35,15 @@ export function taskGist(args: unknown): string | undefined {
 	const task = nonEmptyString(record?.task) ?? nonEmptyString(record?.prompt);
 	if (!task) return undefined;
 	const normalized = task.replace(/\s+/g, " ").trim();
-	return normalized.length > 90 ? `${normalized.slice(0, 89)}…` : normalized;
+	// Explicit scope beats a generic prompt preamble that only names a repo.
+	const assignedChecks = normalized.match(/\bDo your assigned check groups only\s*\(([^)]+)\)/i);
+	if (assignedChecks) {
+		const purpose = normalized.match(/^([^.!?]{1,65})[.!?]/)?.[1]?.trim();
+		return `${purpose ?? "Review"} · checks ${assignedChecks[1]}`;
+	}
+	const explicitGoal = task.match(/(?:^|\n)\s*(?:Task|Goal|Objective|Mission):\s*(.+)/i)?.[1]?.trim();
+	const display = explicitGoal ?? normalized;
+	return display.length > 90 ? `${display.slice(0, 89)}…` : display;
 }
 
 function childrenSummary(record: SubagentArgs | undefined): string | undefined {

@@ -1,5 +1,5 @@
 /** Tool rows and nested subagent summaries. */
-import { type Accessor, For, Show } from "solid-js";
+import { type Accessor, createSignal, For, Show } from "solid-js";
 import {
 	isProfiledSubagentTool,
 	isSubagentFamilyToolName,
@@ -11,13 +11,14 @@ import {
 	resolvedBoolean,
 	supervisorMessage,
 	supervisorToolLabel,
-	toolArgSummary,
 	toolOutputExpandable,
 	toolStatusGlyph,
 	toolTiming,
 	toolVisual,
 } from "./message-format.tsx";
 import { ToolDetails } from "./message-tool-details.tsx";
+import { ToolInputPanel } from "./tool-input-panel.tsx";
+import { isRedundantSpawnReceipt, toolCallArgSummary, toolInputDetail } from "./tool-input-format.ts";
 import {
 	isResidentTargetState,
 	stateColor,
@@ -50,6 +51,9 @@ export interface ToolMessageProps {
 }
 export function ToolMessage(props: ToolMessageProps) {
 	const item = props.item;
+	const [inputExpanded, setInputExpanded] = createSignal(false);
+	const input = () => toolInputDetail(item.name, item.args);
+	const receipt = () => isRedundantSpawnReceipt(item.name, item.output, item.isError) ? item.output : undefined;
 	const expandable = () => toolOutputExpandable(item.output);
 	const expanded = () => expandable() && resolvedBoolean(props.toolExpanded);
 	const visual = () => toolVisual(item.name, item.isError);
@@ -72,8 +76,8 @@ export function ToolMessage(props: ToolMessageProps) {
 			// Keep the short type before the descriptive label: the label is
 			// what truncates on narrow surfaces, never the type.
 			const type = profile ? ` · ${profile}` : "";
-			if (agentId && label) return `@${agentId}${type} — ${label}`;
-			if (agentId && profile) return `@${agentId} · ${profile}`;
+			if (agentId && label) return `Spawn @${agentId}${type} — ${label}`;
+			if (agentId && profile) return `Spawn @${agentId} · ${profile}`;
 		}
 		return summarizeSubagentArgs(item.args);
 	};
@@ -93,7 +97,7 @@ export function ToolMessage(props: ToolMessageProps) {
 			(subagentFamily() && subagentLabel() !== undefined)
 		)
 			return "";
-		return toolArgSummary(item.args);
+		return toolCallArgSummary(item.name, item.args);
 	};
 	const singleProfiledTarget = () =>
 		isProfiledSubagentTool(item) && props.subagentTargets?.length === 1
@@ -117,7 +121,7 @@ export function ToolMessage(props: ToolMessageProps) {
 				{/* Subagent labels carry the task description and can be long: they
 				    shrink so timing and `inspect ›` stay inside the row. */}
 				<text fg={visual().accent} attributes={1} wrapMode="none" flexShrink={1}>
-					{supervisorLabel() ?? subagentLabel() ?? item.name}
+					{supervisorLabel() ?? subagentLabel() ?? (item.name === "agent_wait" ? "Wait" : item.name)}
 				</text>
 				<Show when={children()}>
 					<text fg={colors.subtle} wrapMode="none" flexShrink={0}>
@@ -130,6 +134,20 @@ export function ToolMessage(props: ToolMessageProps) {
 					</text>
 				</Show>
 				<box flexGrow={1} minWidth={1} />
+				<Show when={input()}>
+					{(detail) => <text
+						id={`${item.id}-input-toggle`}
+						fg={colors.cyan}
+						wrapMode="none"
+						flexShrink={0}
+						onMouseDown={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+							setInputExpanded((value) => !value);
+						}}>
+						{inputExpanded() ? "hide" : `view ${detail().title === "Python source" ? "code" : "input"}`}
+					</text>}
+				</Show>
 				<Show when={timing()}>
 					<text fg={colors.subtle} wrapMode="none" flexShrink={0}>
 						{timing()}
@@ -152,6 +170,10 @@ export function ToolMessage(props: ToolMessageProps) {
 					)}
 				</Show>
 			</box>
+			<Show when={inputExpanded() && input()}>
+				{(detail) => <ToolInputPanel id={`${item.id}-input-panel`}
+					detail={detail()} receipt={receipt()} />}
+			</Show>
 			<Show when={subagentGist()}>
 				<text fg={colors.muted} selectable wrapMode="word" paddingLeft={2}>
 					{subagentGist()}

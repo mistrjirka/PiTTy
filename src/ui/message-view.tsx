@@ -4,6 +4,7 @@ import { ToolMessage } from "./message-tool-card.tsx";
 /** Message display, tool detail UI, and stable formatting | message-view. */
 
 import type { MarkdownRenderable } from "@opentui/core";
+import { createMermaidBlockRenderer } from "./mermaid-renderer.ts";
 import { useTerminalDimensions } from "@opentui/solid";
 import { type Accessor, createEffect, createMemo, Show } from "solid-js";
 
@@ -86,6 +87,7 @@ export function MessageView(props: {
 	// `visible`.
 	let thinkingMarkdown: MarkdownRenderable | undefined;
 	let finalAnswer: MarkdownRenderable | undefined;
+	const renderMermaid = createMermaidBlockRenderer(() => finalAnswer);
 
 	createEffect(() => {
 		getThemeRevision();
@@ -290,6 +292,7 @@ export function MessageView(props: {
 							fg={colors.textBright}
 							conceal
 							streaming
+							renderBlock={renderMermaid}
 							renderAfter={finalizeMarkdownAfterRender}
 							tableOptions={{
 								style: "grid",

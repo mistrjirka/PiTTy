@@ -27,6 +27,9 @@ import {
 import { useTerminalDimensions } from "@opentui/solid";
 import { SPLIT_DIFF_MIN_WIDTH, SplitDiffView, splitDiffRows } from "./diff-split.tsx";
 import { colors } from "./theme.ts";
+import { containsMermaidFence } from "./mermaid-renderer.ts";
+import { ToolOutputMarkdown } from "./tool-output-markdown.tsx";
+import { isRedundantSpawnReceipt, structuredToolOutput, toolInputDetail } from "./tool-input-format.ts";
 
 export function ToolDetails(props: {
 	item: ToolItem;
@@ -35,9 +38,17 @@ export function ToolDetails(props: {
 	diffExpanded?: boolean | Accessor<boolean> | undefined;
 	onToggleDiff?: ((toolId: string) => void) | undefined;
 }) {
-	const output = () => props.item.output;
+	// The spawn header already reports success. Keep the receipt inside the
+	// expandable request panel rather than repeating it under every child.
+	const output = () =>
+		toolInputDetail(props.item.name, props.item.args) &&
+		isRedundantSpawnReceipt(props.item.name, props.item.output, props.item.isError)
+			? "" : props.item.output;
+	const structured = createMemo(() => structuredToolOutput(output()));
+	const diagramOutput = createMemo(() => containsMermaidFence(output()));
+	const outputPreview = () => diagramOutput() ? "Mermaid diagram" : structured()?.preview ?? collapsedPreview(output());
 	const diff = () => props.item.diff ?? "";
-	const expandable = () => Boolean(output() && toolOutputExpandable(output()));
+	const expandable = () => Boolean(output() && (structured() || diagramOutput() || toolOutputExpandable(output())));
 	const toolExpanded = () =>
 		expandable() && resolvedBoolean(props.toolExpanded);
 	const diffExpanded = () => resolvedBoolean(props.diffExpanded);
@@ -45,10 +56,10 @@ export function ToolDetails(props: {
 	// Hidden OpenTUI nodes still process their text. Gate full output and diff
 	// preprocessing behind the user's explicit expansion.
 	const expandedOutputText = createMemo(() =>
-		toolExpanded() ? cleanTerminalText(output()) : "",
+		toolExpanded() ? (structured()?.expanded ?? cleanTerminalText(output())) : "",
 	);
 	const expandedOutputRows = () =>
-		toolExpanded() ? expandedToolHeight(output()) : 6;
+		toolExpanded() ? expandedToolHeight(expandedOutputText()) : 6;
 	const expandedDiffLines = createMemo(() =>
 		diffExpanded() ? diffLines(diff()) : [],
 	);
@@ -170,7 +181,7 @@ export function ToolDetails(props: {
 						    `expand` sits beside it instead of on a row of its own. */}
 						<box flexDirection="row">
 							<text fg={colors.subtle} wrapMode="none" flexShrink={1} minWidth={0}>
-								{toolExpanded() ? "Output" : collapsedPreview(output())}
+								{toolExpanded() ? "Output" : outputPreview()}
 							</text>
 							<box flexGrow={1} minWidth={2} />
 							<box
@@ -243,9 +254,14 @@ export function ToolDetails(props: {
 									scrollTranscriptFromPreview(outputPreviewBox, event);
 								}}
 							>
-								<text fg={colors.muted} selectable wrapMode="word">
-									{expandedOutputText()}
-								</text>
+								<Show when={diagramOutput()} fallback={
+									<text fg={colors.muted} selectable wrapMode="word">
+										{expandedOutputText()}
+									</text>
+								}>
+									<ToolOutputMarkdown id={`${props.item.id}-output-mermaid-preview`}
+										content={expandedOutputText()} />
+								</Show>
 							</box>
 							<scrollbox
 								id={`${props.item.id}-output-scroll`}
@@ -267,9 +283,14 @@ export function ToolDetails(props: {
 								}}
 								verticalScrollbarOptions={{ showArrows: false }}
 							>
-								<text fg={colors.muted} selectable wrapMode="word">
-									{expandedOutputText()}
-								</text>
+								<Show when={diagramOutput()} fallback={
+									<text fg={colors.muted} selectable wrapMode="word">
+										{expandedOutputText()}
+									</text>
+								}>
+									<ToolOutputMarkdown id={`${props.item.id}-output-mermaid-scroll`}
+										content={expandedOutputText()} />
+								</Show>
 							</scrollbox>
 						</box>
 					</box>
