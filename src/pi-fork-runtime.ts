@@ -54,3 +54,27 @@ export function resolveForkCodeToolExtension(
 		? installed.codeToolExtension
 		: undefined;
 }
+
+/** Only a selected managed Pi gets a private child launcher. No global PATH changes. */
+export function managedChildEnvironment(
+	selectedPi: string,
+	env: NodeJS.ProcessEnv,
+	launch: { node: string; launcher?: string | undefined; displayLoader?: string | undefined; codeLoader?: string | undefined },
+	fileExists: (file: string) => boolean = existsSync,
+	platform = process.platform,
+): Record<string, string> | undefined {
+	if (platform === "win32") return undefined;
+	const managed = piForkRuntimePaths(env);
+	if (path.resolve(selectedPi) !== managed.piExecutable || !fileExists(managed.markerFile)) return undefined;
+	if (!launch.launcher || !fileExists(launch.launcher)) {
+		throw new Error("Managed Pi child launcher is missing; reinstall PiTTy.");
+	}
+	const directory = path.dirname(launch.launcher);
+	return {
+		PATH: [directory, ...(env.PATH ?? "").split(path.delimiter).filter((entry) => entry && entry !== directory)].join(path.delimiter),
+		PITTY_CHILD_PI_ENTRY: managed.piExecutable,
+		PITTY_CHILD_PI_NODE: launch.node,
+		PITTY_CHILD_PI_DISPLAY_LOADER: launch.displayLoader ?? "",
+		PITTY_CHILD_PI_CODE_LOADER: launch.codeLoader ?? "",
+	};
+}

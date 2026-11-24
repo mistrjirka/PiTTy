@@ -1,0 +1,11 @@
+#!/bin/sh
+# Descendants of a managed PiTTy session must launch the same Pi and loaders.
+set -eu
+set -- "${PITTY_CHILD_PI_ENTRY:?missing managed Pi entrypoint}" "$@"
+if [ -n "${PITTY_CHILD_PI_DISPLAY_LOADER:-}" ]; then
+    set -- "--import=$PITTY_CHILD_PI_DISPLAY_LOADER" "$@"
+fi
+if [ -n "${PITTY_CHILD_PI_CODE_LOADER:-}" ]; then
+    set -- "--import=$PITTY_CHILD_PI_CODE_LOADER" "$@"
+fi
+exec "${PITTY_CHILD_PI_NODE:?missing managed Node executable}" "$@"

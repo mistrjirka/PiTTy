@@ -6,10 +6,11 @@ import {
 	summarizePiArgs,
 } from "../diagnostics/logger.ts";
 import { resolveDefaultPiExecutable, resolvePiCommand } from "../pi-command.ts";
-import { resolveForkCodeToolExtension } from "../pi-fork-runtime.ts";
+import { managedChildEnvironment, resolveForkCodeToolExtension } from "../pi-fork-runtime.ts";
 import {
 	locateDisplayRpcLoader,
 	locateCodeToolForkLoader,
+	locateManagedChildLauncher,
 	resolveDisplayRpcLaunch,
 } from "../pi-display/command.ts";
 import type {
@@ -137,6 +138,12 @@ export abstract class PiRpcTransport extends EventEmitter {
 		const args = codeToolLoader
 			? [`--import=${codeToolLoader}`, ...command.args]
 			: command.args;
+		const childEnvironment = managedChildEnvironment(configuredExecutable, runtimeEnv, {
+			node: executable,
+			launcher: locateManagedChildLauncher(import.meta.dir, runtimeEnv.PITTY_APP_ROOT),
+			displayLoader: displayCommand ? loader : undefined,
+			codeLoader: codeToolLoader,
+		});
 		this.displayRpcEnabled = Boolean(displayCommand);
 		if (displayCommand)
 			this.options.logger?.info("rpc.display_adapter_enabled", {
@@ -152,6 +159,7 @@ export abstract class PiRpcTransport extends EventEmitter {
 			env: {
 				...process.env,
 				...this.options.env,
+				...childEnvironment,
 				...(displayCommand?.environment ?? {}),
 				...(codeToolLoader && codeToolReplacement
 					? { PITTY_CODE_TOOL_REPLACEMENT: codeToolReplacement }

@@ -118,3 +118,11 @@ export function locateCodeToolForkLoader(
 ): string | undefined {
 	return locateProcessLoader("code-tool-loader.mjs", importMetaDir, appRoot);
 }
+
+/** Locate the private PATH entry used by Pi and its descendants. */
+export function locateManagedChildLauncher(
+	importMetaDir: string,
+	appRoot = process.env.PITTY_APP_ROOT,
+): string | undefined {
+	return locateProcessLoader("managed-bin/pi", importMetaDir, appRoot);
+}
