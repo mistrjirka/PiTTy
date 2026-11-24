@@ -161,6 +161,30 @@ managedTest("managed RPC edits duplicate text by ID and atomically merges attach
   }
 }, 45_000);
 
+managedTest("managed RPC delivers user steering before an earlier background notification", async () => {
+  const f = await fixture();
+  try {
+    await f.client.setSteeringMode("one-at-a-time");
+    await f.hold("response");
+    await f.client.prompt("start", "steer", "start");
+    await f.started("response");
+    await f.client.prompt("/queue-fixture-steer-notify");
+    await f.client.getState();
+    await f.client.prompt("urgent correction", "steer", "urgent");
+    expect((await f.client.getQueue()).messages.map((item) => item.id)).toEqual(["urgent"]);
+    await f.release("response");
+    await f.settled();
+    const result = await f.client.rpc({ type: "get_messages" }) as { messages: Array<UserMessage | { role: "custom"; customType: string } | { role: "assistant" }> };
+    const userIndex = result.messages.findIndex((message) => message.role === "user" && text(message) === "urgent correction");
+    const notificationIndex = result.messages.findIndex((message) => message.role === "custom" && message.customType === "fixture-subagent-result");
+    expect(userIndex).toBeGreaterThanOrEqual(0);
+    expect(notificationIndex).toBeGreaterThan(userIndex);
+    expect((await f.client.getQueue()).messages).toEqual([]);
+  } finally {
+    await f.cleanup();
+  }
+}, 45_000);
+
 managedTest("managed RPC accepts and combines messages during manual compaction", async () => {
   const f = await fixture();
   try {

@@ -94,6 +94,16 @@ export default function (pi) {
     },
   });
 
+  pi.registerCommand("queue-fixture-steer-notify", {
+    handler: async () => {
+      pi.sendMessage({
+        customType: "fixture-subagent-result",
+        content: "Fixture background task finished",
+        display: true,
+      }, { triggerTurn: true, deliverAs: "steer" });
+    },
+  });
+
   pi.registerCommand("queue-fixture-snapshot", {
     handler: async () => {
       const registry = globalThis[Symbol.for("pi-bg-bash.registry")];

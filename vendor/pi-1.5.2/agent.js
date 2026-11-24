@@ -58,10 +58,12 @@ function createMutableAgentState(initialState) {
     };
 }
 class PendingMessageQueue {
+    prioritizeUser;
     messages = [];
     mode;
     onRemoved;
-    constructor(mode, onRemoved) {
+    constructor(mode, onRemoved, prioritizeUser = false) {
+        this.prioritizeUser = prioritizeUser;
         this.mode = mode;
         this.onRemoved = onRemoved;
     }
@@ -74,12 +76,17 @@ class PendingMessageQueue {
     peek() {
         if (this.mode === "all")
             return this.messages.slice();
-        const first = this.messages[0];
+        // A completion notification must not postpone explicit user steering by a turn.
+        // Preserve FIFO within each class and keep the remaining messages queued.
+        const first = (this.prioritizeUser && this.messages.find((message) => message.role === "user")) || this.messages[0];
         return first ? [first] : [];
     }
     drain() {
         const drained = this.peek();
-        this.messages = this.messages.slice(drained.length);
+        if (this.mode === "all")
+            this.messages = [];
+        else if (drained.length > 0)
+            this.messages.splice(this.messages.indexOf(drained[0]), 1);
         if (drained.length > 0)
             this.onRemoved(drained);
         return drained;
@@ -166,7 +173,7 @@ export class Agent {
             for (const listener of this.queueRemovalListeners)
                 listener(messages);
         };
-        this.steeringQueue = new PendingMessageQueue(runtimeOptions.steeringMode ?? "one-at-a-time", onQueueRemoved);
+        this.steeringQueue = new PendingMessageQueue(runtimeOptions.steeringMode ?? "one-at-a-time", onQueueRemoved, true);
         this.followUpQueue = new PendingMessageQueue(runtimeOptions.followUpMode ?? "one-at-a-time", onQueueRemoved);
         this.sessionId = runtimeOptions.sessionId;
         this.thinkingBudgets = runtimeOptions.thinkingBudgets;
