@@ -18,7 +18,9 @@ test.each([
   ["subagents", "0.5.25", false],
   ["subagents", "0.5.26", false],
   ["subagents", "0.5.27", false],
-  ["subagents", "0.5.28", true],
+  ["subagents", "0.5.28", false],
+  ["subagents", "0.5.29-rc.1", false],
+  ["subagents", "0.5.29", true],
   ["subagents", "0.6.0", true],
 ] as const)("maintained %s package version %s", (id, version, expected) => {
   const entry = foundersCatalog().find((candidate) => candidate.id === id)!;
