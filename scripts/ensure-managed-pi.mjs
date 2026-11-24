@@ -27,6 +27,7 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { preparePrivatePiBase } from "./private-pi-base.mjs";
 
 const releaseRoot = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -559,7 +560,15 @@ if (isRunningDirectly()) {
 	const index = process.argv.indexOf("--install-root");
 	const root = index >= 0 ? process.argv[index + 1] : releaseRoot;
 	try {
-		const outcome = ensureManagedPi(path.resolve(root));
+		const appRoot = path.resolve(root);
+		let outcome = ensureManagedPi(appRoot);
+		// Release staging must not lose the managed fork just because the
+		// globally installed Pi is older than the new verified base.
+		const agentDir = process.env.PI_CODING_AGENT_DIR || path.join(process.env.HOME || homedir(), ".pi", "agent");
+		const codeRoot = process.env.PITTY_UPSTREAM_CODE_TOOL_ROOT || path.join(agentDir, "npm", "node_modules", "pi-code-tool");
+		if (outcome.status === "unsupported" && !process.env.PI_BIN && existsSync(path.join(codeRoot, "package.json"))) {
+			outcome = await preparePrivatePiBase(appRoot, process.env, { existing: outcome, ensureRuntime: ensureManagedPi });
+		}
 		console.log(
 			"PiTTy managed Pi: " +
 				outcome.status +

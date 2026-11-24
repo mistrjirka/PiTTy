@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { foundersCatalog } from "./founders-catalog.mjs";
 import { managedPiIsCurrent } from "./ensure-managed-pi.mjs";
 import { ensureFoundersRuntime } from "./founders-runtime.mjs";
-import { atomicWrite, githubSourcePath, githubSourceRef, installAgents, localEquivalentSource, mergeFoundersPackages, planAgents, readFoundersReceipt, readSettings, sourceIdentity } from "./founders-state.mjs";
+import { atomicWrite, githubSourcePath, githubSourceRef, installAgents, localEquivalentSource, mergeFoundersPackages, packageSource, planAgents, readFoundersReceipt, readSettings, sourceIdentity } from "./founders-state.mjs";
 
 const releaseRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCE_PREFERENCE_IDS = ["skills", "btw"];
@@ -17,6 +17,7 @@ const HELP = `Usage: pitty founders-setup [options]
 Install our Pi plugins, the recommended tools, and curated skills and agents.
 Existing credentials, model defaults, unrelated packages and custom agents stay in place.
 
+  --refresh-installed     Update only installed, unpinned maintained packages
   --check                 Report missing setup; exit 1 when changes are needed
   --dry-run               Show the plan without installing or changing files
   --agent-dir <path>       Pi agent directory (default: PI_CODING_AGENT_DIR or ~/.pi/agent)
@@ -37,11 +38,12 @@ function localSource(value, cwd) {
 }
 
 export function parseFoundersArgs(args, cwd = process.cwd()) {
-  const options = { check: false, dryRun: false, help: false, sources: {} };
+  const options = { check: false, dryRun: false, refreshInstalled: false, help: false, sources: {} };
   for (let index = 0; index < args.length; index++) {
     const option = args[index];
     if (option === "--check") options.check = true;
     else if (option === "--dry-run") options.dryRun = true;
+    else if (option === "--refresh-installed") options.refreshInstalled = true;
     else if (option === "--help" || option === "-h") options.help = true;
     else if (["--agent-dir", "--skills-source", "--btw-source"].includes(option)) {
       const value = args[++index];
@@ -50,6 +52,8 @@ export function parseFoundersArgs(args, cwd = process.cwd()) {
       else options.sources[option === "--skills-source" ? "skills" : "btw"] = localSource(value, cwd);
     } else throw new Error("Unknown founders-setup option: " + option);
   }
+  if (options.refreshInstalled && (options.check || Object.keys(options.sources).length))
+    throw new Error("--refresh-installed cannot be combined with --check or source overrides.");
   return options;
 }
 
@@ -218,6 +222,67 @@ function providerStatus(settings, log) {
     log("Existing subagentProfiles model overrides are preserved. They can pin models even though curated agents leave model unset.");
 }
 
+/** Only exact maintained package identities are owned by this upgrade path.
+ * Pins, custom forks, local packages and resource filters are never rewritten. */
+export function refreshableFoundersPackages(settings, catalog = foundersCatalog(), base = process.cwd()) {
+  const packages = settings.packages ?? [];
+  return catalog.flatMap((entry) => {
+    if (entry.version) return [];
+    const identity = sourceIdentity(entry.source, base);
+    const matches = packages.map(packageSource).filter(source => sourceIdentity(source, base) === identity);
+    if (matches.length !== 1) return [];
+    const source = matches[0];
+    if (identity.startsWith("npm:") ? source !== identity : !identity.startsWith("git:") || githubSourceRef(source)) return [];
+    return [{ ...entry, source }];
+  });
+}
+
+export async function refreshInstalledFounders(options = {}) {
+  const env = options.env ?? process.env;
+  const appRoot = path.resolve(options.appRoot ?? env.PITTY_APP_ROOT ?? releaseRoot);
+  const agentDir = path.resolve(options.agentDir ?? env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent"));
+  const log = options.log ?? console.log;
+  const { value: settings } = readSettings(path.join(agentDir, "settings.json"));
+  const entries = refreshableFoundersPackages(settings, options.catalog ?? foundersCatalog(), agentDir);
+  if (!entries.length) {
+    log("No unpinned maintained Pi packages are configured.");
+    return { exitCode: 0, changed: false };
+  }
+  const manager = options.packageManager ?? (options.dryRun
+    ? readOnlyPackageIndex(appRoot, agentDir, env)
+    : await loadPackageManager(appRoot, agentDir, settings, env));
+  let failures = 0;
+  let updated = 0;
+  for (const entry of entries) {
+    const directory = manager.getInstalledPath(entry.source, "user");
+    if (!directory) { log("Skipped missing package: " + entry.source); continue; }
+    if (options.dryRun) { log("Would refresh: " + entry.source); continue; }
+    try {
+      assertAutomaticUpdateSafe(entry, directory);
+      // Install the exact configured, unpinned source, without the settings writer.
+      // Unlike a broad Pi update, this never touches project packages or pins.
+      await manager.install(entry.source);
+      const installed = manager.getInstalledPath(entry.source, "user");
+      if (!installed) throw new Error("Package directory missing after refresh.");
+      if (entry.build) await (options.buildPackage ?? buildPackage)(entry, installed);
+      if (!packageReady(entry, installed)) throw new Error("Package validation failed.");
+      if (entry.id === "skills" && fs.existsSync(readFoundersReceipt(agentDir).receiptFile)) {
+        const agents = planAgents(installed, agentDir);
+        installAgents(agents);
+        for (const agent of agents.agents.filter(agent => agent.action === "preserve"))
+          log("Preserved custom agent: " + agent.name);
+      }
+      updated++;
+      log("Refreshed: " + entry.source);
+    } catch (error) {
+      failures++;
+      log("Could not refresh " + entry.source + ": " + (error instanceof Error ? error.message : String(error)));
+    }
+  }
+  log(options.dryRun ? "Dry run. No packages changed." : "Maintained Pi packages refreshed: " + updated + "; failed: " + failures + ".");
+  return { exitCode: failures ? 1 : 0, changed: updated > 0 };
+}
+
 export async function setupFounders(options = {}) {
   const env = options.env ?? process.env;
   const appRoot = path.resolve(options.appRoot ?? env.PITTY_APP_ROOT ?? releaseRoot);
@@ -336,7 +401,7 @@ export async function main(args = process.argv.slice(2), options = {}) {
   try {
     const parsed = parseFoundersArgs(args);
     if (parsed.help) { console.log(HELP); return 0; }
-    return (await setupFounders({ ...options, ...parsed })).exitCode;
+    return (await (parsed.refreshInstalled ? refreshInstalledFounders : setupFounders)({ ...options, ...parsed })).exitCode;
   } catch (error) {
     console.error("PiTTy founders setup failed: " + (error instanceof Error ? error.message : String(error)));
     return 1;

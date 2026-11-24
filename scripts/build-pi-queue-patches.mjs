@@ -45,7 +45,7 @@ const modules = [
 	["packages/coding-agent/src/core/queued-input.ts", "dist/core/queued-input.js", "queued-input.js"],
 	["packages/coding-agent/src/modes/rpc/rpc-mode.ts", "dist/modes/rpc/rpc-mode.js", "rpc-mode.js"],
 	["packages/agent/src/agent.ts", "node_modules/@earendil-works/pi-agent-core/dist/agent.js", "agent.js"],
-	// This source snapshot has RPC diagnostics helpers absent from the published 1.5.2 package.
+	// Include the runtime and diagnostic modules matching the synchronized Pi base.
 	["packages/coding-agent/src/core/agent-session-runtime.ts", "dist/core/agent-session-runtime.js", "agent-session-runtime.js"],
 	["packages/coding-agent/src/modes/diagnostics-stderr.ts", "dist/modes/diagnostics-stderr.js", "diagnostics-stderr.js"],
 	// Side questions use the effective SDK request and explicit provider capabilities.

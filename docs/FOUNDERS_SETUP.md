@@ -167,3 +167,13 @@ figures, so the widget does not display invented token or cost numbers.
 No session-file migration is required. Skills and agents affect future work.
 Temporary widgets and side questions do not rewrite past messages. Start a new
 PiTTy process after installing a changed managed runtime.
+
+## Extension updates
+
+`pitty upgrade` refreshes installed, unpinned maintained extensions and updates founder-owned agent profiles. It does not add missing packages, change explicit version/ref pins, replace custom checkouts, or rewrite resource filters. It skips unrelated extensions.
+
+- Preview: `pitty founders-setup --refresh-installed --dry-run`
+- Refresh without upgrading PiTTy: `pitty founders-setup --refresh-installed`
+- Upgrade only the application and managed Pi: `pitty upgrade --no-extensions`
+
+A dirty Git cache or a failed build is reported explicitly. Custom agent files remain intact. Wiki-managed profiles follow their wiki installer, not this command.

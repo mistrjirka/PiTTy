@@ -459,6 +459,26 @@ describe("ConversationModel regressions", () => {
 		).toBe("same");
 	});
 
+	test("shows an error-only response once in live and restored history", () => {
+		const model = new ConversationModel();
+		const message = { role: "assistant", content: [], stopReason: "error", errorMessage: "401 OAuth access token has expired", timestamp: 42 };
+		model.apply(event({ type: "message_start", message: { role: "assistant", content: [], timestamp: 42 } }));
+		model.apply(event({ type: "message_update", assistantMessageEvent: { type: "error", reason: "error", error: message } }));
+		model.apply(event({ type: "message_end", message }));
+		model.apply(event({ type: "agent_settled" }));
+		expect(model.items).toHaveLength(1);
+		expect(model.items[0]).toMatchObject({ kind: "assistant", status: "error", errorMessage: message.errorMessage });
+		expect(initialItems([message])).toHaveLength(1);
+		expect(initialItems([message])[0]).toMatchObject({ kind: "assistant", status: "error", errorMessage: message.errorMessage });
+	});
+
+	test("keeps partial answers alongside the provider error", () => {
+		const model = new ConversationModel();
+		const message = { role: "assistant", content: [{ type: "text", text: "partial" }], stopReason: "error", errorMessage: "connection lost" };
+		model.apply(event({ type: "message_end", message }));
+		expect(model.items[0]).toMatchObject({ text: "partial", status: "error", errorMessage: "connection lost" });
+	});
+
 	test("does not render empty assistant tool-call placeholders", () => {
 		const model = new ConversationModel();
 		model.apply(

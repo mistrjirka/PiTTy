@@ -64,6 +64,10 @@ export function MessageView(props: {
 		const value = currentItem();
 		return value.kind === "assistant" ? cleanAnswerText(value.text) : "";
 	});
+	const assistantError = createMemo(() => {
+		const value = currentItem();
+		return value.kind === "assistant" ? cleanTerminalText(value.errorMessage ?? "") : "";
+	});
 	const assistantStatus = createMemo(() => {
 		const value = currentItem();
 		return value.kind === "assistant" ? value.status : "done";
@@ -304,6 +308,13 @@ export function MessageView(props: {
 							}}
 						/>
 					</box>
+					<Show when={assistantError()}>
+						<box paddingLeft={1} paddingRight={1}>
+							<text fg={colors.red} selectable wrapMode="word">
+								{assistantError()}
+							</text>
+						</box>
+					</Show>
 				</box>
 			</Show>
 

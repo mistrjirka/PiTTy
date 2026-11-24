@@ -26,6 +26,13 @@ export function extractText(message: unknown): string {
 		.join("");
 }
 
+/** Error-only assistant responses are visible even when no tokens were emitted. */
+export function assistantErrorMessage(message: unknown): string | undefined {
+	const record = objectRecord(message);
+	if (record?.stopReason !== "error") return undefined;
+	return stringField(record, "errorMessage")?.trim() || "Provider returned an error without details.";
+}
+
 export function extractThinking(message: unknown): string {
 	return contentBlocks(message)
 		.filter((block) => block.type === "thinking" || block.type === "reasoning")

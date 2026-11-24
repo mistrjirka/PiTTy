@@ -5,7 +5,7 @@ import { appVersion } from "./version.ts";
 import { compareStableVersions, fetchLatestStableRelease } from "./update/check.ts";
 import { legacyInstallMetadata, readInstallMetadata, type InstallMetadata } from "./update/metadata.ts";
 
-export type UpgradeOptions = { check: boolean; version?: string; help: boolean };
+export type UpgradeOptions = { check: boolean; version?: string; help: boolean; refreshExtensions: boolean };
 export type InstallerCommand = { command: string; args: string[] };
 export const PROFILED_SUBAGENT_SOURCE = "git:github.com/mistrjirka/pi-subagent";
 
@@ -44,10 +44,11 @@ export function ensureUpgradeVersionAllowed(requestedVersion: string, installedV
   if (comparison < 0) throw new Error(`Requested version ${requestedVersion} is older than installed version ${installedVersion}`);
 }
 export function parseUpgradeArgs(args: readonly string[]): UpgradeOptions {
-  let check = false; let version: string | undefined; let help = false;
+  let check = false; let version: string | undefined; let help = false; let refreshExtensions = true;
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--check") check = true;
+    else if (arg === "--no-extensions") refreshExtensions = false;
     else if (arg === "--help" || arg === "-h") help = true;
     else if (arg === "--version") {
       version = args[++index];
@@ -56,14 +57,14 @@ export function parseUpgradeArgs(args: readonly string[]): UpgradeOptions {
   }
   if (check && version) throw new Error("--check cannot be combined with --version");
   if (version) compareStableVersions(version, version);
-  return version === undefined ? { check, help } : { check, version, help };
+  return version === undefined ? { check, help, refreshExtensions } : { check, version, help, refreshExtensions };
 }
 export function metadataForUpgrade(metadata: InstallMetadata | undefined, installDirectory: string): InstallMetadata {
   return metadata ?? legacyInstallMetadata(installDirectory, appVersion, "mistrjirka/PiTTy", process.env);
 }
 export async function runUpgrade(args: readonly string[], environment: NodeJS.ProcessEnv = process.env): Promise<number> {
   const options = parseUpgradeArgs(args);
-  if (options.help) { console.log("Usage: pitty upgrade [--check] [--version X.Y.Z]"); return 0; }
+  if (options.help) { console.log("Usage: pitty upgrade [--check] [--version X.Y.Z] [--no-extensions]"); return 0; }
   const installDirectory = environment.PITTY_INSTALL_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const storedMetadata = await readInstallMetadata(installDirectory);
   const metadata = storedMetadata ?? legacyInstallMetadata(installDirectory, appVersion, "mistrjirka/PiTTy", environment);
@@ -83,15 +84,22 @@ export async function runUpgrade(args: readonly string[], environment: NodeJS.Pr
   });
   if (result.code !== 0) return result.code;
 
+  if (!options.refreshExtensions) return 0;
   try {
-    const listed = await runProcess("pi", ["list"], { capture: true, env: environment });
-    const source = listed.code === 0 ? installedProfiledSubagentSource(listed.stdout) : undefined;
-    if (source) {
-      const updated = await runProcess("pi", ["update", source], { env: environment });
-      if (updated.code !== 0) console.warn(`PiTTy upgraded, but ${source} could not be refreshed (exit ${updated.code}).`);
+    // Use the newly staged release's catalogue and runtime, not the old app's.
+    const pendingRoot = metadata.installDirectory + ".pending";
+    const script = path.join(pendingRoot, "scripts", "founders-setup.mjs");
+    const updated = await runProcess(environment.PITTY_NODE_EXECUTABLE || "node",
+      [script, "--refresh-installed"], {
+        env: { ...environment, PITTY_APP_ROOT: pendingRoot },
+      });
+    if (updated.code !== 0) {
+      console.warn("PiTTy is staged, but some maintained extensions could not be refreshed. Review the errors above.");
+      return updated.code;
     }
   } catch (error) {
-    console.warn(`PiTTy upgraded, but the installed subagent runtime could not be refreshed: ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(`PiTTy is staged, but extension refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
   }
   return 0;
 }

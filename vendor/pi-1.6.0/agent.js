@@ -58,14 +58,14 @@ function createMutableAgentState(initialState) {
     };
 }
 class PendingMessageQueue {
-    prioritizeUser;
     messages = [];
     mode;
     onRemoved;
+    prioritizeUser;
     constructor(mode, onRemoved, prioritizeUser = false) {
-        this.prioritizeUser = prioritizeUser;
         this.mode = mode;
         this.onRemoved = onRemoved;
+        this.prioritizeUser = prioritizeUser;
     }
     enqueue(message) {
         this.messages.push(message);

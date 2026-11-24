@@ -1,5 +1,5 @@
 import { parseQueueState, type QueueState } from "../rpc/queue-types.ts";
-import { id, extractText, extractThinking, objectRecord, stringArrayField, normalizedText, eventDelta, mergeStreamingText, toolOutput, toolResultImages, stringField, numberField, messageRole, messageTimestamp, toolTimeLimits, customItemFromMessage } from "./conversation-shared.ts";
+import { id, extractText, extractThinking, assistantErrorMessage, objectRecord, stringArrayField, normalizedText, eventDelta, mergeStreamingText, toolOutput, toolResultImages, stringField, numberField, messageRole, messageTimestamp, toolTimeLimits, customItemFromMessage } from "./conversation-shared.ts";
 import { displayToolDetails } from "./conversation-history.ts";
 import { createMutationDiff } from "./conversation-mutation.ts";
 
@@ -128,7 +128,7 @@ export class ConversationModel {
 						(item?.kind === "assistant" || item?.kind === "tool") &&
 						item.status === "streaming"
 					) {
-						this.items[index] = { ...item, status: "done" };
+						this.items[index] = { ...item, status: item.kind === "assistant" && item.errorMessage ? "error" : "done" };
 					}
 				}
 				this.removeEmptyAssistantItems();
@@ -284,6 +284,12 @@ export class ConversationModel {
 		const authoritativeEnd = event.type === "message_end" && Boolean(suppliedMessage);
 		const deltaOnly = !suppliedMessage && Boolean(this.liveAssistantMessage);
 		const delta = eventDelta(event);
+		const assistantRecord = objectRecord(event.assistantMessageEvent);
+		const terminalError = assistantRecord?.type === "error" && assistantRecord.reason === "error";
+		const errorMessage = assistantErrorMessage(suppliedMessage) ??
+			(terminalError ? assistantErrorMessage(assistantRecord.error) ??
+				"Provider returned an error without details." : undefined);
+
 
 		let currentIndex = this.activeAssistantIndex;
 		if (currentIndex >= 0) {
@@ -303,7 +309,7 @@ export class ConversationModel {
 		}
 
 		const hasVisibleContent = Boolean(
-			fullText || fullThinking || delta.text || delta.thinking,
+			fullText || fullThinking || delta.text || delta.thinking || errorMessage,
 		);
 		if (currentIndex < 0 && hasVisibleContent) {
 			const item: AssistantItem = {
@@ -321,11 +327,6 @@ export class ConversationModel {
 		this.activeAssistantIndex = currentIndex;
 
 		const current = this.items[currentIndex] as AssistantItem;
-		const assistantEvent = event.assistantMessageEvent;
-		const assistantRecord =
-			assistantEvent && typeof assistantEvent === "object"
-				? (assistantEvent as Record<string, unknown>)
-				: undefined;
 		const messageRecord =
 			message && typeof message === "object"
 				? (message as Record<string, unknown>)
@@ -336,7 +337,8 @@ export class ConversationModel {
 				: typeof messageRecord?.stopReason === "string"
 					? messageRecord.stopReason
 					: current.stopReason;
-		const errored = assistantRecord?.type === "error" || stop === "error";
+		const finalError = errorMessage ?? (stop === "error" || terminalError ? current.errorMessage : undefined);
+		const errored = stop === "error" || terminalError || Boolean(finalError);
 
 		const updated: AssistantItem = {
 			...current,
@@ -355,15 +357,11 @@ export class ConversationModel {
 							fullThinking,
 							delta.thinking,
 						),
-			status:
-				event.type === "message_end"
-					? errored
-						? "error"
-						: "done"
-					: errored
-						? "error"
-						: "streaming",
+			// Keep the active row until message_end; the error delta and final
+			// snapshot describe the same response, not two separate failures.
+			status: event.type === "message_end" ? errored ? "error" : "done" : "streaming",
 			...(stop ? { stopReason: stop } : {}),
+			...(finalError ? { errorMessage: finalError } : {}),
 		};
 		this.items[currentIndex] = updated;
 		if (updated.status !== "streaming") this.activeAssistantIndex = -1;
@@ -378,7 +376,8 @@ export class ConversationModel {
 			if (
 				item?.kind === "assistant" &&
 				!item.text.trim() &&
-				!item.thinking.trim()
+				!item.thinking.trim() &&
+				!item.errorMessage
 			) {
 				this.items.splice(index, 1);
 				removed = true;

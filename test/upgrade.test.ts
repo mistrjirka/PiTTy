@@ -6,6 +6,8 @@ import { fetchLatestStableRelease } from "../src/update/check.ts";
 describe("upgrade contracts", () => {
   test("parses check and explicit stable versions", () => {
     expect(parseUpgradeArgs(["--check"]).check).toBe(true);
+    expect(parseUpgradeArgs([]).refreshExtensions).toBe(true);
+    expect(parseUpgradeArgs(["--no-extensions"]).refreshExtensions).toBe(false);
     expect(parseUpgradeArgs(["--version", "v1.2.3"]).version).toBe("v1.2.3");
     expect(() => parseUpgradeArgs(["--version", "1.2"])).toThrow();
     expect(() => parseUpgradeArgs(["--unknown"])).toThrow();

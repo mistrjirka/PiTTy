@@ -7,6 +7,7 @@ import {
 	customItemFromMessage,
 	extractText,
 	extractThinking,
+	assistantErrorMessage,
 	id,
 	messageRole,
 	messageTimestamp,
@@ -189,20 +190,22 @@ export function initialItems(
 			const thinking = extractThinking(message);
 			const record = objectRecord(message);
 			const stopReason = stringField(record, "stopReason");
+			const errorMessage = assistantErrorMessage(message);
 			const sourceEntryId = stringField(record, "__pittyEntryId");
 			const sourceParentId = stringField(record, "__pittyParentId");
-			if (text || thinking) {
+			if (text || thinking || errorMessage) {
 				items.push({
 					kind: "assistant",
 					id: makeId(
 						"history-assistant",
-						stableHash(`${text}\u0000${thinking}`),
+						stableHash(`${text}\u0000${thinking}${errorMessage ? "\u0000" + errorMessage : ""}`),
 					),
 					text,
 					thinking,
 					timestamp: messageTimestamp(message, stable),
 					status: stopReason === "error" ? "error" : "done",
 					...(stopReason ? { stopReason } : {}),
+					...(errorMessage ? { errorMessage } : {}),
 					sourceMessageSeq: assistantMessageSeq,
 					...(sourceEntryId ? { sourceEntryId } : {}),
 					...(sourceParentId ? { sourceParentId } : {}),

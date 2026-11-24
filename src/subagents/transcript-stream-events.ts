@@ -228,6 +228,7 @@ export function foldInterruptedAssistantRetries(
 		if (!interrupted || interrupted.id === retry.id) continue;
 		if (
 			interrupted.stopReason !== "error" ||
+			interrupted.errorMessage ||
 			interrupted.text.trim() ||
 			!interrupted.thinking.trim()
 		)

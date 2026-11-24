@@ -58,6 +58,7 @@ export type AssistantItem = {
 	timestamp: number;
 	status: MessageStatus;
 	stopReason?: string;
+	errorMessage?: string;
 	/** 1-based assistant-message sequence from persisted Pi session order. */
 	sourceMessageSeq?: number;
 	/** Persisted Pi session entry identity, when available. */

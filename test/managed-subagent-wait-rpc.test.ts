@@ -65,6 +65,9 @@ async function fixture() {
   await writeFile(path.join(agentDirectory, "settings.json"), JSON.stringify({
     defaultProvider: "pitty-subagent-fixture", defaultModel: "fixture", defaultThinkingLevel: "off",
     packages: [], compaction: { enabled: false }, retry: { enabled: false },
+    // Managed children load the normal user configuration rather than the
+    // fixture PATH shim. Give both paths the same offline provider.
+    extensions: [subagentExtension, path.join(directory, "provider.mjs")],
     subagentProfiles: { builtinAgents: "none" },
   }));
   await writeFile(path.join(agentDirectory, "agents", "fixture-child.md"),

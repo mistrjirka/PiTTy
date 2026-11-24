@@ -8,7 +8,7 @@ The installer checks the original module hashes before copying patches. Each dec
 
 Starting with v0.7.8, `pitty upgrade` stages a compatible Pi fork alongside the PiTTy update. On the next `pitty` launch, the update activates and PiTTy automatically uses its private fork. **No separate install command, configuration migration, or global Pi replacement is needed.** This also applies to a fresh PiTTy installation.
 
-The bundled patch currently targets **Pi 1.5.2** and **pi-code-tool 0.6.2**. For these exact installed versions, PiTTy copies Pi and its dependencies to its own `fork-runtime/` directory and applies the tested session-memory, pending-message queue, and Python tool-dispatch patches. The existing `~/.pi/agent/settings.json`, credentials, installed packages, extensions and session files stay in place. The existing code-tool extension is redirected only inside the PiTTy child process, without modifying its original file or auto-approve behavior.
+The bundled patch currently targets **Pi 1.6.0** and **pi-code-tool 0.6.2**. For these exact installed versions, PiTTy copies Pi and its dependencies to its own `fork-runtime/` directory and applies the tested session-memory, pending-message queue, and Python tool-dispatch patches. The existing `~/.pi/agent/settings.json`, credentials, installed packages, extensions and session files stay in place. The existing code-tool extension is redirected only inside the PiTTy child process, without modifying its original file or auto-approve behavior.
 
 Python helpers use the tools enabled in the current Pi session, including their extension overrides, validation, and cancellation. The default helper set is `read`, `bash`, `edit`, and `write`. Enable `find`, `grep`, or `ls` in Pi's tool selection before using those helpers. Existing code-tool approval settings still apply.
 
@@ -40,7 +40,7 @@ node scripts/build-pi-queue-patches.mjs \
   --upstream-pi-root /path/to/installed/pi-coding-agent
 ```
 
-This rebuilds the declared Pi modules, including the session-memory, queue and side-question modules, into `vendor/pi-1.5.2/`. It records the source checkout's current Git commit in `pi.forkCommit` and refreshes every generated module hash. Use a clean source checkout so the recorded commit matches the packaged code. Review the source changes and generated diff together.
+This rebuilds the declared Pi modules, including the session-memory, queue and side-question modules, into `vendor/pi-1.6.0/`. It records the source checkout's current Git commit in `pi.forkCommit` and refreshes every generated module hash. Use a clean source checkout so the recorded commit matches the packaged code. Review the source changes and generated diff together.
 
 ## Verify the packaged RPC process
 

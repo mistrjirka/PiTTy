@@ -109,7 +109,7 @@ Inside PiTTy, the essentials are: `Enter` sends (or accepts a slash suggestion),
 
 ## Managed Pi runtime (automatic)
 
-`pitty upgrade` also stages a patched private copy of Pi. It adds editable pending messages, session memory and Python tool checkpoints. It never changes your global Pi, settings, credentials or sessions. If your installed Pi is not the verified version (currently **Pi 1.5.2** with **pi-code-tool 0.6.2**), PiTTy uses the unchanged global Pi and says why. Opt out with `PITTY_USE_UPSTREAM_PI=1 pitty`. Details: [Managed Pi runtime](docs/managed-runtime.md).
+`pitty upgrade` also stages a patched private copy of Pi. It adds editable pending messages, session memory and Python tool checkpoints. It leaves global Pi, settings, credentials and sessions unchanged. Upgrades also refresh installed, unpinned maintained Pi extensions and owned agent profiles; use `pitty upgrade --no-extensions` to skip extension refresh. If your installed Pi differs from the verified version (currently **Pi 1.6.0** with **pi-code-tool 0.6.2**), PiTTy prepares the matching private Pi base when possible. Otherwise it reports why the managed runtime is unavailable. Opt out with `PITTY_USE_UPSTREAM_PI=1 pitty`. Details: [Managed Pi runtime](docs/managed-runtime.md).
 
 ## Optional integrations
 
