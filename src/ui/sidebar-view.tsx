@@ -127,11 +127,9 @@ export function Sidebar(props: {
 	// Speed of the latest reply, compared with this model's recorded median.
 	// A reply from a previously selected model must not masquerade as the
 	// current model's speed.
-	// TODO: speed is measured for the main session only; agents have no
-	// per-request timings yet, so the scoped view omits the speed rows.
 	const speed = createMemo(() =>
 		props.scope
-			? undefined
+			? latestModelSpeed(props.scope.modelIdentity, props.scope.lastRequestPerformance)
 			: latestModelSpeed(props.state?.model, props.lastRequestPerformance),
 	);
 	const speedRows = () =>

@@ -10,6 +10,7 @@ import type {
 
 import type { QueueCommand, QueueState } from "./rpc/queue-types.ts";
 import type { ToolResultImage } from "./state/conversation-shared.ts";
+import type { RequestPerformance } from "./tabs/request-metrics.ts";
 
 export type CompactionMethod = "cache-aware" | "extension";
 export type CacheMaintenanceMode = "compact" | "keep-warm" | "off";
@@ -162,6 +163,8 @@ export type SubagentActiveTool = {
 };
 
 export type SubagentRun = {
+	/** Latest measured model response from this agent. */
+	lastRequestPerformance?: RequestPerformance | undefined;
 	runId: string;
 	asyncId?: string | undefined;
 	asyncDir?: string | undefined;

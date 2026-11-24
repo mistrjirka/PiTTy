@@ -7,7 +7,7 @@ import {
 	effectiveTokensPerSecond,
 	modelPerformanceStats,
 	type ModelPerformanceStats,
-	readModelPerformanceHistory,
+	readCombinedModelPerformanceHistory,
 } from "../tabs/model-performance-history.ts";
 import type { RequestPerformance } from "../tabs/request-metrics.ts";
 import { colors } from "./theme.ts";
@@ -76,7 +76,7 @@ export type LatestModelSpeed = {
 export function latestModelSpeed(
 	model: { provider?: string; id?: string } | undefined,
 	performance: RequestPerformance | undefined,
-	readHistory = readModelPerformanceHistory,
+	readHistory = readCombinedModelPerformanceHistory,
 ): LatestModelSpeed | undefined {
 	if (!model?.provider || !model.id) return undefined;
 	const median = modelPerformanceStats(readHistory(), model.provider, model.id);

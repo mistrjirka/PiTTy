@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { SubagentRun, ToolItem } from "../types.ts";
 import { SessionTelemetryService } from "./session-telemetry.ts";
+import { parseRequestPerformance } from "../tabs/subagent-performance-history.ts";
 import { RUNTIME, record, text, number, toolState, runtimeRoots, safeControlDir, safeEventsPath, parseStatus, type ProfiledStatus } from "./profiled-status.ts";
 
 /** The extension updates status.json about every 200 ms; a heartbeat older than the max age means it is gone. */
@@ -203,6 +204,7 @@ function runFromStatus(controlDir: string, status: ProfiledStatus, options: Prof
     agent: status.profile,
     model: status.model,
     thinking: status.thinking,
+    ...(status.lastRequestPerformance ? { lastRequestPerformance: status.lastRequestPerformance } : {}),
     ...(status.turnCount !== undefined ? { turnCount: status.turnCount } : {}),
     ...(status.toolCount !== undefined ? { toolCount: status.toolCount } : {}),
     ...((status.windowTokens ?? session.window) !== undefined ? { tokens: { window: status.windowTokens ?? session.window } } : {}),
@@ -268,6 +270,7 @@ function runFromTool(item: ToolItem, details: Record<string, unknown>, options: 
     })(),
     model: text(details.model),
     thinking: text(details.thinking),
+    lastRequestPerformance: parseRequestPerformance(details.lastRequestPerformance),
     sessionFile: text(details.sessionPath),
     steps: [],
   };

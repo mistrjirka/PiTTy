@@ -30,7 +30,7 @@ An empty session opens straight into the chat with a passive dashboard of recent
 - **The prompt stays put.** The transcript scrolls on its own, so long conversations never push the input away.
 - **Quiet transcript.** Each tool call is one row: status, tool, argument, duration. Timeouts over 10s show next to the duration. `Ctrl+O` expands details.
 - **Subagents in the sidebar.** The right sidebar shows the agent tree under `◆ Main`. Open an agent to see its transcript in the main view, steer it, or pause, resume and stop it.
-- **Context and speed at a glance.** The sidebar shows how much context is left and the model's live tokens per second, marked faster, usual or slower than its own median.
+- **Context and speed at a glance.** The sidebar shows how much context is left and the model's live tokens per second, marked faster, usual or slower than its own median. Subagents contribute their own measured model speed and first-token latency to the same model history. Selecting a child shows its latest measurement.
 - **Pending messages stay editable.** Edit, cancel or combine queued messages, and keep sending during compaction.
 - **Less hunting.** Searchable model picker (`Ctrl+P`), session browser (`/resume`), request map (`Ctrl+R`), and prompt history (`↑` on an empty prompt).
 - **Live themes.** Ten presets plus full color-token editing, applied immediately.

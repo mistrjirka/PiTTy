@@ -2,6 +2,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { SubagentActiveTool, ToolItem } from "../types.ts";
+import type { RequestPerformance } from "../tabs/request-metrics.ts";
+import { parseRequestPerformance } from "../tabs/subagent-performance-history.ts";
 import {
 	PROFILED_RUNTIME_ROOT_PREFIX,
 	profiledScanBase,
@@ -32,6 +34,7 @@ export type ProfiledStatus = {
 	toolCount?: number;
 	windowTokens?: number;
 	lastActivityAt?: number;
+	lastRequestPerformance?: RequestPerformance;
 };
 
 export function record(value: unknown): Record<string, unknown> | undefined {
@@ -193,6 +196,7 @@ export function parseStatus(
 	const toolCount = number(value.toolCount);
 	const windowTokens = number(value.windowTokens);
 	const lastActivityAt = number(value.lastActivityAt);
+	const lastRequestPerformance = parseRequestPerformance(value.lastRequestPerformance);
 	if (
 		!agentId ||
 		!profile ||
@@ -245,6 +249,7 @@ export function parseStatus(
 		windowTokens > 0
 			? { windowTokens }
 			: {}),
+		...(lastRequestPerformance ? { lastRequestPerformance } : {}),
 		...(lastActivityAt !== undefined && lastActivityAt > 0
 			? { lastActivityAt }
 			: {}),

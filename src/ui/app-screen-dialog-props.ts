@@ -1,6 +1,6 @@
 /** Adapts explicitly typed services to four modal families. */
 
-import { readModelPerformanceHistory } from "../tabs/model-performance-history.ts";
+import { readCombinedModelPerformanceHistory as readModelPerformanceHistory } from "../tabs/model-performance-history.ts";
 import type { AppDialogsProps } from "./app-dialogs.tsx";
 import type { AppScreenContext } from "./app-screen-context.ts";
 export function createAppDialogProps(ports: AppScreenContext): AppDialogsProps {

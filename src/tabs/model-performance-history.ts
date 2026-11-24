@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { RequestPerformance } from "./request-metrics.ts";
+import { mergePerformanceHistories, readSubagentModelPerformanceHistory } from "./subagent-performance-history.ts";
 
 export type ModelPerformanceSample = {
   timestamp: number;
@@ -140,6 +141,19 @@ export function readModelPerformanceHistory(
 		cachedHistory = undefined;
 		return {};
 	}
+}
+
+/** Shared display statistics. The main writer deliberately uses only its
+ * own history file, while child writers append to a separate journal. */
+let combinedCache: { main: ModelPerformanceHistory; children: ModelPerformanceHistory; history: ModelPerformanceHistory } | undefined;
+export function readCombinedModelPerformanceHistory(): ModelPerformanceHistory {
+	const main = readModelPerformanceHistory();
+	const children = readSubagentModelPerformanceHistory();
+	if (!Object.keys(children).length) return main;
+	if (combinedCache?.main === main && combinedCache.children === children) return combinedCache.history;
+	const history = mergePerformanceHistories([main, children]);
+	combinedCache = { main, children, history };
+	return history;
 }
 
 export function saveModelPerformanceHistory(
