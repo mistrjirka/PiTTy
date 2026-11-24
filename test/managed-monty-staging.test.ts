@@ -94,6 +94,7 @@ describe("private Monty dependency staging", () => {
 					installer = installer.replace(original, "const PREPARATION_TIMEOUT_MS = " + scenario.budget + ";");
 				}
 				write(path.join(release, "scripts/ensure-managed-pi.mjs"), installer);
+				cpSync(path.join(repo, "scripts/private-pi-base.mjs"), path.join(release, "scripts/private-pi-base.mjs"));
 				cpSync(path.join(repo, "scripts/check-managed-monty.mjs"), path.join(release, "scripts/check-managed-monty.mjs"));
 				for (const file of [manifest.monty.packageFile, manifest.monty.lockFile]) {
 					mkdirSync(path.dirname(path.join(release, file)), { recursive: true });
