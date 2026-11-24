@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { foundersCatalog } from "./founders-catalog.mjs";
 import { managedPiIsCurrent } from "./ensure-managed-pi.mjs";
@@ -154,6 +155,35 @@ function maintainedMinimum(entry) {
     !githubSourceRef(entry.source) ? minimum.version : undefined;
 }
 
+// npm can rewrite only bookkeeping flags in a tracked lockfile when it
+// installs/prunes dev dependencies. These are reproducible cache outputs,
+// not dependency changes. Never permit a staged edit, changed package graph,
+// version, integrity, resolved URL, or arbitrary lockfile field.
+function generatedLockMetadataOnly(directory, runGit) {
+  try {
+    const file = path.join(directory, "package-lock.json");
+    const stat = fs.lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink()) return false;
+    const original = runGit(["show", "HEAD:package-lock.json"]);
+    if (original.status !== 0 || original.error) return false;
+    const before = JSON.parse(original.stdout);
+    const after = JSON.parse(fs.readFileSync(file, "utf8"));
+    const normalize = (lock) => {
+      if (!lock || typeof lock !== "object" || Array.isArray(lock) ||
+          !lock.packages || typeof lock.packages !== "object" || Array.isArray(lock.packages))
+        throw new Error("Unsupported lockfile");
+      for (const [name, pkg] of Object.entries(lock.packages)) {
+        if (!name || !pkg || typeof pkg !== "object" || Array.isArray(pkg)) continue;
+        for (const flag of ["dev", "devOptional", "hasShrinkwrap"]) {
+          if (typeof pkg[flag] === "boolean") delete pkg[flag];
+        }
+      }
+      return lock;
+    };
+    return isDeepStrictEqual(normalize(before), normalize(after));
+  } catch { return false; }
+}
+
 // Pi refreshes Git packages with reset --hard and clean -fdx. Check before an
 // automatic refresh so direct cache edits and unpublished commits survive.
 function assertAutomaticUpdateSafe(entry, directory) {
@@ -169,10 +199,11 @@ function assertAutomaticUpdateSafe(entry, directory) {
   if (status.error || status.status !== 0 || ahead.error || ahead.status !== 0)
     throw new Error("Cannot verify the cached Git checkout before updating " + entry.source +
       " at " + directory + ". No settings or agents were changed.");
-  // Pi's npm install and our Doppel build create disposable outputs. Tracked
-  // changes remain protected, as do all other untracked or ignored files.
+  // Protect source edits, real dependency changes and unpublished commits.
+  // Ignore only recognized disposable installer outputs.
   const changes = status.stdout.split("\0").filter(Boolean).filter((line) => {
     if (/^(?:\?\?|!!) (?:node_modules\/|package-lock\.json)$/.test(line)) return false;
+    if (line === " M package-lock.json" && generatedLockMetadataOnly(directory, runGit)) return false;
     if (entry.build === "doppelclaude" &&
       /^!! packages\/(?:doppelclaude|pi-doppelclaude)\/dist\/$/.test(line)) return false;
     return true;
