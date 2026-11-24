@@ -138,7 +138,7 @@
   "codeTool": {
     "version": "0.6.2",
     "originalExtensionSha256": "7b19b6f7eb57b08895cb796921293ea57aee0adaa3639b67d867305c89026018",
-    "forkCommit": "4ba7cc004b9b43d3dacb47f8181caa1e0e7a9a0f",
+    "forkCommit": "2a90a2268e720d0fea274b07d9492734fe26c37d",
     "forkRepository": "https://github.com/mistrjirka/pi-code-tool",
     "modules": [
       {
@@ -201,7 +201,7 @@
   "patchFiles": {
     "vendor/pi-1.5.2/session-manager.js": "3fb824b02d6a575e6409d239b79072d0d750c54a497330c0829579da54923ba9",
     "vendor/pi-1.5.2/session-lazy-state.js": "c527d424944ff14dffb54b498f7778c4fddd702478e9ec6d15ff10b6e69fbe3f",
-    "vendor/pi-code-tool-0.6.2/extension.js": "460e1b62d761d27fc1fc79133d8679c38cd82e2ca7547f883492948600532348",
+    "vendor/pi-code-tool-0.6.2/extension.js": "b6dff662c7b948e9932afc5a423fd551c7c96bbf3cf2ccd8af750773389d6257",
     "vendor/pi-code-tool-0.6.2/state-codec.js": "8871bfcd41753b85e3cb114d09ce25d8c9d475371b9e8a33d3e24ed1d96edf1b",
     "vendor/pi-1.5.2/agent-session.js": "ca13e3019c57378f0ad6033a271991ad96859030beb4d1c958d684eef71933d6",
     "vendor/pi-1.5.2/queued-input.js": "e09b1a23b3abbcdb4d9994231c4a3630738de1dd9d6d73041ddea3f951336c78",

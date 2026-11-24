@@ -72,6 +72,7 @@ async function waitFor(check: () => boolean | Promise<boolean>, label: string, t
 async function fixture(options: {
   foreground?: boolean;
   code?: string;
+  managedDefault?: boolean;
   denyApproval?: boolean;
   blockEdit?: boolean;
   scripted?: boolean;
@@ -97,8 +98,9 @@ async function fixture(options: {
   await writeFile(provider, (await readFile(path.join(import.meta.dir, "fixtures", "real-code-tool-extension.mjs"), "utf8"))
     .replace('"@earendil-works/pi-ai/compat"', JSON.stringify(helper)));
   const python = path.join(directory, "python.mjs");
-  await writeFile(python,
-    "import { createPythonExtension } from " + JSON.stringify(pathToFileURL(codeExtension).href) + ";\n" +
+  await writeFile(python, options.managedDefault
+    ? "export { default } from " + JSON.stringify(pathToFileURL(codeExtension).href) + ";\n"
+    : "import { createPythonExtension } from " + JSON.stringify(pathToFileURL(codeExtension).href) + ";\n" +
     "export default createPythonExtension(" + JSON.stringify({
       root: directory, autoApprove: !(options.denyApproval || options.approvals), toolStore: false,
     }) + ");\n");
@@ -191,6 +193,18 @@ async function fixture(options: {
     users: async () => (await messages()).filter((m) => m.role === "user").map(messageText),
   };
 }
+
+codeTest("managed code default executes bash without any RPC UI response", async () => {
+  const f = await fixture({ managedDefault: true, code: 'print(bash("printf noninteractive-ok"))' });
+  try {
+    await f.start();
+    const result = await f.result();
+    expect(result.details?.status).toBe("ok");
+    expect(messageText(result)).toContain("noninteractive-ok");
+    expect(f.events.filter((event) => event.type === "extension_ui_request" && event.method === "select")).toEqual([]);
+    await f.settled();
+  } finally { await f.cleanup(); }
+}, 25_000);
 
 backgroundTest("real Python bash promotes one process and delivers input before its exit", async () => {
   const f = await fixture({ foreground: true });
