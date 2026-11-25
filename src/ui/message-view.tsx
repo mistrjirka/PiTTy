@@ -4,6 +4,7 @@ import { ToolMessage } from "./message-tool-card.tsx";
 /** Message display, tool detail UI, and stable formatting | message-view. */
 
 import type { MarkdownRenderable } from "@opentui/core";
+import { createMarkdownLinkProps } from "./markdown-links.ts";
 import { createMermaidBlockRenderer } from "./mermaid-renderer.ts";
 import { useTerminalDimensions } from "@opentui/solid";
 import { type Accessor, createEffect, createMemo, Show } from "solid-js";
@@ -92,6 +93,8 @@ export function MessageView(props: {
 	let thinkingMarkdown: MarkdownRenderable | undefined;
 	let finalAnswer: MarkdownRenderable | undefined;
 	const renderMermaid = createMermaidBlockRenderer(() => finalAnswer);
+	const thinkingLinks = createMarkdownLinkProps(() => thinkingMarkdown);
+	const answerLinks = createMarkdownLinkProps(() => finalAnswer);
 
 	createEffect(() => {
 		getThemeRevision();
@@ -250,6 +253,7 @@ export function MessageView(props: {
 						</text>
 						<markdown
 							id={`${item.id}-thinking-markdown`}
+							{...thinkingLinks}
 							ref={(value) => {
 								thinkingMarkdown = value;
 							}}
@@ -288,6 +292,7 @@ export function MessageView(props: {
 						</text>
 						<markdown
 							id={`${item.id}-answer-markdown`}
+							{...answerLinks}
 							ref={(value) => {
 								finalAnswer = value;
 							}}

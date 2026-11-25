@@ -14,6 +14,7 @@ import { formatDuration } from "./duration.ts";
 import { colors, getMarkdownStyle } from "./theme.ts";
 
 import { createMemo, Show } from "solid-js";
+import { createMarkdownLinkProps } from "./markdown-links.ts";
 import type { MarkdownRenderable } from "@opentui/core";
 
 const BAR_WIDTH = 16;
@@ -282,6 +283,8 @@ export function CompactedSummary(props: {
 	viewportHeight?: number;
 }) {
 	const expanded = createMemo(() => props.expanded());
+	let markdown: MarkdownRenderable | undefined;
+	const links = createMarkdownLinkProps(() => markdown);
 	const finalizeSummary = function (this: MarkdownRenderable) {
 		if (!this.streaming) return;
 		queueMicrotask(() => {
@@ -352,6 +355,8 @@ export function CompactedSummary(props: {
 								viewportCulling
 							>
 								<markdown
+									{...links}
+									ref={(value) => { markdown = value; }}
 									content={props.completion.summary ?? ""}
 									syntaxStyle={getMarkdownStyle()}
 									fg={colors.textBright}

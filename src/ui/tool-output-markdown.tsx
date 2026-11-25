@@ -1,12 +1,14 @@
 /** Render Markdown output only when it contains a Mermaid fence. */
 import type { MarkdownRenderable } from "@opentui/core";
 import { createEffect } from "solid-js";
+import { createMarkdownLinkProps } from "./markdown-links.ts";
 import { createMermaidBlockRenderer } from "./mermaid-renderer.ts";
 import { colors, getMarkdownStyle, getThemeRevision } from "./theme.ts";
 
 export function ToolOutputMarkdown(props: { id: string; content: string }) {
 	let markdown: MarkdownRenderable | undefined;
 	const renderMermaid = createMermaidBlockRenderer(() => markdown);
+	const links = createMarkdownLinkProps(() => markdown);
 	createEffect(() => {
 		getThemeRevision();
 		if (markdown) markdown.syntaxStyle = getMarkdownStyle();
@@ -24,7 +26,7 @@ export function ToolOutputMarkdown(props: { id: string; content: string }) {
 			if (!this.isDestroyed) this.streaming = false;
 		});
 	};
-	return <markdown id={props.id} ref={(value) => { markdown = value; }}
+	return <markdown {...links} id={props.id} ref={(value) => { markdown = value; }}
 		syntaxStyle={getMarkdownStyle()} fg={colors.text}
 		streaming conceal renderBlock={renderMermaid}
 		minHeight={1} flexShrink={0} renderAfter={finalize}

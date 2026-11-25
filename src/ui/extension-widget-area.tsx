@@ -2,6 +2,7 @@ import type { MarkdownRenderable, ScrollBoxRenderable, TextRenderable } from "@o
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { isBtwMarkdownWidget, type ExtensionTextWidget } from "../state/extension-widgets.ts";
 import { extensionWidgetText } from "./extension-widget-text.ts";
+import { createMarkdownLinkProps } from "./markdown-links.ts";
 import { createMermaidBlockRenderer } from "./mermaid-renderer.ts";
 import { colors, getMarkdownStyle, getThemeRevision } from "./theme.ts";
 
@@ -29,6 +30,7 @@ function WidgetText(props: { widget: ExtensionTextWidget; id: string }) {
 function WidgetMarkdown(props: { widget: ExtensionTextWidget; id: string }) {
 	let markdown: MarkdownRenderable | undefined;
 	const renderMermaid = createMermaidBlockRenderer(() => markdown);
+	const links = createMarkdownLinkProps(() => markdown);
 	createEffect(() => {
 		getThemeRevision();
 		if (markdown) markdown.syntaxStyle = getMarkdownStyle();
@@ -46,7 +48,7 @@ function WidgetMarkdown(props: { widget: ExtensionTextWidget; id: string }) {
 			if (!this.isDestroyed) this.streaming = false;
 		});
 	};
-	return <markdown id={props.id} ref={(value) => { markdown = value; }}
+	return <markdown {...links} id={props.id} ref={(value) => { markdown = value; }}
 		syntaxStyle={getMarkdownStyle()} fg={colors.text} conceal streaming
 		renderBlock={renderMermaid}
 		minHeight={1} flexShrink={0} renderAfter={finalize}

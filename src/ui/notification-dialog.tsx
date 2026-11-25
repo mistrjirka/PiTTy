@@ -1,6 +1,7 @@
 import type { MarkdownRenderable } from "@opentui/core";
 import { Show, type Accessor } from "solid-js";
 import type { NotificationRecord } from "../types.ts";
+import { createMarkdownLinkProps } from "./markdown-links.ts";
 import { DialogFrame } from "./dialog-frame.tsx";
 import { colors, getMarkdownStyle } from "./theme.ts";
 
@@ -10,6 +11,8 @@ export type NotificationDialogProps = {
 };
 
 export function NotificationDialog(props: NotificationDialogProps) {
+	let markdown: MarkdownRenderable | undefined;
+	const links = createMarkdownLinkProps(() => markdown);
 	const finalize = function (this: MarkdownRenderable) {
 		if (!this.streaming) return;
 		queueMicrotask(() => {
@@ -35,6 +38,8 @@ export function NotificationDialog(props: NotificationDialogProps) {
 					>
 						{(record) => (
 							<markdown
+								{...links}
+								ref={(value) => { markdown = value; }}
 								content={record().text}
 								syntaxStyle={getMarkdownStyle()}
 								fg={colors.text}

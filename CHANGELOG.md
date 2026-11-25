@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.18
+
+- Open the original complete URL when clicking a wrapped Markdown link. Preserve text selection when dragging.
+
 ## 1.1.2
 
 - Stop compaction after the first extension supplies a summary. Prevent a later compactor from doing extra model work and replacing that summary. Keep completion notifications active for every extension.
