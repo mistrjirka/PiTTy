@@ -1,5 +1,5 @@
 /** Render bounded tool-result images with OpenTUI's terminal protocol detection. */
-import { imageInfo } from "@opentui/core";
+import { type BoxRenderable, type ImageRenderable, imageInfo } from "@opentui/core";
 import { useTerminalDimensions } from "@opentui/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { ToolResultImage } from "../state/conversation-shared.ts";
@@ -35,20 +35,23 @@ function ImagePreview(props: {
 	image: ToolResultImage;
 	id: string;
 	expanded: boolean;
+	availableWidth: number;
 }) {
 	const viewport = useTerminalDimensions();
 	const prepared = createMemo(() => prepareToolImage(props.image));
 	const [loadFailed, setLoadFailed] = createSignal(false);
-	const size = () => {
+	const [imageNode, setImageNode] = createSignal<ImageRenderable>();
+	const size = createMemo(() => {
 		const image = prepared();
-		const maxHeight = props.expanded ? 18 : 9;
-		const maxWidth = Math.max(12, Math.min(props.expanded ? 66 : 38, viewport().width - 48));
-		if (!image) return { width: maxWidth, height: maxHeight };
-		// A terminal cell is about twice as tall as it is wide. Constrain
-		// previews by both dimensions and keep portrait screenshots legible.
-		const naturalColumns = Math.max(12, Math.round(maxHeight * image.width / image.height * 2));
-		return { width: Math.min(maxWidth, naturalColumns), height: maxHeight };
-	};
+		const node = imageNode();
+		const screenRows = Math.max(1, Math.floor(viewport().height * 0.75));
+		const maxHeight = props.expanded ? screenRows : Math.min(9, screenRows);
+		const maxWidth = props.expanded ? props.availableWidth : Math.min(38, props.availableWidth);
+		// Fit both axes using the terminal's cell proportions. The measured
+		// container already accounts for sidebars, inspector panels and padding.
+		return image && node ? node.getFittedSize(maxWidth, maxHeight, undefined, image.width, image.height)
+			: { width: 0, height: 0 };
+	});
 	return (
 		<box id={props.id} flexDirection="column" minWidth={0} flexShrink={0}>
 			<text fg={colors.subtle} wrapMode="none">
@@ -57,7 +60,7 @@ function ImagePreview(props: {
 					: "Image preview unavailable"}
 			</text>
 			<Show when={loadFailed() ? undefined : prepared()}>
-				{(value) => <image id={`${props.id}-pixels`}
+				{(value) => <image id={`${props.id}-pixels`} ref={(node) => setImageNode(node)}
 					source={value().bytes} protocol="auto" fit="fit"
 					width={size().width} height={size().height}
 					onError={() => setLoadFailed(true)} />}
@@ -75,10 +78,16 @@ export function ToolImagePreviews(props: {
 	images: readonly ToolResultImage[];
 	expanded: boolean;
 }) {
-	return <box id={props.id} flexDirection="column" minWidth={0} paddingTop={1}>
+	const [availableWidth, setAvailableWidth] = createSignal(0);
+	const measure = function (this: BoxRenderable) {
+		setAvailableWidth(this.width);
+	};
+	return <box id={props.id} flexDirection="column" minWidth={0} paddingTop={1}
+		onSizeChange={measure}>
 		<For each={props.expanded ? props.images : props.images.slice(0, 1)}>
 			{(image, index) => <ImagePreview
-				id={`${props.id}-${index()}`} image={image} expanded={props.expanded} />}
+				id={`${props.id}-${index()}`} image={image} expanded={props.expanded}
+				availableWidth={availableWidth()} />}
 		</For>
 		<Show when={!props.expanded && props.images.length > 1}>
 			<text fg={colors.subtle}>

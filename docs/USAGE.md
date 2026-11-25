@@ -120,7 +120,9 @@ Use `Ctrl+T`, `Shift+Tab`, or `/thinking` to change Pi's reasoning effort. Avail
 
 ## Follow-ups and steering
 
-While Pi is running, `Enter` queues text for the next model step. If a slash suggestion is visible, `Enter` accepts that suggestion first. `Alt+Enter` has no action in the main editor and leaves the draft unchanged.
+On PiTTy's managed runtime, `Enter` interrupts the current model request and delivers your correction. A running Python call yields a handle so Pi can respond while its current tool finishes. Completed tool operations are preserved. The script can pause before its next tool call and resume from its saved state.
+
+Follow-up messages keep their queue behavior. During compaction, new messages wait until the saved context is ready. If a slash suggestion is visible, `Enter` accepts that suggestion first. `Alt+Enter` has no action in the main editor and leaves the draft unchanged.
 
 The **Pending input** panel above the editor shows messages that Pi has not started processing:
 

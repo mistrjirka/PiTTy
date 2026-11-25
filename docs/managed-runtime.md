@@ -20,6 +20,18 @@ If the installed Pi or code-tool differs from the verified versions, PiTTy uses 
 
 For local source builds with matching upstream packages, run `npm run install:fork-runtime` once to prepare the managed runtime. The installer does not modify any global Pi configuration.
 
+## Immediate steering and code output
+
+New user steering interrupts the active model request and starts a replacement request with the accepted message. Follow-ups and background notifications remain queued. Compaction finishes before queued input is processed.
+
+When a Python host call is running, the code tool yields a cell ID so Pi can respond. The current call keeps its result, and the script pauses before another host call. `code({"wait":"<cell-id>"})` collects that execution. A paused script continues with `code({"resume":true})`, without repeating completed calls. `cancel` explicitly cancels a live cell. After a process stops without recording completion, the tool reports an unknown outcome and requires checking the effects before abandoning or resetting it.
+
+Before marking the agent complete, Pi waits for the current host call and its saved checkpoint. It publishes the final status, edited-file evidence, and usage once. Further user steering still interrupts this wait. A remaining paused script needs an explicit `resume`; settlement never runs its next step automatically. Reading an old cell shows a historical result without changing the current Python state or suggesting stale continuation actions.
+
+The maintained subagent extension requires version 0.5.32 to report these deferred completions in `agent inspect` and `agent wait`.
+
+Large output uses a preview of about 7 KiB with both the beginning and ending. The complete output is stored in private files, up to 64 MiB per result. Read it with `code({"output":"<output-id>","offset":0})` and use the returned byte offset for later pages. Output references survive session restore. Streaming previews are also bounded and throttled.
+
 ## Founder setup on an older Pi installation
 
 `pitty founders-setup` can prepare the exact supported Pi base when global Pi is older or unavailable. It downloads the pinned public package into a temporary prefix inside the PiTTy installation, validates the same original module hashes and startup behavior, and copies the prepared runtime into `fork-runtime/`. It removes the temporary prefix afterward. Global Pi and its settings stay unchanged.

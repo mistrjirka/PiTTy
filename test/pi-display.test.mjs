@@ -55,6 +55,11 @@ describe("Pi display-only RPC projection", () => {
 		assert.deepEqual(projected.details, { status: "ok", calls: 2 });
 		const event = displayEvent({ type: "message_end", message: original });
 		assert.deepEqual(event.message.details, { status: "ok", calls: 2 });
+		const completion = displayEvent({ type: "entry_appended", entry: {
+			type: "tool_completion", toolCallId: "code-run", toolName: "code", result: original,
+		} });
+		assert.deepEqual(completion.entry.result.details, { status: "ok", calls: 2 });
+		assert.equal(JSON.stringify(completion).includes('"state"'), false);
 		assert.equal(reads, 0);
 	});
 
@@ -83,6 +88,9 @@ describe("Pi display-only RPC projection", () => {
 			toolResults: [msg],
 		});
 		inspect({ type: "tool_execution_end", toolName: "code", result: msg });
+		inspect({ type: "entry_appended", entry: {
+			type: "tool_completion", toolCallId: "code-run", toolName: "code", result: msg,
+		} });
 		inspect({
 			type: "tool_execution_update",
 			toolName: "code",

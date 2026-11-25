@@ -30,6 +30,7 @@ import { colors } from "./theme.ts";
 import { containsMermaidFence } from "./mermaid-renderer.ts";
 import { ToolOutputMarkdown } from "./tool-output-markdown.tsx";
 import { ToolImagePreviews } from "./tool-image-previews.tsx";
+import { displayToolOutput } from "../state/code-tool-presentation.ts";
 import { hasMeaningfulToolOutput, isRedundantSpawnReceipt, structuredToolOutput, toolInputDetail } from "./tool-input-format.ts";
 
 export function ToolDetails(props: {
@@ -40,11 +41,12 @@ export function ToolDetails(props: {
 }) {
 	// The spawn header already reports success. Keep the receipt inside the
 	// expandable request panel rather than repeating it under every child.
+	const visibleOutput = createMemo(() => displayToolOutput(props.item));
 	const output = () =>
-		!hasMeaningfulToolOutput(props.item.output, props.item.isError) ||
+		!hasMeaningfulToolOutput(visibleOutput(), props.item.isError) ||
 		(toolInputDetail(props.item.name, props.item.args) &&
-		isRedundantSpawnReceipt(props.item.name, props.item.output, props.item.isError))
-			? "" : props.item.output;
+		isRedundantSpawnReceipt(props.item.name, visibleOutput(), props.item.isError))
+			? "" : visibleOutput();
 	const structured = createMemo(() => structuredToolOutput(output()));
 	const diagramOutput = createMemo(() => containsMermaidFence(output()));
 	const outputPreview = () => diagramOutput() ? "Mermaid diagram" : structured()?.preview ?? collapsedPreview(output());

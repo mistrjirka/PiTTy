@@ -64,6 +64,15 @@ function readDeferredState(ref) {
         closeSync(fd);
     }
 }
+/** Parsed session entries are a disk trust boundary, including deferred completion records. */
+function toolResultFromEntry(entry) {
+    const record = entry;
+    const result = record.type === "tool_completion" ? record.result : record.type === "message" ? record.message : undefined;
+    if (!result || typeof result !== "object" || Array.isArray(result))
+        return undefined;
+    const value = result;
+    return record.type === "tool_completion" || value.role === "toolResult" ? value : undefined;
+}
 /**
  * Offload new large tool-result snapshots after the entry has been durably
  * appended. The entry is shared with the live agent history, so replacing the
@@ -72,12 +81,10 @@ function readDeferredState(ref) {
  */
 export function deferAppendedSessionState(entry, path, lineOffset) {
     const record = entry;
-    if (record.type !== "message" || !record.message || typeof record.message !== "object")
+    const result = toolResultFromEntry(entry);
+    if (!result || (record.type === "tool_completion" ? record.toolName : result.toolName) !== "code")
         return;
-    const message = record.message;
-    if (message.role !== "toolResult" || message.toolName !== "code")
-        return;
-    const details = message.details;
+    const details = result.details;
     if (!details || typeof details !== "object" || Array.isArray(details))
         return;
     const typed = details;
@@ -136,19 +143,9 @@ export function parseDeferredSessionEntry(line, filePath, byteOffset) {
     }
     if (!parsed || typeof parsed !== "object")
         return parsed;
-    const record = parsed;
-    const message = record.message;
-    if (record.type !== "message" || !message || typeof message !== "object") {
-        try {
-            return JSON.parse(line);
-        }
-        catch {
-            return null;
-        }
-    }
-    const result = message;
-    const details = result.details;
-    if (result.role !== "toolResult" || !details || typeof details !== "object" || Array.isArray(details)) {
+    const result = toolResultFromEntry(parsed);
+    const details = result?.details;
+    if (!details || typeof details !== "object" || Array.isArray(details)) {
         try {
             return JSON.parse(line);
         }

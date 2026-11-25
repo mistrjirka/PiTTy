@@ -40,6 +40,10 @@ export function PendingInputPanel(props: PendingInputPanelProps) {
 		return Boolean(first && next && first.source === next.source && first.mode === next.mode);
 	};
 	const disabled = () => Boolean(props.pendingInput?.busy() || props.pendingInput?.editing());
+	const editingStillQueued = () => {
+		const edit = props.pendingInput?.editing();
+		return Boolean(edit && entries().some((item) => item.id === edit.id && item.source === edit.source));
+	};
 	return (
 		<box flexDirection="column" height={Math.min(9, Math.max(3, props.maxRows ?? 9))}
 			maxHeight={9} minHeight={3} flexShrink={1} paddingLeft={2} paddingRight={2}
@@ -50,7 +54,8 @@ export function PendingInputPanel(props: PendingInputPanelProps) {
 				<box flexDirection="row" height={1} minHeight={1} flexShrink={0}>
 					<box flexGrow={1} minWidth={0} overflow="hidden">
 						<text fg={colors.yellow} wrapMode="none">
-							Editing · Enter saves · Original stays queued until saved
+							{editingStillQueued() ? "Editing · Enter saves only while queued"
+								: "No longer queued · Edited text is unsent"}
 						</text>
 					</box>
 					<PendingAction id="pending-cancel-edit" label="Cancel edit"

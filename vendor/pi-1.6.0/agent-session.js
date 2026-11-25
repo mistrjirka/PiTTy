@@ -154,6 +154,7 @@ export class AgentSession {
     _lastAssistantMessage;
     _lastActivityOutcome = "completed";
     _isBeforeSettle = false;
+    _beforeSettleAbortController;
     _abortDuringBeforeSettle = false;
     _isEmittingAgentSettled = false;
     _deferredSettledActions = [];
@@ -781,8 +782,14 @@ export class AgentSession {
             if (event.type === "message_start" && event.message.role === "toolResult") {
                 const message = event.message;
                 const summary = this._nestedToolCalls.takeRecord(message.toolCallId);
-                if (summary?.calls)
-                    message.nestedCalls = summary.calls;
+                if (summary?.calls) {
+                    message.nestedCalls = message.nestedCalls
+                        ? {
+                            calls: [...message.nestedCalls.calls, ...summary.calls.calls],
+                            complete: message.nestedCalls.complete && summary.calls.complete,
+                        }
+                        : summary.calls;
+                }
                 if (summary?.usage) {
                     message.usage = message.usage ? combineUsage(message.usage, summary.usage) : summary.usage;
                 }
@@ -1692,6 +1699,7 @@ export class AgentSession {
             return this.agent.hasQueuedMessages();
         this._isBeforeSettle = true;
         this._abortDuringBeforeSettle = false;
+        this._beforeSettleAbortController = new AbortController();
         try {
             const result = await this._extensionRunner.emitBoundary({ type: "agent_before_settle", outcome: this._lastActivityOutcome }, (entries) => this._buildBoundaryContext(entries, "agent_before_settle"));
             this._commitBoundaryDrafts(result.entries);
@@ -1709,6 +1717,7 @@ export class AgentSession {
         }
         finally {
             this._isBeforeSettle = false;
+            this._beforeSettleAbortController = undefined;
         }
     }
     async _runInputHandlers(text, images, source, streamingBehavior) {
@@ -2212,6 +2221,7 @@ export class AgentSession {
         this.abortBranchSummary();
         if (this._isBeforeSettle)
             this._abortDuringBeforeSettle = true;
+        this._beforeSettleAbortController?.abort();
         this.agent.abort();
         await this.waitForIdle();
     }
@@ -3263,7 +3273,7 @@ export class AgentSession {
             getScopedModels: () => this._scopedModels,
             isIdle: () => this.isIdle,
             isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
-            getSignal: () => this.agent.signal,
+            getSignal: () => this._beforeSettleAbortController?.signal ?? this.agent.signal,
             abort: () => {
                 if (this._extensionAbortHandler) {
                     this._extensionAbortHandler();
@@ -3272,6 +3282,9 @@ export class AgentSession {
                 void this.abort();
             },
             hasPendingMessages: () => this.pendingMessageCount > 0,
+            hasPendingUserSteering: () => this.agent.hasPendingUserSteering(),
+            hasPendingUserInput: () => this.agent.hasPendingUserInput(),
+            onUserSteering: (listener) => this.agent.onUserSteering(listener),
             shutdown: () => {
                 this._extensionShutdownHandler?.();
             },
@@ -3291,6 +3304,23 @@ export class AgentSession {
             getSystemPrompt: () => this.systemPrompt,
             getSystemPromptOptions: () => this._baseSystemPromptOptions,
             executeTool: (callerId, name, args, options) => this._executeNestedToolCall(callerId, name, args, options),
+            takeNestedToolCalls: (callerId) => this._nestedToolCalls?.takeRecord(callerId),
+            publishToolCompletion: (callerId, result) => {
+                const entry = this.sessionManager.appendToolCompletion(callerId, result);
+                if (!entry)
+                    return;
+                this._refreshFinalizedContext();
+                // The durable append already transferred ownership. A broken observer must not make
+                // the caller retry the completed evidence or prevent other observers seeing it.
+                for (const listener of this._eventListeners) {
+                    try {
+                        listener({ type: "entry_appended", entry });
+                    }
+                    catch (error) {
+                        console.error("Tool completion observer failed:", error);
+                    }
+                }
+            },
             getCallableTools: () => this._getCallableTools(),
         }, {
             registerProvider: (name, config) => {
@@ -3908,6 +3938,9 @@ export class AgentSession {
         for (const entry of this.sessionManager.getEntries()) {
             if (entry.type === "usage") {
                 addUsageToTotals(usageTotals, entry.usage);
+            }
+            else if (entry.type === "tool_completion" && entry.result.usage) {
+                addUsageToTotals(usageTotals, entry.result.usage);
             }
             else if ((entry.type === "branch_summary" || entry.type === "compaction") && entry.usage) {
                 addUsageToTotals(usageTotals, entry.usage);

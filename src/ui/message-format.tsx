@@ -7,6 +7,7 @@ import { isSubagentFamilyToolName } from "../subagents/profiled.ts";
 import type { ConversationItem, CustomItem, ToolItem } from "../types.ts";
 import { formatDuration } from "./duration.ts";
 import { colors } from "./theme.ts";
+import { toolDisplayState } from "../state/code-tool-presentation.ts";
 
 export function toolVisual(
 	name: string,
@@ -129,14 +130,20 @@ export function toolArgSummary(args: unknown, maxLength = 150): string {
 }
 
 /** Status glyph shared by tool rows: running, failed, or finished. */
-export function toolStatusGlyph(item: Pick<ToolItem, "status" | "isError">): {
+export function toolStatusGlyph(item: Pick<ToolItem, "status" | "isError"> &
+	Partial<Pick<ToolItem, "name" | "details" | "codeCell" | "recordedNestedStatus">>): {
 	glyph: string;
 	color: string;
 } {
-	if (item.isError || item.status === "error")
+	const display = toolDisplayState(item);
+	if (item.isError || item.status === "error" || display?.kind === "error")
 		return { glyph: "✗", color: colors.red };
 	if (item.status === "streaming" || item.status === "pending")
 		return { glyph: "◉", color: colors.accent };
+	if (display?.kind === "yielded") return { glyph: "↪", color: colors.accent };
+	if (display?.kind === "paused") return { glyph: "◷", color: colors.yellow };
+	if (display?.kind === "unknown") return { glyph: "?", color: colors.yellow };
+	if (display?.kind === "saved") return { glyph: "·", color: colors.subtle };
 	return { glyph: "✓", color: colors.green };
 }
 

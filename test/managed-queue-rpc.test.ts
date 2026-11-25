@@ -129,8 +129,8 @@ managedTest("managed RPC edits duplicate text by ID and atomically merges attach
     await f.hold("response");
     await f.client.prompt("start", "steer", "start");
     await f.started("response");
-    await f.client.prompt("repeat", "steer", "first");
-    await f.client.prompt("repeat", "steer", "second");
+    await f.client.prompt("repeat", "followUp", "first");
+    await f.client.prompt("repeat", "followUp", "second");
     const initial = await f.client.getQueue();
     expect(initial.messages.map((item) => item.id)).toEqual(["first", "second"]);
     const edited = await f.client.updateQueuedMessage("first", "edited", initial.revision);
@@ -138,7 +138,7 @@ managedTest("managed RPC edits duplicate text by ID and atomically merges attach
     await expect(f.client.removeQueuedMessage("second", initial.revision)).rejects.toThrow();
     expect((await f.client.getQueue()).messages).toEqual(edited.messages);
     await f.client.rpc({
-      type: "prompt", message: "third", streamingBehavior: "steer", messageId: "third",
+      type: "prompt", message: "third", streamingBehavior: "followUp", messageId: "third",
       images: [{ type: "image", data: tinyPng, mimeType: "image/png" }],
     });
     let queue = await f.client.getQueue();
@@ -171,7 +171,7 @@ managedTest("managed RPC delivers user steering before an earlier background not
     await f.client.prompt("/queue-fixture-steer-notify");
     await f.client.getState();
     await f.client.prompt("urgent correction", "steer", "urgent");
-    expect((await f.client.getQueue()).messages.map((item) => item.id)).toEqual(["urgent"]);
+    await waitFor(async () => (await f.users()).some((message) => text(message) === "urgent correction"), "immediate user steering");
     await f.release("response");
     await f.settled();
     const result = await f.client.rpc({ type: "get_messages" }) as { messages: Array<UserMessage | { role: "custom"; customType: string } | { role: "assistant" }> };

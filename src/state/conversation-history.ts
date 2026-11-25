@@ -19,6 +19,9 @@ import {
 } from "./conversation-shared.ts";
 import { compactTokenCount } from "./compaction-results.ts";
 import { normalizeResultDetails } from "./result-diff.ts";
+import { codeResultStatus, reconcileCodeCellHistory } from "./code-tool-presentation.ts";
+import { mergeNestedCallMetadata } from "./nested-tool-history.ts";
+import { toolCompletionFromEvent } from "./tool-completions.ts";
 
 /** Pi's code tool returns opaque resume state in details.state, often >10 MiB.
  * Its state belongs to the Pi session, not the terminal view. Retaining every
@@ -31,8 +34,10 @@ export function displayToolDetails(
 	if (toolName.toLowerCase() !== "code") return details;
 	const record = objectRecord(details);
 	if (!record || !("state" in record)) return details;
-	const visible = { ...record };
-	delete visible.state;
+	const visible: Record<string, unknown> = {};
+	for (const key of Object.keys(record)) {
+		if (key !== "state") visible[key] = record[key];
+	}
 	return Object.keys(visible).length > 0 ? visible : undefined;
 }
 
@@ -141,6 +146,7 @@ export function initialItems(
 		return seen === 0 ? `${prefix}-${key}` : `${prefix}-${key}-n${seen}`;
 	};
 	const toolCalls = new Map<string, PersistedToolCallMetadata>();
+	const toolItemIndices = new Map<string, number>();
 	let assistantMessageSeq = 0;
 	for (const message of messages) {
 		for (const call of persistedToolCallMetadata(message))
@@ -229,6 +235,8 @@ export function initialItems(
 					: id("tool-call"));
 			const call = toolCalls.get(toolCallId);
 			const normalizedResult = normalizeResultDetails(record.details);
+			const isError = Boolean(record.isError) || codeResultStatus(call?.name ?? toolName, record.details) === "error";
+			toolItemIndices.set(toolCallId, items.length);
 			items.push({
 				kind: "tool",
 				id: makeId("history-tool", toolCallId),
@@ -244,11 +252,14 @@ export function initialItems(
 				timestamp: messageTimestamp(message, stable),
 				startedAt: messageTimestamp(message, stable),
 				endedAt: messageTimestamp(message, stable),
-				status: "done",
-				isError: Boolean(record.isError),
+				status: isError ? "error" : "done",
+				isError,
 			});
+			mergeNestedCallMetadata(items, toolItemIndices, record, toolCallId,
+				messageTimestamp(message, stable), (callId) => makeId("history-nested", callId));
 		}
 	}
+	reconcileCodeCellHistory(items);
 	return items;
 }
 
@@ -256,6 +267,7 @@ export function isConversationEvent(event: PiEvent): boolean {
 	if (!event || typeof event !== "object" || typeof event.type !== "string")
 		return false;
 	switch (event.type) {
+		case "entry_appended": return Boolean(toolCompletionFromEvent(event));
 		case "agent_start":
 		case "agent_settled":
 		case "agent_end":

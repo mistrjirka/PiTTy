@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.19
+
+- Keep yielded code and child-agent status consistent across live views, inspection, and restored history. Publish deferred edits before child completion.
+- Show historical cell reads without stale continuation controls and distinguish queued user input from background notifications.
+
+- Apply user steering during model generation. Preserve follow-up ordering, compaction, and completed tool results.
+- Yield running Python calls, collect their results by cell ID, and resume paused scripts without repeating completed effects.
+- Bound Python output and streaming previews. Save larger results for paged retrieval after session restore.
+- Expand images to the available panel width and 75% of terminal height, with responsive sizing for narrow screens.
+
 ## 1.2.18
 
 - Open the original complete URL when clicking a wrapped Markdown link. Preserve text selection when dragging.

@@ -41,6 +41,12 @@ export type {
 
 export type MessageStatus = "pending" | "streaming" | "done" | "error";
 
+export type CodeCellObservation = {
+	id: string;
+	status: "running" | "complete" | "unknown";
+	resultStatus: "running" | "suspended" | "unknown" | "error" | "ok";
+};
+
 export type UserItem = {
 	kind: "user";
 	id: string;
@@ -74,6 +80,13 @@ export type ToolItem = {
 	kind: "tool";
 	id: string;
 	toolCallId: string;
+	parentToolCallId?: string | undefined;
+	/** Latest observation of a yielded execution, separate from this call returning. */
+	codeCell?: CodeCellObservation | undefined;
+	/** UI-only bounded stdout retained until the cell is collected. */
+	yieldedOutput?: string | undefined;
+	/** Restored nested-call metadata has no saved host output. */
+	recordedNestedStatus?: "ok" | "error" | "unfinished" | undefined;
 	name: string;
 	args: unknown;
 	output: string;

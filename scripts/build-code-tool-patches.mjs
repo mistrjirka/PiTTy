@@ -52,6 +52,8 @@ const modules = [
 	["src/pi/extension.ts", "dist/pi/extension.js", "extension.js"],
 	["src/pi/bridge.ts", "dist/pi/bridge.js", "bridge.js"],
 	["src/pi/state-codec.ts", "dist/pi/state-codec.js", "state-codec.js"],
+	["src/pi/output.ts", "dist/pi/output.js", "output.js"],
+	["src/pi/execution.ts", "dist/pi/execution.js", "execution.js"],
 ];
 const sourceFiles = [...modules.map(([source]) => source), "package.json", "package-lock.json"];
 execFileSync("git", ["ls-files", "--error-unmatch", "--", ...sourceFiles], {

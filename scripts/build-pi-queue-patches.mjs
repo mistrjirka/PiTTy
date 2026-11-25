@@ -41,10 +41,13 @@ if (hash(originalSessionManager) !== manifest.pi.originalSessionManagerSha256)
 const modules = [
 	["packages/coding-agent/src/core/session-manager.ts", "dist/core/session-manager.js", "session-manager.js"],
 	["packages/coding-agent/src/core/session-lazy-state.ts", "dist/core/session-lazy-state.js", "session-lazy-state.js"],
+	["packages/coding-agent/src/core/usage-totals.ts", "dist/core/usage-totals.js", "usage-totals.js"],
 	["packages/coding-agent/src/core/agent-session.ts", "dist/core/agent-session.js", "agent-session.js"],
+	["packages/coding-agent/src/core/nested-tool-calls.ts", "dist/core/nested-tool-calls.js", "nested-tool-calls.js"],
 	["packages/coding-agent/src/core/queued-input.ts", "dist/core/queued-input.js", "queued-input.js"],
 	["packages/coding-agent/src/modes/rpc/rpc-mode.ts", "dist/modes/rpc/rpc-mode.js", "rpc-mode.js"],
 	["packages/agent/src/agent.ts", "node_modules/@earendil-works/pi-agent-core/dist/agent.js", "agent.js"],
+	["packages/agent/src/agent-loop.ts", "node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js", "agent-loop.js"],
 	// Include the runtime and diagnostic modules matching the synchronized Pi base.
 	["packages/coding-agent/src/core/agent-session-runtime.ts", "dist/core/agent-session-runtime.js", "agent-session-runtime.js"],
 	["packages/coding-agent/src/modes/diagnostics-stderr.ts", "dist/modes/diagnostics-stderr.js", "diagnostics-stderr.js"],
@@ -66,6 +69,7 @@ const modules = [
 	["packages/coding-agent/src/core/provider-composer.ts", "dist/core/provider-composer.js", "provider-composer.js"],
 	["packages/ai/src/models.ts", "node_modules/@earendil-works/pi-ai/dist/models.js", "ai-models.js"],
 	["packages/ai/src/providers/all.ts", "node_modules/@earendil-works/pi-ai/dist/providers/all.js", "ai-providers-all.js"],
+	["packages/ai/src/api/openai-codex-responses.ts", "node_modules/@earendil-works/pi-ai/dist/api/openai-codex-responses.js", "openai-codex-responses.js"],
 ];
 for (const [source, target, filename] of modules) {
 	const file = path.join(sourceRoot, source);

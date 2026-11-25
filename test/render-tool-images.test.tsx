@@ -2,12 +2,15 @@ import { expect, test } from "bun:test";
 import { ImageRenderable, resolveImageRenderProtocol } from "@opentui/core";
 import { createSignal } from "solid-js";
 import { MessageView } from "../src/ui/message.tsx";
+import { ToolImagePreviews } from "../src/ui/tool-image-previews.tsx";
 import type { ToolItem } from "../src/types.ts";
 import { mount } from "./render-helpers/mount.tsx";
 import { useRenderTestEnv } from "./render-helpers/test-env.ts";
 
 useRenderTestEnv();
 const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+const landscapePng = "iVBORw0KGgoAAAANSUhEUgAAACAAAAASCAIAAAC1qksFAAAAJElEQVR4nGPQmPaMJPShwogkxDBqwagFoxaMWjBqwagF9LAAAAtApe7bXWpuAAAAAElFTkSuQmCC";
+const portraitPng = "iVBORw0KGgoAAAANSUhEUgAAABIAAAAgCAIAAACQHr+mAAAAI0lEQVR4nGPQmPYMF/pQYYQLMYxqG9U2qm1U26i2UW2DWRsAHuWl7pvSKRkAAAAASUVORK5CYII=";
 
 function picture(): ToolItem {
 	return { kind: "tool", id: "picture", name: "read", toolCallId: "picture",
@@ -46,10 +49,14 @@ test("image results use native terminal image rendering instead of base64 output
 		await setup.mockMouse.click(toggle.x + 1, toggle.y);
 		await setup.flush();
 		frame = setup.captureCharFrame();
-		expect(image.height).toBe(18);
+		expect(image.height).toBe(26);
+		expect(image.width).toBe(52);
 		expect(frame).toContain("▾ hide");
 		expect(frame).toContain("Image · PNG · 1×1");
 		expect(frame).not.toContain(png);
+		await setup.mockMouse.click(toggle.x + 1, toggle.y);
+		await setup.flush();
+		expect(image.height).toBe(9);
 	} finally { setup.renderer.destroy(); }
 });
 
@@ -84,4 +91,64 @@ test("multiple image results show one preview until details are expanded", async
 		expect(setup.renderer.root.findDescendantById("many-pictures-images-1-pixels")).toBeDefined();
 		expect(setup.captureCharFrame()).not.toContain("+2 more images");
 	} finally { setup.renderer.destroy(); }
+});
+
+test("expanded images use the measured panel width and resize without a terminal resize", async () => {
+	const [panelWidth, setPanelWidth] = createSignal(180);
+	const setup = await mount(() => <box width={panelWidth()} paddingLeft={3} paddingRight={5}>
+		<ToolImagePreviews id="sized" images={[{ mimeType: "image/png", data: landscapePng }]} expanded />
+	</box>, 240, 60);
+	try {
+		const image = setup.renderer.root.findDescendantById("sized-0-pixels");
+		const container = setup.renderer.root.findDescendantById("sized");
+		expect(image).toBeInstanceOf(ImageRenderable);
+		expect(container).toBeDefined();
+		if (!(image instanceof ImageRenderable) || !container) return;
+		await image.loadPromise;
+		expect(image.loadError).toBeFalsy();
+		expect(container.width).toBe(172);
+		expect({ width: image.width, height: image.height }).toEqual({ width: 160, height: 45 });
+		expect(image.fit).toBe("fit");
+
+		setPanelWidth(60);
+		await setup.flush();
+		expect(container.width).toBe(52);
+		expect({ width: image.width, height: image.height }).toEqual({ width: 52, height: 15 });
+		expect(image.x + image.width).toBeLessThanOrEqual(container.x + container.width);
+	} finally { setup.renderer.destroy(); }
+});
+
+test("landscape and portrait images stay inside narrow and short viewports", async () => {
+	for (const [data, sourceWidth, sourceHeight] of [
+		[landscapePng, 32, 18],
+		[portraitPng, 18, 32],
+	] as const) {
+		const [expanded, setExpanded] = createSignal(true);
+		const setup = await mount(() => <ToolImagePreviews id="responsive"
+			images={[{ mimeType: "image/png", data }]} expanded={expanded()} />, 80, 40);
+		try {
+			const image = setup.renderer.root.findDescendantById("responsive-0-pixels");
+			expect(image).toBeInstanceOf(ImageRenderable);
+			if (!(image instanceof ImageRenderable)) continue;
+			await image.loadPromise;
+			expect(image.loadError).toBeFalsy();
+			for (const [width, height] of [[80, 40], [40, 16], [8, 6]] as const) {
+				setup.resize(width, height);
+				await setup.flush();
+				expect(image.width).toBeGreaterThan(0);
+				expect(image.height).toBeGreaterThan(0);
+				expect(image.x + image.width).toBeLessThanOrEqual(width);
+				expect(image.height).toBeLessThanOrEqual(Math.floor(height * 0.75));
+				const fitted = image.getFittedSize(image.width, image.height);
+				expect(fitted.width).toBeLessThanOrEqual(image.width);
+				expect(fitted.height).toBeLessThanOrEqual(image.height);
+				const expectedRows = image.width / (sourceWidth / sourceHeight * image.cellAspectRatio);
+				expect(Math.abs(image.height - expectedRows)).toBeLessThanOrEqual(1);
+			}
+			setExpanded(false);
+			await setup.flush();
+			expect(image.width).toBeLessThanOrEqual(8);
+			expect(image.height).toBeLessThanOrEqual(4);
+		} finally { setup.renderer.destroy(); }
+	}
 });

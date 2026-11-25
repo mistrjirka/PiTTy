@@ -307,7 +307,8 @@ export function createTabRuntime(options: TabRuntimeOptions): ConversationTabRun
 	};
 	const handleProcessExit = (error: Error): void => {
 		recordRuntimeFailure(error);
-		runtime.conversation.apply({ type: "agent_settled" });
+		const settled: Record<string, unknown> = { type: "agent_settled", processExited: true };
+		runtime.conversation.apply(settled);
 		runtime.conversation.isCompacting = false;
 		delete runtime.compactionTelemetry;
 		delete runtime.smartCompactProgress;

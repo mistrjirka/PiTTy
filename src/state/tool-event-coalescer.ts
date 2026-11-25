@@ -1,4 +1,5 @@
 import type { PiEvent } from "../types.ts";
+import { toolCompletionFromEvent } from "./tool-completions.ts";
 
 export const TOOL_UPDATE_FLUSH_DELAY_MS = 250;
 export const MAX_PENDING_TOOL_UPDATES = 512;
@@ -75,8 +76,9 @@ export class ToolEventCoalescer {
 			return;
 		}
 
-		if (isEventType(event, "tool_execution_end")) {
-			const id = toolCallId(event);
+		const completion = toolCompletionFromEvent(event);
+		if (isEventType(event, "tool_execution_end") || completion) {
+			const id = completion?.toolCallId ?? toolCallId(event);
 			if (id) this.pending.delete(id);
 			this.flushPending();
 			this.applyEvent(event);

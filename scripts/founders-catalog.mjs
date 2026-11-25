@@ -3,7 +3,7 @@ export const FOUNDERS_PACKAGES = [
   {
     id: "subagents", source: "git:github.com/mistrjirka/pi-subagent",
     names: ["@mistrjirka/pi-subagent"], files: ["index.ts"], nodeMajor: 24,
-    minimumVersion: { source: "git:github.com/mistrjirka/pi-subagent", version: "0.5.29" },
+    minimumVersion: { source: "git:github.com/mistrjirka/pi-subagent", version: "0.5.32" },
     replaces: ["npm:@mistrjirka/pi-subagent", "npm:@everyx/pi-subagent", "npm:pi-subagents", "git:github.com/everyx/pi-subagent"],
   },
   {

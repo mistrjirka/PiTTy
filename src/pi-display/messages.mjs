@@ -43,6 +43,12 @@ export function displayEvent(event) {
 	const record = object(event);
 	if (!record) return event;
 	const type = record.type;
+	if (type === "entry_appended") {
+		const entry = object(record.entry);
+		if (entry?.type !== "tool_completion") return event;
+		const result = stripCodeResult(entry.result, entry.toolName);
+		return result === entry.result ? event : { ...record, entry: { ...entry, result } };
+	}
 	if (type === "message_start" || type === "message_end") {
 		const message = displayMessage(record.message);
 		return message === record.message ? event : { ...record, message };

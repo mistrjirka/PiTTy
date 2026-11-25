@@ -3,7 +3,7 @@
   "pi": {
     "version": "1.6.0",
     "originalSessionManagerSha256": "2628f797997ea3a133573ff8f36a050cdc1d74d2d346b856f328e5e7da42aba1",
-    "forkCommit": "61c825e72bc5731819b8d89eb1015ed86ee0298a",
+    "forkCommit": "ec1de7a0266f041c07926d5277cd9af52e0cd1e2",
     "forkRepository": "https://github.com/mistrjirka/pi",
     "modules": [
       {
@@ -17,9 +17,19 @@
         "originalSha256": null
       },
       {
+        "source": "vendor/pi-1.6.0/usage-totals.js",
+        "target": "dist/core/usage-totals.js",
+        "originalSha256": "6cf252240be714ac04969d533a38129fca5cbb0dacf47c1cfb08d215cadd13d6"
+      },
+      {
         "source": "vendor/pi-1.6.0/agent-session.js",
         "target": "dist/core/agent-session.js",
         "originalSha256": "cd1c9fc3139e6dcd5320b55414aa5fdf12dbea32d4fd38da2c9a57be0d3677c3"
+      },
+      {
+        "source": "vendor/pi-1.6.0/nested-tool-calls.js",
+        "target": "dist/core/nested-tool-calls.js",
+        "originalSha256": "62a69500b63b1967e350305aa5f6762345ceb397fe5c5e7f6e6ca6c8fc16c034"
       },
       {
         "source": "vendor/pi-1.6.0/queued-input.js",
@@ -35,6 +45,11 @@
         "source": "vendor/pi-1.6.0/agent.js",
         "target": "node_modules/@earendil-works/pi-agent-core/dist/agent.js",
         "originalSha256": "f45ae001e2b14fced8ae151f0a00303b5fbdb5fc4b25418d45de6a5546f48a8c"
+      },
+      {
+        "source": "vendor/pi-1.6.0/agent-loop.js",
+        "target": "node_modules/@earendil-works/pi-agent-core/dist/agent-loop.js",
+        "originalSha256": "804c6b15e67f265cb1fe5f09b4e0c7a3fd502e3e5f086ae0378ca6864436b75e"
       },
       {
         "source": "vendor/pi-1.6.0/agent-session-runtime.js",
@@ -127,6 +142,11 @@
         "originalSha256": "659c1eac079ce2bd0f695afa092c3aae16322bd25edb316cb0c2be225fc2badf"
       },
       {
+        "source": "vendor/pi-1.6.0/openai-codex-responses.js",
+        "target": "node_modules/@earendil-works/pi-ai/dist/api/openai-codex-responses.js",
+        "originalSha256": "0b791f5417669449c70d2e8a4cc9c3626b578c07f1c73abc455d6b69d15b50c6"
+      },
+      {
         "source": "vendor/pi-1.6.0/settings.schema.json",
         "target": "schemas/settings.schema.json",
         "originalSha256": "10c0b73ace40dd0a3461a45f08cb819b39b1089ce7037e27b746fc812f28beb9"
@@ -138,7 +158,7 @@
   "codeTool": {
     "version": "0.6.2",
     "originalExtensionSha256": "7b19b6f7eb57b08895cb796921293ea57aee0adaa3639b67d867305c89026018",
-    "forkCommit": "2a90a2268e720d0fea274b07d9492734fe26c37d",
+    "forkCommit": "bcb1a198b8fd8ce90a615ce6455dd9fe52e44f0a",
     "forkRepository": "https://github.com/mistrjirka/pi-code-tool",
     "modules": [
       {
@@ -195,16 +215,26 @@
         "source": "vendor/pi-code-tool-0.6.2/state-codec.js",
         "target": "dist/pi/state-codec.js",
         "originalSha256": null
+      },
+      {
+        "source": "vendor/pi-code-tool-0.6.2/output.js",
+        "target": "dist/pi/output.js",
+        "originalSha256": null
+      },
+      {
+        "source": "vendor/pi-code-tool-0.6.2/execution.js",
+        "target": "dist/pi/execution.js",
+        "originalSha256": null
       }
     ]
   },
   "patchFiles": {
-    "vendor/pi-code-tool-0.6.2/extension.js": "b6dff662c7b948e9932afc5a423fd551c7c96bbf3cf2ccd8af750773389d6257",
+    "vendor/pi-code-tool-0.6.2/extension.js": "04969f18452e999b677d723631d32ee9c9423c33e11e8cc9054734d23446f798",
     "vendor/pi-code-tool-0.6.2/state-codec.js": "8871bfcd41753b85e3cb114d09ce25d8c9d475371b9e8a33d3e24ed1d96edf1b",
     "vendor/pi-code-tool-0.6.2/bridge.js": "86075fa5ef6dfdcdef83388f6f92361ba9f786b7aa615edb7103c71c5d4231b6",
     "vendor/monty-runtime/package.json": "3251c5c4a982bddcf8519c132d15287ea2c801ba74c91835a198e91016e2f477",
     "vendor/monty-runtime/package-lock.json": "a473a9780f3a837989002996eaf68428bd1e89885a6ebdd39a4436e93bc4391f",
-    "vendor/pi-code-tool-0.6.2/runner.js": "7f832d4bd0bcce5ec167a2488990557a26ec94cc6980b47c595f9d3085bf18a2",
+    "vendor/pi-code-tool-0.6.2/runner.js": "c070bc60045d24ade3719250e45a66ed3c957c11b8792b25c47a4b0f5291547d",
     "vendor/pi-code-tool-0.6.2/session.js": "4d9617d7c96b36392638346087bbf6229730309720d3e5e3fbcfe758c99ddbdf",
     "vendor/pi-code-tool-0.6.2/registry.js": "e106c40bc1d4d81f722ce9dd635a9ea9d43b4fc4918c676d4fa4a556f013638f",
     "vendor/pi-code-tool-0.6.2/capabilities.js": "48aa0652819dc0cf1625dd939e898d8c99d74393689d70e6bc2bce9531aee3ea",
@@ -212,12 +242,12 @@
     "vendor/pi-code-tool-0.6.2/types.js": "2c2691b9b497dffc3216ffb8b6e499f9df7deea145c0591cda260129f8a923f1",
     "vendor/pi-code-tool-0.6.2/runtime.js": "572e942ee23f769509263d8a2dbea986779247955c274220ef3db5e3bf2abf54",
     "vendor/pi-code-tool-0.6.2/legacy.js": "e4d82888e5bf1a5b66aa7731027cfdac50f5f80c8b935033dff5a00d1e13013b",
-    "vendor/pi-1.6.0/session-manager.js": "3fb824b02d6a575e6409d239b79072d0d750c54a497330c0829579da54923ba9",
-    "vendor/pi-1.6.0/session-lazy-state.js": "c527d424944ff14dffb54b498f7778c4fddd702478e9ec6d15ff10b6e69fbe3f",
-    "vendor/pi-1.6.0/agent-session.js": "ca13e3019c57378f0ad6033a271991ad96859030beb4d1c958d684eef71933d6",
+    "vendor/pi-1.6.0/session-manager.js": "3ab2c564cf8361a7060b73dd84d5b01dc18ae6f254b28ea2cb1c7938ec6830a6",
+    "vendor/pi-1.6.0/session-lazy-state.js": "15f51c4635ffd3b7b56a20d57e793c77e92854834af8768642da951641cdab69",
+    "vendor/pi-1.6.0/agent-session.js": "9122bd6a778e621598eac00a77f6575ccf2c968eaa1c24c49236c5c66e207c31",
     "vendor/pi-1.6.0/queued-input.js": "e09b1a23b3abbcdb4d9994231c4a3630738de1dd9d6d73041ddea3f951336c78",
     "vendor/pi-1.6.0/rpc-mode.js": "b2c3fa9f9a8191d06f7fd2390328b1c2b5ba7f5b287711f47d9866223289e335",
-    "vendor/pi-1.6.0/agent.js": "da9b85ec94d986d7e39c93bf4aeff216645b35a0d792ffdd4177f4311d779d47",
+    "vendor/pi-1.6.0/agent.js": "7907d9003ac8ba0887d69a30d6a7111e1ddcfcfdc7a0707e134a29601142af61",
     "vendor/pi-1.6.0/agent-session-runtime.js": "b2005952a6c49638f7f9d7616a13cd5a97feab84a9657dbb5d6d0c64be7d20d9",
     "vendor/pi-1.6.0/diagnostics-stderr.js": "6a0458320312dbe0c42c8f1dd8c66ea1c87b61ec1a38e66e97c1143b5135a6b7",
     "vendor/pi-1.6.0/side-questions.js": "b418a7745508af442f905045ab850913657871114891bb398bc465d566e00b0c",
@@ -230,13 +260,19 @@
     "vendor/pi-1.6.0/status-indicator.js": "0273fa7ca1dc4930e653f145371fa90fe7ea91f1d67aadd5059c61b61b54dbfe",
     "vendor/pi-1.6.0/sdk.js": "cf4eb795ce64217e297ea2161eb3264fb6f3c888eca369c3190b139016a4f92d",
     "vendor/pi-1.6.0/extension-types.js": "6ceb3e6ab787d0bd1585051e1c240a90b9c153bcedcc9030f59ccf3f3d595ea1",
-    "vendor/pi-1.6.0/extension-runner.js": "79e56c64e938affaead6483361d96a73f047bfeca880bf68e52688201b9d4052",
+    "vendor/pi-1.6.0/extension-runner.js": "116491f1ec783f707bd10d012c850b165cf3a37cdc5a85bef8b0b50b5b088b28",
     "vendor/pi-1.6.0/model-runtime.js": "10c703a850e7cd9048b7868f49cf8f7a1d55dc4209a79f1873c7a425acb445eb",
     "vendor/pi-1.6.0/model-registry.js": "f06cd9e5c38054ea642652cb0118d2dbb5c0b40688900b6845934b1718b95014",
     "vendor/pi-1.6.0/provider-composer.js": "b0cbed87b14d58bca1c4635ccad48de8e8e5a6556707c74872891fc53048f645",
     "vendor/pi-1.6.0/ai-models.js": "3783c50047960340c1d528eca1a2f6087a025d5ca8fd2c72f8e84da02417b5d9",
     "vendor/pi-1.6.0/ai-providers-all.js": "f1a69f26d9384744ff032c638721e4d42a949332ba018b0bd200d60566ecb18f",
-    "vendor/pi-1.6.0/settings.schema.json": "f31e404e419fda4c6a49a0d4fb5c19d01f628f3fc76e4eab076ed3697a53a565"
+    "vendor/pi-1.6.0/settings.schema.json": "f31e404e419fda4c6a49a0d4fb5c19d01f628f3fc76e4eab076ed3697a53a565",
+    "vendor/pi-1.6.0/agent-loop.js": "641b3d90c303dc1db5267985be6643dd58451b4dd3ba3598acf4ca03676557f9",
+    "vendor/pi-1.6.0/openai-codex-responses.js": "e6cfe68b7d0dab6546702af41e455ab81dff81e39e3db5a0cc06c36cc8db8959",
+    "vendor/pi-code-tool-0.6.2/output.js": "de24b68dffb9448e58a161fe8a3f2ab542fc7220ac313cbf44804e1db9486a43",
+    "vendor/pi-code-tool-0.6.2/execution.js": "c4f1429718887acc1e9d1c878c32df7d848ee934b49d2a4f071e05399ec477dd",
+    "vendor/pi-1.6.0/nested-tool-calls.js": "8743a69498e35df1249910626e53bf78105b439decb0c490ef933919edc6eb60",
+    "vendor/pi-1.6.0/usage-totals.js": "3325e9528230098eda6026be7932ddcc4de922a0b4a16570d7ed68ff3f83e940"
   },
   "monty": {
     "version": "1.0.0",

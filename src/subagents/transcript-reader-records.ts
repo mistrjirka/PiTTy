@@ -16,6 +16,9 @@ import {
 	transcriptRecordCache,
 } from "./transcript-records.ts";
 import { parseJsonlTail } from "./transcript-stream-events.ts";
+import { displayToolDetails } from "../state/conversation-history.ts";
+import { codeCellObservation } from "../state/code-tool-presentation.ts";
+import { toolCompletionFromEntry } from "../state/tool-completions.ts";
 
 export function readSessionMessages(
 	run: SubagentRun,
@@ -34,7 +37,43 @@ export function readSessionMessages(
 		return [];
 	}
 	const messages: unknown[] = [];
+	const toolIndices = new Map<string, number>();
 	for (const { record } of parseJsonlTail(content)) {
+		const completion = toolCompletionFromEntry(record);
+		if (completion) {
+			const index = toolIndices.get(completion.toolCallId);
+			const previous = index === undefined ? undefined : objectRecord(messages[index]);
+			const before = codeCellObservation(text(previous?.toolName), previous?.details);
+			const after = codeCellObservation(completion.toolName, completion.result.details);
+			if (previous && (previous.toolName !== completion.toolName || (before && (!after || before.id !== after.id)))) continue;
+			const nested = new Map<string, unknown>();
+			for (const source of [previous?.nestedCalls, completion.result.nestedCalls]) {
+				const calls = objectRecord(source)?.calls;
+				if (!Array.isArray(calls)) continue;
+				for (const call of calls.slice(0, 256)) {
+					const nestedCall = objectRecord(call);
+					const callId = text(nestedCall?.id);
+					if (callId && (nested.has(callId) || nested.size < 256)) nested.set(callId, call);
+				}
+			}
+			const projected = {
+				...previous, ...completion.result,
+				role: "toolResult", toolCallId: completion.toolCallId, toolName: completion.toolName,
+				details: displayToolDetails(completion.toolName, completion.result.details),
+				...(nested.size ? { nestedCalls: {
+					calls: [...nested.values()],
+					complete: objectRecord(completion.result.nestedCalls ?? previous?.nestedCalls)?.complete === true &&
+						[...nested.values()].every((call) => objectRecord(call)?.status !== "unfinished"),
+				} } : {}),
+				...(previous?.timestamp !== undefined ? { timestamp: previous.timestamp } :
+					{ timestamp: Number.isFinite(Date.parse(text(record.timestamp))) ? Date.parse(text(record.timestamp)) : 0 }),
+			};
+			if (index === undefined) {
+				toolIndices.set(completion.toolCallId, messages.length);
+				messages.push(projected);
+			} else messages[index] = projected;
+			continue;
+		}
 		// Pi stores a compaction as its own entry, not a message. Project it the
 		// way Pi's get_messages does for the main chat (`compactionSummary`), so
 		// both views share one decoder and one row.
@@ -53,8 +92,12 @@ export function readSessionMessages(
 		if (!message) continue;
 		const entryId = text(record.id).trim();
 		const parentId = text(record.parentId).trim();
+		if (message.role === "toolResult" && typeof message.toolCallId === "string")
+			toolIndices.set(message.toolCallId, messages.length);
 		messages.push({
 			...message,
+			...(message.role === "toolResult" && message.details !== undefined
+				? { details: displayToolDetails(text(message.toolName), message.details) } : {}),
 			...(entryId ? { __pittyEntryId: entryId } : {}),
 			...(parentId ? { __pittyParentId: parentId } : {}),
 		});

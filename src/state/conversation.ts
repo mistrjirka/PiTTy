@@ -1,13 +1,14 @@
 import { parseQueueState, type QueueState } from "../rpc/queue-types.ts";
-import { id, extractText, extractThinking, assistantErrorMessage, objectRecord, stringArrayField, normalizedText, eventDelta, mergeStreamingText, toolOutput, toolResultImages, stringField, numberField, messageRole, messageTimestamp, toolTimeLimits, customItemFromMessage } from "./conversation-shared.ts";
-import { displayToolDetails } from "./conversation-history.ts";
-import { createMutationDiff } from "./conversation-mutation.ts";
+import { id, extractText, extractThinking, assistantErrorMessage, objectRecord, stringArrayField, normalizedText, eventDelta, mergeStreamingText, stringField, numberField, messageRole, messageTimestamp, customItemFromMessage } from "./conversation-shared.ts";
+import { codeCellObservation, codeResultStatus } from "./code-tool-presentation.ts";
+import { mergeNestedCallMetadata } from "./nested-tool-history.ts";
+import { toolCompletionFromEvent } from "./tool-completions.ts";
 
 
 
 
-import { normalizeResultDetails } from "./result-diff.ts";
-import type { AssistantItem, ConversationItem, PiEvent, SystemItem, ToolItem, UserItem } from "../types.ts";
+import { applyConversationToolEvent } from "./conversation-tools.ts";
+import type { AssistantItem, ConversationItem, PiEvent, SystemItem, UserItem } from "../types.ts";
 
 export { extractText, extractThinking } from "./conversation-shared.ts";
 export { initialItems, sessionToolCalls, isConversationEvent } from "./conversation-history.ts";
@@ -122,16 +123,34 @@ export class ConversationModel {
 				return;
 			case "agent_settled": {
 				this.isStreaming = false;
+				const processExited = objectRecord(event)?.processExited === true;
 				for (let index = 0; index < this.items.length; index++) {
 					const item = this.items[index];
 					if (
 						(item?.kind === "assistant" || item?.kind === "tool") &&
-						item.status === "streaming"
+						item.status === "streaming" &&
+						!(item.kind === "tool" && item.parentToolCallId && !processExited)
 					) {
-						this.items[index] = { ...item, status: item.kind === "assistant" && item.errorMessage ? "error" : "done" };
+						this.items[index] = processExited && item.kind === "tool" ? {
+							...item, status: "error", isError: true, endedAt: Date.now(),
+							output: item.output + (item.output ? "\n" : "") + "Runtime exited before completion was confirmed.",
+						} : { ...item, status: item.kind === "assistant" && item.errorMessage ? "error" : "done" };
 					}
 				}
 				this.removeEmptyAssistantItems();
+				return;
+			}
+			case "entry_appended": {
+				const completion = toolCompletionFromEvent(event);
+				if (!completion) return;
+				const original = this.items[this.toolIndices.get(completion.toolCallId) ?? -1];
+				if (original?.kind === "tool") {
+					const before = codeCellObservation(original.name, original.details);
+					const after = codeCellObservation(completion.toolName, completion.result.details);
+					if (original.name !== completion.toolName || (before && (!after || before.id !== after.id))) return;
+				}
+				this.applyToolEvent({ type: "tool_execution_end", ...completion,
+					isError: completion.result.isError === true || codeResultStatus(completion.toolName, completion.result.details) === "error" });
 				return;
 			}
 			case "queue_update": {
@@ -273,6 +292,18 @@ export class ConversationModel {
 			else if (eventType === "message_end") this.liveUserItemId = undefined;
 			return;
 		}
+		if (role === "toolResult" || role === "tool") {
+			const result = objectRecord(message);
+			const callId = stringField(result, "toolCallId");
+			if (!result || !callId) return;
+			if (!this.toolIndices.has(callId)) this.applyToolEvent({
+				type: "tool_execution_end", toolCallId: callId, toolName: stringField(result, "toolName") ?? "tool",
+				result, isError: result.isError === true,
+			});
+			// Final nested evidence can be attached after tool_execution_end.
+			mergeNestedCallMetadata(this.items, this.toolIndices, result, callId, messageTimestamp(result));
+			return;
+		}
 		if (role !== "assistant") return;
 
 		const timestamp = messageTimestamp(message);
@@ -387,84 +418,6 @@ export class ConversationModel {
 	}
 
 	private applyToolEvent(event: Record<string, unknown>): void {
-		const toolCallId =
-			typeof event.toolCallId === "string"
-				? event.toolCallId
-				: id("unknown-tool");
-		let index = this.toolIndices.get(toolCallId) ?? -1;
-		if (index >= 0) {
-			const match = this.items[index];
-			if (match?.kind !== "tool" || match.toolCallId !== toolCallId)
-				index = -1;
-		}
-		let initialPreview: { diff?: string; path?: string } | undefined;
-		if (index < 0) {
-			const toolName =
-				typeof event.toolName === "string" ? event.toolName : "tool";
-			initialPreview = event.type === "tool_execution_start"
-				? createMutationDiff(toolName, event.args, this.cwd)
-				: {};
-			const preview = initialPreview;
-			const item: ToolItem = {
-				kind: "tool",
-				id: id("tool"),
-				toolCallId,
-				name: toolName,
-				args: event.args,
-				output: "",
-				...(preview.diff ? { diff: preview.diff } : {}),
-				...(preview.path ? { diffPath: preview.path } : {}),
-				timestamp: Date.now(),
-				startedAt: Date.now(),
-				...toolTimeLimits(toolName, event.args),
-				status: "pending",
-				isError: false,
-			};
-			this.items.push(item);
-			index = this.items.length - 1;
-			this.toolIndices.set(toolCallId, index);
-		}
-
-		const current = this.items[index] as ToolItem;
-		if (event.type === "tool_execution_start") {
-			const nextArgs = event.args ?? current.args;
-			const preview = initialPreview ?? createMutationDiff(current.name, nextArgs, this.cwd);
-			this.items[index] = {
-				...current,
-				args: nextArgs,
-				...(preview.diff ? { diff: preview.diff } : {}),
-				...(preview.path ? { diffPath: preview.path } : {}),
-				startedAt: current.startedAt ?? Date.now(),
-				...toolTimeLimits(current.name, nextArgs),
-				status: "streaming",
-			};
-			return;
-		}
-		const result =
-			event.type === "tool_execution_update"
-				? event.partialResult
-				: event.result;
-		const normalizedResult = event.type === "tool_execution_end"
-			? normalizeResultDetails(objectRecord(result)?.details)
-			: {};
-		const settledDiff = normalizedResult.diff;
-		this.items[index] = {
-			...current,
-			output: toolOutput(result),
-			images: toolResultImages(result),
-			...(objectRecord(result)?.details !== undefined
-				? { details: displayToolDetails(current.name, objectRecord(result)?.details) }
-				: {}),
-			...(settledDiff ? { diff: settledDiff } : {}),
-			...(normalizedResult.path ? { diffPath: normalizedResult.path } : {}),
-			status:
-				event.type === "tool_execution_end"
-					? event.isError
-						? "error"
-						: "done"
-					: "streaming",
-			...(event.type === "tool_execution_end" ? { endedAt: Date.now() } : {}),
-			isError: Boolean(event.isError),
-		};
+		applyConversationToolEvent(this.items, this.toolIndices, event, this.cwd);
 	}
 }

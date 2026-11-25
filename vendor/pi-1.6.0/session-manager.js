@@ -9,6 +9,7 @@ import { APP_NAME, getAgentDir as getDefaultAgentDir, getSessionsDir } from "../
 import { normalizePath, pathsEqual, resolvePath } from "../utils/paths.js";
 import { createBranchSummaryMessage, createCompactionSummaryMessage, createCustomMessage, } from "./messages.js";
 import { deferAppendedSessionState, deferredStateForDetails, largeDetailsStateRange, parseDeferredSessionEntry, } from "./session-lazy-state.js";
+import { combineUsage } from "./usage-totals.js";
 export const CURRENT_SESSION_VERSION = 3;
 function createSessionId() {
     return uuidv7();
@@ -234,8 +235,26 @@ export function buildContextEntries(entries, leafId, byId) {
  * Handles compaction and branch summaries along the path.
  */
 /** Project one entry into model-visible messages, applying its latest context edit if any. */
-export function projectContextEntry(entry, edit) {
-    const messages = sessionEntryToContextMessages(entry);
+export function projectContextEntry(entry, edit, completion) {
+    const messages = sessionEntryToContextMessages(entry).map((message) => {
+        if (!completion || message.role !== "toolResult")
+            return message;
+        const result = completion.result;
+        const calls = new Map(message.nestedCalls?.calls.map((call) => [call.id, call]));
+        for (const call of result.nestedCalls?.calls ?? [])
+            calls.set(call.id, call);
+        return {
+            ...message,
+            content: result.content,
+            // Extension details enter as unknown; the session stores their JSON representation.
+            details: result.details,
+            isError: result.isError === true,
+            ...(result.nestedCalls
+                ? { nestedCalls: { calls: [...calls.values()], complete: result.nestedCalls.complete } }
+                : {}),
+            ...(result.usage ? { usage: message.usage ? combineUsage(message.usage, result.usage) : result.usage } : {}),
+        };
+    });
     if (!edit)
         return messages;
     const replacement = edit.replacement;
@@ -260,19 +279,40 @@ export function buildSessionProjection(entries, leafId, byId) {
     const { thinkingLevel, model } = getSessionContextSettings(path);
     const contextEntries = buildContextEntries(entries, leafId, byId);
     const edits = new Map();
+    const completions = new Map();
+    for (const entry of path) {
+        if (entry.type === "tool_completion")
+            completions.set(entry.targetId, entry);
+    }
     for (const entry of contextEntries) {
         if (entry.type === "context_edit")
             edits.set(entry.targetId, entry);
     }
-    const projectedEntries = contextEntries.map((sourceEntry, index) => ({
-        sourceEntry,
-        // buildContextEntries() may retain an older compaction entry because its
-        // raw ID lies inside the newest retained range. Only the newest compaction
-        // at index zero contributes a checkpoint and summary.
-        messages: sourceEntry.type === "compaction" && index > 0
-            ? []
-            : projectContextEntry(sourceEntry, edits.get(sourceEntry.id)),
-    }));
+    const retainedEntryIds = new Set(contextEntries.map((entry) => entry.id));
+    const projectedEntries = contextEntries.map((sourceEntry, index) => {
+        // A still-running tool can outlive compaction of its original call/result.
+        // Keep its later outcome visible without introducing an unmatched tool result.
+        if (sourceEntry.type === "tool_completion" && !retainedEntryIds.has(sourceEntry.targetId)) {
+            return {
+                sourceEntry,
+                messages: [
+                    createCustomMessage("tool_completion", [
+                        { type: "text", text: `Deferred ${sourceEntry.toolName} result (${sourceEntry.toolCallId}):` },
+                        ...sourceEntry.result.content,
+                    ], true, { toolCallId: sourceEntry.toolCallId, toolName: sourceEntry.toolName }, sourceEntry.timestamp),
+                ],
+            };
+        }
+        return {
+            sourceEntry,
+            // buildContextEntries() may retain an older compaction entry because its
+            // raw ID lies inside the newest retained range. Only the newest compaction
+            // at index zero contributes a checkpoint and summary.
+            messages: sourceEntry.type === "compaction" && index > 0
+                ? []
+                : projectContextEntry(sourceEntry, edits.get(sourceEntry.id), completions.get(sourceEntry.id)),
+        };
+    });
     return {
         entries: projectedEntries,
         messages: projectedEntries.flatMap((entry) => entry.messages),
@@ -666,6 +706,7 @@ export class SessionManager {
     labelsById = new Map();
     labelTimestampsById = new Map();
     leafId = null;
+    contextVersion = 0;
     constructor(cwd, sessionDir, sessionFile, persist, newSessionOptions, preloadedFileEntries) {
         this.cwd = resolvePath(cwd);
         this.sessionDir = normalizePath(sessionDir);
@@ -688,6 +729,7 @@ export class SessionManager {
         this._setSessionFile(sessionFile);
     }
     _setSessionFile(sessionFile, preloadedFileEntries) {
+        this.contextVersion++;
         this.sessionFile = resolvePath(sessionFile);
         if (existsSync(this.sessionFile)) {
             const entries = preloadedFileEntries ?? loadEntriesFromFile(this.sessionFile);
@@ -717,6 +759,7 @@ export class SessionManager {
         if (options?.id !== undefined) {
             assertValidSessionId(options.id);
         }
+        this.contextVersion++;
         this.sessionId = options?.id ?? createSessionId();
         const timestamp = new Date().toISOString();
         const header = {
@@ -795,20 +838,27 @@ export class SessionManager {
                 for (const entry of this.fileEntries) {
                     let reference;
                     let serializable = entry;
-                    if (entry.type === "message" && entry.message.role === "toolResult") {
-                        const details = entry.message.details;
+                    const result = entry.type === "tool_completion"
+                        ? entry.result
+                        : entry.type === "message" && entry.message.role === "toolResult"
+                            ? entry.message
+                            : undefined;
+                    if (result) {
+                        const details = result.details;
                         if (details && typeof details === "object") {
                             const deferred = deferredStateForDetails(details);
                             if (deferred && deferred.override === undefined) {
                                 reference = deferred;
                                 const shallowDetails = {};
-                                for (const [key, value] of Object.entries(details)) {
-                                    shallowDetails[key] = key === "state" ? "" : value;
+                                for (const key of Object.keys(details)) {
+                                    shallowDetails[key] = key === "state" ? "" : details[key];
                                 }
-                                serializable = {
-                                    ...entry,
-                                    message: { ...entry.message, details: shallowDetails },
-                                };
+                                if (entry.type === "tool_completion") {
+                                    serializable = { ...entry, result: { ...entry.result, details: shallowDetails } };
+                                }
+                                else if (entry.type === "message" && entry.message.role === "toolResult") {
+                                    serializable = { ...entry, message: { ...entry.message, details: shallowDetails } };
+                                }
                             }
                         }
                     }
@@ -879,6 +929,10 @@ export class SessionManager {
     usesDefaultSessionDir() {
         return pathsEqual(this.sessionDir, getDefaultSessionDirPath(this.cwd));
     }
+    /** Changes only when navigation replaces the owning session or branch. */
+    getContextVersion() {
+        return this.contextVersion;
+    }
     getSessionId() {
         return this.sessionId;
     }
@@ -922,8 +976,9 @@ export class SessionManager {
         this.leafId = entry.id;
         // Record the physical append point for lazy retention of new code-tool
         // snapshots. The first flush is handled by the normal loader on resume.
-        const appendOffset = this.persist && this.flushed && this.sessionFile ? statSync(this.sessionFile).size : undefined;
+        let appendOffset;
         try {
+            appendOffset = this.persist && this.flushed && this.sessionFile ? statSync(this.sessionFile).size : undefined;
             this._persist(entry);
         }
         catch (error) {
@@ -954,6 +1009,28 @@ export class SessionManager {
         };
         this._appendEntry(entry);
         return entry.id;
+    }
+    /** Persist a deferred result once. It updates the original result in projected context. */
+    appendToolCompletion(toolCallId, result) {
+        const branch = this.getBranch();
+        const target = branch.findLast((entry) => entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolCallId === toolCallId);
+        if (!target) {
+            throw new Error(`Tool result ${toolCallId} is not on the active branch`);
+        }
+        if (branch.some((entry) => entry.type === "tool_completion" && entry.targetId === target.id))
+            return undefined;
+        const entry = {
+            type: "tool_completion",
+            id: generateId(this.byId),
+            parentId: this.leafId,
+            timestamp: new Date().toISOString(),
+            targetId: target.id,
+            toolCallId,
+            toolName: target.message.toolName,
+            result,
+        };
+        this._appendEntry(entry);
+        return entry;
     }
     /** Append a thinking level change as child of current leaf, then advance leaf. Returns entry id. */
     appendThinkingLevelChange(thinkingLevel) {
@@ -1282,6 +1359,7 @@ export class SessionManager {
         if (!this.byId.has(branchFromId)) {
             throw new Error(`Entry ${branchFromId} not found`);
         }
+        this.contextVersion++;
         this.leafId = branchFromId;
     }
     /**
@@ -1290,6 +1368,7 @@ export class SessionManager {
      * Use this when navigating to re-edit the first user message.
      */
     resetLeaf() {
+        this.contextVersion++;
         this.leafId = null;
     }
     /**
@@ -1302,6 +1381,7 @@ export class SessionManager {
             throw new Error(`Entry ${branchFromId} not found`);
         }
         const fromId = this.leafId ?? "root";
+        this.contextVersion++;
         this.leafId = branchFromId;
         const entry = {
             type: "branch_summary",
@@ -1323,6 +1403,7 @@ export class SessionManager {
      * Returns the new session file path, or undefined if not persisting.
      */
     createBranchedSession(leafId) {
+        this.contextVersion++;
         const previousSessionFile = this.sessionFile;
         const path = this.getBranch(leafId);
         if (path.length === 0) {

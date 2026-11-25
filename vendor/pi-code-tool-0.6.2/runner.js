@@ -104,6 +104,25 @@ export class CodeRunner {
             retrySuspension,
         });
         const abort = () => fail('aborted', 'Run aborted by the host');
+        const suspend = async (snapshot, request, reason) => {
+            let checkpoint;
+            if (maxCheckpointBytes !== undefined) {
+                const bytes = await snapshot.dump();
+                checkCheckpointSize(bytes, maxCheckpointBytes);
+                checkpoint = { kind: 'suspended', bytes };
+            }
+            return {
+                result: {
+                    status: 'suspended', output: undefined, stdout: stdout.text,
+                    stdoutTruncated: stdout.truncated, calls, suspendedCall: request,
+                    suspensionReason: reason,
+                    error: (reason === 'approval' ? 'suspended awaiting approval of ' : 'paused for new user input before ') +
+                        request.tool + '(...)',
+                },
+                checkpoint,
+                retrySuspension: false,
+            };
+        };
         if (options.signal?.aborted)
             return abort();
         if (initial?.kind === 'suspended' && inputNames.length > 0) {
@@ -168,6 +187,14 @@ export class CodeRunner {
                         if (!(progress instanceof FunctionSnapshot)) {
                             return fail('runtime', 'Unexpected unresolved Python future; no host future was registered');
                         }
+                        if (options.shouldYield?.()) {
+                            const tool = this.registry.get(progress.functionName);
+                            const request = {
+                                tool: progress.functionName, args: progress.args, kwargs: progress.kwargs,
+                                description: tool?.description ?? 'Filesystem operation',
+                            };
+                            return suspend(progress, request, 'steering');
+                        }
                         if (progress.isOsFunction) {
                             // Mount handling stays native and uses only this run's mounts.
                             retrySuspension = false;
@@ -194,23 +221,10 @@ export class CodeRunner {
                             const decision = options.onApproval ? await options.onApproval(request) : false;
                             if (options.signal?.aborted)
                                 return abort();
-                            if (decision === 'suspend') {
-                                let checkpoint;
-                                if (maxCheckpointBytes !== undefined) {
-                                    const bytes = await snapshot.dump();
-                                    checkCheckpointSize(bytes, maxCheckpointBytes);
-                                    checkpoint = { kind: 'suspended', bytes };
-                                }
-                                return {
-                                    result: {
-                                        status: 'suspended', output: undefined, stdout: stdout.text,
-                                        stdoutTruncated: stdout.truncated, calls, suspendedCall: request,
-                                        error: 'suspended awaiting approval of ' + tool.name + '(...)',
-                                    },
-                                    checkpoint,
-                                    retrySuspension: false,
-                                };
-                            }
+                            if (decision === 'suspend')
+                                return suspend(snapshot, request, 'approval');
+                            if (options.shouldYield?.())
+                                return suspend(snapshot, request, 'steering');
                             trace.approved = decision;
                             if (!decision)
                                 denial = options.onApproval

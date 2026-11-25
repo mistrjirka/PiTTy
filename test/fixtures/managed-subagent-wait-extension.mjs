@@ -2,11 +2,13 @@
 import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
+import { Type } from "typebox";
 
 const directory = process.env.PITTY_SUBAGENT_FIXTURE_DIR;
 if (!directory) throw new Error("PITTY_SUBAGENT_FIXTURE_DIR is required.");
 const childId = process.env.PI_SUBAGENT_AGENT_ID;
 const child = Boolean(childId);
+const codeChild = process.env.PITTY_SUBAGENT_CODE_CHILD === "1";
 
 function text(message) {
   return typeof message.content === "string" ? message.content
@@ -27,6 +29,7 @@ async function waitForRelease(signal) {
 
 export default function (pi) {
   let parentStage = 0;
+  let childStage = 0;
   if (child) {
     append("child-launches.jsonl", { pid: process.pid, agentId: childId });
     process.once("exit", () => writeFileSync(path.join(directory, "child-exited"), String(process.pid)));
@@ -52,7 +55,11 @@ export default function (pi) {
         stopReason: "stop", timestamp: Date.now(),
       };
       let call;
-      if (!child && parentStage === 0) {
+      if (child && codeChild && childStage++ === 0) {
+        call = { type: "toolCall", id: "child-code", name: "code", arguments: {
+          code: 'written = write("late-edit.txt", "written exactly once")\nread("must-not-run.txt")\nprint(written)',
+        } };
+      } else if (!child && parentStage === 0) {
         parentStage++;
         call = { type: "toolCall", id: "fixture-spawn-1", name: "agent_spawn", arguments: {
           agent: "fixture-child", prompt: "Wait for the fixture gate", run_in_background: true,
@@ -65,6 +72,9 @@ export default function (pi) {
         call = { type: "toolCall", id: "fixture-wait-1", name: "agent_wait", arguments: {
           agent_id: agentId, timeout_seconds: 30,
         } };
+      } else if (!child && existsSync(path.join(directory, "next-action.json"))) {
+        call = JSON.parse(readFileSync(path.join(directory, "next-action.json"), "utf8"));
+        unlinkSync(path.join(directory, "next-action.json"));
       } else if (!child && existsSync(path.join(directory, "next-wait.json"))) {
         const request = JSON.parse(readFileSync(path.join(directory, "next-wait.json"), "utf8"));
         unlinkSync(path.join(directory, "next-wait.json"));
@@ -82,8 +92,12 @@ export default function (pi) {
           stream.push({ type: "start", partial: { ...message, content: [] } });
           if (child) {
             writeFileSync(path.join(directory, "child-started.json"), JSON.stringify({ pid: process.pid, agentId: childId }));
-            await waitForRelease(options?.signal);
-            writeFileSync(path.join(directory, "child-completed"), String(process.pid));
+            if (!codeChild) {
+              await waitForRelease(options?.signal);
+              writeFileSync(path.join(directory, "child-completed"), String(process.pid));
+            } else if (!call) {
+              writeFileSync(path.join(directory, "child-correction-answered"), String(process.pid));
+            }
           }
           options?.signal?.throwIfAborted();
           stream.push({ type: "done", reason: message.stopReason, message });
@@ -97,6 +111,32 @@ export default function (pi) {
       return stream;
     },
   });
+
+  if (child && codeChild) {
+    pi.registerTool({
+      name: "write", label: "Fixture write", description: "Gated fixture file write",
+      parameters: Type.Object({ path: Type.String(), content: Type.String() }),
+      async execute(_id, params, signal) {
+        writeFileSync(path.join(directory, "child-host-started"), String(process.pid));
+        await waitForRelease(signal);
+        writeFileSync(path.join(directory, params.path), params.content);
+        writeFileSync(path.join(directory, "child-host-completed"), String(process.pid));
+        return { content: [{ type: "text", text: "Wrote " + params.path }], details: {} };
+      },
+    });
+    pi.registerTool({
+      name: "read", label: "Fixture read", description: "Must pause before this call",
+      parameters: Type.Object({ path: Type.String() }),
+      async execute() {
+        writeFileSync(path.join(directory, "unexpected-resume"), "");
+        throw new Error("The paused script must not resume automatically.");
+      },
+    });
+    pi.on("session_start", (_event, ctx) => {
+      const file = ctx.sessionManager.getSessionFile();
+      if (file) writeFileSync(path.join(directory, "child-session-path"), file);
+    });
+  }
 
   pi.on("input", (event) => {
     if (event.text === "handled input") return { action: "handled" };

@@ -179,11 +179,16 @@ export class ExtensionRunner {
     waitForIdleFn = async () => { };
     abortFn = () => { };
     hasPendingMessagesFn = () => false;
+    hasPendingUserSteeringFn = () => false;
+    hasPendingUserInputFn = () => false;
+    onUserSteeringFn = () => () => { };
     getContextUsageFn = () => undefined;
     compactFn = () => { };
     getSystemPromptFn = () => "";
     getSystemPromptOptionsFn = () => normalizeBuildSystemPromptOptions({ cwd: this.cwd });
     executeToolFn;
+    takeNestedToolCallsFn;
+    publishToolCompletionFn;
     getCallableToolsFn = () => [];
     /** Registered MCP servers already reported as unhandled. */
     reportedMcpServers = new Set();
@@ -237,6 +242,9 @@ export class ExtensionRunner {
         this.getSignalFn = contextActions.getSignal;
         this.abortFn = contextActions.abort;
         this.hasPendingMessagesFn = contextActions.hasPendingMessages;
+        this.hasPendingUserSteeringFn = contextActions.hasPendingUserSteering ?? (() => false);
+        this.hasPendingUserInputFn = contextActions.hasPendingUserInput ?? (() => false);
+        this.onUserSteeringFn = contextActions.onUserSteering ?? (() => () => { });
         this.shutdownHandler = contextActions.shutdown;
         this.getContextUsageFn = contextActions.getContextUsage;
         this.compactFn = contextActions.compact;
@@ -244,6 +252,8 @@ export class ExtensionRunner {
         this.getSystemPromptOptionsFn =
             contextActions.getSystemPromptOptions ?? (() => normalizeBuildSystemPromptOptions({ cwd: this.cwd }));
         this.executeToolFn = contextActions.executeTool;
+        this.takeNestedToolCallsFn = contextActions.takeNestedToolCalls;
+        this.publishToolCompletionFn = contextActions.publishToolCompletion;
         this.getCallableToolsFn = contextActions.getCallableTools ?? (() => []);
         // Servers registered from now on reach the extension that connects them right away. Servers
         // registered during loading are read on session_start.
@@ -689,6 +699,18 @@ export class ExtensionRunner {
                 runner.assertActive();
                 return runner.hasPendingMessagesFn();
             },
+            hasPendingUserSteering: () => {
+                runner.assertActive();
+                return runner.hasPendingUserSteeringFn();
+            },
+            hasPendingUserInput: () => {
+                runner.assertActive();
+                return runner.hasPendingUserInputFn();
+            },
+            onUserSteering: (listener) => {
+                runner.assertActive();
+                return runner.onUserSteeringFn(listener);
+            },
             shutdown: () => {
                 runner.assertActive();
                 runner.shutdownHandler();
@@ -721,8 +743,25 @@ export class ExtensionRunner {
      */
     createToolContext(toolCallId, signal) {
         const runner = this;
+        const takeNestedToolCalls = this.takeNestedToolCallsFn;
+        const publishToolCompletion = this.publishToolCompletionFn;
+        const sessionId = this.sessionManager.getSessionId();
+        const contextVersion = this.sessionManager.getContextVersion();
         // createContext() returns a fresh object, so adding properties does not affect other contexts.
         return Object.defineProperties(this.createContext(), {
+            // Bind the owning session now: completion must not read or mutate a replacement's scope.
+            takeNestedToolCalls: { value: () => takeNestedToolCalls?.(toolCallId) },
+            publishToolCompletion: {
+                value: (result) => {
+                    runner.assertActive();
+                    if (runner.sessionManager.getSessionId() !== sessionId ||
+                        runner.sessionManager.getContextVersion() !== contextVersion)
+                        throw new Error("Cannot publish a tool completion into a different session or branch");
+                    if (!publishToolCompletion)
+                        throw new Error("Deferred tool completion is not available in this context");
+                    publishToolCompletion(toolCallId, result);
+                },
+            },
             tools: {
                 get() {
                     runner.assertActive();

@@ -32,6 +32,7 @@ import {
 	workflowChildrenSummary,
 } from "./subagent-format.ts";
 import { colors } from "./theme.ts";
+import { toolDisplayState } from "../state/code-tool-presentation.ts";
 export interface ToolMessageProps {
 	item: ToolItem;
 	toolExpanded: boolean | Accessor<boolean>;
@@ -62,7 +63,8 @@ export function ToolMessage(props: ToolMessageProps) {
 		if (props.onToggleTool) props.onToggleTool(item.id);
 		else setDetailsOverride(!showDetails());
 	};
-	const visual = () => toolVisual(item.name, item.isError);
+	const displayState = () => toolDisplayState(item);
+	const visual = () => toolVisual(item.name, item.isError || displayState()?.kind === "error");
 	const status = () => toolStatusGlyph(item);
 	const timing = () => toolTiming(item, props.now ?? Date.now());
 	const supervisor = () => item.name.toLowerCase() === "subagent_supervisor";
@@ -130,6 +132,11 @@ export function ToolMessage(props: ToolMessageProps) {
 					flexShrink={subagentFamily() ? 1 : 0}>
 					{supervisorLabel() ?? subagentLabel() ?? (item.name === "agent_wait" ? "Wait" : item.name)}
 				</text>
+				<Show when={displayState()}>
+					{(display) => <text fg={status().color} wrapMode="none" flexShrink={0}>
+						{` · ${display().label}`}
+					</text>}
+				</Show>
 				<Show when={children()}>
 					<text fg={colors.subtle} wrapMode="none" flexShrink={0}>
 						{` ${children()}`}
