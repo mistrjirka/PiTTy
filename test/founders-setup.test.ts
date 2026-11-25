@@ -324,3 +324,64 @@ describe("local checkouts in settings", () => {
     expect(foundersCatalog().map((entry) => entry.id)).not.toContain("todo");
   });
 });
+
+
+const optionalCodegraphSource = [
+  '  pi.on("before_agent_start", async (event) => {',
+  '      "Use codegraph_explore for broad flows, codegraph_search for symbol names, codegraph_files for project structure, codegraph_node for known symbols, and codegraph_callers for call relationships.",',
+  '  });',
+  '      promptGuidelines: [',
+  '        `${tool.name} is available for structural code questions backed by the local CodeGraph index.`,',
+  '      ],',
+].join("\n");
+
+function addOptionalCodegraph(f: ReturnType<typeof fixture>) {
+  const directory = path.join(f.base, "codegraph");
+  const file = path.join(directory, "extensions", "codegraph.ts");
+  putJson(path.join(directory, "package.json"), { name: "@vndv/pi-codegraph", version: "0.1.11" });
+  put(file, optionalCodegraphSource);
+  f.installed.set(sourceIdentity("npm:@vndv/pi-codegraph")!, directory);
+  putJson(f.settingsFile, { ...f.settings, packages: [...f.settings.packages, "npm:@vndv/pi-codegraph"] });
+  return { directory, file };
+}
+
+describe("optional CodeGraph setup integration", () => {
+  for (const mode of ["check", "dryRun"] as const) {
+    test(`${mode} previews the optional patch without changing files or installing`, async () => {
+      const f = fixture();
+      const graph = addOptionalCodegraph(f);
+      const settingsBefore = fs.readFileSync(f.settingsFile, "utf8");
+      await setupFounders({ ...f.options, [mode]: true });
+      expect(f.logs).toContain("Would compact CodeGraph prompt guidance.");
+      expect(fs.readFileSync(graph.file, "utf8")).toBe(optionalCodegraphSource);
+      expect(fs.readFileSync(f.settingsFile, "utf8")).toBe(settingsBefore);
+      expect(f.installs).toEqual([]);
+      expect(f.runtimeCalls()).toBe(0);
+    });
+  }
+  for (const failure of ["metadata", "read"] as const) {
+    test(`optional ${failure} failure does not block core installation`, async () => {
+      const f = fixture();
+      const graph = addOptionalCodegraph(f);
+      if (failure === "metadata") put(path.join(graph.directory, "package.json"), "{broken");
+      else { fs.unlinkSync(graph.file); fs.mkdirSync(graph.file); }
+      expect((await setupFounders(f.options)).exitCode).toBe(0);
+      expect(f.installs.length).toBeGreaterThan(0);
+      expect(fs.readFileSync(f.profile, "utf8")).toBe(f.initialProfile);
+      expect(f.runtimeCalls()).toBe(1);
+      expect(f.logs.some(line => line.includes("Skipped optional CodeGraph prompt update:"))).toBe(true);
+      if (failure === "metadata") expect(fs.readFileSync(graph.file, "utf8")).toBe(optionalCodegraphSource);
+      else expect(fs.statSync(graph.file).isDirectory()).toBe(true);
+    });
+  }
+  test("reports changed when an optional patch is the only setup change", async () => {
+    const f = fixture();
+    const graph = addOptionalCodegraph(f);
+    await setupFounders(f.options);
+    put(graph.file, optionalCodegraphSource);
+    f.installs.length = 0;
+    expect(await setupFounders(f.options)).toEqual({ exitCode: 0, changed: true });
+    expect(f.installs).toEqual([]);
+    expect(fs.readFileSync(graph.file, "utf8")).toContain("PiTTy: describe only tools active");
+  });
+});

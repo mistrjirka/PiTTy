@@ -46,7 +46,7 @@ function fixture(extraPackages: string[] = []) {
     const root = directory ?? path.join(base, "packages", String(available.size));
     putJson(path.join(root, "package.json"), {
       name: catalog.find((entry) => entry.id === id)!.names[0],
-      version: id === "skills" ? "0.2.0" : "0.1.0",
+      version: catalog.find((entry) => entry.id === id)!.minimumVersion?.version ?? catalog.find((entry) => entry.id === id)!.version ?? "0.1.0",
     });
     if (id === "btw") put(path.join(root, "index.ts"), "export default () => {};\n");
     else if (id === "skills") {
@@ -149,13 +149,12 @@ describe("founders source preferences", () => {
   });
 
   for (const id of ["compaction", "doppelclaude"] as const) {
-    const missing = id === "compaction" ? "src/method-selection.ts" : "packages/doppelclaude/dist/account-usage.js";
+    const missing = id === "compaction" ? "src/method-selection.ts" : "packages/doppelclaude/dist/pending-input.js";
     test.each(["tracked", "untracked", "ignored", "commit", "other-upstream"] as const)(
       "preserves " + id + " %s cache work when a newly required file is missing",
       async (kind) => {
         const f = fixture([id]);
         const entry = f.catalog.find((item) => item.id === id)!;
-        delete entry.minimumVersion;
         await setupFounders(f.options);
         const cached = f.installed.get(sourceIdentity(entry.source)!)!;
         fs.unlinkSync(path.join(cached, missing));
@@ -191,7 +190,6 @@ describe("founders source preferences", () => {
     test("updates clean " + id + " Git cache when a newly required file is missing", async () => {
       const f = fixture([id]);
       const entry = f.catalog.find((item) => item.id === id)!;
-      delete entry.minimumVersion;
       await setupFounders(f.options);
       const cached = f.installed.get(sourceIdentity(entry.source)!)!;
       fs.unlinkSync(path.join(cached, missing));

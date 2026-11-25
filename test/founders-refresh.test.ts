@@ -54,7 +54,7 @@ test("refresh permits npm-only lockfile bookkeeping but protects dependency and 
   const directory = path.join(root, "cache");
   fs.mkdirSync(directory);
   fs.writeFileSync(path.join(root, "settings.json"), JSON.stringify({ packages: [entry.source] }));
-  fs.writeFileSync(path.join(directory, "package.json"), JSON.stringify({ name: entry.names[0] }));
+  fs.writeFileSync(path.join(directory, "package.json"), JSON.stringify({ name: entry.names[0], version: entry.minimumVersion?.version ?? entry.version ?? "1.0.0" }));
   for (const file of entry.files) {
     fs.mkdirSync(path.dirname(path.join(directory, file)), { recursive: true });
     fs.writeFileSync(path.join(directory, file), "");
@@ -89,4 +89,36 @@ test("refresh permits npm-only lockfile bookkeeping but protects dependency and 
   write({ ...generated, packages: { ...generated.packages, "node_modules/dependency": { ...generated.packages["node_modules/dependency"], version: "2.0.0" } } });
   expect((await refresh()).exitCode).toBe(1);
   expect(calls).toEqual([entry.source]);
+});
+
+
+test("explicit optional-only refresh previews, applies and preserves settings without a downloader", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "pitty-optional-refresh-"));
+  roots.push(root);
+  const settings = JSON.stringify({ packages: ["npm:@vndv/pi-codegraph"] });
+  fs.writeFileSync(path.join(root, "settings.json"), settings);
+  const directory = path.join(root, "npm", "node_modules", "@vndv", "pi-codegraph");
+  fs.mkdirSync(path.join(directory, "extensions"), { recursive: true });
+  fs.writeFileSync(path.join(directory, "package.json"), JSON.stringify({ name: "@vndv/pi-codegraph", version: "0.1.11" }));
+  const file = path.join(directory, "extensions", "codegraph.ts");
+  const source = [
+    '  pi.on("before_agent_start", async (event) => {',
+    '      "Use codegraph_explore for broad flows, codegraph_search for symbol names, codegraph_files for project structure, codegraph_node for known symbols, and codegraph_callers for call relationships.",',
+    '  });',
+    '      promptGuidelines: [',
+    '        `${tool.name} is available for structural code questions backed by the local CodeGraph index.`,',
+    '      ],',
+  ].join("\n");
+  fs.writeFileSync(file, source);
+  const logs: string[] = [];
+  const options = { agentDir: root, appRoot: path.join(root, "absent-app"), catalog: [], env: {PATH: ""}, log: (line: string) => logs.push(line) };
+  expect(await refreshInstalledFounders({ ...options, dryRun: true })).toEqual({ exitCode: 0, changed: false });
+  expect(fs.readFileSync(file, "utf8")).toBe(source);
+  expect(logs).toContain("Would compact CodeGraph prompt guidance.");
+  expect(await refreshInstalledFounders(options)).toEqual({ exitCode: 0, changed: true });
+  expect(fs.readFileSync(file, "utf8")).toContain("PiTTy: describe only tools active");
+  expect(fs.readFileSync(path.join(root, "settings.json"), "utf8")).toBe(settings);
+  fs.writeFileSync(path.join(directory, "package.json"), "{broken");
+  expect(await refreshInstalledFounders(options)).toEqual({ exitCode: 0, changed: false });
+  expect(logs.some(line => line.includes("Skipped optional CodeGraph prompt update:"))).toBe(true);
 });

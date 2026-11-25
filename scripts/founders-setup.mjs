@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { foundersCatalog } from "./founders-catalog.mjs";
+import { prepareCodegraphGuidance } from "./codegraph-guidance.mjs";
 import { managedPiIsCurrent } from "./ensure-managed-pi.mjs";
 import { ensureFoundersRuntime } from "./founders-runtime.mjs";
 import { atomicWrite, githubSourcePath, githubSourceRef, installAgents, localEquivalentSource, mergeFoundersPackages, packageSource, planAgents, readFoundersReceipt, readSettings, sourceIdentity } from "./founders-state.mjs";
@@ -268,6 +269,21 @@ export function refreshableFoundersPackages(settings, catalog = foundersCatalog(
   });
 }
 
+function prepareOptionalCodegraph(settings, manager, dryRun, log) {
+  const source = (settings.packages ?? []).map(packageSource).find((item) => item === "npm:@vndv/pi-codegraph");
+  if (!source) return false;
+  try {
+    const result = prepareCodegraphGuidance(manager.getInstalledPath(source, "user"), { dryRun });
+    if (result.status === "needed") log("Would compact CodeGraph prompt guidance.");
+    if (result.changed) log("Compacted CodeGraph prompt guidance and matched it to active tools.");
+    if (result.status === "unrecognized") log("Preserved unfamiliar CodeGraph source; prompt guidance was not changed.");
+    return result.changed;
+  } catch (error) {
+    log("Skipped optional CodeGraph prompt update: " + (error instanceof Error ? error.message : String(error)) + ". Core setup continues.");
+    return false;
+  }
+}
+
 export async function refreshInstalledFounders(options = {}) {
   const env = options.env ?? process.env;
   const appRoot = path.resolve(options.appRoot ?? env.PITTY_APP_ROOT ?? releaseRoot);
@@ -277,7 +293,11 @@ export async function refreshInstalledFounders(options = {}) {
   const entries = refreshableFoundersPackages(settings, options.catalog ?? foundersCatalog(), agentDir);
   if (!entries.length) {
     log("No unpinned maintained Pi packages are configured.");
-    return { exitCode: 0, changed: false };
+    // An explicit upgrade can still maintain an installed optional plugin.
+    // Locate it without loading a downloader or changing package settings.
+    const manager = options.packageManager ?? readOnlyPackageIndex(appRoot, agentDir, env);
+    const changed = prepareOptionalCodegraph(settings, manager, Boolean(options.dryRun), log);
+    return { exitCode: 0, changed };
   }
   const manager = options.packageManager ?? (options.dryRun
     ? readOnlyPackageIndex(appRoot, agentDir, env)
@@ -310,8 +330,9 @@ export async function refreshInstalledFounders(options = {}) {
       log("Could not refresh " + entry.source + ": " + (error instanceof Error ? error.message : String(error)));
     }
   }
+  const guidanceChanged = prepareOptionalCodegraph(settings, manager, Boolean(options.dryRun), log);
   log(options.dryRun ? "Dry run. No packages changed." : "Maintained Pi packages refreshed: " + updated + "; failed: " + failures + ".");
-  return { exitCode: failures ? 1 : 0, changed: updated > 0 };
+  return { exitCode: failures ? 1 : 0, changed: updated > 0 || guidanceChanged };
 }
 
 export async function setupFounders(options = {}) {
@@ -367,6 +388,7 @@ export async function setupFounders(options = {}) {
   else log("Curated agents: read the bundle manifest after downloading the skills package.");
   providerStatus(original.value, log);
   if (readOnly) {
+    prepareOptionalCodegraph(original.value, manager, true, log);
     const missing = plan.packages.some((entry) => !entry.configured || !packageReady(entry, getPath(entry))) ||
       !runtimeReady(appRoot) || !agents || agents.agents.some((agent) => agent.action !== "present");
     log("Managed Pi runtime: " + (runtimeReady(appRoot) ? "present" : "setup required"));
@@ -392,6 +414,7 @@ export async function setupFounders(options = {}) {
     if (!packageReady(entry, directory))
       throw new Error("Package validation failed for " + entry.source + ". No settings or agents were changed.");
   }
+  const guidanceChanged = prepareOptionalCodegraph(original.value, manager, false, log);
   const code = plan.packages.find((entry) => entry.id === "code");
   const runtimeEnv = {
     ...env, PI_CODING_AGENT_DIR: agentDir,
@@ -425,7 +448,7 @@ export async function setupFounders(options = {}) {
   for (const agent of preserved)
     log("Missing curated agent: " + agent.name + ". Existing custom file kept at " + agent.destination);
   log("Restart PiTTy to load the setup. Model defaults and credentials were not changed.");
-  return { exitCode: preserved.length ? 2 : 0, changed: changed || receiptChanged || agents.agents.some((agent) => ["install", "update"].includes(agent.action)) };
+  return { exitCode: preserved.length ? 2 : 0, changed: changed || guidanceChanged || receiptChanged || agents.agents.some((agent) => ["install", "update"].includes(agent.action)) };
 }
 
 export async function main(args = process.argv.slice(2), options = {}) {

@@ -3,7 +3,7 @@ export const FOUNDERS_PACKAGES = [
   {
     id: "subagents", source: "git:github.com/mistrjirka/pi-subagent",
     names: ["@mistrjirka/pi-subagent"], files: ["index.ts"], nodeMajor: 24,
-    minimumVersion: { source: "git:github.com/mistrjirka/pi-subagent", version: "0.5.32" },
+    minimumVersion: { source: "git:github.com/mistrjirka/pi-subagent", version: "0.6.0" },
     replaces: ["npm:@mistrjirka/pi-subagent", "npm:@everyx/pi-subagent", "npm:pi-subagents", "git:github.com/everyx/pi-subagent"],
   },
   {
@@ -14,12 +14,14 @@ export const FOUNDERS_PACKAGES = [
   {
     id: "memory", source: "git:github.com/mistrjirka/pi-eigen-memory",
     names: ["pi-hermes-memory"], files: ["src/index.ts"],
+    minimumVersion: { source: "git:github.com/mistrjirka/pi-eigen-memory", version: "0.12.0" },
     replaces: ["npm:pi-hermes-memory", "git:github.com/chandra447/pi-hermes-memory"],
   },
   {
     id: "doppelclaude", source: "git:github.com/mistrjirka/pi-doppelclaude",
     names: ["pi-doppelclaude-workspace"],
     files: ["packages/doppelclaude/dist/index.js", "packages/pi-doppelclaude/dist/index.js",
+      "packages/doppelclaude/dist/pending-input.js",
       "packages/doppelclaude/dist/side-question.js", "packages/pi-doppelclaude/dist/pi-side-question.js",
       "packages/pi-doppelclaude/dist/activation-settings.js",
       "packages/doppelclaude/dist/account-usage.js", "packages/doppelclaude/dist/cached-compaction.js",
@@ -35,7 +37,7 @@ export const FOUNDERS_PACKAGES = [
   {
     id: "skills", source: "git:https://github.com/mistrjirka/PiTTy-Skills.git",
     names: ["@mistrjirka/pitty-skills"], files: ["manifest.json"],
-    minimumVersion: { source: "git:https://github.com/mistrjirka/PiTTy-Skills.git", version: "0.2.0" },
+    minimumVersion: { source: "git:https://github.com/mistrjirka/PiTTy-Skills.git", version: "0.2.2" },
     replaces: ["git:github.com/mistrjirka/pitty-skills"],
   },
   {
